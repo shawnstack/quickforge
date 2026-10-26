@@ -1,0 +1,1494 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>技能页优化提案 · QuickForge</title>
+<style>
+  :root,
+  [data-theme="light"] {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+
+    --doc-bg: #f4f4f5;
+    --doc-panel: #ffffff;
+    --doc-fg: #1c1c1e;
+    --doc-muted: #6b6b70;
+    --doc-border: #e4e4e7;
+
+    --app-bg: oklch(1 0 0);
+    --main-bg: #ffffff;
+    --sidebar-bg: #f3f4f6;
+    --sidebar-hover: #e5e7eb;
+    --sidebar-active: #d9dee7;
+    --fg: oklch(0.145 0 0);
+    --fg-92: color-mix(in oklab, var(--fg) 92%, transparent);
+    --muted-fg: oklch(0.556 0 0);
+    --muted: oklch(0.97 0 0);
+    --border: oklch(0.922 0 0);
+    --line: color-mix(in oklab, var(--border) 60%, transparent);
+    --primary: oklch(0.205 0 0);
+    --primary-fg: oklch(0.985 0 0);
+    --ring: oklch(0.708 0 0);
+    --success: oklch(0.55 0.13 158);
+    --seg-bg: color-mix(in oklab, var(--muted) 76%, transparent);
+    --row-hover: color-mix(in oklab, var(--muted) 42%, transparent);
+    --row-selected: color-mix(in oklab, var(--muted) 70%, transparent);
+    --card-bg: color-mix(in oklab, var(--app-bg) 97%, var(--muted));
+    --detail-bg: color-mix(in oklab, var(--muted) 14%, transparent);
+    --tone-builtin: oklch(0.5 0.035 255);
+    --tone-personal: oklch(0.52 0.11 248);
+    --tone-plugin: oklch(0.52 0.13 300);
+    --tone-bg: 11%;
+    --shadow-card: 0 1px 2px rgb(15 23 42 / 0.035);
+    --shadow-pop: 0 16px 40px -20px rgb(15 23 42 / 0.28), 0 2px 8px -3px rgb(15 23 42 / 0.08);
+  }
+
+  [data-theme="dark"] {
+    --doc-bg: #0b0c0e;
+    --doc-panel: #141518;
+    --doc-fg: #f2f2f3;
+    --doc-muted: #9a9aa2;
+    --doc-border: #28292e;
+
+    --app-bg: oklch(0.145 0 0);
+    --main-bg: oklch(0.145 0 0);
+    --sidebar-bg: oklch(0.185 0 0);
+    --sidebar-hover: color-mix(in oklab, var(--muted) 74%, transparent);
+    --sidebar-active: color-mix(in oklab, oklch(0.371 0 0) 78%, var(--muted));
+    --fg: oklch(0.985 0 0);
+    --fg-92: color-mix(in oklab, var(--fg) 92%, transparent);
+    --muted-fg: oklch(0.708 0 0);
+    --muted: oklch(0.269 0 0);
+    --border: oklch(0.275 0 0);
+    --line: color-mix(in oklab, var(--border) 62%, transparent);
+    --primary: oklch(0.922 0 0);
+    --primary-fg: oklch(0.205 0 0);
+    --ring: oklch(0.556 0 0);
+    --success: oklch(0.75 0.15 160);
+    --seg-bg: color-mix(in oklab, var(--muted) 62%, transparent);
+    --row-hover: color-mix(in oklab, var(--muted) 48%, transparent);
+    --row-selected: color-mix(in oklab, var(--muted) 76%, transparent);
+    --card-bg: color-mix(in oklab, var(--app-bg) 96%, var(--muted));
+    --detail-bg: color-mix(in oklab, var(--muted) 16%, transparent);
+    --tone-builtin: oklch(0.78 0.025 255);
+    --tone-personal: oklch(0.78 0.1 248);
+    --tone-plugin: oklch(0.78 0.12 300);
+    --tone-bg: 17%;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.25);
+    --shadow-pop: 0 20px 50px -20px rgb(0 0 0 / 0.7), 0 2px 10px -3px rgb(0 0 0 / 0.45);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--doc-bg);
+    color: var(--doc-fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input { font: inherit; }
+  button { cursor: pointer; }
+  button:disabled { cursor: default; }
+  [hidden] { display: none !important; }
+  svg { display: block; }
+  .ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .mono { font-family: var(--font-mono); }
+  :focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 68%, transparent); outline-offset: 2px; }
+
+  /* ---------- 说明页 ---------- */
+  .doc { max-width: 1240px; margin: 0 auto; padding: 36px 24px 64px; }
+  .doc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 32px; margin-bottom: 22px; }
+  .kicker { display: inline-flex; align-items: center; gap: 8px; color: var(--doc-muted); font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+  .kicker-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--doc-fg); }
+  .doc-head h1 { max-width: 780px; margin: 10px 0 10px; font-size: 26px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.32; }
+  .doc-sub { max-width: 780px; margin: 0; color: var(--doc-muted); font-size: 13.5px; line-height: 1.75; }
+  .doc-sub b { color: var(--doc-fg); font-weight: 600; }
+  .doc-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+  .doc-meta span { padding: 2px 8px; border: 1px solid var(--doc-border); border-radius: 999px; color: var(--doc-muted); font-size: 10.5px; }
+  .doc-controls { display: flex; flex: none; gap: 16px; padding-top: 4px; }
+  .control { display: flex; flex-direction: column; gap: 6px; }
+  .control-label { color: var(--doc-muted); font-size: 10.5px; letter-spacing: 0.03em; }
+
+  /* ---------- 通用控件（应用内外共用 token） ---------- */
+  .seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border-radius: 9px; background: var(--seg-bg); }
+  .seg button {
+    height: 26px; padding: 0 10px; border: 0; border-radius: 7px;
+    background: transparent; color: var(--muted-fg); font-size: 12px; line-height: 1;
+    white-space: nowrap; transition: background-color 140ms var(--ease), color 140ms var(--ease), box-shadow 140ms var(--ease);
+  }
+  .seg button:hover:not([aria-pressed="true"]) { color: var(--fg); }
+  .seg button[aria-pressed="true"] {
+    background: var(--app-bg); color: var(--fg); font-weight: 500;
+    box-shadow: 0 1px 2px rgb(15 23 42 / 0.09), 0 0 0 0.5px rgb(15 23 42 / 0.04);
+  }
+  .seg-sm button { height: 28px; padding: 0 9px; }
+  .seg-lg button { height: 28px; padding: 0 11px; font-size: 12.5px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 32px; padding: 0 11px; border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+    border-radius: 8px; background: var(--app-bg); color: var(--fg-92);
+    font-size: 12.5px; font-weight: 500; white-space: nowrap;
+    transition: background-color 120ms var(--ease), border-color 120ms var(--ease), color 120ms var(--ease);
+  }
+  .btn:hover { background: color-mix(in oklab, var(--muted) 55%, transparent); border-color: color-mix(in oklab, var(--border) 100%, transparent); }
+  .btn:active { background: var(--muted); }
+  .btn .ico { width: 14px; height: 14px; color: var(--muted-fg); }
+  .btn:disabled { opacity: 0.5; }
+  .btn.is-loading .ico { animation: spin 800ms linear infinite; }
+  .btn-compact { height: 32px; padding: 0 9px; }
+  .btn-xs { height: 26px; padding: 0 8px; border-radius: 6px; font-size: 11.5px; gap: 4px; }
+  .btn-xs .ico { width: 12px; height: 12px; }
+  .btn-ghost { border-color: transparent; background: transparent; color: var(--muted-fg); }
+  .btn-ghost:hover { background: var(--muted); border-color: transparent; color: var(--fg); }
+
+  .icon-btn {
+    display: inline-grid; place-items: center; width: 28px; height: 28px;
+    border: 0; border-radius: 7px; background: transparent; color: var(--muted-fg);
+    transition: background-color 120ms var(--ease), color 120ms var(--ease);
+  }
+  .icon-btn:hover { background: var(--muted); color: var(--fg); }
+  .icon-btn .ico { width: 14px; height: 14px; }
+  .icon-btn-sm { width: 22px; height: 22px; border-radius: 5px; }
+  .icon-btn-sm .ico { width: 12px; height: 12px; }
+
+  .text-btn {
+    height: 24px; padding: 0 5px; border: 0; border-radius: 5px;
+    background: transparent; color: var(--muted-fg); font-size: 11.5px;
+    transition: background-color 120ms var(--ease), color 120ms var(--ease);
+  }
+  .text-btn:hover { background: var(--muted); color: var(--fg); }
+  .text-btn:disabled { opacity: 0.35; background: transparent; }
+  .dot-sep { color: var(--muted-fg); opacity: 0.45; font-size: 10px; }
+
+  .count-chip { display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px; background: color-mix(in oklab, var(--muted) 78%, transparent); color: var(--muted-fg); font-size: 10px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+  /* ---------- 应用预览 ---------- */
+  .app {
+    position: relative; display: flex; width: 100%; max-width: 1240px; height: clamp(720px, 86vh, 880px);
+    margin: 0 auto; overflow: hidden; border: 1px solid var(--doc-border); border-radius: 14px;
+    background: var(--app-bg);
+    box-shadow: 0 30px 70px -42px rgb(15 23 42 / 0.45), 0 2px 6px -3px rgb(15 23 42 / 0.12);
+    container-type: inline-size;
+    transition: max-width 240ms var(--ease);
+  }
+  .app.is-narrow { max-width: 980px; }
+
+  .settings-nav { display: flex; flex: none; flex-direction: column; width: 280px; min-height: 0; background: var(--sidebar-bg); color: var(--fg-92); }
+  .nav-top { flex: none; padding: 12px 12px 8px; }
+  .back-btn {
+    display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px;
+    border: 0; border-radius: 8px; background: transparent; color: var(--fg-92); font-size: 13px; text-align: left;
+  }
+  .back-btn:hover { background: var(--sidebar-hover); }
+  .back-btn .ico { width: 15px; height: 15px; color: var(--muted-fg); }
+  .nav-search {
+    display: flex; align-items: center; gap: 7px; height: 30px; margin-top: 8px; padding: 0 9px;
+    border-radius: 8px; background: var(--sidebar-hover); color: var(--muted-fg); font-size: 12px;
+  }
+  .nav-search .ico { width: 13px; height: 13px; }
+  .nav-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 12px 16px; scrollbar-width: thin; }
+  .nav-group { padding-bottom: 14px; }
+  .nav-group-label { padding: 2px 8px 5px; color: var(--muted-fg); font-size: 10.5px; font-weight: 500; }
+  .nav-item {
+    display: flex; align-items: center; gap: 9px; width: 100%; height: 30px; padding: 0 8px;
+    border: 0; border-radius: 7px; background: transparent; color: color-mix(in oklab, var(--fg) 84%, transparent);
+    font-size: 13px; text-align: left; transition: background-color 120ms var(--ease), color 120ms var(--ease);
+  }
+  .nav-item .ico { width: 15px; height: 15px; color: var(--muted-fg); }
+  .nav-item:hover { background: var(--sidebar-hover); }
+  .nav-item.is-active { background: var(--sidebar-active); color: var(--fg); font-weight: 500; }
+  .nav-item.is-active .ico { color: var(--fg); }
+  .nav-bottom { flex: none; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+
+  .settings-main {
+    display: flex; flex: 1; flex-direction: column; min-width: 0; overflow: hidden;
+    border-top: 1px solid var(--line); border-left: 1px solid var(--line);
+    border-top-left-radius: 16px; background: var(--main-bg);
+  }
+  .main-header { display: flex; flex: none; align-items: center; gap: 8px; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--line); }
+  .main-header-icon { display: grid; place-items: center; width: 20px; height: 20px; color: var(--muted-fg); }
+  .main-header-icon .ico { width: 16px; height: 16px; }
+  .main-header-title { color: var(--fg); font-size: 13.5px; font-weight: 500; }
+  .main-header-hint { margin-left: auto; color: var(--muted-fg); font-size: 11px; }
+  .scope-chip {
+    display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 999px;
+    background: color-mix(in oklab, var(--muted) 78%, transparent); color: var(--muted-fg);
+    font-size: 10.5px; font-weight: 500;
+  }
+  .settings-content { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow-y: auto; padding: 26px 30px 30px; scrollbar-width: thin; }
+  .content-inner { display: flex; flex: 1; flex-direction: column; width: 100%; min-height: 0; max-width: 1024px; margin: 0 auto; }
+
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+  .page-sub { max-width: 600px; margin: 0; color: var(--muted-fg); font-size: 12.5px; line-height: 1.65; }
+  .page-sub .mono { color: var(--fg-92); font-size: 11.5px; }
+  .page-actions { display: flex; flex: none; align-items: center; gap: 8px; }
+  .pop-anchor { position: relative; }
+
+  .list-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: 20px 0 9px; }
+  .summary-stat { display: inline-flex; align-items: baseline; gap: 5px; color: var(--muted-fg); font-size: 12px; }
+  .summary-stat strong { color: var(--fg); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .summary-stat .total { font-variant-numeric: tabular-nums; }
+  .summary-actions { display: flex; align-items: center; gap: 4px; }
+
+  .skills-card {
+    display: flex; flex: 1; flex-direction: column; min-height: 360px; overflow: hidden;
+    border: 1px solid color-mix(in oklab, var(--border) 86%, transparent); border-radius: 14px;
+    background: var(--card-bg); box-shadow: var(--shadow-card);
+  }
+  .card-toolbar {
+    display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+    background: color-mix(in oklab, var(--muted) 12%, transparent);
+  }
+  .search-box {
+    position: relative; display: flex; flex: 1 1 220px; align-items: center; min-width: 190px; height: 32px;
+    border: 1px solid color-mix(in oklab, var(--border) 84%, transparent); border-radius: 8px;
+    background: var(--app-bg);
+    transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+  }
+  .search-box:focus-within {
+    border-color: color-mix(in oklab, var(--ring) 84%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 13%, transparent);
+  }
+  .search-box > .ico { position: absolute; left: 10px; width: 14px; height: 14px; color: var(--muted-fg); pointer-events: none; }
+  .search-box input {
+    width: 100%; height: 100%; padding: 0 68px 0 31px; border: 0; outline: 0;
+    background: transparent; color: var(--fg); font-size: 12.5px;
+  }
+  .search-box input::placeholder { color: var(--muted-fg); }
+  .search-kbd {
+    position: absolute; right: 8px; padding: 1px 4px; border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    border-radius: 4px; background: color-mix(in oklab, var(--muted) 42%, transparent);
+    color: var(--muted-fg); font-family: var(--font-sans); font-size: 10px; line-height: 14px; pointer-events: none;
+  }
+  .search-clear {
+    position: absolute; right: 6px; display: grid; place-items: center; width: 20px; height: 20px;
+    border: 0; border-radius: 5px; background: transparent; color: var(--muted-fg);
+  }
+  .search-clear:hover { background: var(--muted); color: var(--fg); }
+  .search-clear .ico { width: 12px; height: 12px; }
+  .toolbar-filters { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+  .dropdown { position: relative; }
+  .filter-label { color: var(--muted-fg); font-weight: 400; }
+  .dropdown .btn[aria-expanded="true"] { background: var(--muted); }
+  .menu {
+    position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 190px; padding: 5px;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--app-bg); box-shadow: var(--shadow-pop);
+    animation: pop-in 140ms var(--ease);
+  }
+  .menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; height: 30px; padding: 0 8px;
+    border: 0; border-radius: 6px; background: transparent; color: var(--fg-92); font-size: 12.5px; text-align: left;
+  }
+  .menu-item:hover { background: var(--muted); }
+  .menu-check { width: 14px; height: 14px; color: var(--fg); opacity: 0; }
+  .menu-check .ico { width: 13px; height: 13px; }
+  .menu-item.is-active .menu-check { opacity: 1; }
+  .menu-item.is-active { font-weight: 500; }
+  .menu-count { margin-left: auto; color: var(--muted-fg); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+
+  .popover {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 35; width: 340px; padding: 14px;
+    border: 1px solid var(--border); border-radius: 12px; background: var(--app-bg); box-shadow: var(--shadow-pop);
+    animation: pop-in 140ms var(--ease);
+  }
+  .popover-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
+  .popover-desc { margin: 6px 0 8px; color: var(--muted-fg); font-size: 11.5px; line-height: 1.55; }
+  .path-item { display: grid; grid-template-columns: 62px minmax(0, 1fr) 22px; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); }
+  .path-meta { color: var(--muted-fg); font-size: 10.5px; }
+  .path-item code { overflow: hidden; color: var(--fg-92); font-family: var(--font-mono); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+  .popover-foot { margin-top: 9px; color: var(--muted-fg); font-size: 10.5px; line-height: 1.5; }
+
+  .card-body { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 360px; flex: 1; min-height: 0; }
+  .list-scroll { min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+  .group-head {
+    position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px; border-bottom: 1px solid color-mix(in oklab, var(--border) 42%, transparent);
+    background: color-mix(in oklab, var(--card-bg) 84%, var(--muted));
+    backdrop-filter: blur(8px); font-size: 11px;
+  }
+  .source-dot { --tone: var(--tone-builtin); width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--tone); }
+  .source-dot[data-source="personal"] { --tone: var(--tone-personal); }
+  .source-dot[data-source="plugin"] { --tone: var(--tone-plugin); }
+  .group-name { color: var(--muted-fg); font-weight: 600; letter-spacing: 0.01em; }
+  .group-count { min-width: 16px; padding: 0 5px; border-radius: 999px; background: var(--muted); color: var(--muted-fg); font-size: 10px; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; }
+  .group-hint { margin-left: auto; color: var(--muted-fg); font-size: 10px; opacity: 0.72; }
+
+  .skill-row {
+    position: relative; display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+    border-bottom: 1px solid color-mix(in oklab, var(--border) 48%, transparent);
+    cursor: pointer; transition: background-color 120ms var(--ease);
+  }
+  .skill-row:hover { background: var(--row-hover); }
+  .skill-row.is-selected { background: var(--row-selected); }
+  .skill-row:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 64%, transparent); outline-offset: -2px; }
+  .skill-row.is-saving .skill-main { opacity: 0.65; }
+  .tile {
+    --tone: var(--tone-builtin);
+    display: grid; flex: none; place-items: center; width: 34px; height: 34px;
+    border-radius: 10px; background: color-mix(in oklab, var(--tone) var(--tone-bg), transparent); color: var(--tone);
+  }
+  .tile[data-source="personal"] { --tone: var(--tone-personal); }
+  .tile[data-source="plugin"] { --tone: var(--tone-plugin); }
+  .tile .ico { width: 17px; height: 17px; }
+  .tile-lg { width: 40px; height: 40px; border-radius: 12px; }
+  .tile-lg .ico { width: 20px; height: 20px; }
+  .skill-main { flex: 1; min-width: 0; }
+  .skill-name { display: block; overflow: hidden; color: var(--fg-92); font-size: 13px; font-weight: 500; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+  .skill-desc { display: block; margin-top: 2px; overflow: hidden; color: var(--muted-fg); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+  .skill-meta { display: flex; align-items: center; gap: 5px; margin-top: 6px; }
+  .tag { padding: 1px 6px; border-radius: 5px; background: color-mix(in oklab, var(--muted) 74%, transparent); color: var(--muted-fg); font-size: 10.5px; line-height: 15px; }
+  .meta-ver { color: color-mix(in oklab, var(--muted-fg) 86%, transparent); font-family: var(--font-mono); font-size: 10px; }
+  .skill-end { display: flex; flex: none; align-items: center; gap: 8px; }
+  .row-chevron { width: 14px; height: 14px; color: var(--muted-fg); opacity: 0.32; transition: opacity 120ms var(--ease); }
+  .skill-row:hover .row-chevron,
+  .skill-row.is-selected .row-chevron { opacity: 0.78; }
+
+  .switch { position: relative; display: inline-flex; flex: none; width: 38px; height: 22px; cursor: pointer; }
+  .switch input { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+  .switch .track { position: absolute; inset: 0; border-radius: 999px; background: color-mix(in oklab, var(--muted-fg) 26%, transparent); transition: background-color 160ms var(--ease), opacity 160ms var(--ease); }
+  .switch .thumb { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--app-bg); box-shadow: 0 1px 3px rgb(15 23 42 / 0.22); transition: transform 160ms var(--ease); }
+  .switch input:checked + .track { background: color-mix(in oklab, var(--primary) 86%, #38bdf8); }
+  .switch input:checked + .track .thumb { transform: translateX(16px); }
+  .switch input:disabled { cursor: default; }
+  .switch input:disabled + .track { opacity: 0.5; }
+  .switch.is-busy input { pointer-events: none; }
+  .switch.is-busy .thumb { opacity: 0.25; }
+  .spinner {
+    position: absolute; top: 50%; left: 50%; z-index: 3; width: 11px; height: 11px; margin: -6px 0 0 -6px;
+    border: 1.5px solid var(--app-bg); border-top-color: transparent; border-radius: 50%;
+    animation: spin 700ms linear infinite; pointer-events: none;
+  }
+
+  .list-empty { display: flex; flex-direction: column; align-items: center; padding: 52px 20px; text-align: center; }
+  .list-empty .orb,
+  .detail-empty .orb { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 10px; border-radius: 12px; background: var(--muted); color: var(--muted-fg); }
+  .list-empty .orb .ico,
+  .detail-empty .orb .ico { width: 18px; height: 18px; }
+  .empty-title { margin: 0; color: var(--fg-92); font-size: 12.5px; font-weight: 500; }
+  .empty-desc { margin: 4px 0 14px; color: var(--muted-fg); font-size: 11.5px; line-height: 1.55; }
+
+  .detail-pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--line); background: var(--detail-bg); }
+  .detail-head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+  .detail-id { flex: 1; min-width: 0; }
+  .detail-name { overflow: hidden; color: var(--fg); font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-slug { margin-top: 2px; overflow: hidden; color: var(--muted-fg); font-family: var(--font-mono); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-switch-row { display: flex; align-items: center; gap: 8px; padding: 0 14px 12px; }
+  .switch-text { color: var(--fg-92); font-size: 12px; }
+  .detail-switch-hint { margin-left: auto; color: var(--muted-fg); font-size: 10.5px; }
+  .tabs { display: flex; flex: none; gap: 16px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+  .tab { position: relative; height: 36px; padding: 0 1px; border: 0; background: transparent; color: var(--muted-fg); font-size: 12px; }
+  .tab:hover { color: var(--fg-92); }
+  .tab[aria-selected="true"] { color: var(--fg); font-weight: 600; }
+  .tab[aria-selected="true"]::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; border-radius: 1px; background: var(--fg); }
+  .detail-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; scrollbar-width: thin; }
+  .detail-section { margin-bottom: 16px; }
+  .detail-section:last-child { margin-bottom: 0; }
+  .detail-lead { margin: 0; color: var(--fg-92); font-size: 12.5px; line-height: 1.68; }
+  .section-label { margin: 0 0 7px; color: var(--muted-fg); font-size: 10px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip { padding: 2px 7px; border-radius: 6px; background: color-mix(in oklab, var(--muted) 76%, transparent); color: color-mix(in oklab, var(--fg) 84%, transparent); font-size: 11px; line-height: 16px; }
+  .source-line { display: flex; align-items: center; gap: 7px; min-width: 0; color: var(--muted-fg); font-size: 11.5px; }
+  .source-line .path { min-width: 0; overflow: hidden; color: var(--fg-92); font-family: var(--font-mono); font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+  .detail-note { display: flex; align-items: flex-start; gap: 7px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed color-mix(in oklab, var(--border) 74%, transparent); color: var(--muted-fg); font-size: 10.5px; line-height: 1.55; }
+  .detail-note .ico { width: 13px; height: 13px; margin-top: 1px; }
+  .detail-empty { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+  .detail-empty p { margin: 0; color: var(--fg-92); font-size: 12px; }
+  .detail-empty span { margin-top: 4px; color: var(--muted-fg); font-size: 11px; line-height: 1.55; }
+
+  .instruction-head { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; }
+  .file-name { padding: 2px 6px; border-radius: 5px; background: var(--muted); color: var(--fg-92); font-family: var(--font-mono); font-size: 11px; }
+  .badge-muted { padding: 0 4px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted-fg); font-size: 9.5px; line-height: 15px; }
+  .copy-btn { margin-left: auto; }
+  .md p { margin: 0; color: var(--fg-92); font-size: 12px; line-height: 1.7; }
+  .md h5 { margin: 15px 0 6px; color: var(--muted-fg); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; }
+  .md ol, .md ul { margin: 0; padding-left: 17px; color: var(--fg-92); font-size: 12px; line-height: 1.65; }
+  .md li { margin: 4px 0; }
+  .md li::marker { color: var(--muted-fg); }
+  .md code { padding: 1px 4px; border-radius: 4px; background: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+  .code-block { margin-top: 14px; overflow-x: auto; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in oklab, var(--muted) 44%, transparent); color: var(--fg-92); font-family: var(--font-mono); font-size: 10.5px; line-height: 1.6; }
+  .md-foot { margin: 14px 0 0; color: var(--muted-fg); font-size: 10px; }
+  .meta-list { margin: 0; }
+  .meta-row { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 46%, transparent); font-size: 11.5px; }
+  .meta-row:last-child { border-bottom: 0; }
+  .meta-row dt { flex: none; width: 62px; color: var(--muted-fg); }
+  .meta-row dd { min-width: 0; margin: 0; color: var(--fg-92); overflow-wrap: anywhere; }
+  .meta-row dd.mono { font-family: var(--font-mono); font-size: 10.5px; }
+
+  .drawer-backdrop { display: none; }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: absolute; bottom: 18px; left: 50%; z-index: 40; display: flex; align-items: center; gap: 14px;
+    padding: 9px 12px 9px 14px; border-radius: 10px; background: #1f2430; color: #f8fafc;
+    font-size: 12px; white-space: nowrap; box-shadow: 0 18px 44px -18px rgb(0 0 0 / 0.55);
+    opacity: 0; pointer-events: none; transform: translate(-50%, 10px);
+    transition: opacity 180ms var(--ease), transform 180ms var(--ease);
+  }
+  [data-theme="dark"] .toast { background: oklch(0.97 0 0); color: oklch(0.205 0 0); }
+  .toast.is-visible { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+  .toast-action { padding: 0; border: 0; background: transparent; color: #93c5fd; font-size: 12px; font-weight: 600; }
+  [data-theme="dark"] .toast-action { color: #1d4ed8; }
+
+  /* ---------- 说明卡片 ---------- */
+  .notes { margin-top: 30px; }
+  .notes-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+  .notes-head h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  .notes-head span { color: var(--doc-muted); font-size: 11.5px; }
+  .note-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .note-card { padding: 15px 16px 14px; border: 1px solid var(--doc-border); border-radius: 12px; background: var(--doc-panel); }
+  .note-num { color: var(--doc-muted); font-family: var(--font-mono); font-size: 10.5px; }
+  .note-card h3 { margin: 7px 0 5px; font-size: 13px; font-weight: 600; }
+  .note-card p { margin: 0; color: var(--doc-muted); font-size: 11.5px; line-height: 1.68; }
+  .note-foot { grid-column: 1 / -1; border-style: dashed; }
+  .note-foot p b { color: var(--doc-fg); font-weight: 600; }
+  .doc-foot { margin-top: 26px; color: var(--doc-muted); font-size: 10.5px; letter-spacing: 0.01em; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes pop-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ---------- 容器自适应 ---------- */
+  @container (max-width: 1120px) {
+    .settings-nav { width: 240px; }
+    .card-body { grid-template-columns: minmax(0, 1fr); }
+    .detail-pane {
+      position: absolute; top: 0; right: 0; bottom: 0; z-index: 6;
+      width: min(380px, 92%); border-left: 1px solid var(--border); background: var(--app-bg);
+      box-shadow: -28px 0 60px -32px rgb(0 0 0 / 0.4);
+      transform: translateX(102%); transition: transform 180ms var(--ease);
+    }
+    .detail-pane.is-open { transform: translateX(0); }
+    .drawer-backdrop {
+      position: absolute; z-index: 5; inset: 0; display: block;
+      background: rgb(15 23 42 / 0.18); opacity: 0; pointer-events: none;
+      transition: opacity 180ms var(--ease);
+    }
+    .drawer-backdrop.is-open { opacity: 1; pointer-events: auto; }
+    .group-hint { display: none; }
+  }
+  @container (max-width: 820px) {
+    .settings-nav { width: 220px; }
+    .settings-content { padding: 20px; }
+    .main-header { padding: 0 16px; }
+    .main-header-hint { display: none; }
+    .card-toolbar { gap: 8px; }
+    .toolbar-filters { width: 100%; margin-left: 0; justify-content: space-between; }
+    .search-box { flex-basis: 100%; }
+  }
+  @container (max-width: 700px) {
+    .settings-nav { display: none; }
+    .settings-main { border: 0; border-radius: 0; }
+  }
+
+  @media (max-width: 980px) {
+    .doc-head { flex-direction: column; gap: 20px; }
+    .doc-controls { padding-top: 0; }
+    .note-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 640px) {
+    .doc { padding: 24px 14px 48px; }
+    .doc-head h1 { font-size: 22px; }
+    .note-grid { grid-template-columns: 1fr; }
+    .app { height: 760px; border-radius: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+<svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="8" cy="9" r="1"/><circle cx="12" cy="7" r="1"/><circle cx="16" cy="9" r="1"/><path d="M12 21a3 3 0 0 1 0-6 3 3 0 0 0 0-6"/></symbol>
+  <symbol id="i-brain" viewBox="0 0 24 24"><path d="M12 5a3 3 0 0 0-5.6-1.5A3 3 0 0 0 4 9a3 3 0 0 0 1 5.5A3 3 0 0 0 12 17Z"/><path d="M12 5a3 3 0 0 1 5.6-1.5A3 3 0 0 1 20 9a3 3 0 0 1-1 5.5A3 3 0 0 1 12 17Z"/><path d="M12 5v12"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V5"/><circle cx="12" cy="3.5" r="1.5"/><path d="M8.5 13h.01M15.5 13h.01"/><path d="M9 17h6"/></symbol>
+  <symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+  <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M19 13h-1.5a2.5 2.5 0 1 1 0-5H19V4a1 1 0 0 0-1-1h-4v1.5a2.5 2.5 0 1 1-5 0V3H5a1 1 0 0 0-1 1v4h1.5a2.5 2.5 0 1 1 0 5H4v5a1 1 0 0 0 1 1h4v-1.5a2.5 2.5 0 1 1 5 0V20h4a1 1 0 0 0 1-1v-4h-1.5z"/></symbol>
+  <symbol id="i-webhook" viewBox="0 0 24 24"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></symbol>
+  <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m12 3 1.6 4.8L18 9.5l-4.4 1.7L12 16l-1.6-4.8L6 9.5l4.4-1.7Z"/><path d="M19 15l.7 2.1L22 18l-2.3.9L19 21l-.7-2.1L16 18l2.3-.9Z"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M6 15V8a2 2 0 0 1 2-2h7"/><path d="M18 9v2a4 4 0 0 1-4 4H9"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/></symbol>
+</svg>
+
+<div class="doc">
+  <header class="doc-head">
+    <div>
+      <div class="kicker"><span class="kicker-dot"></span>QuickForge · 设置页优化提案</div>
+      <h1>技能页：从“开关列表”变成可扫、可读、可批量</h1>
+      <p class="doc-sub">
+        现有列表只有搜索和开关：来源、兼容性、允许工具全挤在行内；点“阅读”会整页替换列表，返回后筛选和滚动位置都丢了。
+        这一版把技能页拆成 <b>筛选栏 + 来源分组 + 右侧详情</b>，并补齐批量启停、保存反馈和空状态。
+      </p>
+      <div class="doc-meta">
+        <span>建议稿</span><span>可交互</span><span>示例数据</span><span>仅前端改动</span><span>落地版：右侧详情改为点击行后的居中弹窗</span>
+      </div>
+    </div>
+    <div class="doc-controls">
+      <div class="control">
+        <span class="control-label">主题</span>
+        <div class="seg seg-lg" id="themeSeg" role="group" aria-label="主题">
+          <button type="button" data-theme-value="light" aria-pressed="true">浅色</button>
+          <button type="button" data-theme-value="dark" aria-pressed="false">深色</button>
+        </div>
+      </div>
+      <div class="control">
+        <span class="control-label">预览宽度</span>
+        <div class="seg seg-lg" id="widthSeg" role="group" aria-label="预览宽度">
+          <button type="button" data-width="wide" aria-pressed="true">标准</button>
+          <button type="button" data-width="narrow" aria-pressed="false">窄屏</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="app" id="app">
+    <aside class="settings-nav">
+      <div class="nav-top">
+        <button type="button" class="back-btn"><svg class="ico"><use href="#i-arrow-left"/></svg>返回工作区</button>
+        <div class="nav-search"><svg class="ico"><use href="#i-search"/></svg>搜索设置</div>
+      </div>
+      <div class="nav-scroll">
+        <div class="nav-group">
+          <div class="nav-group-label">基础</div>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-sliders"/></svg>默认选项</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-palette"/></svg>外观</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-brain"/></svg>记忆</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-globe"/></svg>网络与设备</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-label">AI 与扩展</div>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-database"/></svg>自定义模型</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-bot"/></svg>智能体</button>
+          <button type="button" class="nav-item is-active" aria-current="page"><svg class="ico"><use href="#i-book"/></svg>技能</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-server"/></svg>MCP 服务</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-puzzle"/></svg>插件</button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-label">自动化与数据</div>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-webhook"/></svg>Hooks</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-calendar"/></svg>定时任务</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-terminal"/></svg>项目命令</button>
+          <button type="button" class="nav-item"><svg class="ico"><use href="#i-archive"/></svg>数据管理</button>
+        </div>
+      </div>
+      <div class="nav-bottom">
+        <button type="button" class="nav-item"><svg class="ico"><use href="#i-info"/></svg>关于</button>
+      </div>
+    </aside>
+
+    <main class="settings-main">
+      <header class="main-header">
+        <span class="main-header-icon"><svg class="ico"><use href="#i-book"/></svg></span>
+        <span class="main-header-title">技能</span>
+        <span class="scope-chip">全局</span>
+        <span class="main-header-hint">对所有新对话生效</span>
+      </header>
+
+      <div class="settings-content">
+        <div class="content-inner">
+          <div class="page-head">
+            <p class="page-sub">新对话只注入技能目录；完整 <span class="mono">SKILL.md</span> 会在技能被触发时按需加载，不常驻上下文。</p>
+            <div class="page-actions">
+              <div class="pop-anchor" id="pathsAnchor">
+                <button type="button" class="btn btn-compact" id="pathsBtn" aria-haspopup="dialog" aria-expanded="false">
+                  搜索路径 <span class="count-chip">3</span>
+                  <svg class="ico"><use href="#i-chevron-down"/></svg>
+                </button>
+                <div class="popover" id="pathsPopover" role="dialog" aria-label="技能搜索路径" hidden>
+                  <div class="popover-head">技能搜索路径</div>
+                  <p class="popover-desc">个人技能按顺序加载，同名时后者覆盖前者。内置技能随应用更新。</p>
+                  <div class="path-item">
+                    <span class="path-meta">QuickForge</span>
+                    <code>~/.quickforge/skills</code>
+                    <button type="button" class="icon-btn icon-btn-sm" data-copy="~/.quickforge/skills" aria-label="复制 QuickForge 技能路径"><svg class="ico"><use href="#i-copy"/></svg></button>
+                  </div>
+                  <div class="path-item">
+                    <span class="path-meta">Claude</span>
+                    <code>~/.claude/skills</code>
+                    <button type="button" class="icon-btn icon-btn-sm" data-copy="~/.claude/skills" aria-label="复制 Claude 技能路径"><svg class="ico"><use href="#i-copy"/></svg></button>
+                  </div>
+                  <div class="path-item">
+                    <span class="path-meta">OpenCode</span>
+                    <code>~/.config/opencode/skills</code>
+                    <button type="button" class="icon-btn icon-btn-sm" data-copy="~/.config/opencode/skills" aria-label="复制 OpenCode 技能路径"><svg class="ico"><use href="#i-copy"/></svg></button>
+                  </div>
+                  <div class="popover-foot">点击路径右侧按钮即可复制。</div>
+                </div>
+              </div>
+              <button type="button" class="btn btn-compact" id="rescanBtn">
+                <svg class="ico"><use href="#i-refresh"/></svg>重新扫描
+              </button>
+            </div>
+          </div>
+
+          <div class="list-summary">
+            <div class="summary-stat">已启用 <strong id="statEnabled">4</strong> <span class="total">/</span> <span class="total" id="statTotal">9</span></div>
+            <div class="summary-actions">
+              <button type="button" class="text-btn" id="bulkEnable">全部启用</button>
+              <span class="dot-sep">·</span>
+              <button type="button" class="text-btn" id="bulkDisable">全部停用</button>
+            </div>
+          </div>
+
+          <section class="skills-card" aria-label="技能列表">
+            <div class="card-toolbar">
+              <div class="search-box">
+                <svg class="ico"><use href="#i-search"/></svg>
+                <input id="searchInput" type="text" placeholder="搜索技能、标签或触发词" autocomplete="off" spellcheck="false" aria-label="搜索技能">
+                <button type="button" class="search-clear" id="searchClear" aria-label="清除搜索" hidden><svg class="ico"><use href="#i-x"/></svg></button>
+                <kbd class="search-kbd" id="searchKbd">Ctrl K</kbd>
+              </div>
+              <div class="toolbar-filters">
+                <div class="dropdown" id="sourceDropdown">
+                  <button type="button" class="btn btn-compact" id="sourceBtn" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="filter-label">来源</span><span id="sourceBtnLabel">全部</span>
+                    <svg class="ico"><use href="#i-chevron-down"/></svg>
+                  </button>
+                  <div class="menu" id="sourceMenu" role="listbox" aria-label="按来源筛选" hidden></div>
+                </div>
+                <div class="seg seg-sm" id="statusSeg" role="group" aria-label="按启用状态筛选">
+                  <button type="button" data-status="all" aria-pressed="true">全部</button>
+                  <button type="button" data-status="on" aria-pressed="false">已启用</button>
+                  <button type="button" data-status="off" aria-pressed="false">未启用</button>
+                </div>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="list-scroll" id="listScroll"></div>
+              <aside class="detail-pane" id="detailPane" aria-label="技能详情"></aside>
+              <div class="drawer-backdrop" id="drawerBackdrop"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+
+  <section class="notes">
+    <div class="notes-head">
+      <h2>主要改动</h2>
+      <span>先解决“找不到、看不清、不敢批量”，再谈更花哨的能力</span>
+    </div>
+    <div class="note-grid">
+      <article class="note-card">
+        <div class="note-num">01</div>
+        <h3>主从布局，阅读不丢上下文</h3>
+        <p>点击技能在右侧打开详情，列表、筛选和滚动位置都保留；窄屏自动变成抽屉，返回只有一步。</p>
+      </article>
+      <article class="note-card">
+        <div class="note-num">02</div>
+        <h3>搜索与筛选组合</h3>
+        <p>搜索覆盖名称、描述、标签和触发词；来源与启用状态可以叠加筛选，Ctrl K 随时聚焦搜索框。</p>
+      </article>
+      <article class="note-card">
+        <div class="note-num">03</div>
+        <h3>按来源分组，行内降噪</h3>
+        <p>内置 / 个人 / 插件分组，行内只留 1–2 个标签和版本；兼容性、允许工具、路径收进「元数据」。</p>
+      </article>
+      <article class="note-card">
+        <div class="note-num">04</div>
+        <h3>状态可见，批量可撤销</h3>
+        <p>已启用计数常驻顶部；批量启停只作用于当前筛选结果，并能撤销；单行保存有独立进度，不再全局禁用。</p>
+      </article>
+      <article class="note-card">
+        <div class="note-num">05</div>
+        <h3>结构化阅读</h3>
+        <p>概览 / 指令 / 元数据三页；SKILL.md 渲染阅读、可复制，比一整块 pre 更容易定位关键步骤。</p>
+      </article>
+      <article class="note-card">
+        <div class="note-num">06</div>
+        <h3>空状态与搜索路径</h3>
+        <p>没有结果时直接给“清除筛选”；搜索路径从 tooltip 变成可展开、可复制的列表。</p>
+      </article>
+      <article class="note-card note-foot">
+        <div class="note-num">范围与取舍</div>
+        <p><b>只改前端信息架构，不改 `/api/skills` 的读写语义。</b> 使用次数、热度排序因为目前没有数据源，没有画进来；技能的新增 / 编辑仍然交给文件系统与插件，不在设置页做编辑器。</p>
+      </article>
+    </div>
+  </section>
+
+  <footer class="doc-foot">QuickForge · 技能页优化提案 · 2026.10 · 示例数据仅用于版式预览</footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var SOURCES = {
+    builtin: { label: '内置', hint: '随应用分发' },
+    personal: { label: '个人', hint: '~/.quickforge/skills' },
+    plugin: { label: '插件', hint: '来自已启用插件' }
+  };
+  var SOURCE_ORDER = ['builtin', 'personal', 'plugin'];
+
+  var SKILLS = [
+    {
+      id: 'skill-creator', name: 'skill-creator', displayName: 'Skill Creator', source: 'builtin', icon: 'sparkles',
+      summary: '创建、校验并打包 Agent Skill，内置 SKILL.md 模板与资源约定。',
+      tags: ['创作', '工具'], triggers: ['创建技能', '编辑 SKILL.md', '打包技能'],
+      version: '1.4.0', license: 'MIT', compatibility: 'QuickForge ≥ 2.0', allowedTools: 'Read, Write, Bash',
+      path: '内置技能 · 随应用分发', enabled: true,
+      instructions: {
+        intro: '把可复用的工作流整理成 Agent Skill：确定触发边界、编写 SKILL.md、校验资源引用。',
+        steps: ['确认技能解决的具体任务，写出 3–5 条触发场景。', '用模板生成 SKILL.md，并补齐 frontmatter 与示例。', '运行校验脚本，确认路径、资源和体积符合约定。'],
+        outputs: ['可直接放入技能目录的完整文件夹。', '一段说明何时触发、何时不触发的摘要。'],
+        command: 'activate_skill("skill-creator")'
+      }
+    },
+    {
+      id: 'code-review', name: 'code-review', displayName: 'Code Review', source: 'builtin', icon: 'code',
+      summary: '按仓库约定审查改动，按「阻断 / 建议 / 提示」分级输出发现。',
+      tags: ['质量', 'Git'], triggers: ['审查改动', 'review PR', '检查风险'],
+      version: '1.2.0', license: 'MIT', compatibility: 'QuickForge ≥ 1.8', allowedTools: 'Read, Grep, Bash',
+      path: '内置技能 · 随应用分发', enabled: true,
+      instructions: {
+        intro: '审查当前工作区的改动，按严重程度输出发现，不直接修改文件。',
+        steps: ['用 git diff 读取未提交改动，确认变更范围。', '定位受影响的调用方、测试与公共入口。', '按「阻断 / 建议 / 提示」分级，并给出文件行号。'],
+        outputs: ['按严重程度排序的审查结论。', '没有发现时，明确列出已检查的范围与假设。'],
+        command: 'activate_skill("code-review")'
+      }
+    },
+    {
+      id: 'browser-test', name: 'browser-test', displayName: 'Browser Test', source: 'builtin', icon: 'globe',
+      summary: '用真实浏览器走通关键流程，记录控制台错误并附截图。',
+      tags: ['测试', '浏览器'], triggers: ['验收页面', '复现交互问题'],
+      version: '0.9.2', license: 'Apache-2.0', compatibility: '需要 browser-use 连接器', allowedTools: 'browser-use',
+      path: '内置技能 · 随应用分发', enabled: false,
+      instructions: {
+        intro: '用真实浏览器验证关键路径，捕获控制台错误、网络失败与界面回归。',
+        steps: ['启动预览环境，记录目标 URL 与测试账号。', '依次走通主流程，保存关键步骤截图。', '汇总控制台与网络异常，标注复现步骤。'],
+        outputs: ['带截图的验收记录。', '可复现的问题清单：步骤 / 期望 / 实际。'],
+        command: 'activate_skill("browser-test")'
+      }
+    },
+    {
+      id: 'git-commit', name: 'git-commit', displayName: 'Git Commit', source: 'personal', icon: 'git',
+      summary: '读取当前 diff，按项目提交信息规范生成 commit message。',
+      tags: ['Git'], triggers: ['提交改动', '写 commit'],
+      version: '1.1.3', license: 'MIT', compatibility: 'QuickForge ≥ 1.5', allowedTools: 'Bash, Read',
+      path: '~/.quickforge/skills/git-commit', enabled: true,
+      instructions: {
+        intro: '根据暂存区的实际改动生成提交信息，遵循仓库现有的提交风格。',
+        steps: ['读取 git diff --staged 与最近提交记录。', '判断改动类型与影响范围，选择 type 与 scope。', '生成一行摘要和必要的正文，不夸大改动。'],
+        outputs: ['可直接用于 git commit 的 message。', '列出被排除在本次提交之外的文件。'],
+        command: 'activate_skill("git-commit")'
+      }
+    },
+    {
+      id: 'release-notes', name: 'release-notes', displayName: 'Release Notes', source: 'personal', icon: 'tag',
+      summary: '从提交历史与标签整理面向用户的发布说明。',
+      tags: ['发布', '文档'], triggers: ['写 release notes', '整理更新日志'],
+      version: '1.0.0', license: 'MIT', compatibility: 'QuickForge ≥ 1.5', allowedTools: 'Read, Bash',
+      path: '~/.quickforge/skills/release-notes', enabled: false,
+      instructions: {
+        intro: '把提交历史整理成面向用户的发布说明，强调行为变化而非实现细节。',
+        steps: ['从上一个 tag 开始读取提交与合并记录。', '按功能、修复、体验三类归并同类项。', '隐藏纯内部重构，保留升级注意事项。'],
+        outputs: ['可直接发布的 Markdown 列表。', '需要用户手动处理的迁移提示。'],
+        command: 'activate_skill("release-notes")'
+      }
+    },
+    {
+      id: 'data-cleanup', name: 'data-cleanup', displayName: 'Data Cleanup', source: 'personal', icon: 'database',
+      summary: '清洗 CSV 与日志数据，输出可复现的处理脚本。',
+      tags: ['数据'], triggers: ['清洗表格', '处理日志'],
+      version: '0.7.4', license: 'MIT', compatibility: 'QuickForge ≥ 1.8', allowedTools: 'Read, Write, Bash',
+      path: '~/.claude/skills/data-cleanup', enabled: false,
+      instructions: {
+        intro: '清洗 CSV 与日志数据，保留可复现的处理过程。',
+        steps: ['抽样检查编码、分隔符与缺失值。', '编写幂等清洗脚本，保留原始文件。', '输出字段说明与行数变化对比。'],
+        outputs: ['清洗后的数据文件与脚本。', '一份简短的清洗报告。'],
+        command: 'activate_skill("data-cleanup")'
+      }
+    },
+    {
+      id: 'pdf', name: 'pdf', displayName: 'PDF Toolkit', source: 'plugin', icon: 'file',
+      summary: '读取、拆分、合并与生成 PDF，尽量保留原始排版。',
+      tags: ['文档', 'PDF'], triggers: ['提取 PDF', '合并文档'],
+      version: '2.0.1', license: 'MPL-2.0', compatibility: 'QuickForge ≥ 2.0', allowedTools: 'Read, Write',
+      path: '插件 pdf-toolkit · skills/pdf', enabled: true,
+      instructions: {
+        intro: '读取、拆分、合并与生成 PDF，尽量保留原始排版与书签。',
+        steps: ['确认页面范围、目标顺序与输出质量。', '执行拆分或合并，保留书签与元数据。', '抽查关键页面并报告文件体积变化。'],
+        outputs: ['生成的 PDF 文件。', '页数与体积变化摘要。'],
+        command: 'activate_skill("pdf")'
+      }
+    },
+    {
+      id: 'api-docs', name: 'api-docs', displayName: 'API Docs', source: 'plugin', icon: 'server',
+      summary: '扫描路由与类型，生成可直接发布的 API 文档草稿。',
+      tags: ['文档', 'API'], triggers: ['生成 API 文档'],
+      version: '1.3.0', license: 'MIT', compatibility: 'QuickForge ≥ 2.0', allowedTools: 'Read, Grep',
+      path: '插件 api-tools · skills/api-docs', enabled: false,
+      instructions: {
+        intro: '扫描路由、请求类型与返回结构，生成可直接发布的 API 文档草稿。',
+        steps: ['定位路由注册与共享类型定义。', '抽取鉴权、参数与错误码信息。', '生成按资源分组的文档草稿。'],
+        outputs: ['Markdown 格式的 API 文档。', '缺失描述或类型不一致的清单。'],
+        command: 'activate_skill("api-docs")'
+      }
+    },
+    {
+      id: 'ui-review', name: 'ui-review', displayName: 'UI Review', source: 'plugin', icon: 'palette',
+      summary: '按 DESIGN_LANGUAGE 检查界面一致性，输出可定位的修改建议。',
+      tags: ['设计', '前端'], triggers: ['审查界面', '检查样式'],
+      version: '0.6.1', license: 'MIT', compatibility: 'QuickForge ≥ 2.1', allowedTools: 'Read, Grep',
+      path: '插件 design-kit · skills/ui-review', enabled: false,
+      instructions: {
+        intro: '依据 DESIGN_LANGUAGE 检查界面一致性，输出可定位到文件的修改建议。',
+        steps: ['检查字号、间距、分割线与选中态的配方。', '对照设计语言标记偏离项。', '给出最小改动方案与影响范围。'],
+        outputs: ['按问题等级排序的界面审查清单。', '可直接定位到组件的修改建议。'],
+        command: 'activate_skill("ui-review")'
+      }
+    }
+  ];
+
+  function esc(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  function icon(name, cls) {
+    return '<svg class="ico ' + (cls || '') + '" aria-hidden="true"><use href="#i-' + name + '"/></svg>';
+  }
+
+  function buildInstructionsText(skill) {
+    var lines = [];
+    lines.push('# ' + skill.displayName);
+    lines.push('');
+    lines.push(skill.instructions.intro);
+    lines.push('');
+    lines.push('## 流程');
+    skill.instructions.steps.forEach(function (step, index) { lines.push((index + 1) + '. ' + step); });
+    lines.push('');
+    lines.push('## 输出');
+    skill.instructions.outputs.forEach(function (item) { lines.push('- ' + item); });
+    lines.push('');
+    lines.push(skill.instructions.command);
+    return lines.join('\n');
+  }
+
+  var COPY_TEXT = {};
+  SKILLS.forEach(function (skill) { COPY_TEXT[skill.id] = buildInstructionsText(skill); });
+
+  var state = {
+    query: '',
+    status: 'all',
+    source: 'all',
+    selectedId: 'code-review',
+    detailTab: 'overview',
+    drawerOpen: false,
+    bulkSaving: false
+  };
+
+  var $ = function (selector, root) { return (root || document).querySelector(selector); };
+  var $$ = function (selector, root) { return Array.prototype.slice.call((root || document).querySelectorAll(selector)); };
+
+  var app = $('#app');
+  var listEl = $('#listScroll');
+  var detailEl = $('#detailPane');
+  var backdropEl = $('#drawerBackdrop');
+  var toastEl = $('#toast');
+  var searchInput = $('#searchInput');
+  var searchClear = $('#searchClear');
+  var searchKbd = $('#searchKbd');
+  var sourceBtn = $('#sourceBtn');
+  var sourceMenu = $('#sourceMenu');
+  var sourceBtnLabel = $('#sourceBtnLabel');
+  var pathsBtn = $('#pathsBtn');
+  var pathsPopover = $('#pathsPopover');
+  var rescanBtn = $('#rescanBtn');
+  var toastTimer = null;
+
+  function visibleSkills() {
+    var query = state.query.trim().toLowerCase();
+    return SKILLS.filter(function (skill) {
+      if (state.source !== 'all' && skill.source !== state.source) return false;
+      if (state.status === 'on' && !skill.enabled) return false;
+      if (state.status === 'off' && skill.enabled) return false;
+      if (!query) return true;
+      var haystack = [skill.name, skill.displayName, skill.summary]
+        .concat(skill.tags, skill.triggers, [skill.source])
+        .join(' ').toLowerCase();
+      return haystack.indexOf(query) !== -1;
+    });
+  }
+
+  function renderSummary() {
+    var enabled = SKILLS.filter(function (skill) { return skill.enabled; }).length;
+    $('#statEnabled').textContent = String(enabled);
+    $('#statTotal').textContent = String(SKILLS.length);
+  }
+
+  function renderBulk() {
+    var visible = visibleSkills();
+    var enableBtn = $('#bulkEnable');
+    var disableBtn = $('#bulkDisable');
+    var canEnable = visible.some(function (skill) { return !skill.enabled; });
+    var canDisable = visible.some(function (skill) { return skill.enabled; });
+    enableBtn.disabled = !canEnable || state.bulkSaving;
+    disableBtn.disabled = !canDisable || state.bulkSaving;
+    enableBtn.title = '作用于当前筛选的 ' + visible.length + ' 个技能';
+    disableBtn.title = '作用于当前筛选的 ' + visible.length + ' 个技能';
+  }
+
+  function renderStatusSeg() {
+    $$('#statusSeg button').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.dataset.status === state.status));
+    });
+  }
+
+  function syncSearchChrome() {
+    searchClear.hidden = !state.query;
+    searchKbd.hidden = Boolean(state.query);
+  }
+
+  function renderSourceMenu() {
+    var options = [{ key: 'all', label: '全部来源', count: SKILLS.length }].concat(
+      SOURCE_ORDER.map(function (key) {
+        return {
+          key: key,
+          label: SOURCES[key].label,
+          count: SKILLS.filter(function (skill) { return skill.source === key; }).length
+        };
+      })
+    );
+    sourceMenu.innerHTML = options.map(function (option) {
+      var active = state.source === option.key;
+      return '<button type="button" class="menu-item' + (active ? ' is-active' : '') + '" role="option" aria-selected="' + active + '" data-source="' + option.key + '">' +
+        '<span class="menu-check">' + icon('check') + '</span>' +
+        '<span class="menu-label">' + esc(option.label) + '</span>' +
+        '<span class="menu-count">' + option.count + '</span>' +
+        '</button>';
+    }).join('');
+    sourceBtnLabel.textContent = state.source === 'all' ? '全部' : SOURCES[state.source].label;
+  }
+
+  function rowTemplate(skill) {
+    var selected = state.selectedId === skill.id;
+    var busy = Boolean(skill._saving);
+    var tags = skill.tags.slice(0, 2).map(function (tag) {
+      return '<span class="tag">' + esc(tag) + '</span>';
+    }).join('');
+    return '<div class="skill-row' + (selected ? ' is-selected' : '') + (busy ? ' is-saving' : '') + '" role="button" tabindex="0" data-id="' + skill.id + '" aria-label="' + esc(skill.displayName) + '，' + (skill.enabled ? '已启用' : '未启用') + '">' +
+      '<span class="tile" data-source="' + skill.source + '">' + icon(skill.icon) + '</span>' +
+      '<span class="skill-main">' +
+        '<span class="skill-name">' + esc(skill.displayName) + '</span>' +
+        '<span class="skill-desc">' + esc(skill.summary) + '</span>' +
+        '<span class="skill-meta">' + tags + '<span class="meta-ver">v' + esc(skill.version) + '</span></span>' +
+      '</span>' +
+      '<span class="skill-end">' +
+        '<label class="switch' + (busy ? ' is-busy' : '') + '" title="' + (skill.enabled ? '停用' : '启用') + ' ' + esc(skill.name) + '">' +
+          '<input type="checkbox" ' + (skill.enabled ? 'checked' : '') + ' ' + (busy ? 'disabled' : '') + ' aria-label="' + (skill.enabled ? '停用' : '启用') + ' ' + esc(skill.name) + '">' +
+          '<span class="track"><span class="thumb"></span></span>' +
+          (busy ? '<span class="spinner"></span>' : '') +
+        '</label>' +
+        icon('chevron-right', 'row-chevron') +
+      '</span>' +
+    '</div>';
+  }
+
+  function renderList(options) {
+    options = options || {};
+    var previousTop = listEl.scrollTop;
+    var visible = visibleSkills();
+
+    if (!visible.length) {
+      listEl.innerHTML = '<div class="list-empty">' +
+        '<span class="orb">' + icon('search') + '</span>' +
+        '<p class="empty-title">没有匹配的技能</p>' +
+        '<p class="empty-desc">换个关键词，或清除来源与状态筛选。</p>' +
+        '<button type="button" class="btn" id="resetFilters">清除筛选</button>' +
+        '</div>';
+    } else {
+      var html = SOURCE_ORDER.map(function (key) {
+        var items = visible.filter(function (skill) { return skill.source === key; });
+        if (!items.length) return '';
+        return '<div class="group-head">' +
+          '<span class="source-dot" data-source="' + key + '"></span>' +
+          '<span class="group-name">' + SOURCES[key].label + '</span>' +
+          '<span class="group-count">' + items.length + '</span>' +
+          '<span class="group-hint">' + SOURCES[key].hint + '</span>' +
+        '</div>' + items.map(rowTemplate).join('');
+      }).join('');
+      listEl.innerHTML = html;
+    }
+
+    listEl.scrollTop = options.resetScroll ? 0 : previousTop;
+  }
+
+  function tabButton(key, label) {
+    var active = state.detailTab === key;
+    return '<button type="button" class="tab" role="tab" aria-selected="' + active + '" data-tab="' + key + '">' + label + '</button>';
+  }
+
+  function detailContent(skill) {
+    if (state.detailTab === 'instructions') {
+      return '<div class="instruction-head">' +
+          '<span class="file-name">SKILL.md</span>' +
+          '<span class="badge-muted">只读</span>' +
+          '<button type="button" class="btn btn-ghost btn-xs copy-btn" data-copy-text="' + skill.id + '">' + icon('copy') + '复制</button>' +
+        '</div>' +
+        '<div class="md">' +
+          '<p>' + esc(skill.instructions.intro) + '</p>' +
+          '<h5>流程</h5>' +
+          '<ol>' + skill.instructions.steps.map(function (step) { return '<li>' + esc(step) + '</li>'; }).join('') + '</ol>' +
+          '<h5>输出</h5>' +
+          '<ul>' + skill.instructions.outputs.map(function (item) { return '<li>' + esc(item) + '</li>'; }).join('') + '</ul>' +
+          '<div class="code-block">' + esc(skill.instructions.command) + '</div>' +
+        '</div>' +
+        '<p class="md-foot">只读预览 · 完整指令在技能被触发时注入</p>';
+    }
+
+    if (state.detailTab === 'metadata') {
+      var rows = [
+        ['标识', skill.id, true],
+        ['版本', 'v' + skill.version, false],
+        ['许可证', skill.license, false],
+        ['兼容性', skill.compatibility, false],
+        ['允许工具', skill.allowedTools, true],
+        ['来源', SOURCES[skill.source].label, false],
+        ['路径', skill.path, true]
+      ];
+      return '<dl class="meta-list">' + rows.map(function (row) {
+        return '<div class="meta-row"><dt>' + row[0] + '</dt><dd class="' + (row[2] ? 'mono' : '') + '">' + esc(row[1]) + '</dd></div>';
+      }).join('') + '</dl>';
+    }
+
+    return '<section class="detail-section">' +
+        '<p class="detail-lead">' + esc(skill.summary) + '</p>' +
+      '</section>' +
+      '<section class="detail-section">' +
+        '<h3 class="section-label">何时使用</h3>' +
+        '<div class="chips">' + skill.triggers.map(function (trigger) { return '<span class="chip">' + esc(trigger) + '</span>'; }).join('') + '</div>' +
+      '</section>' +
+      '<section class="detail-section">' +
+        '<h3 class="section-label">标签</h3>' +
+        '<div class="chips">' + skill.tags.map(function (tag) { return '<span class="chip">' + esc(tag) + '</span>'; }).join('') + '</div>' +
+      '</section>' +
+      '<section class="detail-section">' +
+        '<h3 class="section-label">来源</h3>' +
+        '<div class="source-line">' +
+          '<span class="source-dot" data-source="' + skill.source + '"></span>' +
+          '<span>' + SOURCES[skill.source].label + '</span>' +
+          '<code class="path">' + esc(skill.path) + '</code>' +
+          '<button type="button" class="icon-btn icon-btn-sm" data-copy="' + esc(skill.path) + '" aria-label="复制来源路径">' + icon('copy') + '</button>' +
+        '</div>' +
+      '</section>' +
+      '<div class="detail-note">' + icon('info') + '<span>完整 SKILL.md 会在技能被触发时按需加载，不会常驻上下文。</span></div>';
+  }
+
+  function renderDetail(options) {
+    options = options || {};
+    var previousScroll = detailEl.querySelector('.detail-scroll');
+    var previousTop = previousScroll ? previousScroll.scrollTop : 0;
+    var skill = SKILLS.filter(function (item) { return item.id === state.selectedId; })[0];
+    var open = Boolean(skill && state.drawerOpen);
+
+    detailEl.classList.toggle('is-open', open);
+    backdropEl.classList.toggle('is-open', open);
+
+    if (!skill) {
+      detailEl.innerHTML = '<div class="detail-empty">' +
+        '<span class="orb">' + icon('book') + '</span>' +
+        '<p>选择一个技能</p>' +
+        '<span>右侧会显示概览、完整指令与元数据。</span>' +
+        '</div>';
+      return;
+    }
+
+    var busy = Boolean(skill._saving);
+    detailEl.innerHTML = '<div class="detail-head">' +
+        '<span class="tile tile-lg" data-source="' + skill.source + '">' + icon(skill.icon) + '</span>' +
+        '<div class="detail-id">' +
+          '<div class="detail-name">' + esc(skill.displayName) + '</div>' +
+          '<div class="detail-slug">' + esc(skill.id) + ' · v' + esc(skill.version) + '</div>' +
+        '</div>' +
+        '<button type="button" class="icon-btn" data-close-detail aria-label="关闭详情">' + icon('x') + '</button>' +
+      '</div>' +
+      '<div class="detail-switch-row">' +
+        '<label class="switch' + (busy ? ' is-busy' : '') + '">' +
+          '<input type="checkbox" data-detail-switch="' + skill.id + '" ' + (skill.enabled ? 'checked' : '') + ' ' + (busy ? 'disabled' : '') + ' aria-label="' + (skill.enabled ? '停用' : '启用') + ' ' + esc(skill.name) + '">' +
+          '<span class="track"><span class="thumb"></span></span>' +
+          (busy ? '<span class="spinner"></span>' : '') +
+        '</label>' +
+        '<span class="switch-text">' + (skill.enabled ? '已启用' : '未启用') + '</span>' +
+        '<span class="detail-switch-hint">' + (skill.enabled ? '新对话中可用' : '不会注入新对话') + '</span>' +
+      '</div>' +
+      '<div class="tabs" role="tablist" aria-label="技能详情">' +
+        tabButton('overview', '概览') +
+        tabButton('instructions', '指令') +
+        tabButton('metadata', '元数据') +
+      '</div>' +
+      '<div class="detail-scroll">' + detailContent(skill) + '</div>';
+
+    var nextScroll = detailEl.querySelector('.detail-scroll');
+    if (nextScroll) nextScroll.scrollTop = options.resetScroll ? 0 : previousTop;
+  }
+
+  function renderAll(options) {
+    renderSummary();
+    renderBulk();
+    renderStatusSeg();
+    syncSearchChrome();
+    renderSourceMenu();
+    renderList(options);
+    renderDetail(options);
+  }
+
+  function showToast(message, action) {
+    window.clearTimeout(toastTimer);
+    toastEl.innerHTML = '<span>' + esc(message) + '</span>' + (action ? '<button type="button" class="toast-action">' + esc(action.label) + '</button>' : '');
+    if (action) {
+      var actionBtn = toastEl.querySelector('.toast-action');
+      if (actionBtn) actionBtn.addEventListener('click', action.run);
+    }
+    toastEl.classList.add('is-visible');
+    toastTimer = window.setTimeout(hideToast, action ? 3800 : 2400);
+  }
+
+  function hideToast() {
+    window.clearTimeout(toastTimer);
+    toastEl.classList.remove('is-visible');
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).catch(function () { return fallbackCopy(text); });
+    }
+    return Promise.resolve(fallbackCopy(text));
+  }
+
+  function fallbackCopy(text) {
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try { document.execCommand('copy'); } catch (error) { /* 忽略：仅作预览 */ }
+    textarea.remove();
+  }
+
+  function selectSkill(id) {
+    if (state.selectedId === id) {
+      state.drawerOpen = true;
+      renderDetail();
+      return;
+    }
+    state.selectedId = id;
+    state.detailTab = 'overview';
+    state.drawerOpen = true;
+    renderList();
+    renderDetail({ resetScroll: true });
+  }
+
+  function closeDetail() {
+    state.selectedId = null;
+    state.drawerOpen = false;
+    renderList();
+    renderDetail();
+  }
+
+  function toggleSkill(id, next) {
+    var skill = SKILLS.filter(function (item) { return item.id === id; })[0];
+    if (!skill || skill._saving) return;
+    skill._saving = true;
+    renderList();
+    renderDetail();
+    window.setTimeout(function () {
+      skill.enabled = next;
+      skill._saving = false;
+      renderAll();
+      showToast((next ? '已启用' : '已停用') + '「' + skill.displayName + '」');
+    }, 380);
+  }
+
+  function bulkSet(next) {
+    if (state.bulkSaving) return;
+    var targets = visibleSkills().filter(function (skill) { return skill.enabled !== next; });
+    if (!targets.length) return;
+    var before = new Map();
+    SKILLS.forEach(function (skill) { before.set(skill.id, skill.enabled); });
+    state.bulkSaving = true;
+    targets.forEach(function (skill) { skill._saving = true; });
+    renderAll();
+    window.setTimeout(function () {
+      targets.forEach(function (skill) { skill.enabled = next; skill._saving = false; });
+      state.bulkSaving = false;
+      renderAll();
+      showToast((next ? '已启用' : '已停用') + ' ' + targets.length + ' 个技能', {
+        label: '撤销',
+        run: function () {
+          SKILLS.forEach(function (skill) { skill.enabled = before.get(skill.id); });
+          hideToast();
+          renderAll();
+          showToast('已撤销');
+        }
+      });
+    }, 520);
+  }
+
+  function resetFilters() {
+    state.query = '';
+    state.status = 'all';
+    state.source = 'all';
+    searchInput.value = '';
+    renderAll({ resetScroll: true });
+    searchInput.focus();
+  }
+
+  function closeSourceMenu() {
+    sourceMenu.hidden = true;
+    sourceBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function closePathsPopover() {
+    pathsPopover.hidden = true;
+    pathsBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  /* ---- 列表交互 ---- */
+  listEl.addEventListener('click', function (event) {
+    if (event.target.closest('.switch')) return;
+    if (event.target.closest('#resetFilters')) { resetFilters(); return; }
+    var row = event.target.closest('.skill-row');
+    if (row) selectSkill(row.dataset.id);
+  });
+
+  listEl.addEventListener('keydown', function (event) {
+    var row = event.target.closest('.skill-row');
+    if (!row) return;
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      selectSkill(row.dataset.id);
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      var rows = $$('.skill-row', listEl);
+      var index = rows.indexOf(row);
+      var next = rows[index + (event.key === 'ArrowDown' ? 1 : -1)];
+      if (next) next.focus();
+    }
+  });
+
+  listEl.addEventListener('change', function (event) {
+    var input = event.target.closest('.switch input');
+    if (!input) return;
+    var row = input.closest('.skill-row');
+    if (row) toggleSkill(row.dataset.id, input.checked);
+  });
+
+  /* ---- 详情交互 ---- */
+  detailEl.addEventListener('click', function (event) {
+    var tab = event.target.closest('[data-tab]');
+    if (tab) {
+      state.detailTab = tab.dataset.tab;
+      renderDetail({ resetScroll: true });
+      return;
+    }
+    if (event.target.closest('[data-close-detail]')) {
+      closeDetail();
+      return;
+    }
+  });
+
+  detailEl.addEventListener('change', function (event) {
+    var input = event.target.closest('[data-detail-switch]');
+    if (input) toggleSkill(input.dataset.detailSwitch, input.checked);
+  });
+
+  backdropEl.addEventListener('click', closeDetail);
+
+  /* ---- 复制 ---- */
+  document.addEventListener('click', function (event) {
+    var instructionBtn = event.target.closest('[data-copy-text]');
+    if (instructionBtn) {
+      var text = COPY_TEXT[instructionBtn.dataset.copyText];
+      if (text) copyText(text).then(function () { showToast('指令已复制'); });
+      return;
+    }
+    var pathBtn = event.target.closest('[data-copy]');
+    if (pathBtn) {
+      copyText(pathBtn.dataset.copy).then(function () { showToast('路径已复制'); });
+    }
+  });
+
+  /* ---- 搜索与筛选 ---- */
+  searchInput.addEventListener('input', function (event) {
+    state.query = event.target.value;
+    syncSearchChrome();
+    renderList({ resetScroll: true });
+    renderBulk();
+  });
+
+  searchClear.addEventListener('click', function () {
+    state.query = '';
+    searchInput.value = '';
+    syncSearchChrome();
+    renderList({ resetScroll: true });
+    renderBulk();
+    searchInput.focus();
+  });
+
+  $$('#statusSeg button').forEach(function (button) {
+    button.addEventListener('click', function () {
+      state.status = button.dataset.status;
+      renderStatusSeg();
+      renderList({ resetScroll: true });
+      renderBulk();
+    });
+  });
+
+  sourceBtn.addEventListener('click', function () {
+    var willOpen = sourceMenu.hidden;
+    if (willOpen) closePathsPopover();
+    sourceMenu.hidden = !willOpen;
+    sourceBtn.setAttribute('aria-expanded', String(willOpen));
+  });
+
+  sourceMenu.addEventListener('click', function (event) {
+    var option = event.target.closest('[data-source]');
+    if (!option) return;
+    state.source = option.dataset.source;
+    closeSourceMenu();
+    renderSourceMenu();
+    renderList({ resetScroll: true });
+    renderBulk();
+  });
+
+  $('#bulkEnable').addEventListener('click', function () { bulkSet(true); });
+  $('#bulkDisable').addEventListener('click', function () { bulkSet(false); });
+
+  /* ---- 搜索路径 / 重新扫描 ---- */
+  pathsBtn.addEventListener('click', function () {
+    var willOpen = pathsPopover.hidden;
+    if (willOpen) closeSourceMenu();
+    pathsPopover.hidden = !willOpen;
+    pathsBtn.setAttribute('aria-expanded', String(willOpen));
+  });
+
+  rescanBtn.addEventListener('click', function () {
+    if (rescanBtn.classList.contains('is-loading')) return;
+    rescanBtn.classList.add('is-loading');
+    rescanBtn.disabled = true;
+    window.setTimeout(function () {
+      rescanBtn.classList.remove('is-loading');
+      rescanBtn.disabled = false;
+      showToast('已重新扫描，共 ' + SKILLS.length + ' 个技能');
+    }, 900);
+  });
+
+  /* ---- 主题 / 宽度 ---- */
+  $$('#themeSeg button').forEach(function (button) {
+    button.addEventListener('click', function () {
+      document.documentElement.dataset.theme = button.dataset.themeValue;
+      $$('#themeSeg button').forEach(function (item) {
+        item.setAttribute('aria-pressed', String(item === button));
+      });
+    });
+  });
+
+  $$('#widthSeg button').forEach(function (button) {
+    button.addEventListener('click', function () {
+      app.classList.toggle('is-narrow', button.dataset.width === 'narrow');
+      $$('#widthSeg button').forEach(function (item) {
+        item.setAttribute('aria-pressed', String(item === button));
+      });
+    });
+  });
+
+  /* ---- 全局键位与收起 ---- */
+  document.addEventListener('click', function (event) {
+    if (!event.target.closest('#sourceDropdown')) closeSourceMenu();
+    if (!event.target.closest('#pathsAnchor')) closePathsPopover();
+  });
+
+  document.addEventListener('keydown', function (event) {
+    var tag = (document.activeElement && document.activeElement.tagName) || '';
+    var typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+      return;
+    }
+    if (event.key === '/' && !typing) {
+      event.preventDefault();
+      searchInput.focus();
+      return;
+    }
+    if (event.key === 'Escape') {
+      if (!sourceMenu.hidden || !pathsPopover.hidden) {
+        closeSourceMenu();
+        closePathsPopover();
+        return;
+      }
+      if (document.activeElement === searchInput && state.query) {
+        state.query = '';
+        searchInput.value = '';
+        syncSearchChrome();
+        renderList({ resetScroll: true });
+        renderBulk();
+        return;
+      }
+      if (state.drawerOpen) closeDetail();
+    }
+  });
+
+  /* ---- URL 参数：方便直接分享某一种预览状态 ---- */
+  var params = new URLSearchParams(window.location.search);
+  var initialTheme = params.get('theme');
+  if (initialTheme === 'dark' || initialTheme === 'light') {
+    document.documentElement.dataset.theme = initialTheme;
+    $$('#themeSeg button').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.dataset.themeValue === initialTheme));
+    });
+  }
+  if (params.get('width') === 'narrow') {
+    app.classList.add('is-narrow');
+    $$('#widthSeg button').forEach(function (button) {
+      button.setAttribute('aria-pressed', String(button.dataset.width === 'narrow'));
+    });
+  }
+  if (params.get('detail') === 'open') state.drawerOpen = true;
+  var initialTab = params.get('tab');
+  if (initialTab === 'overview' || initialTab === 'instructions' || initialTab === 'metadata') {
+    state.detailTab = initialTab;
+  }
+  if (params.get('q')) {
+    state.query = params.get('q');
+    searchInput.value = state.query;
+  }
+
+  renderAll({ resetScroll: true });
+})();
+</script>
+</body>
+</html>

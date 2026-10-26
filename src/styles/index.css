@@ -23,6 +23,7 @@
 @import "./settings/forms.css";
 @import "./settings/select.css";
 @import "./settings/controls.css";
+@import "./settings/skills.css";
 
 /* Shared UI and typography */
 @import "./chat/messages.css";

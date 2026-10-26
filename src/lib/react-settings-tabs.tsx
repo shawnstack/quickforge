@@ -1,5 +1,6 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { t } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 
 const AppearanceSettingsTab = lazy(() => import('@/components/settings/tabs/AppearanceSettingsTab').then((m) => ({ default: m.AppearanceSettingsTab })))
 const DefaultOptionsSettingsTab = lazy(() => import('@/components/settings/tabs/DefaultOptionsSettingsTab').then((m) => ({ default: m.DefaultOptionsSettingsTab })))
@@ -16,8 +17,8 @@ const SkillsManagerPanel = lazy(() => import('@/components/skills-dialog').then(
 const PluginsPage = lazy(() => import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })))
 const ScheduledTasksPage = lazy(() => import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })))
 
-function SettingsPanel({ children }: { children: ReactNode }) {
-  return <div className="quickforge-settings-stack h-full min-h-[30rem]">{children}</div>
+function SettingsPanel({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return <div className={cn('quickforge-settings-stack h-full min-h-[30rem]', wide && 'quickforge-settings-stack-wide')}>{children}</div>
 }
 
 function openScheduledTaskSession(sessionId: string) {
@@ -34,7 +35,7 @@ const tabContent = {
   network: (_customProvider?: string, active?: boolean) => <NetworkSettingsTab active={active} />,
   customModels: (customProvider?: string, active?: boolean) => <CustomProvidersSettingsTab customProvider={customProvider} active={active} />,
   agents: () => <SettingsPanel><AgentProfilesPage /></SettingsPanel>,
-  skills: () => <SettingsPanel><SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} /></SettingsPanel>,
+  skills: () => <SettingsPanel wide><SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} /></SettingsPanel>,
   mcp: () => <SettingsPanel><McpServersPanel active /></SettingsPanel>,
   plugins: () => <SettingsPanel><PluginsPage /></SettingsPanel>,
   scheduledTasks: () => <SettingsPanel><ScheduledTasksPage onOpenSession={openScheduledTaskSession} /></SettingsPanel>,

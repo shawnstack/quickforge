@@ -9,6 +9,11 @@
   gap: 1.5rem;
 }
 
+/* List-first settings pages need the extra room for filter toolbars and rows. */
+.quickforge-settings-stack-wide {
+  max-width: 72rem;
+}
+
 .quickforge-settings-group {
   display: flex;
   flex-direction: column;

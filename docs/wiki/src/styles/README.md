@@ -27,11 +27,12 @@ src/styles/
 ├── ui/
 │   └── info-tip.css             # 问号说明浮层与 rollback popover 箭头
 ├── settings/
-│   ├── shell.css                # 设置栈、分组、子标签
+│   ├── shell.css                # 设置栈、分组、子标签、宽版列表页栈
 │   ├── appearance.css           # 外观主题选择与预览
 │   ├── forms.css                # 页头、行、列表头、输入行布局
 │   ├── select.css               # 自定义下拉框（桌面 + 移动模型选择）
-│   └── controls.css             # 数字/分段/滑杆、消息、列表项、按钮、开关等
+│   ├── controls.css             # 数字/分段/滑杆、消息、列表项、按钮、开关等
+│   └── skills.css               # 技能页：筛选工具条、来源分组、行、详情弹窗与 markdown
 ├── chat/
 │   ├── messages.css             # 消息滚动、轮次导航、用量行、用户气泡、输入收起
 │   ├── code-blocks.css          # 代码块/SVG/Mermaid 卡片兼容规则

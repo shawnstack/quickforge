@@ -1,3 +1,23 @@
 {
-  "features": []
+  "features": [
+    {
+      "id": "skills-settings-redesign",
+      "title": "技能设置页重构：分组筛选列表 + 点击行详情弹窗",
+      "status": "done",
+      "summary": "重写 SkillsManagerPanel：全宽筛选/分组列表、批量启停与撤销、搜索路径与重新扫描；点击技能行打开居中详情弹窗（概览/指令/元数据），保留原有 /api/skills 读写语义。",
+      "files": [
+        "src/components/skills-dialog.tsx",
+        "src/styles/settings/skills.css",
+        "src/styles/index.css",
+        "src/styles/settings/shell.css",
+        "src/lib/react-settings-tabs.tsx",
+        "src/lib/i18n.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/design/skills-settings-redesign.html"
+      ],
+      "verification": "build/lint/targeted tests pass; full suite runnable files pass (398 files / 4664 tests), jsdom-environment tests cannot start because node_modules/jsdom is not installed",
+      "updatedAt": "2026-10-26"
+    }
+  ]
 }

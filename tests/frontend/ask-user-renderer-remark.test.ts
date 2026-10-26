@@ -70,18 +70,73 @@ describe('ask_user history receipt renders the review-step note', () => {
     expect(markup).not.toContain('askUserRemarkLabel')
   })
 
-  it('never shows the note for a skipped ask', () => {
+  it('keeps the note visible for a skipped ask', () => {
+    // 跳过态也回显补充信息：那是用户唯一留下的自由文本，不能因为 skipped 丢掉。
     const markup = render({
       askId: 'a1',
       questions,
       answers: [],
       skipped: true,
       skipReason: 'timeout',
-      remark: '这段不该出现',
+      remark: '这段现在会出现',
     })
-    expect(markup).not.toContain('这段不该出现')
-    expect(markup).not.toContain('quickforge-ask-review-row--remark')
+    expect(markup).toContain('这段现在会出现')
+    expect(markup).toContain('quickforge-ask-review-row--remark')
     expect(markup).toContain('askUserSkipReasonTimeout')
+    // 跳过态的问答行带上自己的行标记
+    expect(markup).toContain('quickforge-ask-review-row--skipped')
+  })
+
+  it('still renders the receipt when the server persisted answers: null', () => {
+    // 服务端跳过/超时路径写的是 answers: null；旧实现会因此退回原始问题清单，
+    // 跳过原因和备注就一起丢了。
+    const markup = render({
+      askId: 'a1',
+      questions,
+      answers: null,
+      skipped: true,
+      skipReason: 'timeout',
+      remark: '超时前我写了这句',
+    })
+    expect(markup).toContain('1. 方向？')
+    expect(markup).toContain('askUserSkipReasonTimeout')
+    expect(markup).toContain('超时前我写了这句')
+    expect(markup).toContain('quickforge-ask-review-row')
+    // 不能再退回「原始问题清单」回退视图
+    expect(markup).not.toContain('quickforge-ask-tool-questions')
+  })
+
+  it('renders a custom-only answer as its own note block, not one joined line', () => {
+    const markup = render({
+      askId: 'a1',
+      questions,
+      answers: [{ custom: '只要最小改动' }, { choices: ['npm'], custom: '别碰 dist' }],
+      skipped: false,
+    })
+    // 没选选项时明说「未选择选项」，而不是把补充文本当成答案
+    expect(markup).toContain('quickforge-ask-answer-empty')
+    expect(markup).toContain('askUserNoChoiceLabel')
+    // 补充文本单独成块，带自己的标签
+    expect(markup).toContain('quickforge-ask-answer-extra')
+    expect(markup).toContain('askUserExtraLabel')
+    expect(markup).toContain('只要最小改动')
+    expect(markup).toContain('别碰 dist')
+    // 选项渲染成 chip
+    expect(markup).toContain('quickforge-ask-answer-chip')
+    expect(markup).toContain('npm')
+    // 旧的「选项 + 全角空格 + 补充：…」拼接串必须消失
+    expect(markup).not.toContain('npm\u3000\u8865\u5145\uff1a\u522b\u78b0 dist')
+  })
+
+  it('omits the note block when the answer is choices only', () => {
+    const markup = render({
+      askId: 'a1',
+      questions,
+      answers: [{ choices: ['A'] }],
+      skipped: false,
+    })
+    expect(markup).toContain('quickforge-ask-answer-chip')
+    expect(markup).not.toContain('quickforge-ask-answer-extra')
   })
 
   it('keeps detailed mode on the raw view (no receipt rows at all)', () => {

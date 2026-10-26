@@ -32,7 +32,8 @@ src/styles/
 │   ├── forms.css                # 页头、行、列表头、输入行布局
 │   ├── select.css               # 自定义下拉框（桌面 + 移动模型选择）
 │   ├── controls.css             # 数字/分段/滑杆、消息、列表项、按钮、开关等
-│   └── skills.css               # 技能页：筛选工具条、来源分组、行、详情弹窗与 markdown
+│   ├── skills.css               # 技能页：筛选工具条、来源分组、行、详情弹窗与 markdown
+│   └── custom-providers.css      # 模型与提供商页：提供商列表 / 连接 / 模型三层主从布局（窄屏抽屉）
 ├── chat/
 │   ├── messages.css             # 消息滚动、轮次导航、用量行、用户气泡、输入收起
 │   ├── code-blocks.css          # 代码块/SVG/Mermaid 卡片兼容规则
@@ -51,7 +52,7 @@ src/styles/
 │   ├── composer-controls.css    # 附件、plus 菜单、思考/权限、模型菜单、发送/停止
 │   ├── empty-state.css          # 任务启动器、空对话、项目选择（含「在 workspace 下新建项目」内嵌面板）
 │   ├── compact.css              # 对话区 icon-only 紧凑模式
-│   ├── interaction-cards.css    # 审批卡与 ask-user 向导卡
+│   ├── interaction-cards.css    # 审批卡与 ask-user 向导卡（含回执分段 .quickforge-ask-answer-choice/-chip/-extra/-extra-label/-extra-text/-empty、跳过态 .quickforge-ask-review-row--skipped / .quickforge-ask-review-skip、已填写徽标 .quickforge-ask-custom-toggle--filled / .quickforge-ask-custom-filled）
 │   ├── runtime-notices.css      # 排队消息、SSE 重连、轮次错误
 │   ├── artifact-cards.css       # 产物文件卡与变更文件聚合卡
 │   ├── goal-workflow.css        # goal 条带/报告、todo 历史、workflow 摘要卡

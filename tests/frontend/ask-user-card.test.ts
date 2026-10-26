@@ -5,7 +5,7 @@ import { appCss } from '../helpers/app-css'
 
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }), { virtual: true })
 
-import { buildAskAnswerText, buildAskDisplaySignature, isAskAnswered } from '../../src/components/chat/panel-decoration/ask-user-card'
+import { buildAskAnswerText, buildAskDisplaySignature, isAskAnswered, splitAskAnswer } from '../../src/components/chat/panel-decoration/ask-user-card'
 
 describe('isAskAnswered', () => {
   it('requires choices or non-empty custom text', () => {
@@ -25,6 +25,18 @@ describe('buildAskAnswerText', () => {
     expect(buildAskAnswerText({ custom: '自定义' })).toBe('自定义')
     expect(buildAskAnswerText(undefined)).toBe('')
     expect(buildAskAnswerText({})).toBe('')
+  })
+})
+
+describe('splitAskAnswer', () => {
+  it('splits choices from the free-form note and drops empty values', () => {
+    expect(splitAskAnswer(undefined)).toEqual({ choices: [], custom: '' })
+    // 空串/纯空白选项不算选中项
+    expect(splitAskAnswer({ choices: ['a', '', '  ', 'b'] })).toEqual({ choices: ['a', 'b'], custom: '' })
+    // 补充文本两端空白在回执里没有意义
+    expect(splitAskAnswer({ custom: '  我的想法  ' })).toEqual({ choices: [], custom: '我的想法' })
+    // 两者共存时都保留，交给渲染层分段呈现
+    expect(splitAskAnswer({ choices: ['a'], custom: 'x' })).toEqual({ choices: ['a'], custom: 'x' })
   })
 })
 
@@ -65,6 +77,7 @@ describe('askUserReviewRowsFromDetails', () => {
     answers: Array<{ choices?: string[]; custom?: string } | undefined>
     skipped: boolean
     skipReason?: string
+    remark?: string
   } | null
 
   const askUserReviewRowsFromDetails = new Function(
@@ -112,8 +125,24 @@ describe('askUserReviewRowsFromDetails', () => {
     expect(askUserReviewRowsFromDetails([])).toBeNull()
     expect(askUserReviewRowsFromDetails({ answers: [{ choices: ['A'] }] })).toBeNull()
     expect(askUserReviewRowsFromDetails({ questions: [], answers: [] })).toBeNull()
-    expect(askUserReviewRowsFromDetails({ questions: [{ question: 'Q1' }] })).toBeNull()
     expect(askUserReviewRowsFromDetails({ questions: [{ question: 1 }], answers: [] })).toBeNull()
+  })
+
+  it('tolerates a missing or null answers list on the skip path', () => {
+    // 服务端跳过/超时写的是 answers: null；不能因此把整条回执判成畸形。
+    for (const answers of [undefined, null]) {
+      const rows = askUserReviewRowsFromDetails({
+        questions: [{ question: 'Q1' }],
+        answers,
+        skipped: true,
+        skipReason: 'timeout',
+        remark: '超时前我写了这句',
+      })
+      expect(rows?.questions).toEqual([{ question: 'Q1' }])
+      expect(rows?.answers).toEqual([undefined])
+      expect(rows?.skipped).toBe(true)
+      expect(rows?.remark).toBe('超时前我写了这句')
+    }
   })
 })
 
@@ -142,6 +171,9 @@ describe('ask-user card wiring', () => {
       '.quickforge-ask-check',
       '.quickforge-ask-custom-input',
       '.quickforge-ask-review-row',
+      '.quickforge-ask-answer-choice',
+      '.quickforge-ask-answer-extra',
+      '.quickforge-ask-answer-empty',
       '.quickforge-ask-actions',
       '.quickforge-ask-body--enter',
     ]) {
@@ -175,7 +207,7 @@ describe('ask-user card wiring', () => {
     // The renderer reads the structured answers persisted in toolResult.details
     // and renders read-only review rows (same receipt styles as the submit
     // step, minus the edit button) for answered and skipped calls.
-    expect(askUserRenderer).toContain("import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'")
+    expect(askUserRenderer).toContain("import { splitAskAnswer } from '@/components/chat/panel-decoration/ask-user-card'")
     expect(askUserRenderer).toContain('const review = askUserReviewRowsFromDetails(result?.details)')
     expect(askUserRenderer).toContain('const reviewActive = review !== null && !detailed')
     // Non-detailed resolved asks drop both the raw question list and the
@@ -184,11 +216,17 @@ describe('ask-user card wiring', () => {
     expect(askUserRenderer).toContain('questions.length && !detailed && review === null')
     const rendererBlock = askUserRenderer.slice(askUserRenderer.indexOf('class AskUserToolRenderer'))
     expect(rendererBlock).toContain('className="quickforge-ask-review"')
-    expect(rendererBlock).toContain('className="quickforge-ask-review-row"')
+    // 行 class 现在按跳过态动态拼接
+    expect(rendererBlock).toContain('quickforge-ask-review-row${review?.skipped ? \' quickforge-ask-review-row--skipped\' : \'\'}')
     expect(rendererBlock).toContain('className="quickforge-ask-review-content"')
     expect(rendererBlock).toContain('className="quickforge-ask-review-question"')
     expect(rendererBlock).toContain('className="quickforge-ask-review-answer"')
-    expect(rendererBlock).toContain("buildAskAnswerText(review.answers[index]) || t('askUserUnanswered')")
+    // 答案分段渲染：选项成 chip、补充文本独立成块、没选选项时明说
+    expect(rendererBlock).toContain('className="quickforge-ask-answer-choice"')
+    expect(rendererBlock).toContain('className="quickforge-ask-answer-chip"')
+    expect(rendererBlock).toContain('className="quickforge-ask-answer-extra"')
+    expect(rendererBlock).toContain("t('askUserNoChoiceLabel')")
+    expect(rendererBlock).toContain("t('askUserExtraLabel')")
     expect(rendererBlock).toContain('askUserSkipReasonText(review.skipReason)')
     // History rows are read-only — the card's edit button must not appear.
     expect(rendererBlock).not.toContain('quickforge-ask-review-edit')
@@ -231,6 +269,24 @@ describe('ask-user card wiring', () => {
     expect(customBlock).toContain('advance()')
   })
 
+  it('Enter during IME composition must not advance the wizard', () => {
+    const customBlock = card.slice(card.indexOf("customInput?.addEventListener('keydown'"), card.indexOf('// Skipping discards every answer'))
+    // 中文/日文输入法用 Enter 提交候选词，那一次 Enter 不能当成确认
+    expect(customBlock).toContain('e.isComposing')
+    expect(customBlock).toContain('keyCode === 229')
+    expect(customBlock.indexOf('e.isComposing')).toBeLessThan(customBlock.indexOf("e.key === 'Enter'"))
+  })
+
+  it('the custom note box remembers what was typed', () => {
+    // 已经写过的补充说明要看得出来：toggle 带「已填写」徽标，输入框预展开并回填
+    expect(card).toContain('quickforge-ask-custom-toggle--filled')
+    expect(card).toContain('quickforge-ask-custom-filled')
+    expect(card).toContain("t('askUserFilledHint')")
+    // 有内容时补充框预展开，并在渲染后回填已输入的文本
+    expect(card).toContain("customFilled ? '' : ' hidden'")
+    expect(card).toContain('customInput.value = answers[step].custom ??')
+  })
+
   it('skip requires a second click and disarms on other interactions', () => {
     const skipBlock = card.slice(card.indexOf("skipBtn.addEventListener('click'"), card.indexOf('if (disabled)'))
     expect(skipBlock).toContain('if (!skipArmed)')
@@ -262,7 +318,7 @@ describe('ask-user card wiring', () => {
   })
 
   it('i18n carries every ask key in both locales', () => {
-    for (const key of ['askUserTitle', 'askUserProgress', 'askUserSubmit', 'askUserSkip', 'askUserSkipConfirm', 'askUserNext', 'askUserBack', 'askUserCustomToggle', 'askUserCustomPlaceholder', 'askUserEdit', 'askUserFailed', 'askUserUnanswered', 'askUserSkipReasonTimeout', 'askUserSkipReasonAborted', 'askUserSkipReasonNoQuestions', 'askUserSkipReasonUser']) {
+    for (const key of ['askUserTitle', 'askUserProgress', 'askUserSubmit', 'askUserSkip', 'askUserSkipConfirm', 'askUserNext', 'askUserBack', 'askUserCustomToggle', 'askUserCustomPlaceholder', 'askUserEdit', 'askUserFailed', 'askUserUnanswered', 'askUserSkipReasonTimeout', 'askUserSkipReasonAborted', 'askUserSkipReasonNoQuestions', 'askUserSkipReasonUser', 'askUserExtraLabel', 'askUserNoChoiceLabel', 'askUserFilledHint']) {
       expect(i18n.match(new RegExp(`${key}:`, 'g'))?.length).toBeGreaterThanOrEqual(2)
     }
   })
@@ -320,7 +376,7 @@ describe('ask-user card wiring', () => {
     expect(host).toContain('propsRef.current.onAnswerAsk?.(capturedAskId, answers, false, remark)')
     expect(serverAgent).toContain('remark: payload.remark')
     expect(askUserRenderer).toContain("remark: typeof record.remark === 'string'")
-    expect(askUserRenderer).toContain('const reviewRemark = review && reviewActive && !review.skipped ? review.remark : undefined')
+    expect(askUserRenderer).toContain('const reviewRemark = review && reviewActive ? review.remark : undefined')
     expect(askUserRenderer).toContain("{t('askUserRemarkLabel')}")
     for (const key of ['askUserRemarkLabel', 'askUserRemarkPlaceholder', 'askUserRemarkOptional']) {
       expect(i18n.match(new RegExp(`${key}:`, 'g'))?.length).toBeGreaterThanOrEqual(2)

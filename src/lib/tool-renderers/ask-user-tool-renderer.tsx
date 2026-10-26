@@ -1,5 +1,5 @@
 import { t, type AppTextKey } from '@/lib/i18n'
-import { buildAskAnswerText } from '@/components/chat/panel-decoration/ask-user-card'
+import { splitAskAnswer } from '@/components/chat/panel-decoration/ask-user-card'
 import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   isRecord,
@@ -42,6 +42,9 @@ export type AskUserReviewRows = {
  * Structured ask_user answer data from the persisted toolResult.details
  * ({askId, questions, answers, skipped, skipReason?, remark?}); null when the
  * shape is missing or malformed (pending call, legacy message).
+ * `answers` may be null or absent on the skipped/timeout path; each question
+ * then maps to `undefined` so the receipt still shows the questions, the skip
+ * reason and any note.
  */
 export function askUserReviewRowsFromDetails(details: unknown): AskUserReviewRows | null {
   if (!details || typeof details !== 'object' || Array.isArray(details)) return null
@@ -49,7 +52,9 @@ export function askUserReviewRowsFromDetails(details: unknown): AskUserReviewRow
   const rawQuestions = record.questions
   const rawAnswers = record.answers
   if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) return null
-  if (!Array.isArray(rawAnswers)) return null
+  // Skipped/timeout asks persist `answers: null` (see the server orchestrator);
+  // the receipt must still render the questions, the skip reason, and any note.
+  const answerList = Array.isArray(rawAnswers) ? rawAnswers : []
   const questions: Array<{ question: string }> = []
   for (const question of rawQuestions) {
     if (!question || typeof question !== 'object' || Array.isArray(question)) return null
@@ -59,7 +64,7 @@ export function askUserReviewRowsFromDetails(details: unknown): AskUserReviewRow
   }
   // Answers align with questions: trailing unanswered slots stay undefined.
   const answers = questions.map((_, index) => {
-    const answer = rawAnswers[index]
+    const answer = answerList[index]
     if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return undefined
     const entry = answer as Record<string, unknown>
     return {
@@ -105,13 +110,14 @@ export class AskUserToolRenderer {
     const reviewRows = review && reviewActive
       ? review.questions.map((question, index) => ({
         question: `${index + 1}. ${question.question}`,
-        answer: review.skipped ? t('askUserUnanswered') : buildAskAnswerText(review.answers[index]) || t('askUserUnanswered'),
+        segments: review.skipped ? null : splitAskAnswer(review.answers[index]),
       }))
       : []
     const reviewSkipNote = review && reviewActive && review.skipped ? askUserSkipReasonText(review.skipReason) : ''
     // The review-step note is not a question answer, so it renders as its own
     // trailing receipt row (dashed rail) instead of widening any answer above.
-    const reviewRemark = review && reviewActive && !review.skipped ? review.remark : undefined
+    // Skipped asks keep it too: it is the only free-form context the user gave.
+    const reviewRemark = review && reviewActive ? review.remark : undefined
     const summary = questions.length
       ? `${t('askUserSummaryCount', { count: String(questions.length) })}${questions[0] ? ` · ${questions[0]}` : ''}`
       : ''
@@ -135,12 +141,32 @@ export class AskUserToolRenderer {
             <div className="mt-3 space-y-3">
               {reviewRows.length ? (
                 <div className="quickforge-ask-review">
-                  {reviewSkipNote ? <div className="quickforge-ask-review-answer">{reviewSkipNote}</div> : null}
+                  {reviewSkipNote ? <div className="quickforge-ask-review-answer quickforge-ask-review-skip">{reviewSkipNote}</div> : null}
                   {reviewRows.map((row, index) => (
-                    <div className="quickforge-ask-review-row" key={index}>
+                    <div className={`quickforge-ask-review-row${review?.skipped ? ' quickforge-ask-review-row--skipped' : ''}`} key={index}>
                       <div className="quickforge-ask-review-content">
                         <span className="quickforge-ask-review-question">{row.question}</span>
-                        <span className="quickforge-ask-review-answer">{row.answer}</span>
+                        {row.segments === null || (!row.segments.choices.length && !row.segments.custom) ? (
+                          <span className="quickforge-ask-review-answer">{t('askUserUnanswered')}</span>
+                        ) : (
+                          <>
+                            {row.segments.choices.length ? (
+                              <div className="quickforge-ask-answer-choice">
+                                {row.segments.choices.map((choice, choiceIndex) => (
+                                  <span className="quickforge-ask-answer-chip" key={choiceIndex}>{choice}</span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="quickforge-ask-answer-empty">{t('askUserNoChoiceLabel')}</span>
+                            )}
+                            {row.segments.custom ? (
+                              <div className="quickforge-ask-answer-extra">
+                                <span className="quickforge-ask-answer-extra-label">{t('askUserExtraLabel')}</span>
+                                <span className="quickforge-ask-answer-extra-text">{row.segments.custom}</span>
+                              </div>
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </div>
                   ))}

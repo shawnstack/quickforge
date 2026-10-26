@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ask_user 回显修复 · 视觉与交互方案</title>
+<style>
+  /* ============================================================
+     令牌：取自 src/styles/foundation.css 的 :root / html.dark
+     （仅手工复制本页需要的子集，不做任何外部引用）
+     ============================================================ */
+  :root {
+    color-scheme: light;
+
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --primary: oklch(0.205 0 0);
+    --workflow-done: oklch(0.55 0.13 158);
+
+    --radius: 0.625rem;
+    --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --spacing: 0.25rem;
+
+    /* 主结构分割线统一配方：1px + border 60% */
+    --divider: color-mix(in oklab, var(--border) 60%, transparent);
+
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  html.dark {
+    color-scheme: dark;
+
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --primary: oklch(0.985 0 0);
+    --workflow-done: oklch(0.75 0.15 160);
+  }
+
+  /* ============================================================
+     页面骨架
+     ============================================================ */
+  * { box-sizing: border-box; }
+
+  html { font-size: 13px; }
+
+  body {
+    margin: 0;
+    padding: 30px 24px 96px;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 960px; margin: 0 auto; }
+
+  .page-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.5rem;
+    padding-bottom: 1.25rem;
+    border-bottom: 1px solid var(--divider);
+  }
+  .page-head h1 {
+    margin: 0 0 0.375rem;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+  }
+  .page-head p {
+    margin: 0;
+    max-width: 40em;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .theme-btn {
+    margin-left: auto;
+    flex: none;
+    padding: 0.3125rem 0.75rem;
+    border: 1px solid var(--divider);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .theme-btn:hover { color: var(--foreground); background: var(--muted); }
+  .theme-btn:active { transform: scale(0.97); }
+
+  section { margin: 0; }
+
+  h2 {
+    margin: 2.25rem 0 0.875rem;
+    padding-top: 1.125rem;
+    border-top: 1px solid var(--divider);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+  h3 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+  h3 .h3-note {
+    margin-left: 0.375rem;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--muted-foreground);
+  }
+
+  p.lead {
+    margin: 0 0 0.875rem;
+    max-width: 46em;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  code {
+    padding: 0.0625rem 0.25rem;
+    border-radius: 0.25rem;
+    background: var(--muted);
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+  }
+
+  .tag {
+    padding: 0.0625rem 0.375rem;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    vertical-align: 0.0625rem;
+  }
+  .tag--rec {
+    border-color: color-mix(in oklab, var(--primary) 40%, var(--divider));
+    color: var(--foreground);
+  }
+  .tag--muted { border-color: var(--divider); color: var(--muted-foreground); }
+
+  /* ============================================================
+     现象清单
+     ============================================================ */
+  .symptom {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+  }
+  .symptom li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0.625rem;
+    padding-bottom: 0.625rem;
+    border-bottom: 1px solid var(--divider);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--muted-foreground);
+  }
+  .symptom li:last-child { border-bottom: 0; padding-bottom: 0; }
+  .symptom strong { color: var(--foreground); font-weight: 600; }
+  .symptom-num {
+    flex: none;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 0.1875rem;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  /* ============================================================
+     通用版式：左演示 / 右注释
+     ============================================================ */
+  .split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 232px;
+    gap: 1.5rem;
+    align-items: start;
+  }
+  .stack { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+
+  .notes {
+    margin: 0;
+    padding: 0 0 0 0.75rem;
+    border-left: 1px solid var(--divider);
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .notes li::before {
+    content: "·";
+    margin-right: 0.375rem;
+    color: var(--muted-foreground);
+  }
+  .notes b { color: var(--foreground); font-weight: 600; }
+
+  /* 序号角标：用于在演示里点名问题 */
+  .anno {
+    display: inline-grid;
+    place-items: center;
+    width: 1rem;
+    height: 1rem;
+    margin: 0 0.1875rem;
+    border: 1px solid color-mix(in oklab, var(--muted-foreground) 40%, var(--divider));
+    border-radius: 50%;
+    color: var(--muted-foreground);
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 1;
+    vertical-align: 0.0625rem;
+    user-select: none;
+  }
+  .anno-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+    margin-top: 0.125rem;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+  .anno-line .anno { margin: 0; flex: none; }
+
+  /* ============================================================
+     以下是卡片本体：复刻 .quickforge-ask-*（边框单层、无阴影）
+     ============================================================ */
+  .quickforge-ask-card {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing) * 2.25);
+    padding: 0.8125rem 0.9375rem 0.875rem 1.0625rem;
+    border: 1px solid var(--divider);
+    border-radius: calc(var(--radius) + 0.125rem);
+    background: color-mix(in oklab, var(--background) 96%, var(--muted));
+  }
+  .quickforge-ask-card--flat { background: transparent; }
+
+  .quickforge-ask-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4375rem;
+    color: var(--muted-foreground);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .icon {
+    width: 1rem;
+    height: 1rem;
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .icon--sm { width: 0.8125rem; height: 0.8125rem; stroke-width: 2; }
+
+  .quickforge-ask-waiting {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-weight: 500;
+    font-size: 11px;
+  }
+  .quickforge-ask-dot {
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border-radius: 50%;
+    background: var(--primary);
+    animation: quickforge-ask-breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes quickforge-ask-breathe { 50% { opacity: 0.35; } }
+
+  .quickforge-ask-dots { display: flex; gap: 0.375rem; }
+  .quickforge-ask-step {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    border: 1.5px solid var(--border);
+  }
+  .quickforge-ask-step--done {
+    border-color: transparent;
+    background: var(--primary);
+    opacity: 0.55;
+  }
+
+  .quickforge-ask-question {
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 560;
+  }
+  .quickforge-ask-chip {
+    margin-left: 0.375rem;
+    padding: 0 0.3125rem;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    color: var(--muted-foreground);
+    font-size: 10px;
+    font-weight: 500;
+    vertical-align: 0.0625rem;
+  }
+
+  /* 待答：选项行 */
+  .quickforge-ask-options { display: flex; flex-direction: column; gap: 0.3125rem; }
+  .quickforge-ask-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5625rem;
+    border: 1px solid var(--divider);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out);
+  }
+  .quickforge-ask-option:hover { background: var(--muted); }
+  .quickforge-ask-option--picked {
+    border-color: color-mix(in oklab, var(--primary) 40%, var(--divider));
+    background: var(--muted);
+  }
+  .quickforge-ask-check {
+    flex: none;
+    width: 0.75rem;
+    height: 0.75rem;
+    margin-top: 0.1875rem;
+    border: 1.5px solid var(--border);
+    border-radius: 50%;
+  }
+  .quickforge-ask-option--picked .quickforge-ask-check {
+    border-color: transparent;
+    background: var(--primary);
+    box-shadow: inset 0 0 0 2px var(--muted);
+  }
+  .quickforge-ask-option-body { display: flex; flex-direction: column; gap: 0.0625rem; min-width: 0; }
+  .quickforge-ask-option-label { font-weight: 560; overflow-wrap: anywhere; }
+  .quickforge-ask-option-desc { color: var(--muted-foreground); font-size: 11px; }
+  .quickforge-ask-option-arrow {
+    margin-left: auto;
+    align-self: center;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    user-select: none;
+  }
+
+  /* 待答：自定义补充开关 + 输入框 */
+  .quickforge-ask-custom-toggle {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding: 0.125rem 0.375rem 0.125rem 0.25rem;
+    margin-left: -0.25rem;
+    border: 0;
+    border-radius: calc(var(--radius) - 0.125rem);
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out);
+  }
+  .quickforge-ask-custom-toggle:hover { color: var(--foreground); background: var(--muted); }
+  .quickforge-ask-custom-toggle[aria-expanded="true"] .icon { transform: rotate(45deg); }
+  .quickforge-ask-custom-toggle .icon { transition: transform var(--dur-base) var(--ease-out); }
+
+  /* 新增：已填写指示（复用 workflow-done，弱化底色，不抢眼） */
+  .quickforge-ask-custom-filled {
+    padding: 0 0.3125rem;
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--workflow-done) 14%, transparent);
+    color: var(--workflow-done);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1.7;
+  }
+
+  .quickforge-ask-custom { display: flex; flex-direction: column; gap: 0.375rem; }
+  .quickforge-ask-custom[hidden] { display: none; }
+  .quickforge-ask-custom-input {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.4375rem 0.625rem;
+    border: 1px solid var(--divider);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  .quickforge-ask-custom-input:focus {
+    border-color: color-mix(in oklab, var(--foreground) 30%, var(--divider));
+  }
+  .quickforge-ask-custom-input::placeholder { color: var(--muted-foreground); }
+
+  /* 回执列表 */
+  .quickforge-ask-review { display: flex; flex-direction: column; gap: 0.4375rem; }
+  .quickforge-ask-review-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.3125rem 0 0.3125rem 0.625rem;
+    border-left: 2px solid var(--primary);
+  }
+  .quickforge-ask-review-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.0625rem;
+    min-width: 0;
+  }
+  .quickforge-ask-review-question {
+    color: var(--foreground);
+    font-size: 13px;
+    font-weight: 560;
+  }
+  .quickforge-ask-review-answer {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+  .quickforge-ask-review-edit {
+    flex: none;
+    margin-left: auto;
+    padding: 0.125rem 0.4375rem;
+    border: 0;
+    border-radius: calc(var(--radius) - 0.125rem);
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 560;
+    cursor: pointer;
+    transition: color var(--dur-fast) var(--ease-out),
+                background-color var(--dur-fast) var(--ease-out);
+  }
+  .quickforge-ask-review-edit:hover { color: var(--foreground); background: var(--muted); }
+
+  /* ---- 新增：答案内「选项 / 补充 / 未选择」三段语义 ---- */
+  .quickforge-ask-answer-choice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: 0.125rem;
+  }
+  .quickforge-ask-answer-chip {
+    padding: 0 0.4375rem;
+    border: 1px solid var(--divider);
+    border-radius: 999px;
+    background: var(--muted);
+    color: var(--foreground);
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-wrap: anywhere;
+  }
+  .quickforge-ask-answer-extra {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+    margin-top: 0.25rem;
+    padding-left: 0.5rem;
+    border-left: 1px solid var(--divider);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+  .quickforge-ask-answer-extra-label {
+    flex: none;
+    margin-top: 0.125rem;
+    padding: 0 0.3125rem;
+    border-radius: 0.25rem;
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-size: 10px;
+    line-height: 1.7;
+    letter-spacing: 0.02em;
+    user-select: none;
+  }
+  .quickforge-ask-answer-extra-text { min-width: 0; color: var(--foreground); }
+  .quickforge-ask-answer-empty {
+    color: var(--muted-foreground);
+    font-size: 12px;
+    opacity: 0.8;
+  }
+
+  /* ---- 卡片级补充信息：独立末行，分隔细线 + 标签 ---- */
+  .quickforge-ask-remark-block {
+    margin-top: 0.125rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--divider);
+  }
+  .quickforge-ask-review-row--remark {
+    border-left: 2px dashed color-mix(in oklab, var(--primary) 42%, var(--border));
+  }
+  .quickforge-ask-review-label {
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .quickforge-ask-remark-field {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.125rem 0;
+    border-radius: var(--radius);
+    cursor: text;
+  }
+  .quickforge-ask-remark-icon {
+    flex: none;
+    width: 0.8125rem;
+    height: 0.8125rem;
+    margin-top: 0.25rem;
+    color: var(--muted-foreground);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .quickforge-ask-remark-field:focus-within .quickforge-ask-remark-icon { color: var(--foreground); }
+  .quickforge-ask-remark-input {
+    flex: 1;
+    min-width: 0;
+    min-height: 1.25rem;
+    padding: 0.0625rem 0;
+    border: 0;
+    outline: 0;
+    resize: none;
+    background: transparent;
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .quickforge-ask-remark-input::placeholder { color: var(--muted-foreground); }
+  .quickforge-ask-remark-optional {
+    flex: none;
+    margin-top: 0.125rem;
+    color: var(--muted-foreground);
+    font-size: 10px;
+    user-select: none;
+  }
+
+  /* 跳过态：原因行 */
+  .quickforge-ask-review-skip {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--muted-foreground);
+    font-size: 11px;
+  }
+  .quickforge-ask-review-skip .icon--sm { color: var(--muted-foreground); }
+
+  /* 操作行 */
+  .quickforge-ask-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.1875rem;
+  }
+  .quickforge-ask-note {
+    margin-left: auto;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    text-align: right;
+  }
+  .quickforge-ask-button {
+    min-height: 1.875rem;
+    padding: 0.3125rem 0.75rem;
+    border: 1px solid var(--divider);
+    border-radius: var(--radius);
+    background: var(--background);
+    color: var(--foreground);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 560;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-out),
+                border-color var(--dur-fast) var(--ease-out),
+                color var(--dur-fast) var(--ease-out);
+  }
+  .quickforge-ask-button:hover { background: var(--muted); }
+  .quickforge-ask-button:active { transform: scale(0.97); }
+  .quickforge-ask-button--primary {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--background);
+  }
+  .quickforge-ask-button--primary:hover { background: color-mix(in oklab, var(--primary) 88%, var(--muted-foreground)); }
+  .quickforge-ask-button--ghost { border-color: transparent; background: transparent; color: var(--muted-foreground); }
+  .quickforge-ask-button--ghost:hover { color: var(--foreground); background: var(--muted); }
+
+  /* 原始问题清单（回退视图） */
+  .quickforge-ask-tool-questions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    color: var(--foreground);
+    font-size: 12px;
+    line-height: 1.6;
+  }
+  .qf-field-label {
+    margin-bottom: 0.1875rem;
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .qf-code {
+    margin: 0;
+    padding: 0.5rem 0.625rem;
+    border: 1px solid var(--divider);
+    border-radius: var(--radius);
+    background: var(--muted);
+    color: var(--muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  /* ============================================================
+     交互态并排网格
+     ============================================================ */
+  .states {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+    gap: 1.25rem;
+    align-items: start;
+  }
+  .state { display: flex; flex-direction: column; gap: 0.5rem; min-width: 0; }
+  .state > h3 { font-size: 12px; font-weight: 600; }
+  .state > h3 span {
+    margin-left: 0.375rem;
+    font-weight: 500;
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
+
+  /* ============================================================
+     规格表
+     ============================================================ */
+  .spec-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+  .spec-table th {
+    padding: 0 0.625rem 0.375rem 0;
+    border-bottom: 1px solid var(--divider);
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: var(--muted-foreground);
+  }
+  .spec-table td {
+    padding: 0.5rem 0.625rem 0.5rem 0;
+    border-bottom: 1px solid var(--divider);
+    vertical-align: top;
+    color: var(--muted-foreground);
+  }
+  .spec-table td:first-child { color: var(--foreground); font-weight: 560; }
+  .spec-table tr:last-child td { border-bottom: 0; }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .footer-note {
+    margin: 2.5rem 0 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--divider);
+    color: var(--muted-foreground);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+
+  @media (max-width: 720px) {
+    .split { grid-template-columns: minmax(0, 1fr); }
+    .page-head { flex-wrap: wrap; }
+    .theme-btn { margin-left: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- 内联图标：只用 symbol 定义 + use 引用同页 id，无外部资源 -->
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <symbol id="i-ask" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24">
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </symbol>
+  <symbol id="i-skip" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="8" y1="12" x2="16" y2="12" />
+  </symbol>
+  <symbol id="i-check" viewBox="0 0 24 24">
+    <polyline points="20 6 9 17 4 12" />
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+  <!-- ================= 页头 ================= -->
+  <header class="page-head">
+    <div>
+      <h1>ask_user 回显修复 · 视觉与交互方案</h1>
+      <p>聚焦一件事：用户填过的「补充内容」在回执步、历史回显、跳过三条路径上都要稳定回显，并且让「选中的选项」与「补充」在视觉上分成两段语义。本页用静态复刻对比现状与两套方案。</p>
+    </div>
+    <button class="theme-btn" id="themeBtn" type="button">切换深色</button>
+  </header>
+
+  <!-- ================= 现象 ================= -->
+  <section>
+    <h2>现象 · 用户能感知到的四点</h2>
+    <ol class="symptom">
+      <li>
+        <span class="symptom-num">1</span>
+        <div><strong>只填补充、没勾选项时，回执里只剩一行裸文本。</strong>和「选中的选项」长得完全一样，没有任何「这是补充」的标记，用户会以为最后写的内容没被带回去。</div>
+      </li>
+      <li>
+        <span class="symptom-num">2</span>
+        <div><strong>补充写在最后一问的自定义框里时，回执行与普通答案同形。</strong>选项与补充粘在同一行，扫读时分不清哪部分是我勾的、哪部分是我补的。</div>
+      </li>
+      <li>
+        <span class="symptom-num">3</span>
+        <div><strong>跳过 / 超时后，历史里只剩原始问题清单。</strong>服务端 <code>details.answers</code> 为 <code>null</code>，回执布局整块失效，跳过原因和补充信息一起消失。</div>
+      </li>
+      <li>
+        <span class="symptom-num">4</span>
+        <div><strong>回到某一问时看不出「已经填过」。</strong>自定义框默认收起、开关文案固定为「补充说明（可选）」；用中文输入法按回车确认候选词，会被当成「下一问」。</div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ================= 现状 ================= -->
+  <section>
+    <h2>现状 · Before</h2>
+    <p class="lead">左侧是当前渲染结果（1:1 复刻现有 class 与间距）。带圈序号标出问题点，右侧是成因。</p>
+
+    <div class="split">
+      <div class="stack">
+
+        <!-- Before 1：回执行 -->
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>回执确认</span>
+          </div>
+          <div class="quickforge-ask-dots">
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+          </div>
+
+          <div class="quickforge-ask-review">
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">跑全套（test / lint / build）</span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">先只动前端，别碰 dist/ 和 package-dist/<span class="anno">①</span></span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+          </div>
+
+          <div class="anno-line">
+            <span class="anno">②</span>
+            <span>此处本应是「补充信息」末行，但当前没有渲染。</span>
+          </div>
+
+          <div class="quickforge-ask-actions">
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">上一问</button>
+            <button class="quickforge-ask-button quickforge-ask-button--primary" type="button">提交回答</button>
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">跳过全部提问</button>
+            <span class="quickforge-ask-note">2 项已确认</span>
+          </div>
+        </div>
+
+        <!-- Before 2：跳过态 -->
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>已跳过</span>
+          </div>
+          <div>
+            <div class="qf-field-label">输入</div>
+            <div class="quickforge-ask-tool-questions">
+              <div>1. 发布前是否跑全套校验？</div>
+              <div>2. 改动范围？</div>
+            </div>
+          </div>
+          <div class="anno-line">
+            <span class="anno">③</span>
+            <span>跳过原因「等待回答超时」与已填的补充信息全部丢失，只剩原始问题清单。</span>
+          </div>
+        </div>
+
+      </div>
+
+      <ul class="notes">
+        <li><b>①</b> <code>buildAskAnswerText</code> 只做 <code>[choiceText, customText].filter(Boolean).join('　补充：')</code>；没有选项时输出裸文本，不带「补充」标签。</li>
+        <li><b>②</b> 卡片级 <code>remark</code> 的渲染条件是 <code>review !== null &amp;&amp; !review.skipped</code>；跳过时被显式屏蔽，未跳过但没填时也确实没有内容。</li>
+        <li><b>③</b> <code>askUserReviewRowsFromDetails()</code> 要求 <code>details.answers</code> 是数组，跳过 / 超时路径给的是 <code>null</code>，于是整块回执布局退回原始问题清单。</li>
+        <li>三层根因：<b>渲染条件过窄</b>、<b>答案文本单段化</b>、<b>缺「已填写」状态</b>。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= 方案 A ================= -->
+  <section>
+    <h2>方案 A · 答案内两段语义<span class="tag tag--rec">推荐</span></h2>
+    <p class="lead">把每一问的答案拆成「选项 chip 行」+「补充缩进行」，卡片级补充信息固定为独立末行。跳过时同样回显原因与补充。</p>
+
+    <div class="split">
+      <div class="stack">
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>回执确认</span>
+          </div>
+          <div class="quickforge-ask-dots">
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+          </div>
+
+          <div class="quickforge-ask-review">
+            <!-- 有选项 + 补充 -->
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-choice">
+                    <span class="quickforge-ask-answer-chip">跑全套（test / lint / build）</span>
+                  </span>
+                  <span class="quickforge-ask-answer-extra">
+                    <span class="quickforge-ask-answer-extra-label">补充</span>
+                    <span class="quickforge-ask-answer-extra-text">lint 也顺手跑一遍，别只跑 test。</span>
+                  </span>
+                </span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+
+            <!-- 只有自定义文本 -->
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-empty">（未选择选项）</span>
+                  <span class="quickforge-ask-answer-extra">
+                    <span class="quickforge-ask-answer-extra-label">补充</span>
+                    <span class="quickforge-ask-answer-extra-text">先只动前端，别碰 dist/ 和 package-dist/。</span>
+                  </span>
+                </span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+          </div>
+
+          <!-- 卡片级补充：独立末行 -->
+          <div class="quickforge-ask-remark-block">
+            <div class="quickforge-ask-review-row quickforge-ask-review-row--remark">
+              <div class="quickforge-ask-review-content" style="flex:1">
+                <span class="quickforge-ask-review-label">补充信息</span>
+                <label class="quickforge-ask-remark-field">
+                  <svg class="quickforge-ask-remark-icon"><use href="#i-pen" /></svg>
+                  <textarea class="quickforge-ask-remark-input" rows="1" placeholder="其它约束、偏好或想让我注意的点…"></textarea>
+                  <span class="quickforge-ask-remark-optional">可选</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="quickforge-ask-actions">
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">上一问</button>
+            <button class="quickforge-ask-button quickforge-ask-button--primary" type="button">提交回答</button>
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">跳过全部提问</button>
+            <span class="quickforge-ask-note">2 项已确认</span>
+          </div>
+        </div>
+
+        <!-- 跳过态（方案 A 的回显） -->
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>已跳过</span>
+          </div>
+          <div class="quickforge-ask-review">
+            <div class="quickforge-ask-review-skip">
+              <svg class="icon icon--sm"><use href="#i-skip" /></svg>
+              <span>等待回答超时</span>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">未回答</span>
+              </div>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">未回答</span>
+              </div>
+            </div>
+          </div>
+          <div class="quickforge-ask-remark-block">
+            <div class="quickforge-ask-review-row quickforge-ask-review-row--remark">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-label">补充信息</span>
+                <span class="quickforge-ask-review-answer">先按默认配置继续，回头我再确认。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="notes">
+        <li><b>有选项</b>：<code>.quickforge-ask-answer-choice</code> 用 chip 列出全部选中项（多选也成立），下方缩进一行 <code>.quickforge-ask-answer-extra</code>。</li>
+        <li><b>只有自定义</b>：先给 <code>.quickforge-ask-answer-empty</code> 弱化占位「（未选择选项）」，正文仍是带「补充」标签的缩进行，不再是裸文本。</li>
+        <li><b>卡片级补充</b>：固定为末行，1px 分隔线 + <code>.quickforge-ask-review-label</code> 标签；跳过态不再屏蔽。</li>
+        <li><b>视觉强度</b>：chip 用 <code>--muted</code> 底 + 细边框；补充行只用 1px 左侧引导线，不加底色、不加阴影。</li>
+        <li><b>兼容</b>：<code>.quickforge-ask-review-answer</code> 保留为容器，旧纯文本路径（无结构化答案）不受影响。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= 方案 B ================= -->
+  <section>
+    <h2>方案 B · 合并到最后一问<span class="tag tag--muted">备选</span></h2>
+    <p class="lead">卡片级补充信息不再单独成行，直接挂到最后一问的答案区块下方，整体少一行高度。</p>
+
+    <div class="split">
+      <div class="stack">
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>回执确认</span>
+          </div>
+          <div class="quickforge-ask-dots">
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+          </div>
+
+          <div class="quickforge-ask-review">
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-choice">
+                    <span class="quickforge-ask-answer-chip">跑全套（test / lint / build）</span>
+                  </span>
+                </span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-choice">
+                    <span class="quickforge-ask-answer-chip">只改 ask_user 卡片</span>
+                  </span>
+                  <span class="quickforge-ask-answer-extra">
+                    <span class="quickforge-ask-answer-extra-label">补充</span>
+                    <span class="quickforge-ask-answer-extra-text">先只动前端，别碰 dist/ 和 package-dist/。</span>
+                  </span>
+                  <span class="quickforge-ask-answer-extra">
+                    <span class="quickforge-ask-answer-extra-label">补充信息</span>
+                    <span class="quickforge-ask-answer-extra-text">上线前先给我看一张截图。</span>
+                  </span>
+                </span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+          </div>
+
+          <div class="quickforge-ask-actions">
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">上一问</button>
+            <button class="quickforge-ask-button quickforge-ask-button--primary" type="button">提交回答</button>
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">跳过全部提问</button>
+            <span class="quickforge-ask-note">2 项已确认</span>
+          </div>
+        </div>
+      </div>
+
+      <ul class="notes">
+        <li><b>优点</b>：少一行；补充与「我最后停在哪一问」在位置上贴合。</li>
+        <li><b>缺点</b>：卡片级补充信息不是任何一问的答案，挂在第 2 问下会被读成「第 2 问的补充」，语义冲突。</li>
+        <li><b>缺点</b>：跳过时没有任何一问可挂，仍需回到独立行——两套布局并存，反而更难维护。</li>
+        <li><b>缺点</b>：两段「补充」标签贴在一起（一问的补充 + 卡片级补充），读者需要靠标签文字区分，扫读成本反而更高。</li>
+        <li><b>结论</b>：仅作为对比保留，不推荐落地。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ================= 交互态 ================= -->
+  <section>
+    <h2>交互态 · 五种状态并排</h2>
+    <p class="lead">同一套 class，只靠状态切换。注意待答问题步的「已填写」指示与跳过态的回显。</p>
+
+    <div class="states">
+
+      <!-- 1. 待答问题步 -->
+      <div class="state">
+        <h3>待答 · 问题步<span>自定义框展开 + 已填写</span></h3>
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>第 2 / 2 问</span>
+          </div>
+          <div class="quickforge-ask-dots">
+            <span class="quickforge-ask-step quickforge-ask-step--done"></span>
+            <span class="quickforge-ask-step"></span>
+          </div>
+          <div class="quickforge-ask-question">
+            2. 改动范围？<span class="quickforge-ask-chip">单选</span>
+          </div>
+          <div class="quickforge-ask-options">
+            <button class="quickforge-ask-option quickforge-ask-option--picked" type="button">
+              <span class="quickforge-ask-check"></span>
+              <span class="quickforge-ask-option-body">
+                <span class="quickforge-ask-option-label">只改 ask_user 卡片</span>
+                <span class="quickforge-ask-option-desc">不触碰渲染器与样式层</span>
+              </span>
+              <span class="quickforge-ask-option-arrow">→</span>
+            </button>
+            <button class="quickforge-ask-option" type="button">
+              <span class="quickforge-ask-check"></span>
+              <span class="quickforge-ask-option-body">
+                <span class="quickforge-ask-option-label">连带动效层一起改</span>
+              </span>
+              <span class="quickforge-ask-option-arrow">→</span>
+            </button>
+          </div>
+          <button class="quickforge-ask-custom-toggle" type="button" aria-expanded="true">
+            <svg class="icon icon--sm"><use href="#i-plus" /></svg>
+            <span>补充说明</span>
+            <span class="quickforge-ask-custom-filled">已填写</span>
+          </button>
+          <div class="quickforge-ask-custom">
+            <textarea class="quickforge-ask-custom-input" rows="2">先只动前端，别碰 dist/ 和 package-dist/。</textarea>
+          </div>
+          <div class="quickforge-ask-actions">
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">上一问</button>
+            <button class="quickforge-ask-button quickforge-ask-button--primary" type="button">下一问</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. 回执步 -->
+      <div class="state">
+        <h3>回执步<span>选项与补充分段</span></h3>
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>回执确认</span>
+          </div>
+          <div class="quickforge-ask-review">
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-choice">
+                    <span class="quickforge-ask-answer-chip">跑全套</span>
+                  </span>
+                </span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-empty">（未选择选项）</span>
+                  <span class="quickforge-ask-answer-extra">
+                    <span class="quickforge-ask-answer-extra-label">补充</span>
+                    <span class="quickforge-ask-answer-extra-text">先只动前端，别碰 dist/。</span>
+                  </span>
+                </span>
+              </div>
+              <button class="quickforge-ask-review-edit" type="button">修改</button>
+            </div>
+          </div>
+          <div class="quickforge-ask-remark-block">
+            <div class="quickforge-ask-review-row quickforge-ask-review-row--remark">
+              <div class="quickforge-ask-review-content" style="flex:1">
+                <span class="quickforge-ask-review-label">补充信息</span>
+                <label class="quickforge-ask-remark-field">
+                  <svg class="quickforge-ask-remark-icon"><use href="#i-pen" /></svg>
+                  <textarea class="quickforge-ask-remark-input" rows="1" placeholder="其它约束、偏好或想让我注意的点…"></textarea>
+                  <span class="quickforge-ask-remark-optional">可选</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <div class="quickforge-ask-actions">
+            <button class="quickforge-ask-button quickforge-ask-button--ghost" type="button">上一问</button>
+            <button class="quickforge-ask-button quickforge-ask-button--primary" type="button">提交回答</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. 历史回显 -->
+      <div class="state">
+        <h3>历史回显<span>只读、无「修改」</span></h3>
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-review">
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-choice">
+                    <span class="quickforge-ask-answer-chip">跑全套（test / lint / build）</span>
+                  </span>
+                  <span class="quickforge-ask-answer-extra">
+                    <span class="quickforge-ask-answer-extra-label">补充</span>
+                    <span class="quickforge-ask-answer-extra-text">lint 也顺手跑一遍。</span>
+                  </span>
+                </span>
+              </div>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">
+                  <span class="quickforge-ask-answer-choice">
+                    <span class="quickforge-ask-answer-chip">只改 ask_user 卡片</span>
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="quickforge-ask-remark-block">
+            <div class="quickforge-ask-review-row quickforge-ask-review-row--remark">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-label">补充信息</span>
+                <span class="quickforge-ask-review-answer">上线前先给我看一张截图。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 跳过态 -->
+      <div class="state">
+        <h3>跳过 / 超时<span>原因 + 未回答 + 补充</span></h3>
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>已跳过</span>
+          </div>
+          <div class="quickforge-ask-review">
+            <div class="quickforge-ask-review-skip">
+              <svg class="icon icon--sm"><use href="#i-skip" /></svg>
+              <span>用户跳过了提问</span>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">1. 发布前是否跑全套校验？</span>
+                <span class="quickforge-ask-review-answer">未回答</span>
+              </div>
+            </div>
+            <div class="quickforge-ask-review-row">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-question">2. 改动范围？</span>
+                <span class="quickforge-ask-review-answer">未回答</span>
+              </div>
+            </div>
+          </div>
+          <div class="quickforge-ask-remark-block">
+            <div class="quickforge-ask-review-row quickforge-ask-review-row--remark">
+              <div class="quickforge-ask-review-content">
+                <span class="quickforge-ask-review-label">补充信息</span>
+                <span class="quickforge-ask-review-answer">先按默认配置继续，回头我再确认。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. detailed 态 -->
+      <div class="state">
+        <h3>detailed<span>原始输入 / 输出</span></h3>
+        <div class="quickforge-ask-card">
+          <div class="quickforge-ask-head">
+            <svg class="icon"><use href="#i-ask" /></svg>
+            <span>助手提问</span>
+            <span class="quickforge-ask-waiting"><span class="quickforge-ask-dot"></span>2 问</span>
+          </div>
+          <div>
+            <div class="qf-field-label">输入</div>
+            <pre class="qf-code">{
+  "questions": [
+    { "question": "发布前是否跑全套校验？", "options": ["跑全套", "只跑 test"] },
+    { "question": "改动范围？", "allowCustom": true }
+  ]
+}</pre>
+          </div>
+          <div>
+            <div class="qf-field-label">输出</div>
+            <pre class="qf-code">回答 2 / 2 问
+1. 跑全套（test / lint / build）
+   补充：lint 也顺手跑一遍。
+2. （未选择选项）
+   补充：先只动前端，别碰 dist/。
+补充信息：上线前先给我看一张截图。</pre>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================= 规格与落地 ================= -->
+  <section>
+    <h2>规格与落地</h2>
+    <p class="lead">以下 class 全部沿用现有 <code>.quickforge-ask-*</code> 前缀；只有标注「新增」的条目需要新增样式规则。</p>
+
+    <table class="spec-table">
+      <thead>
+        <tr>
+          <th style="width:118px">区块</th>
+          <th>DOM 结构与 class</th>
+          <th style="width:150px">说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>回执行（外层）</td>
+          <td><code>.quickforge-ask-review</code> &gt; <code>.quickforge-ask-review-row</code> &gt; <code>.quickforge-ask-review-content</code></td>
+          <td>结构不变，仅内容改成分段渲染</td>
+        </tr>
+        <tr>
+          <td>选项段</td>
+          <td><code>.quickforge-ask-answer-choice</code> &gt; <code>.quickforge-ask-answer-chip</code> ×N</td>
+          <td>新增；多选用同一组 chip</td>
+        </tr>
+        <tr>
+          <td>补充段</td>
+          <td><code>.quickforge-ask-answer-extra</code> &gt; <code>.quickforge-ask-answer-extra-label</code> + <code>.quickforge-ask-answer-extra-text</code></td>
+          <td>新增；1px 左侧引导线，无底色无阴影</td>
+        </tr>
+        <tr>
+          <td>仅自定义</td>
+          <td><code>.quickforge-ask-answer-empty</code> + 上面的补充段</td>
+          <td>新增；替换裸文本</td>
+        </tr>
+        <tr>
+          <td>卡片级补充</td>
+          <td><code>.quickforge-ask-remark-block</code> &gt; <code>.quickforge-ask-review-row--remark</code> &gt; <code>.quickforge-ask-review-label</code></td>
+          <td>末行 + 1px 分隔线；跳过时保留</td>
+        </tr>
+        <tr>
+          <td>跳过原因</td>
+          <td><code>.quickforge-ask-review-skip</code>（内联 <code>#i-skip</code> 图标 + 文案）</td>
+          <td>新增；替代塞进 <code>.quickforge-ask-review-answer</code> 的裸文本</td>
+        </tr>
+        <tr>
+          <td>已填写指示</td>
+          <td><code>.quickforge-ask-custom-toggle</code> &gt; <code>.quickforge-ask-custom-filled</code></td>
+          <td>新增；仅 <code>custom.trim()</code> 非空时渲染</td>
+        </tr>
+        <tr>
+          <td>待答补充框</td>
+          <td><code>.quickforge-ask-custom</code> / <code>.quickforge-ask-custom-input</code></td>
+          <td>保留；初始 <code>hidden</code> 改为按是否有值决定</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="two-col" style="margin-top:1.5rem">
+      <div>
+        <h3>i18n（<code>src/lib/i18n.ts</code>，en / zh 各一份）</h3>
+        <ul class="notes" style="margin-top:0.5rem">
+          <li><b>新增</b> <code>askUserExtraLabel</code>：en <code>Note</code> / zh <code>补充</code>。</li>
+          <li><b>新增</b> <code>askUserNoChoiceLabel</code>：en <code>(no option selected)</code> / zh <code>（未选择选项）</code>。</li>
+          <li><b>新增</b> <code>askUserFilledHint</code>：en <code>Filled in</code> / zh <code>已填写</code>。</li>
+          <li><b>已有</b> <code>askUserRemarkLabel</code>（补充信息）、<code>askUserRemarkOptional</code>（可选）、<code>askUserUnanswered</code>（未回答）、<code>askUserSkipReason*</code>，均直接复用。</li>
+        </ul>
+      </div>
+
+      <div>
+        <h3>行为改动</h3>
+        <ul class="notes" style="margin-top:0.5rem">
+          <li><b><code>buildAskAnswerText</code> 拆段</b>：新增 <code>buildAskAnswerParts()</code> 返回 <code>{ choices, custom }</code>；<code>buildAskAnswerText</code> 保留为兼容拼接（测试与纯文本路径仍在用）。</li>
+          <li><b>跳过不再屏蔽 remark</b>：<code>askUser-tool-renderer.tsx</code> 去掉 <code>!review.skipped</code> 条件，改为「有 remark 就渲染」。</li>
+          <li><b><code>answers = null</code> 分支</b>：<code>askUserReviewRowsFromDetails</code> 允许 <code>answers</code> 为 <code>null</code> 时返回 <code>{ skipped: true, answers: [] }</code>（questions 仍要求是数组），从而走到「跳过原因 + 未回答行 + 补充信息」布局，而不是退回原始清单。</li>
+          <li><b><code>e.isComposing</code> 守卫</b>：<code>ask-user-card.ts</code> 的自定义框 keydown 里先判 <code>if (e.isComposing || e.keyCode === 229) return</code>，避免中文输入法上屏被当成「下一问」。</li>
+          <li><b>回到某问的状态</b>：<code>renderStep</code> 时若 <code>answers[step].custom</code> 非空，则 <code>customBox.hidden = false</code>、toggle 追加 <code>.quickforge-ask-custom-filled</code>，并回填 textarea。</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer-note">验证口径：<code>tests/frontend/ask-user-card.test.ts</code> 补选择器契约（<code>.quickforge-ask-answer-choice</code> / <code>.quickforge-ask-answer-extra</code> / <code>.quickforge-ask-answer-empty</code> / <code>.quickforge-ask-review-skip</code>）与 <code>isComposing</code> 用例；渲染器补 <code>answers=null</code> 的跳过态断言。之后跑 <code>npm run test</code> / <code>npm run lint</code> / <code>npm run build</code>。</p>
+  </section>
+
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('themeBtn');
+    btn.addEventListener('click', function () {
+      var dark = document.documentElement.classList.toggle('dark');
+      btn.textContent = dark ? '切换浅色' : '切换深色';
+    });
+
+    // 演示用：补充框随内容自动增高（与 ask-user-card.ts 的 grow() 行为一致）
+    document.querySelectorAll('.quickforge-ask-remark-input, .quickforge-ask-custom-input').forEach(function (el) {
+      function grow() {
+        el.style.height = 'auto';
+        el.style.height = Math.min(el.scrollHeight, 112) + 'px';
+      }
+      el.addEventListener('input', grow);
+      el.addEventListener('focus', grow);
+      if (el.value) grow();
+    });
+  })();
+</script>
+
+</body>
+</html>

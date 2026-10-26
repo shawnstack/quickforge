@@ -1,6 +1,53 @@
 {
   "features": [
     {
+      "id": "models-providers-layered-settings",
+      "title": "模型与提供商设置页分层重构：提供商列表 / 连接 / 模型三层",
+      "status": "done",
+      "summary": "把「一个表单管理全部配置」重构为主从三层：L1 提供商列表（状态徽章、预设添加弹层、草稿行），L2 连接（协议分段、名称/地址、密钥行内独立保存、请求头折叠、提供商级测试），L3 模型（行内编辑独立保存、可见性即时写回、模型级测试、从服务器拉取合并）。存储结构不变（连接层保存 = 读-改-写整个提供商并迁移改名密钥）；新增服务端 POST /api/models/provider-test 与 /api/models/provider-discover（GET baseUrl/models 探测/发现，不依赖已配置模型）。",
+      "files": [
+        "src/components/settings/tabs/CustomProvidersSettingsTab.tsx",
+        "src/components/settings/custom-providers/shared.ts",
+        "src/components/settings/custom-providers/provider-list-pane.tsx",
+        "src/components/settings/custom-providers/provider-detail-pane.tsx",
+        "src/components/settings/custom-providers/connection-section.tsx",
+        "src/components/settings/custom-providers/model-list-section.tsx",
+        "src/styles/settings/custom-providers.css",
+        "src/styles/index.css",
+        "src/lib/i18n.ts",
+        "server/routes/models.mjs",
+        "server/index.mjs",
+        "tests/frontend/custom-providers-tab.test.ts",
+        "tests/frontend/settings-workspace-react.test.ts",
+        "docs/design/models-providers-settings-redesign.html",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/wiki/server/routes/README.md"
+      ],
+      "verification": "npx vitest run tests/frontend/custom-providers-tab.test.ts tests/frontend/settings-workspace-react.test.ts → 28 passed；npm run test 399 files / 4684 tests 全过（31 个 jsdom 缺包的 Unhandled Error 为存量环境噪音，与本改动无关）；npm run lint 0 error（存量 warning）；npm run build 成功。",
+      "updatedAt": "2026-10-26"
+    },
+    {
+      "id": "ask-user-echo-fix",
+      "title": "ask_user 回显修复：回执分段语义 + 跳过态保留补充信息",
+      "status": "done",
+      "summary": "回执把选项与自定义补充拆成两段渲染（chip + 独立 note），只填补充时不再输出裸文本；跳过/超时（answers: null）也渲染回执并保留 remark；待答卡补充框显示「已填写」徽标并预展开，Enter 增加 IME isComposing 守卫。",
+      "files": [
+        "src/components/chat/panel-decoration/ask-user-card.ts",
+        "src/lib/tool-renderers/ask-user-tool-renderer.tsx",
+        "src/styles/chat/interaction-cards.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/ask-user-card.test.ts",
+        "tests/frontend/ask-user-renderer-remark.test.ts",
+        "docs/design/ask-user-echo-fix.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/styles/README.md"
+      ],
+      "verification": "npx vitest run tests/frontend/ask-user-card.test.ts tests/frontend/ask-user-renderer-remark.test.ts → 36 passed；ask_user 回归面 6 files / 103 tests passed；npm run lint 0 error；npm run build 成功。",
+      "updatedAt": "2026-10-26"
+    },
+    {
       "id": "skills-settings-redesign",
       "title": "技能设置页重构：分组筛选列表 + 点击行详情弹窗",
       "status": "done",

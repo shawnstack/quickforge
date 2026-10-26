@@ -41,6 +41,39 @@ export function buildAskAnswerText(answer: ServerAgentAskAnswer | undefined): st
   return [choiceText, customText].filter(Boolean).join('　补充：')
 }
 
+/** Structured answer segments for the receipt: choices and free-form note stay separate. */
+export type AskAnswerSegments = {
+  choices: string[]
+  custom: string
+}
+
+export function splitAskAnswer(answer: ServerAgentAskAnswer | undefined): AskAnswerSegments {
+  const choices = Array.isArray(answer?.choices)
+    ? answer.choices.filter((choice) => typeof choice === 'string' && choice.trim().length > 0)
+    : []
+  const custom = typeof answer?.custom === 'string' ? answer.custom.trim() : ''
+  return { choices, custom }
+}
+
+/**
+ * Receipt markup for one answered question. Choices and the free-form note are
+ * rendered as separate segments; only a fully empty answer falls back to the
+ * "not answered" wording.
+ */
+function renderReviewAnswer(answer: ServerAgentAskAnswer | undefined): string {
+  const { choices, custom } = splitAskAnswer(answer)
+  if (!choices.length && !custom) {
+    return `<span class="quickforge-ask-review-answer">${escapeHtml(t('askUserUnanswered'))}</span>`
+  }
+  const choiceHtml = choices.length
+    ? `<div class="quickforge-ask-answer-choice">${choices.map((choice) => `<span class="quickforge-ask-answer-chip">${escapeHtml(choice)}</span>`).join('')}</div>`
+    : `<span class="quickforge-ask-answer-empty">${escapeHtml(t('askUserNoChoiceLabel'))}</span>`
+  const extraHtml = custom
+    ? `<div class="quickforge-ask-answer-extra"><span class="quickforge-ask-answer-extra-label">${escapeHtml(t('askUserExtraLabel'))}</span><span class="quickforge-ask-answer-extra-text">${escapeHtml(custom)}</span></div>`
+    : ''
+  return `${choiceHtml}${extraHtml}`
+}
+
 export function buildAskDisplaySignature(ask: ServerAgentPendingAsk, disabled: boolean): string {
   return JSON.stringify({ askId: ask.askId, count: ask.questions.length, disabled })
 }
@@ -133,10 +166,10 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
       body.innerHTML = `
         <div class="quickforge-ask-review">
           ${questions.map((q, index) => `
-            <div class="quickforge-ask-review-row">
+            <div class="quickforge-ask-review-row${isAskAnswered(answers[index]) ? '' : ' quickforge-ask-review-row--skipped'}">
               <div class="quickforge-ask-review-content">
                 <span class="quickforge-ask-review-question">${escapeHtml(`${index + 1}. ${q.question}`)}</span>
-                <span class="quickforge-ask-review-answer">${escapeHtml(buildAskAnswerText(answers[index]) || t('askUserUnanswered'))}</span>
+                ${renderReviewAnswer(answers[index])}
               </div>
               <button type="button" class="quickforge-ask-review-edit" data-review-index="${index}">${escapeHtml(t('askUserEdit'))}</button>
             </div>
@@ -189,6 +222,9 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
 
     const multi = question.multiSelect === true
     const allowCustom = question.allowCustom !== false
+    // A note that was already typed is kept visible: the toggle carries a
+    // "filled in" hint and the box opens pre-expanded.
+    const customFilled = typeof answers[step].custom === 'string' && (answers[step].custom ?? '').trim().length > 0
     note.textContent = multi ? t('askUserMultiHint') : t('askUserAutoAdvanceHint')
     body.innerHTML = `
       <div class="quickforge-ask-question">
@@ -207,8 +243,8 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
           </button>
         `).join('')}
       </div>
-      ${allowCustom ? `<button type="button" class="quickforge-ask-custom-toggle">${escapeHtml(t('askUserCustomToggle'))}</button>
-      <div class="quickforge-ask-custom" hidden>
+      ${allowCustom ? `<button type="button" class="quickforge-ask-custom-toggle${customFilled ? ' quickforge-ask-custom-toggle--filled' : ''}">${escapeHtml(t('askUserCustomToggle'))}${customFilled ? `<span class="quickforge-ask-custom-filled">${escapeHtml(t('askUserFilledHint'))}</span>` : ''}</button>
+      <div class="quickforge-ask-custom"${customFilled ? '' : ' hidden'}>
         <textarea class="quickforge-ask-custom-input" rows="3" placeholder="${escapeHtml(t('askUserCustomPlaceholder'))}"></textarea>
       </div>` : ''}
     `
@@ -237,6 +273,12 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     const customToggle = body.querySelector<HTMLButtonElement>('.quickforge-ask-custom-toggle')
     const customBox = body.querySelector<HTMLElement>('.quickforge-ask-custom')
     const customInput = body.querySelector<HTMLTextAreaElement>('.quickforge-ask-custom-input')
+    // Back-fill after render, not only on toggle: a pre-expanded box must show
+    // the note it was expanded for.
+    if (customInput && customBox && !customBox.hidden) {
+      customInput.value = answers[step].custom ?? ''
+      customInput.disabled = disabled
+    }
     customToggle?.addEventListener('click', () => {
       if (!customBox || !customInput) return
       const open = customBox.hidden
@@ -250,9 +292,12 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
     customInput?.addEventListener('input', () => {
       answers[step].custom = customInput.value
     })
-    // Enter confirms and advances like the bottom-row Next button; Shift+Enter
-    // keeps the default newline.
     customInput?.addEventListener('keydown', (e) => {
+      // Enter confirms and advances like the bottom-row Next button; Shift+Enter
+      // keeps the default newline. IME composition (Chinese/Japanese input) also
+      // emits Enter to commit the candidate — that must not advance the wizard,
+      // otherwise the just-typed character is dropped.
+      if (e.isComposing || (e as KeyboardEvent).keyCode === 229) return
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         if (!isAskAnswered(answers[step])) {

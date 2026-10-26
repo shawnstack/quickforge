@@ -105,6 +105,22 @@
 .quickforge-ask-button--ghost:hover:not(:disabled) { color: var(--foreground); background: var(--muted); }
 .quickforge-ask-button:disabled { cursor: not-allowed; opacity: .58; }
 .quickforge-ask-tool-questions { display: flex; flex-direction: column; gap: .25rem; color: var(--foreground); font-size: .8125rem; line-height: 1.6; }
-@media (max-width: 40rem) { .quickforge-ask-card { margin-right: .75rem; margin-left: .75rem; } .quickforge-ask-actions { align-items: stretch; } .quickforge-ask-note { display: none; } .quickforge-ask-remark-optional { display: none; } }
+/* Answer receipt: choices and free-form notes are two different things, so the
+   receipt keeps them as separate segments instead of one joined string. */
+.quickforge-ask-answer-choice { display: flex; flex-wrap: wrap; gap: .25rem; }
+.quickforge-ask-answer-chip { padding: .0625rem .375rem; border: 1px solid color-mix(in oklab, var(--border) 60%, transparent); border-radius: 999px; background: color-mix(in oklab, var(--muted) 42%, var(--background)); color: var(--foreground); font-size: .6875rem; line-height: 1.5; }
+.quickforge-ask-answer-extra { display: flex; flex-direction: column; gap: .0625rem; margin-top: .1875rem; padding-left: .4375rem; border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent); }
+.quickforge-ask-answer-extra-label { color: var(--muted-foreground); font-size: .6875rem; line-height: 1.5; }
+.quickforge-ask-answer-extra-text { color: var(--foreground); font-size: .75rem; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
+.quickforge-ask-answer-empty { color: var(--muted-foreground); font-size: .75rem; }
+/* Skip/timeout receipts keep the card-level note visible; a muted tone marks it
+   as context rather than a submitted answer. */
+.quickforge-ask-review-row--skipped { border-left-color: color-mix(in oklab, var(--border) 80%, transparent); }
+.quickforge-ask-review-skip { color: var(--muted-foreground); font-size: .75rem; }
+/* The custom box remembers its content: the toggle shows a "filled in" hint and
+   the box opens pre-expanded when a note already exists. */
+.quickforge-ask-custom-toggle--filled { color: var(--foreground); }
+.quickforge-ask-custom-filled { margin-left: .375rem; padding: .0625rem .3125rem; border-radius: 999px; background: var(--muted); color: var(--muted-foreground); font-size: .625rem; font-weight: 500; }
+@media (max-width: 40rem) { .quickforge-ask-card { margin-right: .75rem; margin-left: .75rem; } .quickforge-ask-actions { align-items: stretch; } .quickforge-ask-note { display: none; } .quickforge-ask-remark-optional { display: none; } .quickforge-ask-custom-filled { display: none; } }
 
 

@@ -250,6 +250,7 @@
 - 模型列表按 `Model.provider`（即 `CustomProvider.name`）分组，`quickforgeModelRef.source === 'custom'` 的组排在前面；组的出现顺序与组内顺序都由展示层计算，不需要额外数据源。品牌标识没有资源可用，沿用设置页的首字母方块手法。
 - 能力标签只呈现 `Model.input` 含 `image` 的 `视觉` 一项：这是仓库中唯一的结构化能力信号，`reasoning` 已由思考等级控件表达，不重复加标签。
 - 思考等级滑杆由 `thinking-slider.ts` 提供，仅在同时传入 `thinkingLevel` 与 `onThinkingLevelChange` 时挂到弹层底部；主聊天在 `useModelActions` 里接线（非推理模型不传），表单场景（`openModelSheet`）不传。composer 行里不再有独立的思考入口。
+- 弹层打开期间切换模型时，主聊天通过 `ModelSelectorHandle.setThinkingLevel` / `setThinkingDisabled` 同步滑杆：切到非推理模型会强制 `off` 并转禁用态（因为该档位对当前模型无效），切回推理模型沿用会话当时的档位。**没有这条线时滑杆会一直停在打开弹层那一刻的旧档位。**
 
 ### local-tools.ts
 
@@ -415,8 +416,8 @@
 |------|------|
 | `react-settings-tabs.tsx` | 设置页 React 内容分发：按 tabKey 懒加载 `components/settings/tabs/*` 与 Agent / Skills / MCP / 插件 / 定时任务等管理页；`DataSettingsTab` 聚合备份恢复/已归档对话/分享链接，`NetworkSettingsTab` 聚合局域网访问与网络代理 |
 | `share-client.ts` | 分享链接创建、列表、编辑（权限/密码/有效期）、停用、恢复、永久删除及状态推导 API |
-| `custom-model-selector.ts` | 自定义模型选择器（桌面浮层 / 移动抽屉）。按服务商分组（`Model.provider`，自定义来源优先），行内显示 `视觉` 能力标签（`Model.input` 含 `image`），勾选槽保留在左；顶部为「自定义模型」设置入口，底部可选挂载思考等级滑杆（传入 `thinkingLevel` + `onThinkingLevelChange` 时）。复用场景未传设置回调/思考参数时对应区块不渲染 |
-| `thinking-slider.ts` | 思考等级滑杆：五档常驻整列文字用 `translateY` 翻滚（不用节点入场/退场，避免快速换档重叠）、渐变轨道 + 单圆圈、canvas 粒子拖尾随档位改变密度/流速/拖尾长度并按轨道圆角裁剪。`prefers-reduced-motion` 下关闭粒子与动画 |
+| `custom-model-selector.ts` | 自定义模型选择器（桌面浮层 / 移动抽屉）。按服务商分组（`Model.provider`，自定义来源优先），行内显示 `视觉` 能力标签（`Model.input` 含 `image`），勾选槽保留在左；顶部为「自定义模型」设置入口，底部可选挂载思考等级滑杆（传入 `thinkingLevel` + `onThinkingLevelChange` 时）。复用场景未传设置回调/思考参数时对应区块不渲染。返回的 handle 提供 `setThinkingLevel` / `setThinkingDisabled`，供调用方在弹层保持打开期间同步滑杆 |
+| `thinking-slider.ts` | 思考等级滑杆：五档常驻整列文字用 `translateY` 翻滚（不用节点入场/退场，避免快速换档重叠）、渐变轨道 + 单圆圈、canvas 粒子拖尾随档位改变密度/流速/拖尾长度并按轨道圆角裁剪。`prefers-reduced-motion` 下关闭粒子与动画。**定位文字列时不能假设已布局**：滑杆先创建、后 append 到弹层，首帧 `offsetHeight` 恒为 0，必须用根字号推算的兜底行高（`--quickforge-thinking-line` = 1.2rem），等 ResizeObserver 拿到实测值后再无动画校正；非法/不支持的档位（含上游 `minimal`）经 `toSliderLevel()` 收敛，避免 `indexOf(-1)` 把几何算成 NaN |
 | `thinking-levels.ts` | 思考等级词表与标签（off/low/medium/high/xhigh），跨模块契约：服务端同步、持久化、子代理运行详情共用 |
 
 ### message-utils.ts (95 行)

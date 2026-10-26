@@ -61,6 +61,11 @@ export type ModelSelectorHandle = {
   updateModels: (models: readonly AnyModel[]) => void
   /** 外部（如快捷键）改变档位时同步滑杆位置，避免视觉与实际不一致。 */
   setThinkingLevel?: (level: ThinkingSliderLevel) => void
+  /**
+   * 弹层保持打开期间切换模型时同步滑杆可用性：切到非推理模型后档位不再
+   * 生效，滑杆应转为禁用，避免用户拖出一个会被服务端忽略的等级。
+   */
+  setThinkingDisabled?: (disabled: boolean) => void
 }
 
 function ownedComposerModelMenus(anchor: HTMLElement) {
@@ -419,6 +424,9 @@ function openMobileModelSelector(
     setThinkingLevel: (level) => {
       thinkingSlider?.setLevel(level)
     },
+    setThinkingDisabled: (disabled) => {
+      thinkingSlider?.setDisabled(disabled)
+    },
   }
 }
 
@@ -596,6 +604,9 @@ export function openCustomOnlyModelSelector(
     },
     setThinkingLevel: (level) => {
       thinkingSlider?.setLevel(level)
+    },
+    setThinkingDisabled: (disabled) => {
+      thinkingSlider?.setDisabled(disabled)
     },
   }
 }

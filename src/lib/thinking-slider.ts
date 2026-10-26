@@ -73,8 +73,22 @@ function prefersReducedMotion() {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
+/**
+ * 把外部传入的档位收敛到滑杆支持的 5 档。
+ *
+ * 上游 `pi-agent-core` 的 `ThinkingLevel` 还包含滑杆没有的 `minimal`（Provider
+ * 侧有效，但没有对应刻度）。这类值映射到相邻的 `low`，非法值兜底到 `off`，
+ * 否则 `indexOf` 会返回 -1，把整列文字和圆圈位置算成非法几何。
+ */
+export function toSliderLevel(level: string | null | undefined): ThinkingSliderLevel {
+  if (level === 'minimal') return 'low'
+  return THINKING_SLIDER_LEVELS.includes(level as ThinkingSliderLevel)
+    ? (level as ThinkingSliderLevel)
+    : 'off'
+}
+
 export function createThinkingSlider(options: ThinkingSliderOptions): ThinkingSliderHandle {
-  let level: ThinkingSliderLevel = options.level
+  let level: ThinkingSliderLevel = toSliderLevel(options.level)
   let disabled = Boolean(options.disabled)
   const reducedMotion = prefersReducedMotion()
 
@@ -127,26 +141,68 @@ export function createThinkingSlider(options: ThinkingSliderOptions): ThinkingSl
     return row
   })
 
-  function lineHeight() {
+  /** 与 `.quickforge-model-thinking-value` 的 `--quickforge-thinking-line` 保持一致。 */
+  const FALLBACK_LINE_REM = 1.2
+
+  function fallbackLineHeight() {
+    let rootFontSize = 16
+    try {
+      if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+        const measured = Number.parseFloat(window.getComputedStyle(document.documentElement).fontSize)
+        if (Number.isFinite(measured) && measured > 0) rootFontSize = measured
+      }
+    } catch {
+      /* 取不到根字号就按 16px 基准换算 */
+    }
+    return FALLBACK_LINE_REM * rootFontSize
+  }
+
+  /** 已布局时的一行高度；未进 DOM（或 jsdom 无布局）时为 0。 */
+  function measuredLineHeight() {
     return rows[0]?.offsetHeight || 0
   }
 
-  function positionStack(target: number) {
-    const line = lineHeight()
-    if (!line) return
+  /** 最近一次定位时实测到的行高（0 = 当时还没布局，用的是兜底值）。 */
+  let appliedLine = 0
+
+  /**
+   * 定位文字列。
+   *
+   * 滑杆是「先创建、后 append 到弹层」的（桌面菜单 `renderMenu()` 与移动
+   * sheet 都是如此），创建那一刻 `offsetHeight` 恒为 0。早先这里在拿不到
+   * 行高时直接 return，导致首帧没有写入 `translateY`——五档文字整列停在
+   * 第一行，看起来就是「思考等级是关」，而圆圈因为用百分比定位反而显示在
+   * 正确档位上。所以拿不到实测行高时必须用根字号推算的兜底值。
+   */
+  function positionStack(target: number, instant = false) {
+    const line = measuredLineHeight() || fallbackLineHeight()
+    appliedLine = measuredLineHeight()
+    stack.dataset.instant = instant ? 'true' : 'false'
+    if (instant) {
+      // 首帧与布局校正都不能带动画，否则会从上一档滑进来。
+      requestAnimationFrame(() => { stack.dataset.instant = 'false' })
+    }
     stack.style.transform = `translateY(${(-target * line).toFixed(2)}px)`
   }
 
+  /**
+   * 用实测行高重新定位文字列。
+   *
+   * 首帧时元素还没进 DOM，只能用根字号兜底；等拿到真实布局后按实测值校正，
+   * 避免兜底值与真实行高不一致时文字停在相邻档位（表现为「文字显示关、圆圈
+   * 却在中间」）。
+   */
+  function syncStackToLayout() {
+    const line = measuredLineHeight()
+    if (!line || line === appliedLine) return
+    positionStack(levelIndex(), true)
+  }
+
   function renderValue(instant: boolean) {
-    const index = THINKING_SLIDER_LEVELS.indexOf(level)
-    stack.dataset.instant = instant ? 'true' : 'false'
-    if (instant) {
-      // 首帧定位不能带动画，否则会从上一档滑进来。
-      requestAnimationFrame(() => { stack.dataset.instant = 'false' })
-    }
-    positionStack(index)
+    const index = levelIndex()
+    positionStack(index, instant)
     track.setAttribute('aria-valuenow', String(index))
-    track.setAttribute('aria-valuetext', options.labelFor(level))
+    track.setAttribute('aria-valuetext', options.labelFor(THINKING_SLIDER_LEVELS[index]))
     knob.style.left = `${(LEVEL_POSITIONS[index] * 100).toFixed(2)}%`
   }
 
@@ -201,7 +257,10 @@ export function createThinkingSlider(options: ThinkingSliderOptions): ThinkingSl
   }
 
   function levelIndex() {
-    return THINKING_SLIDER_LEVELS.indexOf(level)
+    const index = THINKING_SLIDER_LEVELS.indexOf(level)
+    // 非法值（例如快照缺字段导致的 undefined）不能退化成 -1：那会让
+    // translateY 变成整列正向偏移一行、圆圈 left 变成 NaN。
+    return index >= 0 ? index : 0
   }
 
   function knobPx() {
@@ -330,7 +389,7 @@ export function createThinkingSlider(options: ThinkingSliderOptions): ThinkingSl
   /* ---------------- 交互 ---------------- */
   function setLevel(next: ThinkingSliderLevel, renderOptions?: { instant?: boolean }) {
     const changed = next !== level
-    level = next
+    level = toSliderLevel(next)
     renderValue(Boolean(renderOptions?.instant))
     trimToCap()
     if (changed && !disabled) spawnTrail(6, 1.4)
@@ -419,6 +478,9 @@ export function createThinkingSlider(options: ThinkingSliderOptions): ThinkingSl
   if (typeof ResizeObserver === 'function') {
     observer = new ResizeObserver(() => {
       const hadLayout = hasLayout()
+      // 先校正文字列位置：不依赖 canvas 是否可用（无 canvas 时 resizeFx 会
+      // 提前返回、fxW 恒为 0，若把校正放在 hasLayout 之后就会永远跑不到）。
+      syncStackToLayout()
       resizeFx()
       if (!hasLayout()) return
       if (!hadLayout) startFlow()

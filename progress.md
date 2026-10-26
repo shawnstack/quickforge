@@ -1,3 +1,18 @@
+## thinking-slider-first-frame-fix（done，2026-10-26）
+
+- Goal：用户反馈「打开模型选择就显示思考等级是关了」，要求分析并优化。
+- 结论（一句话）：这不是默认值问题，而是**滑杆首帧定位失败**——滑杆在 `append` 到弹层之前就渲染，`offsetHeight` 恒为 0，旧实现「拿不到行高就 return」导致 `translateY` 从未写入，五档常驻文字整列停在第一行（`thinkingOff` = 「关」），而圆圈用百分比定位显示在正确档位。修复：兜底行高（根字号 × 1.2rem）+ 拿到实测布局后无动画校正；同时补上「弹层内切模型后滑杆不刷新」和「非法档位算成 NaN」两个相邻缺陷。
+- 改动文件：
+  1. `src/lib/thinking-slider.ts`：① `positionStack()` 不再在无实测行高时提前返回，改用 `fallbackLineHeight()`（`--quickforge-thinking-line` = 1.2rem × 根字号）兜底；② 新增 `syncStackToLayout()`，在 `ResizeObserver` 回调里按实测行高无动画重算（**放在 `resizeFx()`/`hasLayout()` 之前**，否则无 canvas 环境下永远跑不到）；③ 新增导出 `toSliderLevel()`，把上游 `ThinkingLevel` 的 `minimal` 收敛到 `low`、非法值收敛到 `off`；④ `levelIndex()` 越界兜底为 0，`aria-valuetext` 改用收敛后的档位，杜绝 `indexOf(-1)` 让 `translateY` 变正向偏移、`knob.left` 变 NaN。
+  2. `src/lib/custom-model-selector.ts`：`ModelSelectorHandle` 新增 `setThinkingDisabled`，桌面菜单与移动 sheet 两个 handle 都实现；`setThinkingLevel` 从「无人调用」变成主聊天实际接线。
+  3. `src/hooks/useModelActions.ts`：接收 `openCustomOnlyModelSelector` 的返回 handle，`onSelect` 里 `syncSlider(nextThinkingLevel)` + `setThinkingDisabled(!nextModel.reasoning)`；初始 `thinkingLevel` 与 `syncSlider` 统一走 `toSliderLevel`（服务端可能写回 `minimal`）。
+  4. 测试：`tests/frontend/thinking-slider.test.ts` +6 例（首帧就有位移、拿到实测行高后重写偏移、无布局时保持兜底、`minimal`→`low`、未知值→`off`、`setLevel` 非法值收敛）；新增 `tests/frontend/model-selector-thinking-sync.test.ts` 6 例（只在传参时渲染滑杆、打开即定位到目标档、handle 换档、非推理模型转禁用、五档全覆盖、移动 sheet handle 同样支持）。
+  5. 文档：`docs/wiki/src/lib/README.md`（`custom-model-selector` 与 `thinking-slider` 两条目录行 + 接线说明新增 handle 同步语义）。
+- 被避免的坑：① **`ResizeObserver` 里把校正写在 `hasLayout()` 之后无效**——`resizeFx()` 在 `context` 为空（jsdom / 无 canvas）时提前返回，`fxW` 恒为 0，校正永远跑不到；必须放在 canvas 尺寸逻辑之前。② **不能只在 `renderValue` 里改兜底就收工**——字体加载或用户改字号会让真实行高偏离 1.2rem，只有「实测后校正一次」才能保证文字与圆圈始终同档。③ `ThinkingLevel` 类型包含滑杆没有的 `minimal`，直接 `as ThinkingSliderLevel` 强转在运行时是非法档位。
+- Evidence（验证）：`npx tsc -b --force` 通过；定向 8 文件 **59 passed**；`npm run test` 全量 **426 文件 / 4932 passed / 2 skipped，exit 0**（首轮并发跑时 `tests/server/scheduled-tasks.commands.test.mjs` 曾因 Windows EPERM 临时文件 rename 失败 1 例，单跑 24 passed、后台复跑全绿，属既有 flaky 与本次改动无关）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（3.66s）。
+- Boundaries：未改服务端 thinkingLevel 契约与 `active-thinking-level` 持久化策略；未新增依赖；未触碰 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit；未做真机目视验收。
+- Notes（范围外遗留，供下轮）：① `useModelActions` 的思考接线仍无单测覆盖（「仅推理模型传参」「切非推理模型强制 off 且不写 `active-thinking-level`」），可用 fake agent + mock selector 补；② 服务端 `updateSessionThinkingLevel` 不校验档位合法性，非法值会原样落到 `session.thinkingLevel`，目前靠前端收敛兜底。
+
 ## model-selector-provider-menu（done，2026-10-26）
 
 - Goal：用户提供参考截图，要求把输入框旁的模型选择改造成「服务商分组 + 选中勾选 + 模型能力标签 + 底部思考等级滑杆」的样式，并逐步迭代为：自定义模型入口置顶、思考等级文字翻滚、拖动条只留圆圈、粒子特效限制在滑块内且随档位从右向左游动、高档位粒子超级多且流速快、底部去掉档位文字与 Ctrl+T。

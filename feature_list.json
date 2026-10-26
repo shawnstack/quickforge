@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "thinking-slider-first-frame-fix",
+      "name": "修复打开模型选择时思考等级恒显示「关」（滑杆首帧定位失败）",
+      "description": "用户反馈「打开模型选择就显示思考等级是关了」。分析确认与默认值无关：滑杆在 append 到弹层之前渲染，offsetHeight 为 0，旧 positionStack() 拿不到行高直接 return，translateY 从未写入，五档常驻文字整列停在第一行 thinkingOff（「关」），而圆圈用百分比定位却在正确档位。同时发现弹层打开期间切模型滑杆不刷新、非法档位（含上游 minimal）会把几何算成 NaN 两个相邻缺陷。",
+      "status": "done",
+      "dependencies": [
+        "model-selector-provider-menu"
+      ],
+      "summary": "1) thinking-slider.ts：positionStack() 用根字号推算的兜底行高（--quickforge-thinking-line = 1.2rem × root font-size）不再提前返回；新增 syncStackToLayout() 在 ResizeObserver 回调里按实测行高无动画重算（必须放在 resizeFx()/hasLayout() 之前，否则无 canvas 环境下 fxW 恒 0、校正永不执行）；导出 toSliderLevel() 把 minimal 收敛到 low、非法值收敛到 off；levelIndex() 越界兜底 0，aria-valuetext 用收敛后的档位。2) custom-model-selector.ts：ModelSelectorHandle 新增 setThinkingDisabled，桌面菜单与移动 sheet 两个 handle 都实现。3) useModelActions.ts：接住 selector handle，onSelect 里同步滑杆档位与可用性，初始档位与同步统一走 toSliderLevel。4) 测试：thinking-slider +6 例，新增 model-selector-thinking-sync 6 例。",
+      "root_cause": "控件「先创建、后 append 到弹层」：createThinkingSlider() 内部 renderValue(true) 在元素脱离文档时执行，rows[0].offsetHeight === 0，旧 positionStack() 在此直接 return，从未写入 translateY。CSS 用 height: 1.2rem + overflow: hidden 裁出单行，因此没有位移就只露出第 0 行「关」。圆圈用百分比定位（不依赖布局）所以位置正确，后续也没有任何补偿（ResizeObserver 只重启粒子循环）。",
+      "files": [
+        "src/lib/thinking-slider.ts",
+        "src/lib/custom-model-selector.ts",
+        "src/hooks/useModelActions.ts",
+        "tests/frontend/thinking-slider.test.ts",
+        "tests/frontend/model-selector-thinking-sync.test.ts",
+        "docs/wiki/src/lib/README.md"
+      ]
+    },
+    {
       "id": "model-selector-provider-menu",
       "name": "模型选择器改造：服务商分组 + 能力标签 + 底部思考等级滑杆",
       "description": "用户提供参考截图，要求把输入框旁的模型选择从「扁平模型列表」改造成按服务商分组、选中项带勾选、模型带能力标签、底部可直接调思考等级的形态；随后迭代为自定义模型入口置顶、思考等级文字翻滚、拖动条只留圆圈、粒子特效限制在滑块内、档位越高粒子越多越快、底部去除档位文字与 Ctrl+T。",

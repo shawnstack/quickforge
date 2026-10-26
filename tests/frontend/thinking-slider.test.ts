@@ -37,19 +37,41 @@ describe('thinking slider', () => {
   let host: HTMLDivElement
   let handle: ThinkingSliderHandle | null
   let onChange: ReturnType<typeof vi.fn>
+  let observerCallbacks: ResizeObserverCallback[]
 
   beforeEach(() => {
     host = document.createElement('div')
     document.body.appendChild(host)
     handle = null
     onChange = vi.fn()
+    observerCallbacks = []
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) {
+        observerCallbacks.push(callback)
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
   })
 
   afterEach(() => {
     handle?.destroy()
     handle = null
     host.remove()
+    vi.unstubAllGlobals()
   })
+
+  /** jsdom 无布局：兜底行高 = CSS 的 1.2rem，按 16px 根字号换算。 */
+  const FALLBACK_LINE_PX = 1.2 * 16
+
+  function translateFor(index: number, line = FALLBACK_LINE_PX) {
+    return `translateY(${(-index * line).toFixed(2)}px)`
+  }
+
+  function fireResizeObserver() {
+    for (const callback of observerCallbacks) callback([], {} as ResizeObserver)
+  }
 
   function mount(level: 'off' | 'low' | 'medium' | 'high' | 'xhigh' = 'medium', disabled = false) {
     handle = createThinkingSlider({
@@ -164,5 +186,84 @@ describe('thinking slider', () => {
     expect(canvas).not.toBeNull()
     // 粒子层与轨道同尺寸并被圆角裁剪，不能溢出滑动条。
     expect(canvas!.parentElement).toBe(track())
+  })
+
+  /**
+   * 首帧定位回归：滑杆是「先 createThinkingSlider()、后 append 到弹层」的，
+   * 创建那一刻文字行 `offsetHeight` 恒为 0。旧实现拿不到行高就 return，
+   * `translateY` 从未写入 → 五档常驻文字停在第一行，用户看到的就是
+   * 「打开模型选择，思考等级显示为关」，而圆圈（百分比定位）却在正确档位。
+   */
+  it('positions the rolling column before the element has layout', () => {
+    mount('high')
+
+    const stackElement = host.querySelector<HTMLElement>('.quickforge-model-thinking-stack')!
+    // jsdom 没有布局：行高为 0，此时必须按根字号兜底写入真实位移，
+    // 否则整列文字停在第一行（= 显示「关」）。
+    expect(stackElement.style.transform).toBe(translateFor(3))
+  })
+
+  it('rewrites the offset when the measured line height becomes available', () => {
+    mount('high')
+    const stackElement = host.querySelector<HTMLElement>('.quickforge-model-thinking-stack')!
+
+    // 模拟真实布局：行高 20px（与兜底 1.2rem/16px = 19.2px 不同）。
+    const rows = Array.from(host.querySelectorAll<HTMLElement>('.quickforge-model-thinking-stack > span'))
+    for (const row of rows) {
+      Object.defineProperty(row, 'offsetHeight', { configurable: true, value: 20 })
+    }
+    fireResizeObserver()
+
+    expect(stackElement.style.transform).toBe(translateFor(3, 20))
+  })
+
+  it('keeps the column at the fallback offset while layout still measures 0', () => {
+    mount('low')
+    const stackElement = host.querySelector<HTMLElement>('.quickforge-model-thinking-stack')!
+
+    fireResizeObserver()
+
+    expect(stackElement.style.transform).toBe(translateFor(1))
+  })
+
+  it('falls back to the first level for an unsupported thinking level', () => {
+    handle = createThinkingSlider({
+      // 上游 ThinkingLevel 含滑杆没有的 minimal，外部也可能传非法值。
+      level: 'minimal' as never,
+      title: 'thinkingLevel',
+      labelFor: (value) => thinkingLevelLabel(value),
+      onChange: vi.fn() as never,
+    })
+    host.append(handle.element)
+
+    // minimal 收敛到相邻的 low，不能变成 NaN / 正向偏移。
+    expect(track().getAttribute('aria-valuenow')).toBe('1')
+    expect(knob().style.left).toBe('27.5%')
+    expect(host.querySelector<HTMLElement>('.quickforge-model-thinking-stack')!.style.transform)
+      .toBe(translateFor(1))
+  })
+
+  it('renders the first level for an unknown level', () => {
+    handle = createThinkingSlider({
+      level: 'bogus' as never,
+      title: 'thinkingLevel',
+      labelFor: (value) => thinkingLevelLabel(value),
+      onChange: vi.fn() as never,
+    })
+    host.append(handle.element)
+
+    expect(track().getAttribute('aria-valuenow')).toBe('0')
+    expect(track().getAttribute('aria-valuetext')).toBe('thinkingOff')
+    expect(knob().style.left).toBe('5%')
+  })
+
+  it('syncs an externally applied unsupported level to a valid one', () => {
+    const slider = mount('off')
+
+    slider.setLevel('bogus' as never)
+
+    expect(track().getAttribute('aria-valuenow')).toBe('0')
+    expect(host.querySelector<HTMLElement>('.quickforge-model-thinking-stack')!.style.transform)
+      .toBe(translateFor(0))
   })
 })

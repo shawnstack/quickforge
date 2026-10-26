@@ -1,3 +1,21 @@
+# 当前交接：thinking-slider-first-frame-fix（done，2026-10-26）
+
+- Current Objective（当前目标）：用户反馈「打开模型选择就显示思考等级是关了」，要求分析并优化。
+- 结论（一句话）：**不是默认值问题，是滑杆首帧定位失败**。滑杆在 append 到弹层之前就渲染，`offsetHeight` 恒为 0；旧 `positionStack()` 拿不到行高直接 return，`translateY` 从未写入 → 五档常驻文字整列停在第一行 `thinkingOff`（「关」），而圆圈用百分比定位却在正确档位（所以「拖动一下就好了」）。修复为「根字号兜底行高 + 实测后无动画校正」，并顺手修掉两个相邻缺陷。
+- 改动文件：
+  - `src/lib/thinking-slider.ts`：`positionStack()` 用 `fallbackLineHeight()`（1.2rem × 根字号）兜底不再提前返回；新增 `syncStackToLayout()` 在 `ResizeObserver` 里按实测行高无动画重算；导出 `toSliderLevel()`（`minimal`→`low`、非法→`off`）；`levelIndex()` 越界兜底 0，`aria-valuetext` 用收敛后的档位。
+  - `src/lib/custom-model-selector.ts`：`ModelSelectorHandle` 新增 `setThinkingDisabled`（桌面菜单 + 移动 sheet 两个 handle 都实现）。
+  - `src/hooks/useModelActions.ts`：接住 selector handle，`onSelect` 里同步滑杆档位与可用性；初始档位与同步都走 `toSliderLevel`。
+  - 测试：`tests/frontend/thinking-slider.test.ts` +6 例；新增 `tests/frontend/model-selector-thinking-sync.test.ts` 6 例。
+  - 文档：`docs/wiki/src/lib/README.md` 两处目录行 + 接线说明。
+- 关键实现约束：**`syncStackToLayout()` 必须放在 `resizeFx()` / `hasLayout()` 之前**——`resizeFx()` 在无 canvas 实现时提前返回，`fxW` 恒为 0，把校正写在 `hasLayout()` 之后在 jsdom/无 canvas 环境下永远跑不到。
+- 被避免的坑：① 只改 `renderValue` 兜底不够——字体加载/用户改字号会让真实行高偏离 1.2rem，必须实测后校正一次；② 上游 `ThinkingLevel` 含滑杆没有的 `minimal`，`as ThinkingSliderLevel` 强转在运行时是非法值（`indexOf(-1)` → `translateY` 正向偏移、`knob.left` NaN）；③ 弹层保持打开时切模型，状态已改但滑杆停在旧档（`setThinkingLevel` 原先全库无调用方）。
+- Evidence（验证）：`npx tsc -b --force` 通过；定向 8 文件 **59 passed**；`npm run test` 全量 **426 文件 / 4932 passed / 2 skipped，exit 0**（首轮并发跑时 `scheduled-tasks.commands.test.mjs` 曾因 Windows EPERM 临时文件 rename 失败 1 例，单跑 24 passed、后台复跑全绿，属既有 flaky）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（3.66s）。
+- Blockers（阻塞）：无技术阻塞。未做真机目视验收（重点看：打开弹层瞬间文字是否直接落在会话档位、拖动后文字与圆圈是否同档、切到非推理模型滑杆是否转灰）。
+- Next Session（下一步）：① 真机目视验收上述三点；② `useModelActions` 的思考接线仍无单测（「仅推理模型传参」「切非推理模型强制 off 且不写 `active-thinking-level`」）；③ 服务端 `updateSessionThinkingLevel` 不校验档位合法性，建议补一层归一化；④ 未创建 Git commit，未触碰生成产物。
+
+---
+
 # 当前交接：model-selector-provider-menu（done，2026-10-26）
 
 - Current Objective（当前目标）：用户提供参考截图，要求把输入框旁的模型选择改造成「服务商分组 + 选中勾选 + 能力标签 + 底部思考等级滑杆」。经 5 轮原型迭代后确认：自定义模型入口置顶、思考等级文字翻滚、拖动条只留圆圈、粒子只在滑块内且从右向左游动、档位越高粒子越多越快、底部不要档位文字与 Ctrl+T。最终按原型落地真实实现。

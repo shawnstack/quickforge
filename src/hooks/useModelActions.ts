@@ -13,7 +13,9 @@ import {
   getSelectableConfiguredModels,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import type { ModelSelectorHandle } from '@/lib/custom-model-selector'
 import type { ThinkingSliderLevel } from '@/lib/thinking-slider'
+import { toSliderLevel } from '@/lib/thinking-slider'
 import {
   readCachedModelList,
   readCachedModelListStale,
@@ -184,7 +186,15 @@ export function useModelActions({
     const openSelectorWithModels = (
       availableModels: Model<Api>[],
     ) => {
-      openCustomOnlyModelSelector(
+      // 弹层打开期间切换模型时，需要让底部滑杆跟着换档：切到非推理模型会
+      // 被强制 off，切回推理模型则沿用会话当时的档位。没有这条线时滑杆
+      // 只反映「打开弹层那一刻」的状态，会一直停在旧档位。
+      let selectorHandle: ModelSelectorHandle | null = null
+      const syncSlider = (level: string) => {
+        selectorHandle?.setThinkingLevel?.(toSliderLevel(level))
+      }
+
+      selectorHandle = openCustomOnlyModelSelector(
         currentAgent.state.model ?? activeModelRef.current,
         availableModels,
         (model) => {
@@ -196,6 +206,10 @@ export function useModelActions({
               logger.error('Failed to sync thinking level to server:', error)
             })
           }
+          // 弹层仍开着：让底部滑杆与新模型的能力/档位保持一致。
+          // 非推理模型没有可选档位，滑杆转禁用而不是停在旧档位上骗人。
+          syncSlider(nextThinkingLevel)
+          selectorHandle?.setThinkingDisabled?.(!nextModel.reasoning)
           activeModelRef.current = nextModel
           updateCurrentAgentModel(nextModel)
 
@@ -222,7 +236,7 @@ export function useModelActions({
           // 思考等级并入同一个弹层：只有推理模型才渲染滑杆
           ...((currentAgent.state.model ?? activeModelRef.current)?.reasoning
             ? {
-                thinkingLevel: currentAgent.state.thinkingLevel as ThinkingSliderLevel,
+                thinkingLevel: toSliderLevel(currentAgent.state.thinkingLevel),
                 thinkingDisabled: false,
                 onThinkingLevelChange: (level: ThinkingSliderLevel) => {
                   if (currentAgent.state.thinkingLevel === level) return

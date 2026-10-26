@@ -160,7 +160,7 @@ describe('React settings workspace navigation', () => {
   it('keeps password managers from claiming non-login secret fields', () => {
     for (const [path, name] of [
       ['src/components/settings/tabs/LanAccessSettingsTab.tsx', 'qf-lan-access-password'],
-      ['src/components/settings/tabs/CustomProvidersSettingsTab.tsx', 'qf-provider-api-key'],
+      ['src/components/settings/custom-providers/connection-section.tsx', 'qf-provider-api-key'],
     ] as const) {
       const source = readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
       expect(source).toContain(`name="${name}"`)

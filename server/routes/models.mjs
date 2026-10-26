@@ -49,6 +49,52 @@ async function probeModelConnection(model, apiKeyOverride) {
   return { ok: true }
 }
 
+const PROVIDER_PROBE_TIMEOUT_MS = 15_000
+
+function readProviderProbeBody(body) {
+  const baseUrl = typeof body?.baseUrl === 'string' ? body.baseUrl.trim() : ''
+  const protocol = body?.protocol === 'anthropic-messages' ? 'anthropic-messages' : 'openai-completions'
+  const apiKey =
+    typeof body?.apiKey === 'string' && body.apiKey.trim() ? body.apiKey.trim() : undefined
+  const headers = {}
+  if (body?.headers && typeof body.headers === 'object' && !Array.isArray(body.headers)) {
+    for (const [key, value] of Object.entries(body.headers)) {
+      if (typeof value === 'string' && value.trim()) headers[key] = value.trim()
+    }
+  }
+  return { baseUrl, protocol, apiKey, headers }
+}
+
+// Provider-level probe: list models from the server's /models endpoint.
+// Works for OpenAI-compatible services and the Anthropic Messages API; does not
+// require any locally configured model (unlike /api/models/test-connection).
+async function fetchProviderModelIds({ baseUrl, protocol, apiKey, headers }) {
+  const base = baseUrl.replace(/\/+$/, '')
+  const requestHeaders = { accept: 'application/json', ...headers }
+  if (protocol === 'anthropic-messages') {
+    if (apiKey) requestHeaders['x-api-key'] = apiKey
+    requestHeaders['anthropic-version'] = requestHeaders['anthropic-version'] || '2023-06-01'
+  } else if (apiKey) {
+    requestHeaders.authorization = `Bearer ${apiKey}`
+  }
+
+  const response = await fetch(`${base}/models`, {
+    headers: requestHeaders,
+    signal: AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS),
+  })
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status} ${response.statusText}`.trim())
+  }
+  const payload = await response.json().catch(() => null)
+  const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
+  const ids = []
+  for (const entry of list) {
+    const id = typeof entry === 'string' ? entry : entry?.id
+    if (typeof id === 'string' && id.trim()) ids.push(id.trim())
+  }
+  return ids
+}
+
 export async function handleModelsApi(req, res, url, context = {}) {
   if (req.method === 'GET' && url.pathname === '/api/models/catalog') {
     sendJson(res, 200, { models: await listModelCatalog({ context }) })
@@ -71,6 +117,24 @@ export async function handleModelsApi(req, res, url, context = {}) {
     } catch (error) {
       logger.warn('Model connection test failed:', error?.message || error)
       // Return 200 with { ok:false } so the client can parse success/failure uniformly.
+      sendJson(res, 200, { ok: false, error: error?.message || String(error) })
+    }
+    return
+  }
+
+  if (
+    (req.method === 'POST' && url.pathname === '/api/models/provider-test') ||
+    (req.method === 'POST' && url.pathname === '/api/models/provider-discover')
+  ) {
+    const discover = url.pathname === '/api/models/provider-discover'
+    const body = readProviderProbeBody(await readJsonBody(req))
+    if (!body.baseUrl) throw requestError('baseUrl is required')
+
+    try {
+      const models = await fetchProviderModelIds(body)
+      sendJson(res, 200, discover ? { ok: true, models } : { ok: true })
+    } catch (error) {
+      logger.warn(`Provider ${discover ? 'discover' : 'test'} failed:`, error?.message || error)
       sendJson(res, 200, { ok: false, error: error?.message || String(error) })
     }
     return

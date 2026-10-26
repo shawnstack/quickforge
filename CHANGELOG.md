@@ -12,6 +12,43 @@ All notable changes to QuickForge will be documented in this file.
 - Todo summary motion now uses the shared `--quickforge-dur-*` / `--quickforge-ease-out` tokens, and the per-item `nth-child` fade stagger is gone (the design language forbids per-item waterfalls; only opacity fades are allowed).
 - The "in progress" glyph is now a quarter arc spinning on a dimmed track ring instead of a static half-filled circle that breathed. The half-filled circle read as a fixed 50% progress, and the breathing scaled the whole glyph so the row's text pulsed with it. Only the arc rotates; the `todo_write` history card keeps the static shape because an in-progress row in a past snapshot is history, not work in flight. Under `prefers-reduced-motion` the spin stops and the track lightens to a 3/4 ring, so the state never collapses into the hollow "pending" circle.
 
+## [2.3.3] - 2026-10-26
+
+### Added
+
+- The model selector next to the composer is rebuilt as a three-part popover: a pinned "custom models" entry at the top, a scrollable list grouped by provider with a `Vision` capability tag and a selection check, and a thinking-level slider along the bottom. The slider rolls its value through a single column of the five levels, uses a gradient track with one knob, and trails particles whose density and speed rise with the level (clipped to the track's rounded corners, disabled under `prefers-reduced-motion`). The thinking control therefore lives in one place instead of in a separate composer menu.
+- The conversation trace view projects a session into Turn → Step → Tool with a three-track overview and an inspector, and the composer's model trigger now reads `model · thinking level` so the current reasoning effort is visible without opening the selector.
+
+### Changed
+
+- The `run_workflow` detail panel no longer draws a timeline. The axis squeezed the card column into a ~53px plot area, tick labels collided in narrow panels, and the track baseline never matched the summary rows. It is now an overview (status, duration, scale, derived stats, plus "N failed steps · locate" when a step failed), sticky phase headers, a light agent row that opens the same sub-agent run detail, `ToolMessage` tool rows, and collapsible logs. Script and result sheets moved to low-emphasis text buttons, and the script sheet opens by default when the payload carries one.
+- Workflow detail step rows now reuse the chat tool card and the sub-agent summary card instead of a parallel hand-written row UI, so the process record reads the same in both places.
+- Large frontend components were split into modules without changing behaviour: `ChatSidebar` went from 2216 to 1165 lines with a `chat-sidebar/` module set, `App.tsx` from 2431 to 2019 lines with six state-domain hooks and three region components, and `ChatPanelHostProps` was regrouped into five sub-interfaces.
+- The monolithic `src/index.css` was split into a single ordered entry plus 38 domain modules; the module import order is the cascade contract, and the built CSS is rule-for-rule identical.
+- `ask_user` confirmations accept an optional free-form remark, carried through as a final answer and persisted to `details.remark`.
+- Session writes are guarded by a lease so a second window cannot interleave writes; observers get a read-only composer with a reason-specific notice.
+- Opening a session no longer remounts the whole tree (session-open fast path M0–M3), and the composer hot path was pushed down so streaming updates do not re-render the message list.
+- The setting to pick a default model and default thinking level is gone: new sessions inherit the model and level you last chose.
+
+### Fixed
+
+- Opening the model selector always showed the thinking level as "off": the slider renders before it is appended to the popover, so its row height measured 0, the rolling column never got a `translateY`, and only the first row (`off`) was visible while the knob sat at the correct level. The position now falls back to the root font size and is corrected once real layout is known.
+- Switching models while the selector stays open now updates the slider, and an unsupported level (`minimal` from the provider side, or any invalid value) is normalised instead of producing a wrong label or broken geometry.
+- The thinking-level menu was clipped by the composer card, and the trace tab's selected state no longer picks up a special tint.
+- `run_workflow` results are no longer truncated, and workflow detail budgets are tiered by running versus terminal state so a trimmed run is explicitly marked.
+- A completed todo summary no longer reappears in the composer after new messages, and no longer survives a reload after the round ended.
+- Returning to a running session no longer hangs on "loading conversation".
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.3` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.3.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.3.tgz
+  ```
+
 ## [2.3.2] - 2026-10-21
 
 ### Added

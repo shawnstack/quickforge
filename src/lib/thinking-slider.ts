@@ -9,6 +9,7 @@
  * - **粒子**：canvas 叠在轨道内，随档位改变密度与流速，并按圆角裁剪，
  *   保证粒子不会溢出滑动条。`prefers-reduced-motion` 下完全不启用。
  */
+import { toThinkingLevel } from '@/lib/thinking-levels'
 
 export type ThinkingSliderLevel = 'off' | 'low' | 'medium' | 'high' | 'xhigh'
 
@@ -76,15 +77,12 @@ function prefersReducedMotion() {
 /**
  * 把外部传入的档位收敛到滑杆支持的 5 档。
  *
- * 上游 `pi-agent-core` 的 `ThinkingLevel` 还包含滑杆没有的 `minimal`（Provider
- * 侧有效，但没有对应刻度）。这类值映射到相邻的 `low`，非法值兜底到 `off`，
- * 否则 `indexOf` 会返回 -1，把整列文字和圆圈位置算成非法几何。
+ * 实现委托给 `thinking-levels.ts` 的 `toThinkingLevel()`：档位词表与收敛规则
+ * 是跨模块契约（服务端同步、持久化、按钮展示都依赖同一份），不应在这里再写
+ * 一遍。本地保留这个别名只是为了让滑杆调用点读起来更贴控件语义。
  */
 export function toSliderLevel(level: string | null | undefined): ThinkingSliderLevel {
-  if (level === 'minimal') return 'low'
-  return THINKING_SLIDER_LEVELS.includes(level as ThinkingSliderLevel)
-    ? (level as ThinkingSliderLevel)
-    : 'off'
+  return toThinkingLevel(level)
 }
 
 export function createThinkingSlider(options: ThinkingSliderOptions): ThinkingSliderHandle {

@@ -539,6 +539,18 @@ html.dark .quickforge-subagent-running-badge {
   color: var(--foreground) !important;
 }
 
+/* 触发按钮上的思考等级后缀：只读展示，比模型名更浅一档。
+   沿用本文件已验证的弱化写法（同分组头 / 滑杆标题），不叠加 Tailwind
+   语义色透明度（DESIGN_LANGUAGE 明确禁止凭感觉造「更浅」）。 */
+.quickforge-model-trigger-thinking {
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+}
+
+.quickforge-composer .quickforge-model-trigger[aria-expanded="true"] .quickforge-model-trigger-thinking,
+.quickforge-composer .quickforge-model-trigger:hover:not(:disabled) .quickforge-model-trigger-thinking {
+  color: color-mix(in oklab, var(--foreground) 62%, transparent);
+}
+
 .quickforge-composer .quickforge-model-trigger svg {
   display: none;
 }

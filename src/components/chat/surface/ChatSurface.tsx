@@ -1445,6 +1445,8 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                 isStreaming={snapshot.isStreaming}
                 isWaiting={isReplyWaiting}
                 currentModel={snapshot.model}
+                // 只读展示：模型触发按钮显示「模型 · 思考等级」。
+                thinkingLevel={snapshot.thinkingLevel}
                 // The native paperclip button is redundant: attachment picking is
                 // owned by the QuickForge "+" menu (its "add attachment" row calls
                 // `pickAttachment`). The decoration layer hid this button on every

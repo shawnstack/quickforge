@@ -94,4 +94,63 @@ describe('composer model trigger', () => {
 
     expect(trigger()).toBeNull()
   })
+
+  /**
+   * 显示优化：按钮文案从「模型 ID」扩成「模型 ID · 思考等级」。
+   * 等级是只读展示（修改入口在弹层底部滑杆），所以这里只锁定渲染结果。
+   */
+  describe('thinking level suffix', () => {
+    const reasoningModel = { id: 'model-1', name: 'Model 1', provider: 'test', reasoning: true } as never
+
+    function suffix() {
+      return container.querySelector<HTMLElement>('.quickforge-model-trigger-thinking')
+    }
+
+    it('appends the level after the model name for reasoning models', () => {
+      render({ currentModel: reasoningModel, thinkingLevel: 'high' })
+
+      expect(suffix()).not.toBeNull()
+      // 该用例走真实 i18n（本文件未 mock），英文环境下 High 是最终用户文案。
+      expect(suffix()!.textContent).toContain('High')
+      // 等级必须是模型名 span 的子节点：紧凑态/移动端只把那个 span sr-only 化，
+      // 兄妹节点会在 2rem 图标形态下继续显示并撑破按钮。
+      expect(suffix()!.parentElement?.classList.contains('ml-1')).toBe(true)
+    })
+
+    it('renders no suffix without a level', () => {
+      render({ currentModel: reasoningModel })
+
+      expect(suffix()).toBeNull()
+      expect(trigger()!.textContent).not.toContain('·')
+    })
+
+    it('hides the suffix for non-reasoning models', () => {
+      // 切到非推理模型时等级会被强制成 off；显示「关」会让人误以为是用户关掉的。
+      render({ currentModel: model, thinkingLevel: 'off' })
+
+      expect(suffix()).toBeNull()
+    })
+
+    it.each([
+      ['off', 'Off'],
+      ['low', 'Low'],
+      ['medium', 'Medium'],
+      ['high', 'High'],
+      ['xhigh', 'XHigh'],
+      // 上游 ThinkingLevel 含滑杆没有的 minimal：落到相邻的 low，不能显示成「关」。
+      ['minimal', 'Low'],
+      ['bogus', 'Off'],
+    ])('maps %s to %s', (level, expectedLabel) => {
+      render({ currentModel: reasoningModel, thinkingLevel: level as never })
+
+      expect(suffix()!.textContent).toContain(expectedLabel)
+    })
+
+    it('separates the level from the model name with a middot', () => {
+      render({ currentModel: reasoningModel, thinkingLevel: 'medium' })
+
+      // 与工具卡「label · detail」同款分隔写法，避免读出「model-1medium」。
+      expect(suffix()!.textContent).toBe(' · Medium')
+    })
+  })
 })

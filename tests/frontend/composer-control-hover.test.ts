@@ -3,8 +3,12 @@ import { appCss } from '../helpers/app-css'
 
 const css = appCss
 
+// 剥掉注释，避免规则前的中文注释被朴素的选择器匹配正则吸入 selector 文本
+// （与 tests/frontend/chat-compact-controls.test.ts 的 ruleFor 同一处理）。
+const cssRules = css.replace(/\/\*[\s\S]*?\*\//g, '')
+
 function ruleFor(selector: string) {
-  for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+  for (const match of cssRules.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selectors = match[1]
       .split(',')
       .map((item) => item.trim())
@@ -36,6 +40,32 @@ describe('composer control hover feedback', () => {
 
     expect(triggerHover).toMatch(/background:\s*var\(--quickforge-sidebar-hover-bg\)\s*!important/)
     expect(triggerHover).toMatch(/transform:\s*none\s*!important/)
+  })
+
+  /**
+   * 模型触发按钮的「· 思考等级」后缀要比模型名更浅一档。
+   *
+   * 用 `color-mix(... var(--muted-foreground) 72%, transparent)` 而不是
+   * Tailwind 语义色透明度：DESIGN_LANGUAGE 明确禁止凭感觉造「更浅」
+   * （`border-border/75`、`bg-muted/20` 曾导致实际更深）。父级已经是
+   * `--muted-foreground`，所以子级必须真的比它弱。
+   */
+  it('renders the thinking suffix one step lighter than the model name', () => {
+    const suffix = ruleFor('.quickforge-model-trigger-thinking')
+    expect(suffix.body).toMatch(/color:\s*color-mix\(in oklab,\s*var\(--muted-foreground\)\s+72%,\s*transparent\)/)
+    // 不能用 !important 抢过父级的 hover / 展开态重着色。
+    expect(suffix.body).not.toMatch(/!important/)
+  })
+
+  it('re-lightens the suffix when the trigger is hovered or expanded', () => {
+    const suffix = ruleFor(
+      '.quickforge-composer .quickforge-model-trigger[aria-expanded="true"] .quickforge-model-trigger-thinking',
+    )
+    expect(suffix.selectors).toEqual([
+      '.quickforge-composer .quickforge-model-trigger[aria-expanded="true"] .quickforge-model-trigger-thinking',
+      '.quickforge-composer .quickforge-model-trigger:hover:not(:disabled) .quickforge-model-trigger-thinking',
+    ])
+    expect(suffix.body).toMatch(/color:\s*color-mix\(in oklab,\s*var\(--foreground\)\s+62%,\s*transparent\)/)
   })
 
   it('keeps send hover primary and stationary', () => {

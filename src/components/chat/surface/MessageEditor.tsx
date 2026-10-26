@@ -4,7 +4,8 @@ import { Loader2, Paperclip, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
-import type { Api, Attachment, Model } from './ChatTypes'
+import { thinkingLevelLabel, toThinkingLevel } from '@/lib/thinking-levels'
+import type { Api, Attachment, Model, ThinkingLevel } from './ChatTypes'
 import { AttachmentTile } from './AttachmentTile'
 import { loadSurfaceAttachment } from './attachment-loader'
 import { useComposerAttachments, useComposerText, type ComposerStore } from './composer-store'
@@ -145,6 +146,11 @@ export interface MessageEditorProps {
    */
   isWaiting?: boolean
   currentModel?: Model<Api>
+  /**
+   * 当前会话的思考等级。仅用于在模型触发按钮上做只读展示
+   * （`模型 · 高`），真正的修改入口在模型弹层底部的滑杆里。
+   */
+  thinkingLevel?: ThinkingLevel
   showAttachmentButton?: boolean
   showModelSelector?: boolean
   /**
@@ -415,6 +421,7 @@ export function MessageEditor({
   isStreaming = false,
   isWaiting = false,
   currentModel,
+  thinkingLevel,
   showAttachmentButton = true,
   showModelSelector = true,
   leadingControls,
@@ -438,6 +445,20 @@ export function MessageEditor({
   const [isDragging, setIsDragging] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  /**
+   * 触发按钮上展示的思考等级文案。
+   *
+   * 只管展示，不参与任何写回：修改入口仍是弹层底部的滑杆。
+   * - 非推理模型（`reasoning !== true`）不显示 —— 切到这类模型时
+   *   `useModelActions` 会把等级强制成 `off`，显示「关」只会造成「模型不支持
+   *   思考」与「思考被关掉」的混淆。
+   * - 档位先过 `toThinkingLevel()`：上游 `ThinkingLevel` 含滑杆没有的 `minimal`，
+   *   直接喂给 `thinkingLevelLabel()` 会落到「关」，显示错的等级。
+   */
+  const thinkingLabel = currentModel?.reasoning === true && thinkingLevel
+    ? thinkingLevelLabel(toThinkingLevel(thinkingLevel))
+    : null
 
   // Mount-time focus, mirroring the legacy `<message-editor>`'s
   // `firstUpdated()` → `textarea.focus()`. The surface is keyed per session,
@@ -669,7 +690,19 @@ export function MessageEditor({
                 }}
               >
                 <Sparkles className="size-4" />
-                <span className="ml-1">{currentModel.id}</span>
+                {/*
+                  思考等级只是只读展示：修改入口在弹层底部的滑杆里。
+                  它必须是 `.ml-1` 这个 span 的子节点而不是兄弟 —— 紧凑态
+                  与移动端只把 `.quickforge-model-trigger > span.ml-1`
+                  sr-only 化（2rem 图标按钮），兄弟节点会在那个形态下继续
+                  显示并撑破按钮。
+                */}
+                <span className="ml-1">
+                  {currentModel.id}
+                  {thinkingLabel ? (
+                    <span className="quickforge-model-trigger-thinking"> · {thinkingLabel}</span>
+                  ) : null}
+                </span>
               </Button>
             ) : null}
             {/* The QuickForge thinking selector sits after the model trigger in

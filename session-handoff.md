@@ -1,3 +1,26 @@
+# 当前交接：project-create-in-workspace（done，2026-10-26）
+
+- Current Objective（当前目标）：用户要求项目选择器里「选择项目目录」下面增加「创建项目」，并直接在 workspace 下创建；先看 HTML 交互原型，确认后落地实现。
+- 结论（一句话）：`NewChatProjectPicker` 菜单新增「新建项目」动作行，就地切到新建面板（只填名称 + 路径预览），`POST /api/project/create` 在默认 workspace 下建目录并注册激活；「选择项目目录…」保持只选已存在目录。
+- 改动文件：`server/project-config.mjs`（`validateProjectFolderName` / `createProjectInDefaultWorkspace`）、`server/routes/project.mjs`（`POST /api/project/create`）、`src/hooks/useProject.ts`（`createProjectInWorkspace`）、`src/components/chat/NewChatProjectPicker.tsx`（list/create 双视图 + 校验 + Enter/Esc）、`src/App.tsx`（接线 + workspacePath）、`src/lib/i18n.ts`（中英各 14 key）、`src/styles/chat/empty-state.css`（`.quickforge-project-create-*`）、`tests/server/routes/project-create.test.mjs`、`tests/frontend/new-chat-project-picker-create.test.ts`、`docs/design/project-create-in-workspace.html`、`docs/wiki/{src/components,src/hooks,src/styles,server,server/routes}/README.md`、`feature_list.json`、`progress.md`。
+- Evidence（验证）：定向 vitest 5 文件 36 passed；`npm run test` 全量 428 文件 / 4976 passed / 2 skipped（首轮出现 `scheduled-tasks.commands` 2 例并发 flake，单独重跑 24/24、全量重跑全绿）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（6.88s）。
+- Blockers（阻塞）：未在用户正在使用的实例里目视验收新建面板（单实例 guard + 无可见浏览器）；布局/动效由 static markup、CSS 契约测试与独立原型页兜底。
+- Next Session（下一步）：① 在真实窗口打开新对话 → 点项目胶囊 → 「新建项目」，确认焦点自动落在名称框、Enter 提交后侧栏出现并高亮新项目；② 若希望远程/局域网客户端也能建项目，现在是允许的（`/api/project/create` 未加入本地限制名单），如要收紧需改 `assertLocalExternalAction` 名单并同步测试；③ 目视确认路径预览在长 workspace 路径下的截断表现。未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：sidebar-timeline-runtime-status（done，2026-10-26）
+
+- Current Objective（当前目标）：侧栏视图切到「时间线」后运行中状态消失；用户要求与普通项目视图保持一致。
+- 结论（一句话）：`SidebarSessionRow` 删除 timeline 变体对 `timeText` 的短路，四个变体统一走 `sessionTimeSlotContent`；运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本，固定 `w-11` 槽和 hover 几何不变。
+- 改动文件：`src/components/sidebar/chat-sidebar/SidebarSessionRow.tsx`（删除 timeline 特判 + 更新注释）、`tests/frontend/sidebar-session-action-alignment.test.ts`（四变体共用状态槽断言）、`docs/wiki/src/components/README.md`（两处 ChatSidebar 说明）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 性能分析：每可见行仅多一次 O(1) `sessionTaskStatus()` 与 `Set.has()`，本机 V8 微基准约 21ns/行；状态仅在 `agent_start` / `agent_end` / visibilitychange 更新，无新增 state/effect/订阅，不引入逐 token 重渲染；spinner 仅运行行渲染，合成层动画，与项目/全局视图一致。
+- Evidence（验证）：定向 vitest 5 文件 46 passed；`npx tsc -b` 通过；`npx eslint` 改动源/测试文件通过。
+- Blockers（阻塞）：未做用户正在使用的 5176 实例内目视验收；jsdom 不可用，源码契约测试覆盖渲染口径。全量 `npm run build` / `npm run lint` 当前被工作区既有 WIP（`NewChatProjectPicker.tsx` / `i18n.ts` / `project-config.mjs` 的新建 workspace 项目功能）阻塞（TS6133、no-control-regex），与本改动无关；改动文件定向 eslint 与 `tsc -b --force`（仅报该 WIP 错误）已确认。
+- Next Session（下一步）：在已有 QuickForge 窗口切到「时间线」视图，确认运行中会话行尾出现 spinner、结束后未读绿点替换时间；未创建 Git commit，未触碰生成产物。
+
+---
+
 # 当前交接：composer-model-trigger-thinking-label（done，2026-10-26）
 
 - Current Objective（当前目标）：用户要求「对话框显示模型那里显示模型 + 思考等级，思考等级更浅色一点，其他的不变，只是改显示」。

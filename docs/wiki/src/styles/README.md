@@ -48,7 +48,7 @@ src/styles/
 │   ├── composer.css             # composer 外壳、textarea、回到顶部、命令建议
 │   ├── composer-overlays.css    # slash chip、文件引用建议
 │   ├── composer-controls.css    # 附件、plus 菜单、思考/权限、模型菜单、发送/停止
-│   ├── empty-state.css          # 任务启动器、空对话、项目选择
+│   ├── empty-state.css          # 任务启动器、空对话、项目选择（含「在 workspace 下新建项目」内嵌面板）
 │   ├── compact.css              # 对话区 icon-only 紧凑模式
 │   ├── interaction-cards.css    # 审批卡与 ask-user 向导卡
 │   ├── runtime-notices.css      # 排队消息、SSE 重连、轮次错误

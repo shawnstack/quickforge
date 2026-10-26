@@ -285,6 +285,98 @@ export async function setActiveProjectPath(inputPath) {
   return { project, projects: updated.projects }
 }
 
+// Name validation shared by "create project in workspace" and any future entry.
+// Rejects path separators / Windows-reserved characters / traversal names so the
+// created directory always stays a direct child of the default workspace root.
+const INVALID_PROJECT_NAME_CHARS = /[\\/:*?"<>|]/
+
+function hasControlCharacter(value) {
+  for (const char of value) {
+    if (char.charCodeAt(0) < 32) return true
+  }
+  return false
+}
+
+export function validateProjectFolderName(input) {
+  const name = String(input ?? '').trim()
+  if (!name) {
+    const error = new Error('Project name is required')
+    error.statusCode = 400
+    error.errorCode = 'INVALID_PROJECT_NAME'
+    throw error
+  }
+  if (name === '.' || name === '..' || INVALID_PROJECT_NAME_CHARS.test(name) || hasControlCharacter(name)) {
+    const error = new Error('Project name contains invalid characters')
+    error.statusCode = 400
+    error.errorCode = 'INVALID_PROJECT_NAME'
+    throw error
+  }
+  if (name.length > 64) {
+    const error = new Error('Project name is too long')
+    error.statusCode = 400
+    error.errorCode = 'INVALID_PROJECT_NAME'
+    throw error
+  }
+  return name
+}
+
+// Create a directory under the default workspace root and register it as the
+// active project. Keeps the "choose an existing folder" flow untouched: this is
+// the only path that owns directory creation.
+export async function createProjectInDefaultWorkspace(inputName) {
+  const name = validateProjectFolderName(inputName)
+  if (!defaultWorkspaceRoot) {
+    const error = new Error('Default workspace root is not configured')
+    error.statusCode = 500
+    throw error
+  }
+
+  const parent = path.resolve(defaultWorkspaceRoot)
+  const target = path.join(parent, name)
+  // Defensive: validateProjectFolderName already rejects separators, keep the
+  // containment check so a future caller cannot escape the workspace root.
+  const relative = path.relative(parent, target)
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    const error = new Error('Project name is required')
+    error.statusCode = 400
+    error.errorCode = 'INVALID_PROJECT_NAME'
+    throw error
+  }
+
+  await fs.mkdir(parent, { recursive: true })
+  try {
+    await fs.mkdir(target, { recursive: false })
+  } catch (mkdirError) {
+    if (mkdirError?.code === 'EEXIST') {
+      const error = new Error('Project folder already exists')
+      error.statusCode = 409
+      error.errorCode = 'PROJECT_FOLDER_EXISTS'
+      error.projectPath = target
+      throw error
+    }
+    if (mkdirError?.code === 'EACCES' || mkdirError?.code === 'EPERM') {
+      const error = new Error('Access denied: cannot create project folder')
+      error.statusCode = 403
+      error.errorCode = 'PROJECT_CREATE_DENIED'
+      throw error
+    }
+    throw mkdirError
+  }
+
+  try {
+    const result = await setActiveProjectPath(target)
+    return { ...result, createdPath: target }
+  } catch (error) {
+    // Directory was created but registration failed — surface the path so the
+    // caller can offer "use existing folder" instead of leaving an orphan.
+    if (error && typeof error === 'object') {
+      error.createdPath = target
+      error.errorCode = error.errorCode || 'PROJECT_REGISTER_FAILED'
+    }
+    throw error
+  }
+}
+
 export async function initializeActiveProject() {
   const config = await readProjectConfig()
   const activeProject = getActiveProject(config)

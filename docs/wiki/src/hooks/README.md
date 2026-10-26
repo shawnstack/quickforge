@@ -12,7 +12,7 @@
 | [useModelActions.ts](../../../../src/hooks/useModelActions.ts) | 232 | 模型操作：选择模型、切换访问模式、管理工具 |
 | [useSessionActions.ts](../../../../src/hooks/useSessionActions.ts) | 105 | 会话操作：归档、置顶、重命名、刷新 |
 | [useSessionPagination.ts](../../../../src/hooks/useSessionPagination.ts) | 429 | 会话分页加载；`refreshSessions()` 带 `REFRESH_SESSIONS_MERGE_MS`（250ms）in-flight 合并——窗口内重复调用复用同一轮 Promise，合并进来的 `broadcast` 需求仍在轮尾触发一次广播 |
-| [useProject.ts](../../../../src/hooks/useProject.ts) | 155 | 项目状态管理；含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造） |
+| [useProject.ts](../../../../src/hooks/useProject.ts) | 221 | 项目状态管理；含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造）与 `createProjectInWorkspace(name)`（`POST /api/project/create`，在默认 workspace 下建目录并激活） |
 | [useProjectActions.ts](../../../../src/hooks/useProjectActions.ts) | 58 | 项目操作：切换、添加、删除 |
 | [useAgentAccessActions.ts](../../../../src/hooks/useAgentAccessActions.ts) | 66 | Agent 访问模式操作 |
 | [useAgentAccessMode.ts](../../../../src/hooks/useAgentAccessMode.ts) | 17 | Agent 访问模式状态 |

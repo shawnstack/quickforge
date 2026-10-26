@@ -532,9 +532,13 @@ details 形状（`workflow:true` / `runId` / `status` / `durationMs` / 预算 / 
 
 合成系统提示词。将基础提示词、workspace 上下文、多来源用户/项目指令（兼容 `~/.claude/CLAUDE.md`、`~/.opencode/AGENTS.md`、项目 `CLAUDE.md` / `AGENTS.md` 等）、Skills 目录和 Subagents 目录组装成完整的系统提示词。基础提示词要求命令在可行时优先通过 `run_command` 的 `run_in_background` 后台运行，并禁止用 shell 语法自行后台化；Subagents 目录会引导主 Agent 在需要文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现或影响面分析时优先委托 `explore` 做只读仓库调研。
 
-### project-config.mjs (162 行)
+### project-config.mjs
 
 项目配置管理（在 `config/projects.json` 的 `projects` 数组中）。
+
+- `setActiveProjectPath(path)` — 注册/激活一个**已存在**的目录（要求目录存在，否则 400）。
+- `validateProjectFolderName(name)` / `createProjectInDefaultWorkspace(name)` — 唯一会创建目录的项目入口：在默认 workspace 根下 `fs.mkdir(recursive:false)` 建子目录，再复用 `setActiveProjectPath` 注册并激活；失败带 `errorCode`（`INVALID_PROJECT_NAME` / `PROJECT_FOLDER_EXISTS` / `PROJECT_CREATE_DENIED`）与 `createdPath`，供前端提示「直接使用该项目」。
+- `defaultGlobalWorkspaceContext()` / `projectContextFromId()` — 无 projectId 的全局会话使用 `id='default'`、指向默认 workspace 的合成项目。
 
 ### reasoning-cache.mjs (51 行)
 

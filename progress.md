@@ -1,3 +1,31 @@
+## project-create-in-workspace（done，2026-10-26）
+
+- Goal：用户要求「选择项目目录下面应该有一个创建项目，直接就在 workspace 创建就可以了，这样感觉更简单」，并先给出 HTML 交互原型确认后再实现。
+- 结论（一句话）：项目选择 popover 内新增「新建项目」入口，就地切成新建面板，只填名称即可在默认 workspace（`~/.quickforge/workspace`）下建目录并激活，不再需要浏览目录树。
+- 改动文件：
+  1. `server/project-config.mjs`：新增 `validateProjectFolderName` / `createProjectInDefaultWorkspace`——名称校验（空 / `.` / `..` / `\ / : * ? " < > |` / 控制字符 / >64 字符 → 400 `INVALID_PROJECT_NAME`），`fs.mkdir(recursive:false)` 建子目录后复用 `setActiveProjectPath` 注册并激活；`EEXIST` → 409 `PROJECT_FOLDER_EXISTS`、`EACCES/EPERM` → 403 `PROJECT_CREATE_DENIED`，注册失败把 `createdPath` 挂到 error 上。
+  2. `server/routes/project.mjs`：新增 `POST /api/project/create`，**不**加入 `assertLocalExternalAction` 名单（远程客户端也可用）。
+  3. `src/hooks/useProject.ts`：新增 `createProjectInWorkspace(name)`，复用 `setActiveProject` / `setProjects` / `invalidateApiCache` / `pruneExpandedProjectIds`；错误对象带 `code` 供 UI 分支。
+  4. `src/components/chat/NewChatProjectPicker.tsx`：新增 `view`（`list | create`）、名称输入、路径预览、客户端同名/非法字符/超长校验、创建中态、错误态、Enter 提交、Esc 逐级返回（先清输入再回列表）、同名给「直接使用该项目」；「选择项目目录…」去掉常驻 `item-emphasis` 底色，成为普通动作行。
+  5. `src/styles/chat/empty-state.css`：新增 `.quickforge-project-picker-item-hint` 与 `.quickforge-project-create-*`（面板无边框无阴影，只有输入框轻边框 + 聚焦 `shadow-2xs`；提交按钮 `:active` scale 0.97）。
+  6. `src/lib/i18n.ts`：中英各补 14 个 key。
+  7. `src/App.tsx`：`handleCreateEmptyStateProject` → `createProjectInWorkspace`；`onCreateProject`（remoteClient 时 undefined）+ `workspacePath={defaultWorkspace?.path}`。
+  8. 测试：`tests/server/routes/project-create.test.mjs`（15 例）、`tests/frontend/new-chat-project-picker-create.test.ts`（10 例）。
+  9. 文档：`docs/design/project-create-in-workspace.html`（交互原型）、`docs/wiki/src/components/README.md`、`docs/wiki/src/hooks/README.md`、`docs/wiki/src/styles/README.md`、`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`。
+- 验证 / Evidence：定向 vitest 5 文件 **36 passed**；`npm run test` 全量 **428 文件 / 4976 passed / 2 skipped**（首轮曾出现 `tests/server/scheduled-tasks.commands.test.mjs` 2 例并发 flake，单独重跑 **24/24 passed**、全量重跑全绿）；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npx tsc -b` 通过；`npm run build` 成功（6.88s）。
+- Notes：只允许在 workspace 根目录**下**建子目录，不接受 workspace 根目录本身作为项目，避免与 `id='default'` 合成项目语义重叠。`project-directory-picker.tsx` 的既有浏览 / 单层新建文件夹流程未改；没有新增依赖；未创建 Git commit；未手工修改生成产物。设计稿默认自动展开菜单便于对比，落地代码没有这段演示逻辑。
+
+## sidebar-timeline-runtime-status（done，2026-10-26）
+
+- Goal：侧栏切换到「时间线」视图后，运行中/未读会话与普通项目视图一致显示行尾状态。
+- 结论（一句话）：删除 `SidebarSessionRow` 的 timeline 特判，四个变体统一走 `sessionTimeSlotContent`；运行中 Loader2、完成未读 emerald 点替换时间文本，固定 `w-11` 槽与 hover/focus 几何不变。
+- 改动文件：
+  1. `src/components/sidebar/chat-sidebar/SidebarSessionRow.tsx`：`timeSlotContent` 不再按 `variant === 'timeline'` 短路为 `timeText`；更新变体注释与 `timeText` prop 说明。
+  2. `tests/frontend/sidebar-session-action-alignment.test.ts`：断言四个变体共用 `sessionTimeSlotContent`，移除“timeline 直接展示时间”的旧契约。
+  3. `docs/wiki/src/components/README.md`：两处 ChatSidebar 模块说明同步为四变体共用时间/状态槽。
+- 验证 / Evidence：定向 vitest 5 文件 **46 passed**（sidebar-session-action-alignment / session-row-hit-area / sidebar-session-sort-mode / sidebar-session-display-limit / motion-design）；`npx tsc -b` 通过；`npx eslint` 改动源/测试文件通过。
+- Notes：性能分析——每可见行仅多一次 `sessionTaskStatus()`（O(1) 对象查找）与 `Set.has()`，本机 V8 微基准约 21ns/行；状态只在 `agent_start` / `agent_end` 与 visibilitychange 更新，没有新增 state/effect/订阅，不会把流式 token 更新引入侧栏；运行 spinner 仅运行行渲染，合成层动画，与项目/全局视图一致。未改状态数据源、固定槽宽度与 hover 几何；无依赖变更；未创建 Git commit；未手工修改生成产物。全量 `npm run build` / `npm run lint` 当前被工作区既有 WIP（新建 workspace 项目：`NewChatProjectPicker.tsx` / `i18n.ts` / `project-config.mjs`）阻塞（TS6133 未使用变量、no-control-regex），与本改动无关；定向 tsc/eslint 已通过。
+
 ## workflow-detail-script-expanded（done，2026-10-26）
 
 - Goal：workflow 详情里的脚本 sheet 默认展开，不再要求先点底部「脚本」。

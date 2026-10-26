@@ -1,6 +1,12 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { logger } from '../utils/logger.mjs'
-import { getActiveProject, setActiveProjectPath, readProjectConfig, getDefaultWorkspaceRoot } from '../project-config.mjs'
+import {
+  getActiveProject,
+  setActiveProjectPath,
+  readProjectConfig,
+  getDefaultWorkspaceRoot,
+  createProjectInDefaultWorkspace,
+} from '../project-config.mjs'
 import { resolveRequestedProject, workspaceRootAfterProjectDeletion } from '../project-route-context.mjs'
 import { listProjectCommands, createCommandFile } from '../custom-commands.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
@@ -73,6 +79,13 @@ export async function handleProjectApi(req, res, url, context = {}) {
   if (req.method === 'POST' && url.pathname === '/api/project/path') {
     const body = await readJsonBody(req)
     const result = await setActiveProjectPath(body?.path)
+    sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
+    return
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/project/create') {
+    const body = await readJsonBody(req)
+    const result = await createProjectInDefaultWorkspace(body?.name)
     sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
     return
   }

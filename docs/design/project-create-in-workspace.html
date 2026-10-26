@@ -1,0 +1,895 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QuickForge · 项目选择器 / 在 workspace 下新建项目 · 交互原型</title>
+<style>
+  /* =========================================================
+     token 对齐 src/styles/foundation.css（明/暗两套）
+     ========================================================= */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+
+    --hairline: color-mix(in oklab, var(--border) 64%, transparent);
+    --panel-border: color-mix(in oklab, var(--border) 76%, transparent);
+    --panel-bg: color-mix(in oklab, var(--popover) 98%, transparent);
+    --row-hover: color-mix(in oklab, var(--muted) 80%, transparent);
+    --chip-bg: color-mix(in oklab, var(--card) 70%, transparent);
+    --label-fg: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+    --dim-fg: color-mix(in oklab, var(--muted-foreground) 74%, transparent);
+    --stage-bg: color-mix(in oklab, var(--background) 94%, var(--foreground));
+    --dur-fast: 120ms;
+    --dur-base: 180ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+  }
+  html[data-theme="dark"] {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --popover: oklch(0.269 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --border: oklch(0.275 0 0);
+    --input: oklch(0.325 0 0);
+    --ring: oklch(0.556 0 0);
+    --panel-bg: color-mix(in oklab, var(--popover) 96%, black);
+    --stage-bg: oklch(0.11 0 0);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--stage-bg);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+  }
+  button { font-family: inherit; }
+
+  .i { width: 16px; height: 16px; flex-shrink: 0; fill: none; stroke: currentColor;
+       stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .i-sm { width: 14px; height: 14px; }
+
+  /* ================= 外层舞台 ================= */
+  .stage { min-height: 100%; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; gap: 14px; padding: 26px 16px 22px; }
+
+  .toolbar { display: flex; width: min(1180px, 100%); align-items: center; gap: 8px;
+             color: var(--dim-fg); font-size: 12px; }
+  .toolbar .spacer { flex: 1; }
+  .tb-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px;
+            border: 1px solid var(--panel-border); border-radius: 8px; background: var(--background);
+            color: color-mix(in oklab, var(--foreground) 78%, transparent); font-size: 12px;
+            cursor: pointer; transition: background-color var(--dur-fast) var(--ease),
+            color var(--dur-fast) var(--ease), transform 100ms var(--ease); }
+  .tb-btn:hover { background: var(--row-hover); color: var(--foreground); }
+  .tb-btn:active { transform: scale(0.97); }
+  .tb-btn[aria-pressed="true"] { background: var(--row-hover); color: var(--foreground); }
+
+  .app { position: relative; display: flex; width: min(1180px, 100%); height: min(720px, calc(100vh - 132px));
+         overflow: hidden; border: 1px solid var(--panel-border); border-radius: 14px;
+         background: var(--background);
+         box-shadow: 0 40px 90px -60px rgb(15 23 42 / 0.5), 0 8px 24px -20px rgb(15 23 42 / 0.28); }
+
+  /* ================= 侧栏 ================= */
+  .sidebar { display: flex; width: 264px; flex-shrink: 0; flex-direction: column;
+             border-right: 1px solid var(--hairline); background: var(--background); }
+  .sb-head { display: flex; align-items: center; gap: 8px; padding: 14px 12px 10px; }
+  .sb-mark { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 6px;
+             background: color-mix(in oklab, var(--foreground) 92%, transparent); color: var(--background); }
+  .sb-mark svg { width: 13px; height: 13px; }
+  .sb-name { font-size: 12.5px; letter-spacing: 0.01em; color: color-mix(in oklab, var(--foreground) 82%, transparent); }
+  .sb-head .spacer { flex: 1; }
+  .icon-btn { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 6px;
+              background: transparent; color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+              cursor: pointer; transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+  .icon-btn:hover { background: var(--row-hover); color: var(--foreground); }
+  .icon-btn:active { transform: scale(0.94); }
+  .icon-btn svg { width: 15px; height: 15px; }
+
+  .sb-search { display: flex; align-items: center; gap: 6px; margin: 2px 12px 10px; padding: 5px 8px;
+               border: 1px solid var(--hairline); border-radius: 8px; color: var(--dim-fg); font-size: 12px; }
+
+  .sb-section { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+  .sb-section-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px 10px; }
+  .sb-section-head span { flex: 1; color: var(--dim-fg); font-size: 10.5px; font-weight: 500;
+                          letter-spacing: 0.06em; text-transform: uppercase; }
+  .sb-projects { overflow-y: auto; padding: 0 6px 8px; }
+  .sb-row { display: flex; width: 100%; align-items: center; gap: 7px; padding: 6px 8px; border: 0;
+            border-radius: 7px; background: transparent; color: color-mix(in oklab, var(--foreground) 78%, transparent);
+            font-size: 12.5px; text-align: left; cursor: pointer;
+            transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+  .sb-row:hover { background: var(--row-hover); color: var(--foreground); }
+  .sb-row .sb-count { margin-left: auto; color: var(--dim-fg); font-size: 10.5px; }
+  .sb-row.is-active { background: color-mix(in oklab, var(--muted) 86%, transparent);
+                      color: var(--foreground); font-weight: 500;
+                      box-shadow: 0 1px 2px rgb(15 23 42 / 0.05); }
+  .sb-row.is-new { animation: flashRow 1.4s var(--ease); }
+  @keyframes flashRow { 0% { background: color-mix(in oklab, var(--muted) 96%, transparent); }
+                        100% { background: transparent; } }
+  .sb-row svg { color: color-mix(in oklab, var(--muted-foreground) 84%, transparent); }
+  .sb-row.is-active svg { color: color-mix(in oklab, var(--foreground) 70%, transparent); }
+
+  .sb-footer { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--hairline);
+               padding: 10px 12px; color: var(--dim-fg); font-size: 11.5px; }
+  .sb-footer .dot { width: 6px; height: 6px; border-radius: 999px; background: oklch(0.62 0.15 155); }
+
+  /* ================= 主区 / 空状态 ================= */
+  .main { position: relative; display: flex; min-width: 0; flex: 1; flex-direction: column;
+          align-items: center; justify-content: center; padding: 0 24px; }
+  .hero { position: absolute; top: calc(50% - 7.25rem); width: min(46rem, 100%);
+          color: color-mix(in oklab, var(--foreground) 92%, transparent); text-align: center; pointer-events: none; }
+  .hero h1 { margin: 0; font-size: clamp(1.9rem, 2.6vw, 2.4rem); font-weight: 400;
+             letter-spacing: -0.045em; line-height: 1.08; }
+  .hero p { margin: 10px 0 0; color: var(--dim-fg); font-size: 12.5px; }
+
+  .composer-wrap { position: relative; width: min(46rem, 100%); }
+  .composer { display: flex; flex-direction: column; gap: 10px; padding: 14px 14px 10px;
+              border: 1px solid color-mix(in oklab, var(--border) 82%, transparent); border-radius: 1.5rem;
+              background: color-mix(in oklab, var(--card) 96%, white);
+              box-shadow: 0 34px 90px -46px rgb(15 23 42 / 0.36), 0 18px 44px -32px rgb(15 23 42 / 0.28),
+                          inset 0 1px 0 rgb(255 255 255 / 0.8); }
+  html[data-theme="dark"] .composer { background: color-mix(in oklab, var(--card) 92%, transparent);
+              box-shadow: 0 34px 90px -46px rgb(0 0 0 / 0.6), inset 0 1px 0 rgb(255 255 255 / 0.04); }
+  .composer .ph { color: color-mix(in oklab, var(--muted-foreground) 60%, transparent); font-size: 13.5px; padding: 2px 4px; }
+  .composer .cbar { display: flex; align-items: center; gap: 6px; color: var(--dim-fg); }
+  .cbar .spacer { flex: 1; }
+  .cbar .cbtn { display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 999px;
+                background: transparent; color: var(--dim-fg); cursor: pointer; }
+  .cbar .cbtn:hover { background: var(--row-hover); color: var(--foreground); }
+  .cbar .send { display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 999px;
+                background: color-mix(in oklab, var(--foreground) 14%, transparent);
+                color: color-mix(in oklab, var(--foreground) 50%, transparent); }
+
+  /* 项目选择胶囊（composer 下方一行） */
+  .picker-row { display: flex; min-height: 42px; align-items: flex-end; gap: 8px; padding: 10px 4px 0; }
+  .pill { display: inline-flex; max-width: 100%; align-items: center; gap: 7px; padding: 5px 12px;
+          border: 0; border-radius: 999px; background: var(--chip-bg);
+          color: color-mix(in oklab, var(--foreground) 88%, transparent); font-size: 12.5px;
+          cursor: pointer; transition: background-color 150ms var(--ease), color 150ms var(--ease); }
+  .pill svg { color: color-mix(in oklab, var(--muted-foreground) 82%, transparent); }
+  .pill:hover, .pill[aria-expanded="true"] { background: color-mix(in oklab, var(--foreground) 14%, var(--card)); color: var(--foreground); }
+  .pill:hover svg, .pill[aria-expanded="true"] svg { color: var(--foreground); }
+  .pill:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent); outline-offset: 2px; }
+
+  .chip { display: inline-flex; max-width: min(20rem, 100%); align-items: center; gap: 7px; padding: 4px 10px 4px 5px;
+          border: 0; border-radius: 999px; background: transparent; color: color-mix(in oklab, var(--foreground) 88%, transparent);
+          font-size: 12.5px; cursor: pointer; transition: background-color 150ms var(--ease), color 150ms var(--ease); }
+  .chip:hover, .chip[aria-expanded="true"] { background: var(--row-hover); color: var(--foreground); }
+  .chip:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent); outline-offset: 2px; }
+  .chip .chip-act { position: relative; display: inline-grid; width: 18px; height: 18px; place-items: center; }
+  .chip .chip-folder { transition: opacity 150ms var(--ease); }
+  .chip:hover .chip-folder { opacity: 0; }
+  .chip .chip-clear { position: absolute; inset: 0; display: grid; place-items: center; border: 0; border-radius: 999px;
+                      background: color-mix(in oklab, var(--foreground) 88%, transparent); color: var(--background);
+                      opacity: 0; cursor: pointer; transition: opacity 150ms var(--ease); }
+  .chip:hover .chip-clear { opacity: 1; }
+  .chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .branch { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 2px; padding: 4px 6px; border: 0;
+            border-radius: 999px; background: transparent;
+            color: color-mix(in oklab, var(--muted-foreground) 84%, transparent); font-size: 11.5px; }
+  .branch svg { width: 13px; height: 13px; }
+
+  /* ================= 菜单浮层 ================= */
+  .menu { position: fixed; z-index: 1000; width: 350px; padding: 0.55rem; border: 1px solid var(--panel-border);
+          border-radius: 1rem; background: var(--panel-bg); color: var(--popover-foreground);
+          box-shadow: 0 26px 72px -42px rgb(15 23 42 / 0.52), 0 10px 24px -18px rgb(15 23 42 / 0.28);
+          transform-origin: bottom left; animation: menuIn var(--dur-base) var(--ease); }
+  .menu.is-down { transform-origin: top left; }
+  @keyframes menuIn { from { opacity: 0; transform: translateY(4px) scale(0.96); } }
+
+  .menu-search { display: flex; align-items: center; gap: 10px; padding: 0.4rem 0.55rem 0.5rem; color: var(--dim-fg); }
+  .menu-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent;
+                       color: var(--foreground); font-size: 13px; font-family: inherit; }
+  .menu-search input::placeholder { color: var(--dim-fg); }
+
+  .menu-list { max-height: 15rem; overflow-y: auto; }
+  .menu-row { display: flex; width: 100%; align-items: center; gap: 0.7rem; padding: 0.48rem 0.6rem;
+              border: 0; border-radius: 0.7rem; background: transparent;
+              color: color-mix(in oklab, var(--foreground) 90%, transparent);
+              font-size: 13px; text-align: left; cursor: pointer;
+              transition: background-color 140ms var(--ease), color 140ms var(--ease); }
+  .menu-row:hover, .menu-row.is-active { background: var(--row-hover); color: var(--foreground); }
+  .menu-row:focus-visible { outline: 2px solid color-mix(in oklab, var(--ring) 60%, transparent); outline-offset: -2px; }
+  .menu-row svg { color: color-mix(in oklab, var(--muted-foreground) 82%, transparent); }
+  .menu-row:hover svg, .menu-row.is-active svg { color: color-mix(in oklab, var(--foreground) 74%, transparent); }
+  .menu-row .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .menu-row .hint { margin-left: auto; flex-shrink: 0; color: var(--dim-fg); font-size: 10.5px; }
+  .menu-row .check { margin-left: auto; flex-shrink: 0; color: color-mix(in oklab, var(--foreground) 80%, transparent); }
+  .menu-row.is-new { animation: flashRow 1.6s var(--ease); }
+
+  .menu-empty { padding: 0.85rem 0.65rem; color: var(--dim-fg); font-size: 13px; }
+  .menu-sep { height: 1px; margin: 0.42rem 0.25rem; background: var(--hairline); }
+
+  /* 新建项目面板 */
+  .create-head { display: flex; align-items: center; gap: 0.55rem; padding: 0.25rem 0.25rem 0.7rem; }
+  .back-btn { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 7px;
+              background: transparent; color: var(--dim-fg); cursor: pointer; }
+  .back-btn:hover { background: var(--row-hover); color: var(--foreground); }
+  .create-title { font-size: 13px; color: var(--foreground); }
+  .create-sub { margin-top: 1px; color: var(--dim-fg); font-size: 11px; }
+  .field { padding: 0 0.25rem; }
+  .field label { display: block; margin-bottom: 5px; color: var(--label-fg); font-size: 10.5px;
+                 letter-spacing: 0.05em; text-transform: uppercase; }
+  .name-input { width: 100%; padding: 0.45rem 0.6rem; border: 1px solid color-mix(in oklab, var(--input) 88%, transparent);
+                border-radius: 0.6rem; background: var(--background); color: var(--foreground);
+                font-family: inherit; font-size: 13px; outline: 0;
+                transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+  .name-input::placeholder { color: var(--dim-fg); }
+  .name-input:focus { border-color: color-mix(in oklab, var(--ring) 60%, transparent);
+                      box-shadow: 0 1px 2px rgb(15 23 42 / 0.06); }
+  .name-input[aria-invalid="true"] { border-color: color-mix(in oklab, var(--destructive) 62%, transparent); }
+
+  .path-preview { display: flex; align-items: center; gap: 0.4rem; margin: 0.5rem 0.25rem 0; padding: 0.38rem 0.5rem;
+                  overflow: hidden; border-radius: 0.5rem; background: color-mix(in oklab, var(--muted) 55%, transparent);
+                  color: var(--dim-fg); font-size: 11.5px;
+                  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .path-preview .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .path-preview b { color: color-mix(in oklab, var(--foreground) 84%, transparent); font-weight: 500; }
+  .path-preview svg { width: 12px; height: 12px; }
+
+  .create-msg { margin: 0.5rem 0.25rem 0; font-size: 11.5px; line-height: 1.5; color: var(--dim-fg); }
+  .create-msg.is-error { color: color-mix(in oklab, var(--destructive) 88%, var(--foreground)); }
+  .create-msg .link { padding: 0; border: 0; background: none; color: var(--foreground); font-size: 11.5px;
+                      text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+
+  .create-actions { display: flex; justify-content: flex-end; gap: 0.45rem; padding: 0.7rem 0.25rem 0.15rem; }
+  .btn-ghost { padding: 0.36rem 0.7rem; border: 0; border-radius: 0.55rem; background: transparent;
+               color: color-mix(in oklab, var(--foreground) 72%, transparent); font-size: 12.5px; cursor: pointer;
+               transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+  .btn-ghost:hover { background: var(--row-hover); color: var(--foreground); }
+  .btn-primary { display: inline-flex; align-items: center; gap: 6px; padding: 0.36rem 0.85rem; border: 0;
+                 border-radius: 0.55rem; background: var(--primary); color: var(--primary-foreground);
+                 font-size: 12.5px; cursor: pointer;
+                 transition: opacity var(--dur-fast) var(--ease), transform 100ms var(--ease); }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-primary:active { transform: scale(0.97); }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .spin { width: 12px; height: 12px; border: 1.6px solid currentColor; border-right-color: transparent;
+          border-radius: 999px; animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ================= 说明面板 ================= */
+  .spec { position: fixed; top: 0; right: 0; bottom: 0; width: 344px; overflow-y: auto;
+          border-left: 1px solid var(--panel-border); background: var(--background);
+          padding: 20px 20px 40px; box-shadow: -24px 0 60px -50px rgb(15 23 42 / 0.5);
+          transform: translateX(100%); transition: transform 220ms var(--ease); z-index: 1200; }
+  .spec.is-open { transform: none; }
+  .spec h2 { margin: 0 0 4px; font-size: 13px; letter-spacing: 0.01em; }
+  .spec .sub { margin: 0 0 16px; color: var(--dim-fg); font-size: 11.5px; }
+  .spec section { margin-bottom: 18px; }
+  .spec h3 { margin: 0 0 7px; color: var(--label-fg); font-size: 10.5px; font-weight: 600;
+             letter-spacing: 0.07em; text-transform: uppercase; }
+  .spec ol, .spec ul { margin: 0; padding-left: 16px; color: color-mix(in oklab, var(--foreground) 76%, transparent);
+                       font-size: 12px; line-height: 1.75; }
+  .spec li { margin-bottom: 3px; }
+  .spec code { padding: 1px 4px; border-radius: 4px; background: color-mix(in oklab, var(--muted) 80%, transparent);
+               font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+  .spec .note { margin-top: 6px; padding: 8px 10px; border-left: 2px solid var(--hairline);
+                color: var(--dim-fg); font-size: 11.5px; line-height: 1.6; }
+  .spec .warn { border-left-color: color-mix(in oklab, var(--destructive) 55%, transparent); }
+
+  @media (max-width: 900px) {
+    .spec { width: 100%; }
+    .app { height: calc(100vh - 118px); }
+    .sidebar { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-git" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3v6M12 15v6M3 12h6M15 12h6"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M21 11.5 12.5 20a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2L9.8 17.4a1.8 1.8 0 0 1-2.6-2.6l7.8-7.8"/></symbol>
+</svg>
+
+<div class="stage">
+  <div class="toolbar">
+    <span>QuickForge · 项目入口交互原型</span>
+    <span class="spacer"></span>
+    <button class="tb-btn" id="themeBtn" type="button">
+      <svg class="i i-sm"><use href="#i-settings"/></svg><span id="themeLabel">切换到深色</span>
+    </button>
+    <button class="tb-btn" id="specBtn" type="button" aria-pressed="false">交互说明</button>
+  </div>
+
+  <div class="app">
+    <!-- 侧栏 -->
+    <aside class="sidebar">
+      <div class="sb-head">
+        <span class="sb-mark"><svg viewBox="0 0 24 24"><use href="#i-sparkle"/></svg></span>
+        <span class="sb-name">QuickForge</span>
+        <span class="spacer"></span>
+        <button class="icon-btn" type="button" title="设置" aria-label="设置"><svg class="i"><use href="#i-settings"/></svg></button>
+      </div>
+      <div class="sb-search"><svg class="i i-sm"><use href="#i-search"/></svg><span>搜索会话</span></div>
+      <div class="sb-section">
+        <div class="sb-section-head">
+          <span>项目</span>
+          <button class="icon-btn" id="sbAddProject" type="button" title="添加项目" aria-label="添加项目"
+                  aria-haspopup="menu" aria-expanded="false"><svg class="i"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="sb-projects" id="sbProjects"></div>
+      </div>
+      <div class="sb-footer"><span class="dot"></span><span>本地服务运行中</span></div>
+    </aside>
+
+    <!-- 主区 -->
+    <main class="main">
+      <div class="hero">
+        <h1>今天想做什么？</h1>
+        <p>描述任务，我会在选中的项目里动手。</p>
+      </div>
+
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="ph">给 QuickForge 发送任务…</div>
+          <div class="cbar">
+            <button class="cbtn" type="button" aria-label="添加附件"><svg class="i i-sm"><use href="#i-paperclip"/></svg></button>
+            <span class="spacer"></span>
+            <span style="font-size:11px">Default</span>
+            <button class="send" type="button" aria-label="发送"><svg class="i i-sm"><use href="#i-send"/></svg></button>
+          </div>
+        </div>
+
+        <div class="picker-row" id="pickerRow"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ 菜单浮层 ============ -->
+<div class="menu" id="menu" hidden>
+  <!-- 列表视图 -->
+  <div id="viewList">
+    <label class="menu-search">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input id="searchInput" type="text" placeholder="搜索项目" autocomplete="off" spellcheck="false" />
+    </label>
+    <div class="menu-list" id="menuList" role="menu" aria-label="项目列表"></div>
+    <div class="menu-sep"></div>
+    <button class="menu-row" id="rowSelectDir" type="button" role="menuitem" data-nav>
+      <svg class="i"><use href="#i-folder"/></svg>
+      <span class="label">选择项目目录…</span>
+      <span class="hint">浏览本地</span>
+    </button>
+    <button class="menu-row" id="rowCreate" type="button" role="menuitem" data-nav>
+      <svg class="i"><use href="#i-plus"/></svg>
+      <span class="label">新建项目</span>
+      <span class="hint">workspace</span>
+    </button>
+  </div>
+
+  <!-- 新建项目视图 -->
+  <div id="viewCreate" hidden>
+    <div class="create-head">
+      <button class="back-btn" id="createBack" type="button" aria-label="返回项目列表">
+        <svg class="i i-sm"><use href="#i-arrow-left"/></svg>
+      </button>
+      <div>
+        <div class="create-title">新建项目</div>
+        <div class="create-sub">直接在默认 workspace 下创建</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="nameInput">项目名称</label>
+      <input class="name-input" id="nameInput" type="text" placeholder="例如 landing-page"
+             autocomplete="off" spellcheck="false" aria-describedby="createMsg" />
+    </div>
+
+    <div class="path-preview">
+      <svg><use href="#i-folder"/></svg>
+      <span class="p">~/…/workspace/<b id="pathName">新项目名</b></span>
+    </div>
+
+    <div class="create-msg" id="createMsg" role="status">目录会自动创建，无需手动选择路径。</div>
+
+    <div class="create-actions">
+      <button class="btn-ghost" id="createCancel" type="button">取消</button>
+      <button class="btn-primary" id="createSubmit" type="button" disabled>创建项目</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 说明面板 ============ -->
+<aside class="spec" id="spec" aria-hidden="true">
+  <h2>交互说明</h2>
+  <p class="sub">在 workspace 下直接新建项目 · v1</p>
+
+  <section>
+    <h3>两个入口，一套菜单</h3>
+    <ul>
+      <li>空状态：输入框下方的「选择项目」胶囊</li>
+      <li>侧栏：项目区标题右侧 <code>＋</code></li>
+      <li>两者唤出同一个菜单，仅定位锚点不同</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>菜单结构（350px）</h3>
+    <ol>
+      <li>搜索框（自动聚焦，按名称/路径过滤）</li>
+      <li>项目列表（当前项目右侧打勾，最多 15rem 滚动）</li>
+      <li>「选择项目目录…」→ 打开现有的目录浏览弹窗</li>
+      <li>「新建项目」→ 就地在菜单内切换为新建面板</li>
+    </ol>
+    <div class="note">两个动作放在列表下方、用 1px 分割线隔开；不再给「选择目录」常驻强调底色，避免和主列表抢注意力。</div>
+  </section>
+
+  <section>
+    <h3>新建项目面板</h3>
+    <ol>
+      <li>只需填名称，路径不可编辑（固定 <code>~/.quickforge/workspace</code>）</li>
+      <li>路径预览实时跟随输入：<code>workspace/&lt;name&gt;</code></li>
+      <li>Enter 提交，Esc 返回列表，再按 Esc 关闭菜单</li>
+      <li>创建中：按钮转圈 + 禁用，输入框只读</li>
+      <li>成功：菜单关闭、胶囊变为新项目、侧栏插入并高亮</li>
+    </ol>
+  </section>
+
+  <section>
+    <h3>校验规则</h3>
+    <ul>
+      <li>空 / 全空格 → 按钮禁用</li>
+      <li>含 <code>\ / : * ? " &lt; &gt; |</code> → 就地报错</li>
+      <li>同名文件夹已存在 → 报错并给「直接使用该项目」</li>
+      <li>⚠️ workspace 根目录本身不接受作为项目</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>键盘与可达性</h3>
+    <ul>
+      <li>↑ ↓ 在列表内移动焦点，Enter 选中</li>
+      <li>触发器带 <code>aria-haspopup</code> / <code>aria-expanded</code></li>
+      <li>错误用 <code>role="status"</code>，不打断输入</li>
+      <li>所有动效 120–180ms，尊重 reduced-motion</li>
+    </ul>
+  </section>
+
+  <section>
+    <h3>落地需要的后端</h3>
+    <ol>
+      <li>复用 <code>POST /api/filesystem/mkdir</code>（parentPath = defaultWorkspaceRoot）</li>
+      <li>再 <code>POST /api/project/path</code> 注册并激活</li>
+      <li>或合并为 <code>POST /api/project/create</code>，一次完成、原子性更好</li>
+    </ol>
+    <div class="note warn">注意：<code>id='default'</code> 的 workspace 伪项目与「同名真实项目」语义重叠；只允许在 workspace 根目录下建子目录即可规避。</div>
+  </section>
+</aside>
+
+<script>
+(() => {
+  const DEFAULT_WORKSPACE = '~/.quickforge/workspace';
+  const INVALID_CHARS = /[\\/:*?"<>|]/;
+
+  const state = {
+    projects: [
+      { id: 'p1', name: 'workspace-alta', count: 6 },
+      { id: 'p2', name: 'market-probe', count: 3 },
+      { id: 'p3', name: 'quickforge', count: 12 },
+      { id: 'p4', name: 'docs-site', count: 2 },
+    ],
+    selectedId: null,
+    view: 'list',
+    anchor: null,
+    dupProject: null,
+    creating: false,
+    navIndex: -1,
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const menu = $('menu');
+  const viewList = $('viewList');
+  const viewCreate = $('viewCreate');
+  const menuList = $('menuList');
+  const searchInput = $('searchInput');
+  const nameInput = $('nameInput');
+  const pathName = $('pathName');
+  const createMsg = $('createMsg');
+  const createSubmit = $('createSubmit');
+  const pickerRow = $('pickerRow');
+  const sbProjects = $('sbProjects');
+  const sbAddProject = $('sbAddProject');
+
+  const icon = (name, cls) =>
+    `<svg class="i${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+
+  /* ---------------- 渲染：侧栏项目 / 空状态胶囊 ---------------- */
+  function renderSidebar(flashId) {
+    sbProjects.innerHTML = state.projects.map((p) => `
+      <button class="sb-row${p.id === state.selectedId ? ' is-active' : ''}${p.id === flashId ? ' is-new' : ''}"
+              type="button" data-sidebar-project="${p.id}">
+        ${icon('folder', 'i-sm')}
+        <span class="label" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(p.name)}</span>
+        <span class="sb-count">${p.count || 0}</span>
+      </button>`).join('');
+    sbProjects.querySelectorAll('[data-sidebar-project]').forEach((btn) => {
+      btn.addEventListener('click', () => selectProject(btn.dataset.sidebarProject, false));
+    });
+  }
+
+  function renderPickerRow() {
+    const active = state.projects.find((p) => p.id === state.selectedId);
+    if (active) {
+      pickerRow.innerHTML = `
+        <div class="chip" id="pill" role="button" tabindex="0" aria-haspopup="menu" aria-expanded="${isOpen()}">
+          <span class="chip-act">
+            ${icon('folder', 'i chip-folder')}
+            <button class="chip-clear" type="button" aria-label="取消选择项目" title="取消选择项目">${icon('x')}</button>
+          </span>
+          <span class="name">${escapeHtml(active.name)}</span>
+        </div>
+        <button class="branch" type="button" title="分支 main">${icon('git')}<span>main</span></button>`;
+      pickerRow.querySelector('.chip-clear').addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.selectedId = null;
+        closeMenu();
+        renderPickerRow();
+        renderSidebar();
+      });
+    } else {
+      pickerRow.innerHTML = `
+        <button class="pill" id="pill" type="button" aria-haspopup="menu" aria-expanded="${isOpen()}">
+          ${icon('folder')}<span>选择项目</span>
+        </button>`;
+    }
+    const pill = $('pill');
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (isOpen() && state.anchor === pill) closeMenu();
+      else openMenu(pill);
+    });
+    pill.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isOpen() && state.anchor === pill) closeMenu();
+        else openMenu(pill);
+      }
+    });
+  }
+
+  /* ---------------- 菜单：列表视图 ---------------- */
+  function renderList(filterText, flashId) {
+    const q = (filterText || '').trim().toLowerCase();
+    const list = q
+      ? state.projects.filter((p) => p.name.toLowerCase().includes(q))
+      : state.projects;
+    if (!list.length) {
+      menuList.innerHTML = `<div class="menu-empty">没有匹配的项目</div>`;
+      return;
+    }
+    menuList.innerHTML = list.map((p) => `
+      <button class="menu-row${p.id === flashId ? ' is-new' : ''}" type="button" role="menuitem" data-nav
+              data-project="${p.id}">
+        ${icon('folder')}
+        <span class="label">${escapeHtml(p.name)}</span>
+        ${p.id === state.selectedId ? `<svg class="i check" aria-hidden="true"><use href="#i-check"/></svg>` : ''}
+      </button>`).join('');
+    menuList.querySelectorAll('[data-project]').forEach((btn) => {
+      btn.addEventListener('click', () => selectProject(btn.dataset.project, true));
+    });
+  }
+
+  /* ---------------- 打开 / 关闭 ---------------- */
+  function isOpen() { return !menu.hidden; }
+
+  function openMenu(anchor, view) {
+    state.anchor = anchor;
+    state.view = view || 'list';
+    state.dupProject = null;
+    searchInput.value = '';
+    renderList('');
+    showView(state.view);
+
+    menu.hidden = false;
+    positionMenu(anchor);
+    anchor.setAttribute('aria-expanded', 'true');
+
+    if (state.view === 'create') {
+      resetCreate();
+      nameInput.focus();
+    } else {
+      searchInput.focus();
+    }
+    state.navIndex = -1;
+  }
+
+  function closeMenu() {
+    if (!isOpen()) return;
+    menu.hidden = true;
+    if (state.anchor) state.anchor.setAttribute('aria-expanded', 'false');
+    state.anchor = null;
+    state.view = 'list';
+    state.creating = false;
+    document.querySelectorAll('.pill[aria-expanded], .chip[aria-expanded]').forEach((el) =>
+      el.setAttribute('aria-expanded', 'false'));
+    sbAddProject.setAttribute('aria-expanded', 'false');
+  }
+
+  function positionMenu(anchor) {
+    const rect = anchor.getBoundingClientRect();
+    const width = Math.min(350, window.innerWidth - 24);
+    const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+    menu.style.width = width + 'px';
+    menu.style.left = left + 'px';
+    const openUp = rect.top > window.innerHeight * 0.45;
+    if (openUp) {
+      menu.style.top = 'auto';
+      menu.style.bottom = Math.max(12, window.innerHeight - rect.top + 10) + 'px';
+      menu.classList.remove('is-down');
+    } else {
+      menu.style.bottom = 'auto';
+      menu.style.top = Math.max(12, rect.bottom + 8) + 'px';
+      menu.classList.add('is-down');
+    }
+    menu.style.maxHeight = Math.min(460, window.innerHeight - 40) + 'px';
+    menu.style.overflowY = 'auto';
+  }
+
+  function showView(view) {
+    state.view = view;
+    viewList.hidden = view !== 'list';
+    viewCreate.hidden = view !== 'create';
+    if (state.anchor) positionMenu(state.anchor);
+  }
+
+  /* ---------------- 新建项目视图 ---------------- */
+  function resetCreate() {
+    state.creating = false;
+    state.dupProject = null;
+    nameInput.value = '';
+    nameInput.disabled = false;
+    nameInput.removeAttribute('aria-invalid');
+    pathName.textContent = '新项目名';
+    createMsg.className = 'create-msg';
+    createMsg.textContent = '目录会自动创建，无需手动选择路径。';
+    createSubmit.innerHTML = '创建项目';
+    createSubmit.disabled = true;
+  }
+
+  function validateName(raw) {
+    const name = raw.trim();
+    if (!name) return { ok: false, error: null };
+    if (name === '.' || name === '..') return { ok: false, error: '这个名称不能用作文件夹。' };
+    if (INVALID_CHARS.test(name)) return { ok: false, error: '名称不能包含 \\ / : * ? " < > | 等字符。' };
+    if (name.length > 64) return { ok: false, error: '名称太长，请控制在 64 个字符以内。' };
+    const dup = state.projects.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (dup) return { ok: false, error: `workspace 下已存在同名项目「${dup.name}」。`, dup };
+    return { ok: true, name };
+  }
+
+  function updateCreate() {
+    const result = validateName(nameInput.value);
+    const typed = nameInput.value.trim();
+    pathName.textContent = typed || '新项目名';
+
+    if (state.creating) return;
+
+    if (!result.ok && result.error) {
+      nameInput.setAttribute('aria-invalid', 'true');
+      createMsg.className = 'create-msg is-error';
+      createMsg.innerHTML = escapeHtml(result.error) +
+        (result.dup ? ` <button class="link" type="button" id="useDup">直接使用该项目</button>` : '');
+      createSubmit.disabled = true;
+      const useDup = $('useDup');
+      if (useDup) useDup.addEventListener('click', () => selectProject(result.dup.id, true));
+      return;
+    }
+
+    nameInput.removeAttribute('aria-invalid');
+    createMsg.className = 'create-msg';
+    createMsg.textContent = typed
+      ? '将创建该文件夹并自动切换到新项目。'
+      : '目录会自动创建，无需手动选择路径。';
+    createSubmit.disabled = !result.ok;
+  }
+
+  async function submitCreate() {
+    const result = validateName(nameInput.value);
+    if (!result.ok || state.creating) return;
+
+    state.creating = true;
+    nameInput.disabled = true;
+    createSubmit.disabled = true;
+    createSubmit.innerHTML = '<span class="spin" aria-hidden="true"></span><span>创建中…</span>';
+    createMsg.className = 'create-msg';
+    createMsg.textContent = `正在创建 ${DEFAULT_WORKSPACE}/${result.name} …`;
+
+    await new Promise((r) => setTimeout(r, 850));
+
+    if (Math.random() < 0.08) {
+      state.creating = false;
+      nameInput.disabled = false;
+      createSubmit.innerHTML = '创建项目';
+      createSubmit.disabled = false;
+      nameInput.setAttribute('aria-invalid', 'true');
+      createMsg.className = 'create-msg is-error';
+      createMsg.textContent = '创建失败：没有写入权限，请换个位置或检查目录权限。';
+      return;
+    }
+
+    const project = { id: 'p' + Date.now(), name: result.name, count: 0 };
+    state.projects.unshift(project);
+    state.creating = false;
+    closeMenu();
+    selectProject(project.id, false, true);
+  }
+
+  /* ---------------- 选择项目 ---------------- */
+  function selectProject(id, fromMenu, isNew) {
+    state.selectedId = id;
+    if (fromMenu) closeMenu();
+    renderPickerRow();
+    renderSidebar(isNew ? id : undefined);
+    renderList(searchInput.value, isNew ? id : undefined);
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+  document.addEventListener('click', (e) => {
+    if (!isOpen()) return;
+    if (menu.contains(e.target)) return;
+    if (state.anchor && state.anchor.contains(e.target)) return;
+    closeMenu();
+  });
+
+  searchInput.addEventListener('input', () => {
+    renderList(searchInput.value);
+    state.navIndex = -1;
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    const items = [...menu.querySelectorAll('#viewList [data-nav], #viewList [data-project]')]
+      .filter((el) => el.offsetParent !== null);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!items.length) return;
+      state.navIndex = e.key === 'ArrowDown'
+        ? (state.navIndex + 1) % items.length
+        : (state.navIndex - 1 + items.length) % items.length;
+      items.forEach((el, i) => el.classList.toggle('is-active', i === state.navIndex));
+      items[state.navIndex].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      const active = items[state.navIndex] || items[0];
+      if (active) { e.preventDefault(); active.click(); }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeMenu();
+    }
+  });
+
+  $('rowSelectDir').addEventListener('click', () => {
+    closeMenu();
+    // 真实实现：setProjectPickerOpen(true)
+    toast('打开「选择项目目录」弹窗（原型略）');
+  });
+
+  $('rowCreate').addEventListener('click', () => {
+    resetCreate();
+    showView('create');
+    nameInput.focus();
+  });
+
+  $('createBack').addEventListener('click', () => {
+    showView('list');
+    searchInput.focus();
+  });
+
+  $('createCancel').addEventListener('click', () => {
+    showView('list');
+    searchInput.focus();
+  });
+
+  nameInput.addEventListener('input', updateCreate);
+  createSubmit.addEventListener('click', submitCreate);
+
+  nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submitCreate(); }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (nameInput.value.trim()) { resetCreate(); }
+      else { showView('list'); searchInput.focus(); }
+    }
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isOpen() && state.view === 'list') closeMenu();
+  });
+
+  window.addEventListener('resize', () => { if (isOpen() && state.anchor) positionMenu(state.anchor); });
+  window.addEventListener('scroll', () => { if (isOpen() && state.anchor) positionMenu(state.anchor); }, true);
+
+  sbAddProject.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (isOpen() && state.anchor === sbAddProject) { closeMenu(); return; }
+    openMenu(sbAddProject, 'list');
+  });
+
+  /* ---------------- 主题 / 说明 ---------------- */
+  const themeBtn = $('themeBtn');
+  const themeLabel = $('themeLabel');
+  themeBtn.addEventListener('click', () => {
+    const dark = document.documentElement.dataset.theme === 'dark';
+    document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+    themeLabel.textContent = dark ? '切换到深色' : '切换到浅色';
+  });
+
+  const spec = $('spec');
+  const specBtn = $('specBtn');
+  specBtn.addEventListener('click', () => {
+    const open = spec.classList.toggle('is-open');
+    spec.setAttribute('aria-hidden', String(!open));
+    specBtn.setAttribute('aria-pressed', String(open));
+  });
+
+  /* ---------------- 小工具 ---------------- */
+  let toastEl;
+  function toast(text) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);' +
+        'z-index:1400;padding:8px 14px;border-radius:999px;font-size:12px;' +
+        'background:var(--foreground);color:var(--background);opacity:0;transition:opacity 160ms ease;' +
+        'pointer-events:none;box-shadow:0 10px 30px -16px rgba(15,23,42,.6)';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = text;
+    toastEl.style.opacity = '1';
+    clearTimeout(toastEl._t);
+    toastEl._t = setTimeout(() => { toastEl.style.opacity = '0'; }, 1600);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  /* ---------------- 初始化 ---------------- */
+  renderSidebar();
+  renderPickerRow();
+  renderList('');
+
+  // 首次展示：3 秒后自动展开一次菜单，方便直接看到新设计的落点
+  setTimeout(() => {
+    const pill = $('pill');
+    if (pill && !isOpen()) openMenu(pill, 'list');
+  }, 600);
+})();
+</script>
+</body>
+</html>

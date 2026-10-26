@@ -1,6 +1,54 @@
 {
   "features": [
     {
+      "id": "project-create-in-workspace",
+      "name": "空状态项目选择器内直接新建 workspace 项目",
+      "description": "用户要求「选择项目目录下面应该有一个创建项目，直接在 workspace 创建就可以了，这样更简单」。即在项目选择 popover 里新增「新建项目」，只填名称，目录固定建在默认 workspace 下，不必再浏览目录树。",
+      "status": "done",
+      "dependencies": [
+        "sidebar-timeline-runtime-status"
+      ],
+      "summary": "1) 后端：project-config.mjs 新增 validateProjectFolderName + createProjectInDefaultWorkspace（reject 空/./../分隔符/Windows 保留字符/控制字符/>64，fs.mkdir(recursive:false) 建子目录后复用 setActiveProjectPath 注册并激活，EEXIST→409 PROJECT_FOLDER_EXISTS、EACCES→403 PROJECT_CREATE_DENIED，注册失败把 createdPath 挂到 error 上）；routes/project.mjs 新增 POST /api/project/create（不加入 assertLocalExternalAction 名单，远程可用）。2) 前端：useProject 新增 createProjectInWorkspace(name) 复用 activeProject/projects/cache 失效逻辑；NewChatProjectPicker 新增 view 状态（list | create）、名称输入、路径预览、与服务端一致的客户端校验、创建中态与错误态、Enter 提交 / Esc 逐级返回、同名时给「直接使用该项目」；「选择项目目录…」行去掉常驻强调底色，新增「新建项目」行带 workspace 提示。3) 样式：empty-state.css 新增 .quickforge-project-create-* 一组（无卡片、无新阴影，只有输入框轻边框）。4) i18n 中英各补 14 个 key。5) App.tsx 接线 onCreateProject / workspacePath，remoteClient 时不下发 create 入口。",
+      "root_cause": "原实现只有「选择已存在目录」一条路径：POST /api/project/path 要求目录已存在（assertDirectory），POST /api/project/select-directory 只弹系统对话框，前端 ProjectDirectoryPicker 的 mkdir 只建一层且需手动逐级浏览，没有任何「在默认 workspace 下按名字建项目」的组合动作。",
+      "files": [
+        "server/project-config.mjs",
+        "server/routes/project.mjs",
+        "src/hooks/useProject.ts",
+        "src/components/chat/NewChatProjectPicker.tsx",
+        "src/App.tsx",
+        "src/lib/i18n.ts",
+        "src/styles/chat/empty-state.css",
+        "tests/server/routes/project-create.test.mjs",
+        "tests/frontend/new-chat-project-picker-create.test.ts",
+        "docs/design/project-create-in-workspace.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/hooks/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/routes/README.md"
+      ],
+      "verification": "定向 vitest 5 文件 36 passed；npm run test 全量 428 文件 / 4976 passed / 2 skipped（首轮曾出现 tests/server/scheduled-tasks.commands.test.mjs 2 例并发 flake，单独重跑 24/24 与全量重跑均通过）；npm run lint 0 error（仅既有 GitToolsPinnedSummary warning）；npx tsc -b 通过；npm run build 成功（6.88s）。",
+      "boundaries": "不新增依赖；不改 project-directory-picker 的既有浏览/新建文件夹流程；不接受 workspace 根目录本身作为项目（避免与 id='default' 合成项目语义重叠）；未创建 Git commit；未手工修改 dist/、package-dist/、package-offline/。"
+    },
+    {
+      "id": "sidebar-timeline-runtime-status",
+      "name": "时间线视图会话行显示运行/未读状态",
+      "description": "用户反馈侧栏切换到「时间线」视图后运行中的会话不再显示运行状态，要求与普通项目视图保持一致。",
+      "status": "done",
+      "dependencies": [
+        "frontend-god-components-split"
+      ],
+      "summary": "SidebarSessionRow 删除 timeline 变体的 timeText 短路，四个变体统一走 sessionTimeSlotContent：运行中显示 Loader2 旋转图标、完成未读显示 emerald 点，均替换时间文本；固定 w-11 时间槽与 hover 几何不变。同步更新源码契约测试与 wiki。",
+      "root_cause": "timeline 变体在 SidebarSessionRow 中直接渲染 timeText，跳过 sessionTimeSlotContent；该行为继承自拆分前 ChatSidebar 的时间线分支，当时即未接运行/未读状态。",
+      "files": [
+        "src/components/sidebar/chat-sidebar/SidebarSessionRow.tsx",
+        "tests/frontend/sidebar-session-action-alignment.test.ts",
+        "docs/wiki/src/components/README.md"
+      ],
+      "verification": "定向 vitest 5 文件 46 passed；npx eslint 改动源/测试文件通过；npx tsc -b --force 仅报工作区既有 WIP 错误，不涉及本改动文件。全量 npm run build / npm run lint 当前被该 WIP（NewChatProjectPicker / i18n / project-config）阻塞。",
+      "boundaries": "只改时间线行状态槽口径，未改状态数据源/刷新时机、未新增订阅或动画；性能上每可见行仅多一次 O(1) 状态查找 + Set.has（微基准约 21ns/行），状态仅在 agent_start/agent_end 更新，无新增高频重渲染路径。无依赖变更；未创建 Git commit；未修改生成产物。"
+    },
+    {
       "id": "workflow-detail-script-expanded",
       "name": "工作流详情脚本 sheet 默认展开",
       "description": "用户要求 workflow 详情里的脚本默认展开，而不是先点底部「脚本」。",

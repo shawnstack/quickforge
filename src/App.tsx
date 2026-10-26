@@ -194,6 +194,7 @@ function MainApp() {
     switchActiveProject,
     handleSelectProjectPath,
     selectProjectDirectory,
+    createProjectInWorkspace,
     setProjectPickerOpen,
     toggleProjectExpanded,
     toggleAllProjectsExpanded,
@@ -1249,6 +1250,11 @@ function MainApp() {
     selectProjectDirectory()
   }, [selectProjectDirectory])
 
+  const handleCreateEmptyStateProject = useCallback(
+    (name: string) => createProjectInWorkspace(name),
+    [createProjectInWorkspace],
+  )
+
   const showFirstUseGuide = Boolean(storage)
     && !ui.firstUseGuideDismissed
     && !showNewChatEmptyState
@@ -1878,6 +1884,8 @@ function MainApp() {
                       onSelectProject={handleSelectEmptyStateProject}
                       onClearProject={handleClearEmptyStateProject}
                       onNewProject={handleSelectEmptyStateNewProject}
+                      onCreateProject={remoteClient ? undefined : handleCreateEmptyStateProject}
+                      workspacePath={defaultWorkspace?.path}
                     />
                   ) : null}
                 </ChatConversationSurface>

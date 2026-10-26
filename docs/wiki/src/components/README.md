@@ -237,7 +237,7 @@ components/
 
 ### ChatSidebar.tsx
 
-- 模块拆分（2216 行 → 装配层 1165 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，DOM 与拆分前逐变体一致，timeline 变体时间槽不加运行/未读态为既有行为）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
+- 模块拆分（2216 行 → 装配层 1165 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，四个变体共用时间/状态槽：运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
 - 左侧聊天列表面板；移动端抽屉为 100% 全屏宽（`w-full`），不再受 85vw 上限限制；桌面侧栏默认/最小宽度为 304px、最大宽度为 520px，侧栏通过 `ResizeObserver` 回报实际宽度，供右侧 Workspace Inspector 在 1200px / 75vw 上限之外同时保留左栏、1px 分隔线和 440px 对话区
 - 桌面侧栏收缩态固定为 `w-14`：不会因 `window.resize` 或浏览器缩放恢复展开宽度，收缩/移动清理时会移除遗留的内联 `width`
 - 支持全局会话 / 项目会话切换
@@ -588,7 +588,7 @@ components/
 
 ### ChatSidebar.tsx
 
-- 模块拆分（2216 行 → 装配层 1165 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，DOM 与拆分前逐变体一致，timeline 变体时间槽不加运行/未读态为既有行为）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
+- 模块拆分（2216 行 → 装配层 1165 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，四个变体共用时间/状态槽：运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
 - 左侧聊天列表面板；移动端抽屉为 100% 全屏宽（`w-full`），不再受 85vw 上限限制；桌面侧栏默认/最小宽度为 304px、最大宽度为 520px，侧栏通过 `ResizeObserver` 回报实际宽度，供右侧 Workspace Inspector 在 1200px / 75vw 上限之外同时保留左栏、1px 分隔线和 440px 对话区
 - 桌面侧栏收缩态固定为 `w-14`：不会因 `window.resize` 或浏览器缩放恢复展开宽度，收缩/移动清理时会移除遗留的内联 `width`
 - 支持全局会话 / 项目会话切换
@@ -791,6 +791,14 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 - 树形浏览，支持选择任意目录作为项目路径
 - 导航 (返回上级 / 进入子目录)
 - 跨平台兼容（Windows 驱动器、macOS Volumes）
+
+### NewChatProjectPicker.tsx（空状态项目选择器）
+
+- 空对话 Hero 下方的项目胶囊 + 分支胶囊；点击胶囊弹出 popover（搜索 + 项目列表 + 动作行），菜单搜索命中 name/path
+- 动作行两条：「选择项目目录…」走 `onNewProject`（打开 `project-directory-picker`，只选已存在目录）；「新建项目」在 popover 内切到新建面板，只填名称，目录固定建在默认 workspace 下（`onCreateProject` → `POST /api/project/create`），路径预览实时跟随输入
+- 新建面板：Enter 提交、Esc 逐级返回（先清输入再回列表）、创建中禁用输入并显示 spinner；客户端同名/非法字符/超长校验与服务端规则一致，409 时给「直接使用该项目」入口
+- `onCreateProject` 未传入（如远程客户端）时不渲染「新建项目」动作行；创建成功后关闭 popover 并按普通选项流程 `onSelectProject`
+- 样式在 `src/styles/chat/empty-state.css`（`.quickforge-project-picker-*` 与 `.quickforge-project-create-*`）
 
 ### UI 组件 (button, input, confirm, prompt, toast)
 

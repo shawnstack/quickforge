@@ -117,6 +117,7 @@ Agent 会话管理核心路由。
 - `GET /api/project/commands` — 获取项目自定义命令（含 name、description、argumentHint、allowEdit、allowCommands、relativePath、filePath、source、pluginName）
 - `POST /api/project/select-directory` — 打开系统目录选择器
 - `POST /api/project/path` — 按路径设置项目
+- `POST /api/project/create` — 在默认 workspace（`~/.quickforge/workspace`）下按名称新建目录并直接注册为活动项目：`{ name }` → `{ project, projects, createdPath, workspaceRoot }`；名称校验（空 / `.` / `..` / `\ / : * ? " < > |` / 控制字符 / 超 64 字符）返回 400 `INVALID_PROJECT_NAME`，目录已存在返回 409 `PROJECT_FOLDER_EXISTS`，无写权限返回 403 `PROJECT_CREATE_DENIED`；不接受 workspace 根目录本身，避免与 `id='default'` 合成项目语义重叠。不走 `select-directory` 的本地限制，远程客户端也可调用
 - `POST /api/project/active` — 切换活动项目
 - `PUT /api/project/:projectId/command-dir` — 保存项目自定义 command 目录，支持一行一个相对路径或绝对路径；读取命令时与默认 `.ai/commands` 合并
 - `POST /api/project/:projectId/open-in-explorer` — 在系统资源管理器中打开项目根目录

@@ -115,6 +115,39 @@ export function useProject() {
     setProjectPickerOpen(true)
   }, [])
 
+  const createProjectInWorkspace = useCallback(async (name: string) => {
+    setSelectingProject(true)
+    try {
+      const response = await fetch('/api/project/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name }),
+      })
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) {
+        const error = new Error(payload?.error || `Project creation failed with HTTP ${response.status}`) as Error & {
+          code?: string
+        }
+        if (typeof payload?.code === 'string') error.code = payload.code
+        throw error
+      }
+      if (payload?.project) {
+        setActiveProject(payload.project)
+        setProjects(Array.isArray(payload.projects) ? payload.projects : [])
+        invalidateApiCache(PROJECT_LIST_CACHE_KEY)
+        setExpandedProjectIds((current) =>
+          pruneExpandedProjectIds(
+            current,
+            (Array.isArray(payload.projects) ? payload.projects : []).map((project: ProjectInfo) => project.id),
+          ),
+        )
+      }
+      return payload?.project as ProjectInfo
+    } finally {
+      setSelectingProject(false)
+    }
+  }, [])
+
   const toggleProjectExpanded = useCallback((projectId: string) => {
     setExpandedProjectIds((current) => {
       const next = new Set(current)
@@ -176,6 +209,7 @@ export function useProject() {
     switchActiveProject,
     handleSelectProjectPath,
     selectProjectDirectory,
+    createProjectInWorkspace,
     setProjectPickerOpen,
     toggleProjectExpanded,
     toggleAllProjectsExpanded,

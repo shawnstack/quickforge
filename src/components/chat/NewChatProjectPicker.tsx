@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown, Folder, GitBranch, Search, X } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, Folder, GitBranch, Loader2, Plus, Search, X } from 'lucide-react'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 import type { ProjectInfo } from '@/lib/types'
@@ -21,10 +21,22 @@ type NewChatProjectPickerProps = {
   selectedProject?: ProjectInfo
   branch?: string
   branchMenu?: NewChatBranchMenuOptions
+  workspacePath?: string
   onSelectProject: (project: ProjectInfo) => void
   onClearProject: () => void
   onNewProject: () => void
+  onCreateProject?: (name: string) => Promise<ProjectInfo | undefined>
   className?: string
+}
+
+const PROJECT_NAME_INVALID_CHARS = /[\\/:*?"<>|]/
+const PROJECT_NAME_MAX_LENGTH = 64
+
+function hasControlCharacter(value: string) {
+  for (const char of value) {
+    if (char.charCodeAt(0) < 32) return true
+  }
+  return false
 }
 
 export function NewChatProjectPicker({
@@ -32,9 +44,11 @@ export function NewChatProjectPicker({
   selectedProject,
   branch,
   branchMenu,
+  workspacePath,
   onSelectProject,
   onClearProject,
   onNewProject,
+  onCreateProject,
   className,
 }: NewChatProjectPickerProps) {
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -46,6 +60,11 @@ export function NewChatProjectPicker({
   const branchTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
   const [branchMenuStyle, setBranchMenuStyle] = useState<CSSProperties>()
+  const [view, setView] = useState<'list' | 'create'>('list')
+  const [projectName, setProjectName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createError, setCreateError] = useState<string>('')
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
   const shownProject = selectedProject
   const selectedProjectId = shownProject?.id
   const shownBranch = selectedProjectId ? branch?.trim() || undefined : undefined
@@ -60,6 +79,33 @@ export function NewChatProjectPicker({
       return name.includes(keyword) || path.includes(keyword)
     })
   }, [projects, query])
+
+  const trimmedProjectName = projectName.trim()
+  const nameValidation = useMemo(() => {
+    if (!trimmedProjectName) return { ok: false, error: '' }
+    if (
+      trimmedProjectName === '.'
+      || trimmedProjectName === '..'
+      || PROJECT_NAME_INVALID_CHARS.test(trimmedProjectName)
+      || hasControlCharacter(trimmedProjectName)
+    ) {
+      return { ok: false, error: t('projectNameInvalid') }
+    }
+    if (trimmedProjectName.length > PROJECT_NAME_MAX_LENGTH) {
+      return { ok: false, error: t('projectNameTooLong') }
+    }
+    const duplicate = projects.find(
+      (project) => project.name.toLowerCase() === trimmedProjectName.toLowerCase(),
+    )
+    if (duplicate) return { ok: false, error: t('projectFolderExists'), duplicate }
+    return { ok: true, error: '' }
+  }, [projects, trimmedProjectName])
+
+  const workspacePreview = useMemo(() => {
+    if (!workspacePath) return trimmedProjectName
+    const normalized = workspacePath.replace(/[\\/]+$/, '')
+    return `${normalized}/${trimmedProjectName || '…'}`
+  }, [trimmedProjectName, workspacePath])
 
   const updatePopoverPosition = useCallback(() => {
     const trigger = triggerRef.current
@@ -170,9 +216,85 @@ export function NewChatProjectPicker({
     onNewProject()
   }
 
+  const resetCreateForm = useCallback(() => {
+    setProjectName('')
+    setCreateError('')
+    setCreating(false)
+  }, [])
+
+  const openCreateView = useCallback(() => {
+    resetCreateForm()
+    setView('create')
+    // Focus lands on the name input after the panel renders.
+    window.setTimeout(() => nameInputRef.current?.focus(), 0)
+  }, [resetCreateForm])
+
+  const backToProjectList = useCallback(() => {
+    resetCreateForm()
+    setView('list')
+  }, [resetCreateForm])
+
+  const handleCreateProject = useCallback(async () => {
+    if (!onCreateProject || creating || !nameValidation.ok) return
+    const name = trimmedProjectName
+    setCreating(true)
+    setCreateError('')
+    try {
+      const project = await onCreateProject(name)
+      if (project) {
+        resetCreateForm()
+        setView('list')
+        setQuery('')
+        setOpen(false)
+        setBranchMenuOpen(false)
+        onSelectProject(project)
+      }
+    } catch (error) {
+      const code = (error as { code?: string })?.code
+      const message =
+        code === 'PROJECT_FOLDER_EXISTS'
+          ? t('projectFolderExists')
+          : code === 'INVALID_PROJECT_NAME'
+            ? t('projectNameInvalid')
+            : (error as Error)?.message || t('createProjectFailed')
+      setCreateError(message)
+    } finally {
+      setCreating(false)
+    }
+  }, [creating, nameValidation.ok, onCreateProject, onSelectProject, resetCreateForm, trimmedProjectName])
+
+  const handleNameKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        void handleCreateProject()
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        if (projectName.trim()) {
+          setProjectName('')
+          setCreateError('')
+        } else {
+          backToProjectList()
+        }
+      }
+    },
+    [backToProjectList, handleCreateProject, projectName],
+  )
+
   const toggleOpen = useCallback(() => {
     setBranchMenuOpen(false)
-    setOpen((value) => !value)
+    setOpen((value) => {
+      if (!value) {
+        setView('list')
+        setProjectName('')
+        setCreateError('')
+        setCreating(false)
+      }
+      return !value
+    })
   }, [])
 
   const toggleBranchMenu = useCallback(() => {
@@ -200,45 +322,160 @@ export function NewChatProjectPicker({
 
   const popover = open && popoverStyle ? (
     <div ref={popoverRef} className="quickforge-project-picker-popover" style={popoverStyle} role="menu">
-      <label className="quickforge-project-picker-search">
-        <Search className="size-4" aria-hidden="true" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder={t('searchProjects')}
-          autoFocus
-        />
-      </label>
+      {view === 'list' ? (
+        <>
+          <label className="quickforge-project-picker-search">
+            <Search className="size-4" aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('searchProjects')}
+              autoFocus
+            />
+          </label>
 
-      <div className="quickforge-project-picker-list">
-        {filteredProjects.length > 0 ? filteredProjects.map((project) => (
+          <div className="quickforge-project-picker-list">
+            {filteredProjects.length > 0 ? filteredProjects.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                className="quickforge-project-picker-item"
+                onClick={() => handleSelectProject(project)}
+                role="menuitem"
+              >
+                <Folder className="size-4 quickforge-project-picker-item-leading" aria-hidden="true" />
+                <span className="truncate">{project.name}</span>
+                {selectedProjectId === project.id ? <Check className="ml-auto size-4" aria-hidden="true" /> : null}
+              </button>
+            )) : (
+              <div className="quickforge-project-picker-empty">{t('noMatchingProjects')}</div>
+            )}
+          </div>
+
+          <div className="quickforge-project-picker-separator" />
+
           <button
-            key={project.id}
             type="button"
             className="quickforge-project-picker-item"
-            onClick={() => handleSelectProject(project)}
+            onClick={handleSelectDirectory}
             role="menuitem"
           >
             <Folder className="size-4 quickforge-project-picker-item-leading" aria-hidden="true" />
-            <span className="truncate">{project.name}</span>
-            {selectedProjectId === project.id ? <Check className="ml-auto size-4" aria-hidden="true" /> : null}
+            <span className="truncate">{t('selectProjectDirectory')}</span>
           </button>
-        )) : (
-          <div className="quickforge-project-picker-empty">{t('noMatchingProjects')}</div>
-        )}
-      </div>
 
-      <div className="quickforge-project-picker-separator" />
+          {onCreateProject ? (
+            <button
+              type="button"
+              className="quickforge-project-picker-item quickforge-project-picker-item-emphasis"
+              onClick={openCreateView}
+              role="menuitem"
+            >
+              <Plus className="size-4 quickforge-project-picker-item-leading" aria-hidden="true" />
+              <span className="truncate">{t('newProjectInWorkspace')}</span>
+              {workspacePath ? (
+                <span className="quickforge-project-picker-item-hint">{t('newProjectInWorkspaceHint')}</span>
+              ) : null}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <div className="quickforge-project-create">
+          <div className="quickforge-project-create-head">
+            <button
+              type="button"
+              className="quickforge-project-create-back"
+              onClick={backToProjectList}
+              aria-label={t('back')}
+              title={t('back')}
+              disabled={creating}
+            >
+              <ArrowLeft className="size-4" aria-hidden="true" />
+            </button>
+            <div className="quickforge-project-create-heading">
+              <div className="quickforge-project-create-title">{t('newProjectInWorkspace')}</div>
+              <div className="quickforge-project-create-subtitle">{t('newProjectInWorkspaceDescription')}</div>
+            </div>
+          </div>
 
-      <button
-        type="button"
-        className="quickforge-project-picker-item quickforge-project-picker-item-emphasis"
-        onClick={handleSelectDirectory}
-        role="menuitem"
-      >
-        <Folder className="size-4 quickforge-project-picker-item-leading" aria-hidden="true" />
-        <span className="truncate">{t('selectProjectDirectory')}</span>
-      </button>
+          <div className="quickforge-project-create-field">
+            <label htmlFor="quickforge-new-project-name">{t('projectNameLabel')}</label>
+            <input
+              id="quickforge-new-project-name"
+              ref={nameInputRef}
+              className="quickforge-project-create-input"
+              value={projectName}
+              onChange={(event) => {
+                setProjectName(event.target.value)
+                if (createError) setCreateError('')
+              }}
+              onKeyDown={handleNameKeyDown}
+              placeholder={t('projectNamePlaceholder')}
+              autoComplete="off"
+              spellCheck={false}
+              disabled={creating}
+              aria-invalid={Boolean(nameValidation.error) || Boolean(createError)}
+              aria-describedby="quickforge-new-project-message"
+            />
+          </div>
+
+          <div className="quickforge-project-create-path" title={workspacePreview}>
+            <Folder className="size-3" aria-hidden="true" />
+            <span className="truncate">{workspacePreview}</span>
+          </div>
+
+          <div
+            id="quickforge-new-project-message"
+            className={cn(
+              'quickforge-project-create-message',
+              (nameValidation.error || createError) && 'quickforge-project-create-message-error',
+            )}
+            role="status"
+          >
+            {createError || nameValidation.error || (
+              trimmedProjectName ? t('createProjectReady') : t('createProjectHint')
+            )}
+            {nameValidation.duplicate ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  className="quickforge-project-create-link"
+                  onClick={() => handleSelectProject(nameValidation.duplicate as ProjectInfo)}
+                >
+                  {t('useExistingProject')}
+                </button>
+              </>
+            ) : null}
+          </div>
+
+          <div className="quickforge-project-create-actions">
+            <button
+              type="button"
+              className="quickforge-project-create-cancel"
+              onClick={backToProjectList}
+              disabled={creating}
+            >
+              {t('cancel')}
+            </button>
+            <button
+              type="button"
+              className="quickforge-project-create-submit"
+              onClick={() => void handleCreateProject()}
+              disabled={creating || !nameValidation.ok}
+            >
+              {creating ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                  <span>{t('creatingProject')}</span>
+                </>
+              ) : (
+                <span>{t('createProjectAction')}</span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   ) : null
 

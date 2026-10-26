@@ -58,7 +58,7 @@ export const DEFAULT_CONNECTION: ConnectionForm = {
   baseUrl: 'http://localhost:4000/v1',
   apiKey: '',
   modelId: 'anthropic/claude-sonnet-4',
-  contextWindow: 200000,
+  contextWindow: 1000000,
   maxTokens: 32768,
   supportsImages: true,
 }

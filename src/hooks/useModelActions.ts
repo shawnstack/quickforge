@@ -8,10 +8,12 @@ import {
   loadInitialConfiguredModel,
   mergeAvailableModels,
   saveActiveModel,
+  saveActiveThinkingLevel,
   saveConnectionProfile,
   getSelectableConfiguredModels,
 } from '@/lib/pi-chat'
 import { openCustomOnlyModelSelector } from '@/lib/custom-model-selector'
+import type { ThinkingSliderLevel } from '@/lib/thinking-slider'
 import {
   readCachedModelList,
   readCachedModelListStale,
@@ -217,6 +219,28 @@ export function useModelActions({
         {
           anchor,
           onOpenModelSettings: openModelSettings,
+          // 思考等级并入同一个弹层：只有推理模型才渲染滑杆
+          ...((currentAgent.state.model ?? activeModelRef.current)?.reasoning
+            ? {
+                thinkingLevel: currentAgent.state.thinkingLevel as ThinkingSliderLevel,
+                thinkingDisabled: false,
+                onThinkingLevelChange: (level: ThinkingSliderLevel) => {
+                  if (currentAgent.state.thinkingLevel === level) return
+                  currentAgent.state.thinkingLevel = level
+                  void currentAgent.updateThinkingLevel(level).catch((error) => {
+                    logger.error('Failed to sync thinking level to server:', error)
+                  })
+                  try {
+                    void saveActiveThinkingLevel(storage, level).catch((error) => {
+                      logger.error('Failed to save active thinking level:', error)
+                    })
+                  } catch (error) {
+                    logger.error('Failed to save active thinking level:', error)
+                  }
+                  setChatPanelRevision((value) => value + 1)
+                },
+              }
+            : {}),
         },
       )
     }

@@ -38,8 +38,6 @@ import {
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
-import { saveActiveThinkingLevel } from '@/lib/pi-chat'
-import { getAppStorage } from '@/storage'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
 import { markSessionOpen, recordFirstDecorateTiming } from '@/lib/session-open-timing'
@@ -2195,7 +2193,6 @@ export function ChatPanelHost({
           // renders it in a native disabled state) — mirrors HEAD's
           // `allowModelControls: sideChatMode || (...)` contract.
           enableModelSelector={sideChatMode || (allowModelControls && effectiveCapabilities.modelSelection)}
-          enableThinkingSelector={false}
           // Context-compaction timeline divider: same gate the decoration layer
           // used (`capabilities.compaction` and never in Side Chat).
           enableCompactionDivider={!sideChatMode && effectiveCapabilities.compaction}
@@ -2245,24 +2242,9 @@ export function ChatPanelHost({
           leaseObserver={leaseObserver}
           leaseDegraded={leaseDegraded}
           onTakeOverLease={takeOverLease}
-          enableThinkingControl={!readOnly}
-          onThinkingLevelChange={(level) => {
-            const currentAgent = agent as ServerAgent | SharedServerAgent
-            if (typeof currentAgent.updateThinkingLevel === 'function') {
-              void currentAgent.updateThinkingLevel(level).catch((error) => {
-                logger.error('Failed to sync thinking level to server:', error)
-              })
-            }
-            // Remember the pick so the next new session starts from it (there is
-            // no "default thinking level" setting any more).
-            try {
-              void saveActiveThinkingLevel(getAppStorage(), level).catch((error) => {
-                logger.error('Failed to save active thinking level:', error)
-              })
-            } catch (error) {
-              logger.error('Failed to save active thinking level:', error)
-            }
-          }}
+          // 思考等级滑杆随模型选择弹层一起渲染（见 useModelActions →
+          // openCustomOnlyModelSelector 的 thinkingLevel/onThinkingLevelChange），
+          // composer 行里不再有独立控件，所以这里也不再透传控件开关。
           // Goal strip: same gate the decoration controller used (main chat
           // only, goal capability, no shared page, never ACP sessions where the
           // server rejects goal actions).

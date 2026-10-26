@@ -33,7 +33,6 @@ import { GoalControlStrip } from './GoalControlStrip'
 import { ComposerPlusPopover, ComposerPlusTrigger, useComposerPlusMenu } from './ComposerPlusMenu'
 import { AgentAccessMenu, AgentAccessTrigger, PlanModeTrigger, positionAgentAccessMenu } from './ComposerAccessControls'
 import { registerAgentAccessMenuCloser } from '../panel-decoration/agent-access-menu'
-import { ThinkingLevelControl } from './ThinkingLevelControl'
 import { ModelRetryNotice, ReconnectNotice, SessionLeaseStrip, UnreachableStrip, useSseConnectionStatus, type ModelRetryInfo } from './ConnectionNotices'
 import { resolveCompactionBoundary, type ContextCompactionState } from './ContextCompactionNotice'
 import { resolveAssistantWaitingRow } from './AssistantWaitingBubble'
@@ -783,13 +782,6 @@ type WindowedChatSurfaceProps = ChatSurfaceProps & {
   /** Active model upstream retry, owned by the host (`model_stream_retry`). */
   modelRetryInfo?: ModelRetryInfo | null
   /**
-   * QuickForge thinking selector, rendered into the composer's right-hand
-   * control row. Replaces `panel-decoration/thinking-level-controls.ts`, which
-   * injected the button and appended its menu to `document.body`.
-   */
-  enableThinkingControl?: boolean
-  onThinkingLevelChange?: (level: ThinkingLevel) => void
-  /**
    * QuickForge "+" composer menu: the trigger renders in the editor's left
    * control row and the popover before the editor card, matching the decoration
    * layer's two insertion points (`leftControls.prepend` / `insertBefore(editor)`).
@@ -875,7 +867,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     agent,
     enableAttachments = true,
     enableModelSelector = true,
-    enableThinkingSelector = true,
     enableCompactionDivider = true,
     readOnly = false,
     chatPanelRevision,
@@ -894,8 +885,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     enableGoalStrip = false,
     onGoalAction,
     onOpenLocalFilePath,
-    enableThinkingControl = false,
-    onThinkingLevelChange,
     enableComposerPlusMenu = false,
     availablePluginRows,
     selectPluginCapability,
@@ -1456,7 +1445,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                 isStreaming={snapshot.isStreaming}
                 isWaiting={isReplyWaiting}
                 currentModel={snapshot.model}
-                thinkingLevel={snapshot.thinkingLevel}
                 // The native paperclip button is redundant: attachment picking is
                 // owned by the QuickForge "+" menu (its "add attachment" row calls
                 // `pickAttachment`). The decoration layer hid this button on every
@@ -1464,7 +1452,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                 // does not render it while the "+" menu is present.
                 showAttachmentButton={enableAttachments && !activePlusMenu}
                 showModelSelector={enableModelSelector}
-                showThinkingSelector={enableThinkingSelector}
                 // Notification only: the store already holds the new text. The
                 // bridge forwards to the host, which owns draft persistence and
                 // the three suggestion controllers.
@@ -1481,13 +1468,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                 onBeforeAbort={onBeforeAbort}
                 /* No built-in model selector dialog yet: the host decides via onModelSelect. */
                 onModelSelect={onModelSelect}
-                onThinkingChange={
-                  enableThinkingSelector
-                    ? (level) => {
-                        agent.state.thinkingLevel = level
-                      }
-                    : undefined
-                }
                 // Notification only: `MessageEditor` already wrote the merged
                 // list to the store. Re-applying it here would be a redundant
                 // write and could clobber a concurrent removal.
@@ -1520,24 +1500,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                     ) : null}
                   </>
                 )}
-                trailingControls={enableThinkingControl && snapshot.model?.reasoning === true ? (
-                  <ThinkingLevelControl
-                    level={snapshot.thinkingLevel}
-                    onChange={(level) => {
-                      // The level lives on the mutable agent state, so write it
-                      // and re-read the snapshot: without the refresh the button
-                      // label would keep showing the old level.
-                      agent.state.thinkingLevel = level
-                      onThinkingLevelChange?.(level)
-                      syncSnapshot()
-                    }}
-                    onBeforeOpen={onDismissComposerSuggestions}
-                    // Same effective flag the rest of the composer row gets:
-                    // a write-lease observer (another window owns the session)
-                    // disables every control, this one included.
-                    disabled={composerControlsDisabled || leaseObserver}
-                  />
-                ) : null}
               />
               <UsageBar totals={snapshot.usage} onCostClick={onCostClick} />
             </div>

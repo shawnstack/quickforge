@@ -1,10 +1,10 @@
 /* eslint-disable react-refresh/only-export-components -- exports the MessageEditor component plus pure keyboard/limit helpers; the re-exported attachment loader is covered by tests. */
 import { memo, useCallback, useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type ClipboardEvent, type DragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { Brain, Loader2, Paperclip, Sparkles } from 'lucide-react'
+import { Loader2, Paperclip, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
-import type { Api, Attachment, Model, ThinkingLevel } from './ChatTypes'
+import type { Api, Attachment, Model } from './ChatTypes'
 import { AttachmentTile } from './AttachmentTile'
 import { loadSurfaceAttachment } from './attachment-loader'
 import { useComposerAttachments, useComposerText, type ComposerStore } from './composer-store'
@@ -34,21 +34,6 @@ export const DEFAULT_MAX_FILES = 10
 export const DEFAULT_MAX_FILE_SIZE = 20 * 1024 * 1024 // 20MB
 export const DEFAULT_ACCEPTED_TYPES =
   'image/*,application/pdf,.docx,.pptx,.xlsx,.xls,.txt,.md,.json,.xml,.html,.css,.js,.ts,.jsx,.tsx,.yml,.yaml'
-
-/**
- * Composer thinking levels. Mirrors the application-wide vocabulary
- * (`QuickForgeThinkingLevel` in panel-decoration/thinking-level-controls.ts and
- * `isThinkingLevel` in lib/pi-chat.ts): off / low / medium / high / xhigh.
- * Labels are resolved through `t()` at render time so a language switch is
- * picked up (the i18n module reads the active language per call).
- */
-const THINKING_LEVELS: Array<{ value: ThinkingLevel; labelKey: AppTextKey }> = [
-  { value: 'off', labelKey: 'thinkingOff' },
-  { value: 'low', labelKey: 'thinkingLow' },
-  { value: 'medium', labelKey: 'thinkingMedium' },
-  { value: 'high', labelKey: 'thinkingHigh' },
-  { value: 'xhigh', labelKey: 'thinkingXHigh' },
-]
 
 /** Minimal keyboard-event shape so the decision logic is unit-testable. */
 export interface EditorKeyEventLike {
@@ -160,10 +145,8 @@ export interface MessageEditorProps {
    */
   isWaiting?: boolean
   currentModel?: Model<Api>
-  thinkingLevel?: ThinkingLevel
   showAttachmentButton?: boolean
   showModelSelector?: boolean
-  showThinkingSelector?: boolean
   /**
    * Left-hand control row prefix. The QuickForge "+" menu is rendered here by
    * React; the decoration layer used to prepend it into this row on every pass.
@@ -212,7 +195,6 @@ export interface MessageEditorProps {
    */
   onBeforeAbort?: () => void
   onModelSelect?: () => void
-  onThinkingChange?: (level: ThinkingLevel) => void
   /** Notification only — the store is already updated. */
   onFilesChange?: (files: Attachment[]) => void
   /** Injectable loader (tests pass a fake; defaults to the local loader). */
@@ -433,10 +415,8 @@ export function MessageEditor({
   isStreaming = false,
   isWaiting = false,
   currentModel,
-  thinkingLevel = 'off',
   showAttachmentButton = true,
   showModelSelector = true,
-  showThinkingSelector = true,
   leadingControls,
   trailingControls,
   pickAttachment,
@@ -451,7 +431,6 @@ export function MessageEditor({
   onAbort,
   onBeforeAbort,
   onModelSelect,
-  onThinkingChange,
   onFilesChange,
   loadAttachmentFile = loadSurfaceAttachment,
 }: MessageEditorProps) {
@@ -477,8 +456,6 @@ export function MessageEditor({
   useEffect(() => {
     pickAttachment?.(() => fileInputRef.current?.click())
   }, [pickAttachment])
-
-  const supportsThinking = currentModel?.reasoning === true
 
   /**
    * Merge a parsed batch into the store. Reads the *current* attachments at
@@ -657,23 +634,12 @@ export function MessageEditor({
                 <Paperclip className="size-4" />
               </Button>
             ) : null}
-            {supportsThinking && showThinkingSelector ? (
-              <label className="flex h-8 cursor-pointer select-none items-center gap-1 rounded-md px-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground">
-                <Brain className="size-4" />
-                <select
-                  className="cursor-pointer bg-transparent text-xs outline-none"
-                  aria-label={t('thinkingLevel')}
-                  value={thinkingLevel}
-                  onChange={(event) => onThinkingChange?.(event.currentTarget.value as ThinkingLevel)}
-                >
-                  {THINKING_LEVELS.map((level) => (
-                    <option key={level.value} value={level.value}>
-                      {t(level.labelKey)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
+            {/*
+              思考等级不再单独渲染原生 select：它已并入模型选择弹层底部的滑杆
+              （custom-model-selector.ts + lib/thinking-slider.ts）。保留
+              `showThinkingSelector` / `onThinkingChange` 两个 prop 是为了不影响
+              接线契约，但这里不再产出可见控件。
+            */}
           </div>
 
           <div className="flex items-center gap-2">

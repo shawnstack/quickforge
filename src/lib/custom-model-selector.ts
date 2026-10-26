@@ -2,6 +2,12 @@ import { type Api, type Model, modelsAreEqual } from '@earendil-works/pi-ai'
 import { agentAccessCheckIcon } from '@/components/chat/panel-decoration/icons'
 import { t } from '@/lib/i18n'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
+import {
+  createThinkingSlider,
+  type ThinkingSliderHandle,
+  type ThinkingSliderLevel,
+} from '@/lib/thinking-slider'
+import { thinkingLevelLabel } from '@/lib/thinking-levels'
 
 type AnyModel = Model<Api>
 
@@ -15,6 +21,14 @@ type ModelSelectorOptions = {
   noneLabel?: string
   /** 点击 none 选项时回调 */
   onNoneSelect?: () => void
+  /**
+   * 思考等级：同时传入 level 与 onChange 时，弹层底部渲染滑杆。
+   * 表单场景（openModelSheet / 非推理模型）不传，弹层就只显示模型列表。
+   */
+  thinkingLevel?: ThinkingSliderLevel
+  onThinkingLevelChange?: (level: ThinkingSliderLevel) => void
+  /** 滑杆是否禁用（写租约观察者、只读视图等）。 */
+  thinkingDisabled?: boolean
 }
 
 function createButton(className: string, text = '') {
@@ -45,6 +59,8 @@ type ComposerModelMenuElement = HTMLDivElement & {
 export type ModelSelectorHandle = {
   isOpen: () => boolean
   updateModels: (models: readonly AnyModel[]) => void
+  /** 外部（如快捷键）改变档位时同步滑杆位置，避免视觉与实际不一致。 */
+  setThinkingLevel?: (level: ThinkingSliderLevel) => void
 }
 
 function ownedComposerModelMenus(anchor: HTMLElement) {
@@ -69,7 +85,8 @@ function getAnchor(anchor?: HTMLElement | null) {
 
 function positionMainMenu(menu: HTMLElement, anchor?: HTMLElement | null) {
   const trigger = getAnchor(anchor)
-  const width = Math.min(260, window.innerWidth - 24)
+  // 336px：分组头 + 「模型名 + 能力标签 + 勾选」三列在 260px 下会频繁截断模型 id。
+  const width = Math.min(336, window.innerWidth - 24)
   menu.style.width = `${width}px`
   const measuredHeight = menu.offsetHeight || 360
 
@@ -95,6 +112,8 @@ function createMenuItem(options: {
   label: string
   selected?: boolean
   disabled?: boolean
+  /** 模型名后缀的能力标签（如"视觉"），文本由调用方本地化 */
+  capabilityLabel?: string
   onPointerDown?: (event: PointerEvent) => void
   onPointerEnter?: () => void
   onClick?: (event: MouseEvent) => void
@@ -106,17 +125,76 @@ function createMenuItem(options: {
 
   const label = document.createElement('span')
   label.className = 'quickforge-model-menu-item-label'
-  label.textContent = options.label
+  const name = document.createElement('span')
+  name.className = 'quickforge-model-menu-item-name'
+  name.textContent = options.label
+  label.append(name)
+  if (options.capabilityLabel) {
+    const capability = document.createElement('span')
+    capability.className = 'quickforge-model-menu-item-capability'
+    capability.textContent = options.capabilityLabel
+    label.append(capability)
+  }
 
   const checkSlot = document.createElement('span')
   checkSlot.className = 'quickforge-model-menu-item-check-slot'
   checkSlot.innerHTML = options.selected ? agentAccessCheckIcon : ''
 
+  // 契约：`item.append(checkSlot, label)` —— 勾选槽仍在左侧、标签在右。
+  // 右侧只放能力标签，不把勾选移到右边，避免破坏 app-css 中的
+  // `grid-template-columns: 1rem minmax(0, 1fr)` 与既有断言。
   item.append(checkSlot, label)
   if (options.onPointerDown) item.onpointerdown = options.onPointerDown
   if (options.onPointerEnter) item.onpointerenter = options.onPointerEnter
   if (options.onClick) item.addEventListener('click', options.onClick)
   return item
+}
+
+/**
+ * 模型按服务商分组：`Model.provider` 就是自定义提供商的名字（
+ * `CustomProvider.name`），因此不需要额外数据源。
+ *
+ * 排序规则：自定义来源（`source: 'custom'`）优先，其余按服务商名升序；
+ * 组内按展示文案升序。这样"我刚加的模型"总在最前面。
+ */
+type ModelGroup = {
+  provider: string
+  models: AnyModel[]
+  custom: boolean
+}
+
+type ModelWithReference = AnyModel & {
+  quickforgeModelRef?: { source?: string }
+}
+
+function groupModelsByProvider(models: readonly AnyModel[]): ModelGroup[] {
+  const groups = new Map<string, ModelGroup>()
+  for (const model of models) {
+    const provider = model.provider || ''
+    const existing = groups.get(provider)
+    const isCustom = (model as ModelWithReference).quickforgeModelRef?.source === 'custom'
+    if (existing) {
+      existing.models.push(model)
+      existing.custom = existing.custom || isCustom
+    } else {
+      groups.set(provider, { provider, models: [model], custom: isCustom })
+    }
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      models: [...group.models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b))),
+    }))
+    .sort((a, b) => {
+      if (a.custom !== b.custom) return a.custom ? -1 : 1
+      return a.provider.localeCompare(b.provider)
+    })
+}
+
+/** 视觉能力来自 `Model.input` 含 'image'，是仓库里唯一的能力信号。 */
+function modelSupportsImages(model: AnyModel): boolean {
+  const input = (model as AnyModel & { input?: string[] }).input
+  return Array.isArray(input) && input.includes('image')
 }
 
 function openMobileModelSelector(
@@ -199,6 +277,7 @@ function openMobileModelSelector(
       const item = createMenuItem({
         label: options.modelLabelOverride ? options.modelLabelOverride(model) : modelLabel(model),
         selected: modelsAreEqual(selectedModel, model),
+        capabilityLabel: modelSupportsImages(model) ? t('modelVisionCapability') : undefined,
         onClick: (event) => {
           event.preventDefault()
           event.stopPropagation()
@@ -230,18 +309,33 @@ function openMobileModelSelector(
 
   renderModelList()
 
-  const settingsFooter = options.onOpenModelSettings ? document.createElement('div') : null
-  if (settingsFooter && options.onOpenModelSettings) {
-    settingsFooter.className = 'quickforge-model-settings-footer quickforge-model-sheet-footer'
-    settingsFooter.append(createModelSettingsButton(options.onOpenModelSettings, anchor))
+  // 顶部：自定义模型入口（与桌面菜单一致，放在最上面）
+  const settingsTop = options.onOpenModelSettings ? document.createElement('div') : null
+  if (settingsTop && options.onOpenModelSettings) {
+    settingsTop.className = 'quickforge-model-menu-top quickforge-model-sheet-top'
+    settingsTop.append(createModelSettingsButton(options.onOpenModelSettings, anchor))
+  }
+
+  // 思考等级滑杆：仅调用方给了 level + onChange 时渲染
+  let thinkingSlider: ThinkingSliderHandle | null = null
+  if (options.thinkingLevel && options.onThinkingLevelChange) {
+    const onChange = options.onThinkingLevelChange
+    thinkingSlider = createThinkingSlider({
+      level: options.thinkingLevel,
+      title: t('thinkingLevel'),
+      labelFor: (level) => thinkingLevelLabel(level),
+      disabled: options.thinkingDisabled,
+      onChange: (level) => onChange(level),
+    })
   }
 
   sheet.append(
     dragZone,
     header,
+    ...(settingsTop ? [settingsTop] : []),
     modelSectionLabel,
     modelList,
-    ...(settingsFooter ? [settingsFooter] : []),
+    ...(thinkingSlider ? [thinkingSlider.element] : []),
   )
   sheet.addEventListener('pointerdown', (event) => event.stopPropagation())
   backdrop.addEventListener('pointerdown', (event) => {
@@ -300,6 +394,8 @@ function openMobileModelSelector(
   }
   backdrop.__quickforgeCleanup = () => {
     if (closeTimer) clearTimeout(closeTimer)
+    thinkingSlider?.destroy()
+    thinkingSlider = null
     document.removeEventListener('keydown', dismiss, true)
     window.removeEventListener('resize', dismiss, true)
     window.removeEventListener('pointermove', onDragMove)
@@ -319,6 +415,9 @@ function openMobileModelSelector(
       if (!document.body.contains(backdrop)) return
       models = [...nextModels]
       renderModelList()
+    },
+    setThinkingLevel: (level) => {
+      thinkingSlider?.setLevel(level)
     },
   }
 }
@@ -377,41 +476,78 @@ export function openCustomOnlyModelSelector(
   menu.setAttribute('role', 'menu')
   menu.setAttribute('aria-label', t('selectCustomModel'))
 
+  let thinkingSlider: ThinkingSliderHandle | null = null
+
   const renderMenu = () => {
+    thinkingSlider?.destroy()
+    thinkingSlider = null
     menu.replaceChildren()
 
-    const header = document.createElement('div')
-    header.className = 'quickforge-model-menu-header'
-    header.textContent = t('model')
-    menu.append(header)
-
-    const sortedModels = [...models].sort((a, b) => modelLabel(a).localeCompare(modelLabel(b)))
-    for (const model of sortedModels) {
-      menu.append(createMenuItem({
-        label: modelLabel(model),
-        selected: modelsAreEqual(selectedModel, model),
-        onPointerDown: (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          selectedModel = model
-          onSelect(model)
-          closeComposerModelMenu(anchor)
-        },
-      }))
+    // 顶部：自定义模型入口。放在最上面，模型列表单独滚动，入口不跟着滚。
+    if (options.onOpenModelSettings) {
+      const top = document.createElement('div')
+      top.className = 'quickforge-model-menu-top'
+      top.append(createModelSettingsButton(options.onOpenModelSettings, anchor))
+      menu.append(top)
     }
 
-    if (sortedModels.length === 0) {
+    const scroll = document.createElement('div')
+    scroll.className = 'quickforge-model-menu-scroll'
+    scroll.setAttribute('role', 'group')
+    menu.append(scroll)
+
+    const groups = groupModelsByProvider(models)
+    for (const group of groups) {
+      const head = document.createElement('div')
+      head.className = 'quickforge-model-menu-group'
+      const badge = document.createElement('span')
+      badge.className = 'quickforge-model-menu-group-badge'
+      badge.setAttribute('aria-hidden', 'true')
+      badge.textContent = (group.provider.trim()[0] ?? '?').toUpperCase()
+      const name = document.createElement('span')
+      name.className = 'quickforge-model-menu-group-name'
+      name.textContent = group.provider || t('model')
+      const count = document.createElement('span')
+      count.className = 'quickforge-model-menu-group-count'
+      count.textContent = t('modelsCount').replace('{count}', String(group.models.length))
+      head.append(badge, name, count)
+      scroll.append(head)
+
+      for (const model of group.models) {
+        scroll.append(createMenuItem({
+          label: options.modelLabelOverride ? options.modelLabelOverride(model) : modelLabel(model),
+          selected: modelsAreEqual(selectedModel, model),
+          capabilityLabel: modelSupportsImages(model) ? t('modelVisionCapability') : undefined,
+          onPointerDown: (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            selectedModel = model
+            onSelect(model)
+            closeComposerModelMenu(anchor)
+          },
+        }))
+      }
+    }
+
+    if (groups.length === 0) {
       const note = document.createElement('div')
       note.className = 'quickforge-model-menu-note'
       note.textContent = t('noModelAdded')
-      menu.append(note)
+      scroll.append(note)
     }
 
-    if (options.onOpenModelSettings) {
-      const settingsFooter = document.createElement('div')
-      settingsFooter.className = 'quickforge-model-settings-footer'
-      settingsFooter.append(createModelSettingsButton(options.onOpenModelSettings, anchor))
-      menu.append(settingsFooter)
+    // 底部：思考等级滑杆。只有调用方给了 level + onChange 才渲染
+    // （表单场景与非推理模型不渲染）。
+    if (options.thinkingLevel && options.onThinkingLevelChange) {
+      const onChange = options.onThinkingLevelChange
+      thinkingSlider = createThinkingSlider({
+        level: options.thinkingLevel,
+        title: t('thinkingLevel'),
+        labelFor: (level) => thinkingLevelLabel(level),
+        disabled: options.thinkingDisabled,
+        onChange: (level) => onChange(level),
+      })
+      menu.append(thinkingSlider.element)
     }
   }
 
@@ -432,6 +568,8 @@ export function openCustomOnlyModelSelector(
   }
 
   menu.__quickforgeCleanup = () => {
+    thinkingSlider?.destroy()
+    thinkingSlider = null
     document.removeEventListener('pointerdown', dismiss, true)
     document.removeEventListener('keydown', dismiss, true)
     window.removeEventListener('resize', dismiss, true)
@@ -455,6 +593,9 @@ export function openCustomOnlyModelSelector(
       models = [...nextModels]
       renderMenu()
       positionMainMenu(menu, anchor)
+    },
+    setThinkingLevel: (level) => {
+      thinkingSlider?.setLevel(level)
     },
   }
 }

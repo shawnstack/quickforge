@@ -243,14 +243,13 @@ describe('custom model selector settings entry', () => {
       onOpenModelSettings: vi.fn(),
     })
 
-    const modelEntry = collect(body, '.quickforge-model-menu-item').find((item) => (
-      item.children.some((child) => child.textContent === 'provider / model-1')
+    // 模型名现在渲染在 `.quickforge-model-menu-item-name` 里（外层 label 还带能力
+    // 标签），所以按该节点匹配，不再依赖 label 自身的 textContent。
+    const itemName = (text: string) => collect(body, '.quickforge-model-menu-item').find((item) => (
+      item.querySelector<FakeElement>('.quickforge-model-menu-item-name')?.textContent === text
     ))
-    modelEntry?.onpointerenter?.({})
-    const modelMenuItem = collect(body, '.quickforge-model-menu-item').find((item) => (
-      item.children.some((child) => child.textContent === 'provider / next')
-    ))
-    modelMenuItem?.onpointerdown?.({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    itemName('provider / model-1')?.onpointerenter?.({})
+    itemName('provider / next')?.onpointerdown?.({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
 
     expect(onSelect).toHaveBeenCalledWith(selectedModel)
     expect(document.querySelector('.quickforge-model-menu')).toBeNull()

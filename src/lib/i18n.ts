@@ -596,6 +596,8 @@ export const appTranslations = {
     imageInputModelHelp: 'Enable only when the model documentation confirms image input support. When disabled, attached images are omitted before the request is sent so non-vision models do not fail.',
     showModelInSelectors: 'Show in model selectors',
     showModelInSelectorsHelp: 'Turn off to keep this model configured while hiding it from model selection lists.',
+    /* 能力短标签：模型选择器行内显示，比 imageInputModel 长文案更省空间 */
+    modelVisionCapability: 'Vision',
     providerProtocol: 'Protocol',
     model: 'Model',
     reasoning: 'Reasoning',
@@ -2474,6 +2476,8 @@ export const appTranslations = {
     imageInputModelHelp: '仅在模型文档确认支持图片输入时开启。关闭后，请求发送前会省略附件图片，避免非视觉模型报错。',
     showModelInSelectors: '在模型选择中显示',
     showModelInSelectorsHelp: '关闭后会保留模型配置，但不再出现在模型选择列表中。',
+    /* 能力短标签：模型选择器行内显示，比 imageInputModel 长文案更省空间 */
+    modelVisionCapability: '视觉',
     providerProtocol: '协议',
     model: '模型',
     reasoning: '推理',

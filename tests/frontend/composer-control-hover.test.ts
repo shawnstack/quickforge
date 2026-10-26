@@ -18,11 +18,12 @@ describe('composer control hover feedback', () => {
     expect(ruleFor('.quickforge-composer button:hover:not(:disabled)').body).toMatch(/transform:\s*translateY\(-1px\)/)
 
     const neutralHover = ruleFor('.quickforge-composer .quickforge-plus-inline:hover:not(:disabled)')
+    // `.quickforge-thinking-inline` 已随「思考等级并入模型弹层滑杆」一起移除
+    // （控件本体见 lib/thinking-slider.ts），因此这里只剩 4 个 composer 控件。
     expect(neutralHover.selectors).toEqual([
       '.quickforge-composer .quickforge-plus-inline:hover:not(:disabled)',
       '.quickforge-composer .quickforge-agent-access-inline:hover:not(:disabled)',
       '.quickforge-composer .quickforge-subagent-running-trigger:hover:not(:disabled)',
-      '.quickforge-composer .quickforge-thinking-inline:hover:not(:disabled)',
       '.quickforge-composer .quickforge-model-trigger:hover:not(:disabled)',
     ])
     expect(neutralHover.body).toMatch(/background:\s*var\(--quickforge-sidebar-hover-bg\)\s*!important/)

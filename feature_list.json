@@ -1,6 +1,40 @@
 {
   "features": [
     {
+      "id": "model-selector-provider-menu",
+      "name": "模型选择器改造：服务商分组 + 能力标签 + 底部思考等级滑杆",
+      "description": "用户提供参考截图，要求把输入框旁的模型选择从「扁平模型列表」改造成按服务商分组、选中项带勾选、模型带能力标签、底部可直接调思考等级的形态；随后迭代为自定义模型入口置顶、思考等级文字翻滚、拖动条只留圆圈、粒子特效限制在滑块内、档位越高粒子越多越快、底部去除档位文字与 Ctrl+T。",
+      "status": "done",
+      "dependencies": [
+        "remove-default-model-thinking-level",
+        "fix-thinking-level-menu-clipped"
+      ],
+      "summary": "模型选择弹层重做为三段式：1) 顶部固定「自定义模型」设置入口（点击先关闭再跳设置）；2) 按 Model.provider（= CustomProvider.name）分组的可滚列表，quickforgeModelRef.source === custom 的组排最前、组内按 modelDisplayLabel 升序，组头为首字母徽标 + 名称 + 模型数，行内「视觉」标签来自 Model.input 含 image（唯一结构化能力信号）；3) 底部思考等级滑杆，仅当调用方传 thinkingLevel + onThinkingLevelChange 时渲染。滑杆实现为常驻五档整列文字 + translateY 翻滚（不用节点入场/退场，避免快速换档重叠）、渐变轨道 + 单个白色圆圈、canvas 粒子拖尾按轨道圆角裁剪，粒子上限/每帧补充/流速按档位配置（4/16/38/82/160、0.72x-1.85x），prefers-reduced-motion 下关闭。思考等级从 composer 独立控件迁入弹层，删除 surface/ThinkingLevelControl.tsx，词表与标签移到 lib/thinking-levels.ts。勾选槽保持在左侧以维持 app-css 的 grid-template-columns 契约。",
+      "root_cause": "原选择器是扁平列表：没有服务商分组（provider 信息在数据里但从未用于展示）、没有能力标签（Model.input 只在设置页表单里作为复选框出现）、思考等级是 composer 里另一个独立小菜单且与模型选择互不相干，用户要在两个相邻控件之间来回切换。",
+      "files": [
+        "src/lib/thinking-slider.ts",
+        "src/lib/thinking-levels.ts",
+        "src/lib/custom-model-selector.ts",
+        "src/lib/i18n.ts",
+        "src/hooks/useModelActions.ts",
+        "src/components/chat/surface/MessageEditor.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/styles/chat/composer-controls.css",
+        "src/styles/chat/compact.css",
+        "src/styles/chat/empty-state.css",
+        "tests/frontend/thinking-slider.test.ts",
+        "tests/frontend/custom-model-selector.test.ts",
+        "tests/frontend/composer-control-hover.test.ts",
+        "tests/frontend/agent-access-menu.test.ts",
+        "tests/frontend/chat-compact-controls.test.ts",
+        "tests/frontend/chat-surface-editor.test.ts",
+        "docs/design/model-selector-provider-menu.html",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/components/README.md"
+      ]
+    },
+    {
       "id": "workflow-detail-chat-cards",
       "name": "Workflow 详情步骤行复用普通对话卡片（工具卡 / subagent 摘要卡）",
       "description": "用户反馈「Workflow 详情里面的 tools 调用和 sub agent 调用，应该样式和最外层的保持一致要复用普通对话里面的信息」——详情面板自写的步骤行（图标+label+自研展开体）与聊天区工具卡/subagent 卡是两套并行 UI，信息与样式漂移。",

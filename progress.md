@@ -1,3 +1,22 @@
+## model-selector-provider-menu（done，2026-10-26）
+
+- Goal：用户提供参考截图，要求把输入框旁的模型选择改造成「服务商分组 + 选中勾选 + 模型能力标签 + 底部思考等级滑杆」的样式，并逐步迭代为：自定义模型入口置顶、思考等级文字翻滚、拖动条只留圆圈、粒子特效限制在滑块内且随档位从右向左游动、高档位粒子超级多且流速快、底部去掉档位文字与 Ctrl+T。
+- 结论（一句话）：模型选择弹层重做成「顶部设置入口 + 按 provider 分组的可滚列表 + 底部思考滑杆」三段式；思考等级从 composer 独立控件迁入弹层底部，实现为常驻整列翻滚文字 + 纯圆圈渐变轨道 + 圆角裁剪的 canvas 粒子拖尾（档位驱动密度/流速/拖尾长度）。
+- 改动文件：
+  1. `src/lib/thinking-slider.ts`（新增）：滑杆控件的全部实现。翻滚数值用「五档文字常驻一列 + `translateY`」而不是节点入场/退场（后者在快速换档时定时器未跑完会重叠）；粒子按档位三档配置 `LEVEL_CAP / LEVEL_RATE / LEVEL_SPEED`（上限 4/16/38/82/160，每帧补充 0.02/0.12/0.36/0.8/1.7，流速 0.72×→1.85×），画布用 `roundRect` 按轨道圆角裁剪保证不溢出，`prefers-reduced-motion` 下整体关闭，无 canvas 实现的环境（jsdom）自动降级为无粒子。
+  2. `src/lib/custom-model-selector.ts`：新增 `groupModelsByProvider()`（按 `Model.provider` 分组，`quickforgeModelRef.source === 'custom'` 优先，组内按展示文案排序）、`modelSupportsImages()`（`Model.input` 含 `image`）、桌面菜单与移动 sheet 的新结构（顶部 `.quickforge-model-menu-top` + 滚动区 + 分组头 + 滑杆）；`positionMainMenu` 宽度 260 → 336px（三列语义在原宽度下会频繁截断模型 id）；`ModelSelectorOptions` 新增 `thinkingLevel / onThinkingLevelChange / thinkingDisabled`，`ModelSelectorHandle` 新增 `setThinkingLevel`；清理时销毁滑杆的 rAF 与监听。
+  3. `src/lib/thinking-levels.ts`（新增）：档位词表与标签（`off/low/medium/high/xhigh`），替代被删除的 `surface/ThinkingLevelControl.tsx`——词表本身是跨模块契约（服务端同步、持久化、子代理运行详情共用）。
+  4. `src/hooks/useModelActions.ts`：主聊天接线——仅推理模型传 `thinkingLevel` + `onThinkingLevelChange`，回调写 `agent.state.thinkingLevel`、调 `updateThinkingLevel` 同步服务端并 `saveActiveThinkingLevel` 持久化。
+  5. `src/components/chat/surface/MessageEditor.tsx` / `ChatSurface.tsx` / `ChatPanelHost.tsx`：移除 composer 内旧的思考入口（原生 `<select>`、`trailingControls`、`enableThinkingControl` / `onThinkingLevelChange` / `enableThinkingSelector` 透传），避免同一状态出现在两处控件上。
+  6. `src/styles/chat/composer-controls.css`：弹层改 flex 三段式（`overflow: hidden` + 内部滚动）、新增分组头/首字母徽标/能力标签/滑杆样式；删除 `thinking-inline` / `thinking-menu` / `thinking-item` 等已无 DOM 的选择器。
+  7. `src/styles/chat/compact.css`、`src/styles/chat/empty-state.css`：删除紧凑/移动端的思考按钮 icon-only 规则。
+  8. `src/lib/i18n.ts`：新增 `modelVisionCapability`（en `Vision` / zh `视觉`），复用既有 `modelsCount` 做分组计数。
+  9. 测试：新增 `tests/frontend/thinking-slider.test.ts`（10 例：词表、`role=slider` 语义、单圆圈、整列翻滚不叠节点、点击/键盘换档、disabled、外部同步、canvas 存在且在轨道内）；删除 `thinking-level-control.test.ts`；更新 `custom-model-selector`（按 `.quickforge-model-menu-item-name` 匹配）、`composer-control-hover`（中性 hover 列表 -1）、`agent-access-menu`（选择器组拆分）、`chat-compact-controls`（-2 条断言）、`chat-surface-editor`（改为锁定「composer 不再渲染 select」+ 词表契约）。
+- 被避免的坑：① **粒子生成在轨道外导致首帧销毁**——初版 `x = fxW + 2..16`，而透明度按 `fxW - x` 判定，负数被判为透明后立即 `p.x = -10` 销毁，肉眼完全看不到流动；改为在右边缘内侧生成并按 `age/fadeIn` 淡入。② **同色粒子叠同色渐变不可见**——初版用渐变同位置取色，等于青点画在青底上；改为 70% 浅色粒子 + 少量品牌色。③ **翻滚数值节点重叠**（用户实测反馈「叠在一起」）——从双节点入场/退场改为整列位移。④ **粒子溢出滑块**（用户实测反馈）——画布从 `inset: -0.85rem -0.6rem` 收回 `inset: 0` 并加圆角裁剪。⑤ 勾选槽不能照截图移到右侧——`app-css` 契约锁定 `grid-template-columns: 1rem minmax(0, 1fr)` 与 `item.append(checkSlot, label)`，能力标签改为跟在模型名后，勾选槽保留在左。
+- Evidence（验证）：`npx tsc -b --force` 通过；`npm run test` 全量 **424 文件 / 4915 passed / 2 skipped**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（3.77s）。定向：thinking-slider 10 passed、custom-model-selector 8 passed、契约组（compact / hover / agent-access / model-trigger）34 passed。
+- Boundaries：未新增依赖；未触碰 `dist/`、`package-dist/`、`package-offline/`；未创建 Git commit；移动端 sheet 复用同一分组/标签/滑杆实现但未做真机验证。
+- Notes（范围外遗留，供下轮）：① 移动端 sheet 的设置入口从底部移到顶部后，原 `.quickforge-model-sheet-footer` 样式已无使用方，可择机清理；② 分组徽标颜色目前只有中性灰（设计稿里的按 provider 哈希配色未落地，仓库无品牌 logo 资源）；③ 侧聊/共享页不传思考参数，因此它们的模型弹层不显示滑杆，与「侧聊控件 inert」的既有语义一致。
+
 ## workflow-detail-chat-cards（done，2026-10-24）
 
 - Goal：用户反馈「Workflow 详情里面的 tools 调用和 sub agent 调用，应该样式和最外层的保持一致要复用普通对话里面的信息」。

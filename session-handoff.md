@@ -1,3 +1,31 @@
+# 当前交接：model-selector-provider-menu（done，2026-10-26）
+
+- Current Objective（当前目标）：用户提供参考截图，要求把输入框旁的模型选择改造成「服务商分组 + 选中勾选 + 能力标签 + 底部思考等级滑杆」。经 5 轮原型迭代后确认：自定义模型入口置顶、思考等级文字翻滚、拖动条只留圆圈、粒子只在滑块内且从右向左游动、档位越高粒子越多越快、底部不要档位文字与 Ctrl+T。最终按原型落地真实实现。
+- 结论（一句话）：模型选择弹层重做为「顶部设置入口 + 按 `Model.provider` 分组的可滚列表 + 底部思考滑杆」三段式；思考等级从 composer 独立控件迁入弹层底部，实现为常驻整列翻滚文字 + 纯圆圈渐变轨道 + 圆角裁剪的 canvas 粒子拖尾。
+- 改动文件：
+  - 新增 `src/lib/thinking-slider.ts`（滑杆控件：翻滚数值、拖动、粒子）、`src/lib/thinking-levels.ts`（档位词表与标签，替代被删除的 `surface/ThinkingLevelControl.tsx`）。
+  - `src/lib/custom-model-selector.ts`（分组 / 能力标签 / 顶部入口 / 滑杆挂载 / 宽度 260→336）。
+  - `src/hooks/useModelActions.ts`（仅推理模型传 thinking 参数并持久化）。
+  - `src/components/chat/surface/MessageEditor.tsx`、`ChatSurface.tsx`、`src/components/chat/ChatPanelHost.tsx`（移除 composer 内旧思考入口与相关 props 透传）。
+  - `src/styles/chat/composer-controls.css`（三段式布局 + 分组/标签/滑杆样式，删废弃 thinking 选择器）、`compact.css`、`empty-state.css`（删思考按钮 icon-only 规则）。
+  - `src/lib/i18n.ts`（新增 `modelVisionCapability`，en/zh 成对）。
+  - 测试：新增 `tests/frontend/thinking-slider.test.ts`（10 例）；删除 `thinking-level-control.test.ts`；更新 `custom-model-selector` / `composer-control-hover` / `agent-access-menu` / `chat-compact-controls` / `chat-surface-editor`。
+  - 文档：`docs/wiki/src/lib/README.md`、`docs/wiki/src/components/README.md`、`progress.md`、`session-handoff.md`。
+- 关键设计决策（都有代码事实支撑）：
+  - 分组用 `Model.provider`（= `CustomProvider.name`），不加数据源；`quickforgeModelRef.source === 'custom'` 的组排最前。
+  - 能力标签只做 `视觉`（`Model.input` 含 `image`），`reasoning` 已由滑杆表达，不重复。
+  - **勾选槽仍在左侧**：`app-css` 契约锁定 `grid-template-columns: 1rem minmax(0, 1fr)` 与 `item.append(checkSlot, label)`。截图是勾选在右，改它要联动改 3 个测试文件，本轮选择不动契约、把能力标签放在模型名后。
+  - 滑杆只在同时传 `thinkingLevel` + `onThinkingLevelChange` 时渲染；侧聊/共享页/表单场景不传，因此不显示（与侧聊控件 inert 的既有语义一致）。
+- 被避免的坑：① **粒子在轨道外生成导致首帧销毁**（`x = fxW + 2..16` + 透明度按 `fxW - x` 判定为负 → 立即 `p.x = -10`），现象是「完全看不到流动」；改为内侧生成 + 按 `age/fadeIn` 淡入。② **同色粒子叠同色渐变不可见**；改为 70% 浅色粒子 + 少量品牌色。③ **翻滚数值重叠**（用户反馈）：双节点入场/退场在快速换档时定时器未跑完会叠；改为整列 `translateY`。④ **粒子溢出滑块**（用户反馈）：画布从 `inset: -0.85rem -0.6rem` 收回 `inset: 0` + `roundRect` 裁剪。
+- Evidence（验证）：`npx tsc -b --force` 通过；`npm run test` 全量 **424 文件 / 4915 passed / 2 skipped**；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` warning）；`npm run build` 成功（3.77s）。定向：thinking-slider 10、custom-model-selector 8、契约组 34。
+- Blockers（阻塞）：无技术阻塞。未做真机目视验收（粒子观感、深浅色对比度、移动端 sheet 手势与滑杆共存需要看一眼）。
+- Next Session（下一步）：① 真机/浏览器目视验收——尤其滑动时粒子密度与流速是否符合预期、深色模式下的可读性、`prefers-reduced-motion` 表现；② 可择机清理 `.quickforge-model-sheet-footer` 样式（入口移到顶部后已无使用方，见 progress.md Notes）；③ 分组徽标目前是中性灰，若要按 provider 配色需先决定是否引入哈希色；④ 未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：workflow-detail-chat-cards（done，2026-10-24）
+
+- Current Objective（当前目标）：用户反馈「Workflow 详情里面的 tools 调用和 sub agent 调用，应该样式和最外层的保持一致要复用普通对话里面的信息」。
 # 当前交接：workflow-detail-chat-cards（done，2026-10-24）
 
 - Current Objective（当前目标）：用户反馈「Workflow 详情里面的 tools 调用和 sub agent 调用，应该样式和最外层的保持一致要复用普通对话里面的信息」。

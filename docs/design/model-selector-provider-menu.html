@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light" data-lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QuickForge · 模型选择器改版原型 v5</title>
+<style>
+  /* =========================================================
+     token 对齐 src/styles/foundation.css（oklch，明/暗两套）
+     ========================================================= */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --popover: oklch(1 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --quickforge-sidebar-hover-bg: color-mix(in oklab, var(--muted) 70%, transparent);
+
+    --hairline: color-mix(in oklab, var(--border) 70%, transparent);
+    --panel-border: color-mix(in oklab, var(--border) 78%, transparent);
+    --panel-bg: color-mix(in oklab, var(--popover) 98%, white);
+    --item-hover: color-mix(in oklab, var(--muted) 68%, transparent);
+    --label-fg: color-mix(in oklab, var(--muted-foreground) 84%, transparent);
+    --dim-fg: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  }
+  html[data-theme="dark"] {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --popover: oklch(0.269 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --panel-bg: color-mix(in oklab, var(--popover) 96%, black);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Helvetica Neue", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .stage {
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 4rem 1rem 1.6rem;
+  }
+
+  .thread {
+    width: min(46rem, 100%);
+    margin: 0 auto 2rem;
+    font-size: 0.9rem;
+    line-height: 1.7;
+    color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  }
+  .thread p { margin: 0 0 0.55rem; }
+  .thread .who {
+    color: color-mix(in oklab, var(--muted-foreground) 60%, transparent);
+    font-size: 0.74rem;
+    letter-spacing: 0.02em;
+  }
+
+  /* ================= composer ================= */
+  .composer-shell {
+    position: relative;
+    width: min(46rem, 100%);
+    margin: 0 auto;
+  }
+  .composer {
+    border: 1px solid var(--panel-border);
+    border-radius: 1.5rem;
+    background: color-mix(in oklab, var(--card) 86%, transparent);
+    box-shadow:
+      0 22px 70px -34px rgb(15 23 42 / 0.45),
+      0 10px 28px -22px color-mix(in oklab, var(--foreground) 45%, transparent);
+    backdrop-filter: blur(18px) saturate(1.1);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
+  }
+  .composer:focus-within,
+  .composer.is-open {
+    border-color: color-mix(in oklab, var(--primary) 42%, var(--border));
+  }
+  .composer textarea {
+    display: block;
+    width: 100%;
+    min-height: 3.5rem;
+    padding: 1rem 1rem 0.5rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+  }
+  .composer textarea::placeholder {
+    color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  }
+
+  .composer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0 0.55rem 0.55rem;
+  }
+  .bar-left, .bar-right { display: flex; align-items: center; gap: 0.25rem; }
+
+  .icon-btn {
+    display: inline-flex;
+    height: 2rem;
+    width: 2rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--muted-foreground);
+    cursor: pointer;
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+  .icon-btn:hover { background: var(--quickforge-sidebar-hover-bg); color: var(--foreground); }
+
+  .model-trigger {
+    display: inline-flex;
+    height: 2rem;
+    max-width: 16rem;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0 0.45rem 0 0.5rem;
+    border: 0;
+    border-radius: 0.5rem;
+    background: transparent;
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+  .model-trigger:hover { background: var(--quickforge-sidebar-hover-bg); color: var(--foreground); }
+  .model-trigger[aria-expanded="true"] {
+    background: color-mix(in oklab, var(--muted) 58%, transparent);
+    color: var(--foreground);
+  }
+  .model-trigger .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-trigger .chev { opacity: 0.55; transition: transform 160ms ease, opacity 140ms ease; }
+  .model-trigger[aria-expanded="true"] .chev { transform: rotate(180deg); opacity: 0.85; }
+
+  .send-btn {
+    display: inline-flex;
+    height: 2rem;
+    width: 2rem;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--primary-foreground);
+    box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--primary) 72%, black);
+    cursor: pointer;
+  }
+
+  /* =========================================================
+     模型选择浮层
+     ========================================================= */
+  .model-menu {
+    position: absolute;
+    right: 2.8rem;
+    bottom: calc(100% + 0.5rem);
+    z-index: 40;
+    display: flex;
+    width: min(336px, calc(100vw - 2rem));
+    max-height: min(30rem, calc(100dvh - 5rem));
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+    border-radius: 1.05rem;
+    background: var(--panel-bg);
+    color: var(--foreground);
+    box-shadow:
+      0 22px 54px -28px rgb(15 23 42 / 0.45),
+      0 2px 10px -6px rgb(15 23 42 / 0.16);
+    transform-origin: bottom right;
+    animation: menu-in 170ms cubic-bezier(0.2, 0.8, 0.3, 1);
+  }
+  .model-menu[hidden] { display: none; }
+  @keyframes menu-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.985); }
+    to { opacity: 1; transform: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .model-menu { animation: none; }
+  }
+
+  /* ---------- 顶部：自定义模型入口 ---------- */
+  .menu-top {
+    flex: 0 0 auto;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .top-action {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.62rem 0.85rem 0.62rem 0.8rem;
+    border: 0;
+    background: transparent;
+    color: var(--label-fg);
+    font: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+  .top-action:hover,
+  .top-action:focus-visible {
+    background: color-mix(in oklab, var(--muted) 52%, transparent);
+    color: var(--foreground);
+    outline: none;
+  }
+  .top-action .arrow {
+    margin-left: auto;
+    opacity: 0.5;
+    transition: transform 150ms ease, opacity 140ms ease;
+  }
+  .top-action:hover .arrow { transform: translateX(1px); opacity: 0.8; }
+
+  /* ---------- 可滚动模型区 ---------- */
+  .menu-scroll {
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 0.4rem 0.4rem 0.45rem;
+    overscroll-behavior: contain;
+  }
+  .menu-scroll::-webkit-scrollbar { width: 6px; }
+  .menu-scroll::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--muted-foreground) 26%, transparent);
+  }
+
+  .group-head {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.5rem 0.5rem 0.28rem;
+    color: var(--label-fg);
+    font-size: 0.76rem;
+    line-height: 1.3;
+  }
+  .group-head:first-child { padding-top: 0.1rem; }
+  .group-badge {
+    display: inline-flex;
+    height: 1.1rem;
+    width: 1.1rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.34rem;
+    background: color-mix(in oklab, var(--muted) 92%, transparent);
+    color: color-mix(in oklab, var(--muted-foreground) 96%, transparent);
+    font-size: 0.62rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .group-head[data-tint="teal"] .group-badge {
+    background: color-mix(in oklab, #0f9d8f 14%, var(--muted));
+    color: color-mix(in oklab, #0f7d73 78%, var(--foreground));
+  }
+  .group-head[data-tint="blue"] .group-badge {
+    background: color-mix(in oklab, #2f7cf6 14%, var(--muted));
+    color: color-mix(in oklab, #2f6be0 78%, var(--foreground));
+  }
+  .group-head[data-tint="violet"] .group-badge {
+    background: color-mix(in oklab, #7c5cf6 15%, var(--muted));
+    color: color-mix(in oklab, #6a4ae0 78%, var(--foreground));
+  }
+  .group-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: color-mix(in oklab, var(--foreground) 82%, transparent);
+    font-weight: 500;
+  }
+  .group-count {
+    margin-left: auto;
+    flex: 0 0 auto;
+    color: var(--dim-fg);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .model-item {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) 1.15rem;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.5rem 0.5rem 0.75rem;
+    border: 0;
+    border-radius: 0.6rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.9rem;
+    line-height: 1.35;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 130ms ease;
+  }
+  .model-item:hover,
+  .model-item:focus-visible {
+    background: var(--item-hover);
+    outline: none;
+  }
+  .model-item .label {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .model-item .label > .id {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .model-item[aria-checked="true"] .id { font-weight: 500; }
+
+  .cap-pill {
+    flex: 0 0 auto;
+    padding: 0.04rem 0.34rem;
+    border: 1px solid color-mix(in oklab, var(--border) 90%, transparent);
+    border-radius: 0.34rem;
+    color: color-mix(in oklab, var(--muted-foreground) 96%, transparent);
+    font-size: 0.68rem;
+    line-height: 1.5;
+  }
+
+  .check-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: color-mix(in oklab, var(--foreground) 88%, transparent);
+    opacity: 0;
+    transition: opacity 130ms ease;
+  }
+  .model-item[aria-checked="true"] .check-slot { opacity: 1; }
+
+  .empty-note {
+    padding: 0.2rem 0.6rem 0.5rem;
+    color: var(--dim-fg);
+    font-size: 0.8rem;
+  }
+
+  /* =========================================================
+     思考等级：标题 + 翻滚数值 + 纯圆圈拖动条（无档位文字、无快捷键）
+     ========================================================= */
+  .effort-section {
+    flex: 0 0 auto;
+    padding: 0.6rem 0.75rem 0.75rem;
+    border-top: 1px solid var(--hairline);
+  }
+  .effort-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.55rem;
+  }
+  .effort-title {
+    color: var(--label-fg);
+    font-size: 0.8rem;
+  }
+
+  /* 翻滚数值：常驻整列文字，靠位移滚动，结构上不可能重叠 */
+  .effort-value {
+    --roll-line: 1.2rem;
+    position: relative;
+    display: inline-block;
+    height: var(--roll-line);
+    min-width: 2.1rem;
+    overflow: hidden;
+    font-size: 0.86rem;
+    font-weight: 500;
+    line-height: var(--roll-line);
+    vertical-align: -0.15rem;
+  }
+  .roll-stack {
+    display: block;
+    transition: transform 220ms cubic-bezier(0.22, 0.8, 0.3, 1);
+    will-change: transform;
+  }
+  .roll-stack[data-instant="true"] { transition: none; }
+  .roll-stack > span {
+    display: block;
+    height: var(--roll-line);
+    line-height: var(--roll-line);
+    white-space: nowrap;
+  }
+
+  .effort-slider { position: relative; }
+
+  /* 拖动条：渐变轨道 + 一个白色圆圈，无气泡、无高亮块 */
+  .effort-track {
+    position: relative;
+    height: 2.15rem;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+      #0a8f84 0%, #0f9d94 15%, #0b93b8 33%, #0a7ec9 52%, #146fd8 73%, #2f7cf6 100%);
+    overflow: hidden;
+    cursor: pointer;
+    touch-action: none;
+    transition: opacity 160ms ease, filter 160ms ease;
+  }
+  .effort-track:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--primary) 46%, transparent);
+    outline-offset: 3px;
+  }
+  .effort-track[aria-disabled="true"] {
+    opacity: 0.4;
+    filter: grayscale(0.6);
+    cursor: not-allowed;
+  }
+
+  .effort-knob {
+    position: absolute;
+    z-index: 4;
+    top: 50%;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.75rem 0 0 -0.75rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 5px rgb(15 23 42 / 0.22);
+    pointer-events: none;
+    transition: left 190ms cubic-bezier(0.22, 0.8, 0.3, 1), transform 130ms ease;
+  }
+  .effort-slider.is-dragging .effort-knob { transform: scale(1.06); }
+
+  /* 粒子层：严格等于轨道矩形，圆角裁剪，粒子只在滑块内部游动 */
+  .effort-fx {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    width: 100%;
+    height: 100%;
+    border-radius: 999px;
+    pointer-events: none;
+  }
+
+  /* 原型工具条 */
+  .proto-tools {
+    position: fixed;
+    top: 0.85rem;
+    right: 0.85rem;
+    z-index: 60;
+    display: flex;
+    gap: 0.35rem;
+  }
+  .proto-btn {
+    height: 1.85rem;
+    padding: 0 0.65rem;
+    border: 1px solid var(--hairline);
+    border-radius: 999px;
+    background: color-mix(in oklab, var(--card) 92%, transparent);
+    color: var(--muted-foreground);
+    font: inherit;
+    font-size: 0.74rem;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+  }
+  .proto-btn:hover { color: var(--foreground); border-color: var(--border); }
+
+  @media (max-width: 720px) {
+    .model-menu { right: 0; width: calc(100vw - 2rem); }
+  }
+</style>
+</head>
+<body>
+  <div class="proto-tools">
+    <button class="proto-btn" id="themeBtn" type="button" data-i18n="theme">深色</button>
+    <button class="proto-btn" id="langBtn" type="button">EN</button>
+    <button class="proto-btn" id="toggleBtn" type="button" data-i18n="toggle">收起</button>
+  </div>
+
+  <div class="stage">
+    <div class="thread">
+      <p class="who" data-i18n="whoUser">你</p>
+      <p data-i18n="q1">底部不要档位文字和 Ctrl+T，粒子改成从右往左游动。</p>
+      <p class="who">QuickForge</p>
+      <p data-i18n="a1">好，粒子现在在滑块里一直往左游。</p>
+    </div>
+
+    <div class="composer-shell">
+      <!-- ================= 模型选择浮层 ================= -->
+      <div class="model-menu" id="modelMenu" role="dialog" aria-modal="false" aria-label="模型">
+
+        <!-- 顶部：自定义模型入口 -->
+        <div class="menu-top">
+          <button class="top-action" type="button" id="settingsAction">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+            </svg>
+            <span data-i18n="settings">自定义模型</span>
+            <svg class="arrow" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- 模型列表（按服务商分组，自定义来源优先） -->
+        <div class="menu-scroll" id="menuScroll">
+          <div class="group-head" data-tint="violet">
+            <span class="group-badge" aria-hidden="true">O</span>
+            <span class="group-name">OpenAI 兼容</span>
+            <span class="group-count">1 <span data-i18n="countSuffix">个模型</span></span>
+          </div>
+          <button class="model-item" type="button" role="radio" aria-checked="false"
+                  data-model-id="gpt-5.1" data-reasoning="true">
+            <span class="label">
+              <span class="id">gpt-5.1</span>
+              <span class="cap-pill" data-i18n="vision">视觉</span>
+            </span>
+            <span class="check-slot" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+            </span>
+          </button>
+
+          <div class="group-head" data-tint="blue">
+            <span class="group-badge" aria-hidden="true">B</span>
+            <span class="group-name">BigModel</span>
+            <span class="group-count">2 <span data-i18n="countSuffix">个模型</span></span>
+          </div>
+          <button class="model-item" type="button" role="radio" aria-checked="true"
+                  data-model-id="GLM-5.3" data-reasoning="true">
+            <span class="label"><span class="id">GLM-5.3</span></span>
+            <span class="check-slot" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+            </span>
+          </button>
+          <button class="model-item" type="button" role="radio" aria-checked="false"
+                  data-model-id="GLM-5.3-Flash" data-reasoning="true">
+            <span class="label">
+              <span class="id">GLM-5.3-Flash</span>
+              <span class="cap-pill" data-i18n="vision">视觉</span>
+            </span>
+            <span class="check-slot" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+            </span>
+          </button>
+
+          <div class="group-head" data-tint="teal">
+            <span class="group-badge" aria-hidden="true">D</span>
+            <span class="group-name">DeepSeek</span>
+            <span class="group-count">2 <span data-i18n="countSuffix">个模型</span></span>
+          </div>
+          <button class="model-item" type="button" role="radio" aria-checked="false"
+                  data-model-id="deepseek-chat" data-reasoning="false">
+            <span class="label"><span class="id">deepseek-chat</span></span>
+            <span class="check-slot" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+            </span>
+          </button>
+          <button class="model-item" type="button" role="radio" aria-checked="false"
+                  data-model-id="deepseek-reasoner" data-reasoning="true">
+            <span class="label"><span class="id">deepseek-reasoner</span></span>
+            <span class="check-slot" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+            </span>
+          </button>
+
+          <div class="empty-note" id="emptyNote" hidden data-i18n="noModels">未添加模型</div>
+        </div>
+
+        <!-- 思考等级（非推理模型整段隐藏） -->
+        <div class="effort-section" id="effortSection">
+          <div class="effort-head">
+            <span class="effort-title" data-i18n="thinkingLevel">思考等级</span>
+            <span class="effort-value" id="effortValue">
+              <span class="roll-stack" id="effortStack" data-instant="true"></span>
+            </span>
+          </div>
+
+          <div class="effort-slider" id="effortSlider">
+            <div class="effort-track" id="effortTrack" role="slider" tabindex="0"
+                 aria-label="思考等级" aria-valuemin="0" aria-valuemax="4" aria-valuenow="4" aria-valuetext="超高">
+              <canvas class="effort-fx" id="effortFx" aria-hidden="true"></canvas>
+              <span class="effort-knob" id="effortKnob"></span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ================= composer ================= -->
+      <div class="composer is-open" id="composer">
+        <textarea rows="1" id="composerInput" data-i18n-ph="placeholder" placeholder="给 QuickForge 发送消息…"></textarea>
+        <div class="composer-bar">
+          <div class="bar-left">
+            <button class="icon-btn" type="button" title="添加附件">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14" /></svg>
+            </button>
+          </div>
+          <div class="bar-right">
+            <button class="model-trigger" id="modelTrigger" type="button"
+                    aria-haspopup="menu" aria-expanded="true" title="切换模型">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M9.9 15.5A2 2 0 0 0 8.5 14.1l-6.1-1.6a.5.5 0 0 1 0-1L8.5 9.9A2 2 0 0 0 9.9 8.5l1.6-6.1a.5.5 0 0 1 1 0l1.6 6.1a2 2 0 0 0 1.4 1.4l6.1 1.6a.5.5 0 0 1 0 1l-6.1 1.6a2 2 0 0 0-1.4 1.4l-1.6 6.1a.5.5 0 0 1-1 0z" />
+              </svg>
+              <span class="name" id="triggerName">GLM-5.3</span>
+              <svg class="chev" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            <button class="send-btn" type="button" title="发送">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  /* ---------------- i18n（键值取自 src/lib/i18n.ts） ---------------- */
+  const DICT = {
+    zh: {
+      theme: '深色', themeBack: '浅色', toggle: '收起', toggleOpen: '展开',
+      whoUser: '你',
+      q1: '底部不要档位文字和 Ctrl+T，粒子改成从右往左游动。',
+      a1: '好，粒子现在在滑块里一直往左游。',
+      vision: '视觉', countSuffix: '个模型', noModels: '未添加模型',
+      thinkingLevel: '思考等级',
+      thinkingOff: '关', thinkingLow: '低', thinkingMedium: '中',
+      thinkingHigh: '高', thinkingXHigh: '超高',
+      settings: '自定义模型',
+      placeholder: '给 QuickForge 发送消息…',
+    },
+    en: {
+      theme: 'Dark', themeBack: 'Light', toggle: 'Hide', toggleOpen: 'Show',
+      whoUser: 'You',
+      q1: 'Drop the tick labels and Ctrl+T hint, and make particles drift right to left.',
+      a1: 'Particles now swim leftwards inside the slider.',
+      vision: 'Vision', countSuffix: 'models', noModels: 'No models added',
+      thinkingLevel: 'Thinking level',
+      thinkingOff: 'Off', thinkingLow: 'Low', thinkingMedium: 'Medium',
+      thinkingHigh: 'High', thinkingXHigh: 'X-High',
+      settings: 'Custom models',
+      placeholder: 'Message QuickForge…',
+    },
+  };
+
+  /* 与 ChatTypes.ts 的 THINKING_LEVELS 对齐：off / low / medium / high / xhigh */
+  const EFFORT_KEYS = ['thinkingOff', 'thinkingLow', 'thinkingMedium', 'thinkingHigh', 'thinkingXHigh'];
+  const EFFORT_POS = [0.05, 0.275, 0.5, 0.725, 0.95];
+  /* 与 .effort-track 背景渐变停点一致，粒子按所处位置取色 */
+  const STOPS = [
+    [0.00, [10, 143, 132]],
+    [0.15, [15, 157, 148]],
+    [0.33, [11, 147, 184]],
+    [0.52, [10, 126, 201]],
+    [0.73, [20, 111, 216]],
+    [1.00, [47, 124, 246]],
+  ];
+  /* 每档三段配置：粒子上限 / 每帧补充量 / 流速倍率。超高明显更密更快 */
+  const LEVEL_CAP = [4, 16, 38, 82, 160];
+  const LEVEL_RATE = [0.02, 0.12, 0.36, 0.8, 1.7];
+  const LEVEL_SPEED = [0.72, 0.84, 1.0, 1.28, 1.85];
+  const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  const root = document.documentElement;
+  const menu = document.getElementById('modelMenu');
+  const trigger = document.getElementById('modelTrigger');
+  const triggerName = document.getElementById('triggerName');
+  const composer = document.getElementById('composer');
+  const emptyNote = document.getElementById('emptyNote');
+  const effortSection = document.getElementById('effortSection');
+  const effortSlider = document.getElementById('effortSlider');
+  const effortTrack = document.getElementById('effortTrack');
+  const effortKnob = document.getElementById('effortKnob');
+  const effortStack = document.getElementById('effortStack');
+  const effortValue = document.getElementById('effortValue');
+  const fx = document.getElementById('effortFx');
+  const fxCtx = fx.getContext('2d');
+  const modelItems = () => [...menu.querySelectorAll('.model-item')];
+  const lang = () => root.dataset.lang || 'zh';
+  const L = (key) => (DICT[lang()][key] ?? key);
+
+  let effortIndex = 4;
+  let reasoning = true;
+
+  /* ---------------- 主题 / 语言 ---------------- */
+  const themeBtn = document.getElementById('themeBtn');
+  const langBtn = document.getElementById('langBtn');
+  const toggleBtn = document.getElementById('toggleBtn');
+
+  themeBtn.addEventListener('click', () => {
+    const dark = root.dataset.theme === 'dark';
+    root.dataset.theme = dark ? 'light' : 'dark';
+    themeBtn.textContent = dark ? L('theme') : L('themeBack');
+  });
+
+  function applyLang() {
+    const dict = DICT[lang()];
+    for (const node of document.querySelectorAll('[data-i18n]')) {
+      const key = node.dataset.i18n;
+      if (dict[key]) node.textContent = dict[key];
+    }
+    for (const node of document.querySelectorAll('[data-i18n-ph]')) {
+      const key = node.dataset.i18nPh;
+      if (dict[key]) node.setAttribute('placeholder', dict[key]);
+    }
+    langBtn.textContent = lang() === 'zh' ? 'EN' : '中';
+    root.setAttribute('lang', lang() === 'zh' ? 'zh-CN' : 'en');
+    themeBtn.textContent = root.dataset.theme === 'dark' ? L('themeBack') : L('theme');
+    toggleBtn.textContent = isOpen() ? L('toggle') : L('toggleOpen');
+    buildStack();
+    renderEffort(true);
+  }
+  langBtn.addEventListener('click', () => {
+    root.dataset.lang = lang() === 'zh' ? 'en' : 'zh';
+    applyLang();
+  });
+
+  /* ---------------- 开合 ---------------- */
+  function isOpen() { return !menu.hidden; }
+  function setOpen(open) {
+    menu.hidden = !open;
+    trigger.setAttribute('aria-expanded', String(open));
+    composer.classList.toggle('is-open', open);
+    toggleBtn.textContent = open ? L('toggle') : L('toggleOpen');
+    if (open) {
+      resizeFx();
+      const checked = menu.querySelector('.model-item[aria-checked="true"]');
+      (checked || menu.querySelector('.model-item'))?.focus();
+      startFlow();
+    } else {
+      stopFlow();
+    }
+  }
+  toggleBtn.addEventListener('click', () => setOpen(!isOpen()));
+  trigger.addEventListener('click', () => setOpen(!isOpen()));
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!isOpen()) return;
+    if (menu.contains(event.target) || trigger.contains(event.target)) return;
+    if (event.target.closest('.proto-tools')) return;
+    setOpen(false);
+  });
+
+  menu.addEventListener('keydown', (event) => {
+    const items = modelItems();
+    const index = items.indexOf(document.activeElement);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpen(false);
+      trigger.focus();
+      return;
+    }
+    if (index === -1) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      items[(index + 1) % items.length].focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      items[(index - 1 + items.length) % items.length].focus();
+    } else if (event.key === 'Home') {
+      event.preventDefault();
+      items[0].focus();
+    } else if (event.key === 'End') {
+      event.preventDefault();
+      items[items.length - 1].focus();
+    }
+  });
+
+  /* ---------------- 模型选择 ---------------- */
+  function selectModel(item) {
+    for (const node of modelItems()) {
+      node.setAttribute('aria-checked', String(node === item));
+    }
+    triggerName.textContent = item.dataset.modelId;
+    /* 非推理模型：useModelActions 会把等级强制成 off，控件同步降级 */
+    /* 非推理模型：useModelActions 会把等级强制成 off，整段隐藏而不是留个灰条 */
+    reasoning = item.dataset.reasoning === 'true';
+    effortSection.hidden = !reasoning;
+    effortTrack.setAttribute('aria-disabled', String(!reasoning));
+    effortTrack.tabIndex = reasoning ? 0 : -1;
+    if (!reasoning) effortIndex = 0;
+    renderEffort();
+    setOpen(false);
+    trigger.focus();
+  }
+
+  menu.addEventListener('click', (event) => {
+    const item = event.target.closest('.model-item');
+    if (item) { selectModel(item); return; }
+    if (event.target.closest('.top-action')) {
+      setOpen(false);        /* 先关闭再打开设置页，与现有实现顺序一致 */
+      return;
+    }
+  });
+
+  /* ---------------- 翻滚数值：常驻整列，靠位移滚动 ---------------- */
+  function buildStack() {
+    const keep = effortStack.children.length ? effortIndex : -1;
+    effortStack.replaceChildren();
+    EFFORT_KEYS.forEach((key) => {
+      const row = document.createElement('span');
+      row.textContent = L(key);
+      effortStack.append(row);
+    });
+    if (keep >= 0) {
+      effortStack.dataset.instant = 'true';
+      positionStack(keep);
+    }
+  }
+
+  function positionStack(index) {
+    /* 直接量第一行高度，避免解析 rem 字符串 */
+    const line = effortStack.firstElementChild?.offsetHeight || effortValue.clientHeight;
+    effortStack.style.transform = `translateY(${(-index * line).toFixed(2)}px)`;
+  }
+
+  function renderEffort(instant) {
+    effortStack.dataset.instant = instant ? 'true' : 'false';
+    if (instant) {
+      requestAnimationFrame(() => { effortStack.dataset.instant = 'false'; });
+    }
+    positionStack(effortIndex);
+    effortKnob.style.left = `${(EFFORT_POS[effortIndex] * 100).toFixed(2)}%`;
+    const text = L(EFFORT_KEYS[effortIndex]);
+    effortTrack.setAttribute('aria-valuenow', String(effortIndex));
+    effortTrack.setAttribute('aria-valuetext', text);
+  }
+
+  function setEffort(index, withBurst) {
+    const next = Math.max(0, Math.min(4, index));
+    const changed = next !== effortIndex;
+    effortIndex = next;
+    renderEffort();
+    /* 降到低档时立刻裁到该档上限，粒子数量随档位瞬时变化 */
+    trimToCap();
+    if (changed && withBurst) spawnTrail(6, { speed: 1.4 });
+  }
+
+  function indexFromX(clientX) {
+    const rect = effortTrack.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    let best = 0;
+    EFFORT_POS.forEach((p, i) => {
+      if (Math.abs(p - ratio) < Math.abs(EFFORT_POS[best] - ratio)) best = i;
+    });
+    return best;
+  }
+
+  /* ---------------- 粒子：跟着滑块走，左拖尾由密到疏 ---------------- */
+  let particles = [];
+  let rafId = 0;
+  let dpr = 1;
+  let fxW = 0;
+  let fxH = 0;
+  let flowOn = false;
+  let dragging = false;
+  /* 粒子只在滑块左侧、且随距离变稀：用 TRAIL 控制拖尾长度 */
+  const TRAIL = 0.55;
+
+  function resizeFx() {
+    const rect = effortTrack.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    fxW = rect.width;
+    fxH = rect.height;
+    fx.width = Math.round(fxW * dpr);
+    fx.height = Math.round(fxH * dpr);
+    fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* 沿渐变插值取色 */
+  function colorAt(ratio) {
+    const r = Math.min(1, Math.max(0, ratio));
+    for (let i = 1; i < STOPS.length; i += 1) {
+      const [p1, c1] = STOPS[i];
+      const [p0, c0] = STOPS[i - 1];
+      if (r <= p1) {
+        const t = (r - p0) / (p1 - p0 || 1);
+        return `rgb(${Math.round(c0[0] + (c1[0] - c0[0]) * t)} ${Math.round(c0[1] + (c1[1] - c0[1]) * t)} ${Math.round(c0[2] + (c1[2] - c0[2]) * t)})`;
+      }
+    }
+    return 'rgb(47 124 246)';
+  }
+
+  /* 滑块当前中心位置（px） */
+  function knobPx() {
+    return EFFORT_POS[effortIndex] * fxW;
+  }
+
+  function spawnTrail(count, opts) {
+    if (REDUCED || !fxW || !fxH) return;
+    const options = opts || {};
+    const knob = knobPx();
+    const speedScale = LEVEL_SPEED[effortIndex];
+    /* 高速档拖尾更长、铺得更满 */
+    const span = Math.max(20, knob * TRAIL * (0.35 + speedScale * 0.62));
+    for (let i = 0; i < count; i += 1) {
+      const y = options.y ?? (fxH / 2 + (Math.random() - 0.5) * fxH * 0.72);
+      particles.push({
+        /* 从滑块位置往左铺开，越远越稀（起飞点带偏移，避免挤成一条线） */
+        x: knob - Math.random() * span,
+        y,
+        baseY: y,
+        amp: 0.5 + Math.random() * 1.7,
+        phase: Math.random() * Math.PI * 2,
+        wave: 0.016 + Math.random() * 0.032,
+        vx: -(0.34 + Math.random() * 0.62) * (options.speed ?? 1) * speedScale,
+        r: (0.75 + Math.random() * 1.35) * (0.85 + speedScale * 0.22),
+        tone: Math.random() < 0.7 ? 'light' : 'brand',
+        age: 0,
+        fadeIn: 8 + Math.random() * 14,
+      });
+    }
+    trimToCap();
+  }
+
+  /* 按当前档位裁掉多余粒子：从高往低拖时立刻变稀，不用等自然消散 */
+  function levelCap() {
+    return LEVEL_CAP[effortIndex];
+  }
+
+  function trimToCap() {
+    const cap = levelCap();
+    if (particles.length > cap) particles = particles.slice(particles.length - cap);
+  }
+
+  function frame() {
+    rafId = 0;
+    fxCtx.clearRect(0, 0, fxW, fxH);
+
+    fxCtx.save();
+    fxCtx.beginPath();
+    if (typeof fxCtx.roundRect === 'function') {
+      fxCtx.roundRect(0, 0, fxW, fxH, Math.min(fxH / 2, fxW / 2));
+    } else {
+      fxCtx.rect(0, 0, fxW, fxH);
+    }
+    fxCtx.clip();
+
+    const knob = knobPx();
+    const speedScale = LEVEL_SPEED[effortIndex];
+    const span = Math.max(20, knob * TRAIL * (0.35 + speedScale * 0.62));
+
+    /* 每档直接给补充量：超高每帧 1.3 颗，低位几乎为 0 */
+    const cap = levelCap();
+    const rate = LEVEL_RATE[effortIndex] * (dragging ? 1.6 : 1);
+    if (flowOn && reasoning && particles.length < cap && knob > 6) {
+      let n = Math.floor(rate);
+      if (Math.random() < rate - n) n += 1;
+      if (n > 0) spawnTrail(n, { speed: dragging ? 1.25 : 1 });
+    }
+
+    for (const p of particles) {
+      p.age += 1;
+      p.x += p.vx;
+      p.phase += p.wave;
+      p.y = p.baseY + Math.sin(p.phase) * p.amp;
+
+      /* 由滑块向左递减：靠近滑块最亮，越远越淡，拖尾长 span */
+      const dist = knob - p.x;
+      let alpha = 1;
+      if (p.age < p.fadeIn) alpha = p.age / p.fadeIn;
+      if (dist >= 0) alpha *= Math.max(0, 1 - dist / span);
+      else alpha *= Math.max(0, 1 - (-dist) / 14);
+      if (p.x < 18) alpha = Math.min(alpha, Math.max(0, p.x / 18));
+
+      if (alpha <= 0.03) {
+        if (dist > span || p.x < 18) p.dead = true;
+        else continue;
+      }
+
+      fxCtx.globalAlpha = alpha * 0.85;
+      fxCtx.fillStyle = p.tone === 'light'
+        ? (p.r > 1.6 ? 'rgb(255 255 255)' : 'rgb(232 248 255)')
+        : colorAt(p.x / fxW);
+      fxCtx.beginPath();
+      fxCtx.arc(p.x, p.y, Math.max(0.4, p.r * (0.55 + alpha * 0.55)), 0, Math.PI * 2);
+      fxCtx.fill();
+    }
+
+    fxCtx.globalAlpha = 1;
+    fxCtx.restore();
+
+    particles = particles.filter((p) => !p.dead && p.x > -12);
+    /* 上限随档位变化，每帧再兜一次 */
+    if (particles.length > levelCap()) trimToCap();
+
+    if ((flowOn && reasoning && knob > 6) || particles.length) rafId = requestAnimationFrame(frame);
+    else fxCtx.clearRect(0, 0, fxW, fxH);
+  }
+
+  function startFlow() {
+    if (REDUCED) return;
+    resizeFx();
+    flowOn = true;
+    /* 打开时按当前档位预先铺一层，立刻呈现该档的密度 */
+    if (!particles.length && fxW) {
+      spawnTrail(Math.max(1, Math.round(levelCap() * 0.75)), { speed: 1 });
+      for (const p of particles) p.age = p.fadeIn;
+    }
+    if (!rafId) rafId = requestAnimationFrame(frame);
+  }
+
+  function stopFlow() {
+    flowOn = false;
+    particles = [];
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+    }
+    fxCtx.clearRect(0, 0, fxW, fxH);
+  }
+
+  /* ---------------- 拖动 ---------------- */
+  let lastSpawn = 0;
+
+  effortTrack.addEventListener('pointerdown', (event) => {
+    if (effortTrack.getAttribute('aria-disabled') === 'true') return;
+    event.preventDefault();
+    effortTrack.focus();
+    resizeFx();
+    dragging = true;
+    effortSlider.classList.add('is-dragging');
+    effortTrack.setPointerCapture(event.pointerId);
+    setEffort(indexFromX(event.clientX), true);
+
+    const move = (e) => {
+      const before = effortIndex;
+      setEffort(indexFromX(e.clientX));
+      const now = performance.now();
+      if (effortIndex !== before) spawnTrail(7, { speed: 1.6 });
+      else if (now - lastSpawn > 70) {
+        lastSpawn = now;
+        spawnTrail(2, { speed: 1.3 });
+      }
+    };
+    const up = () => {
+      dragging = false;
+      effortSlider.classList.remove('is-dragging');
+      effortTrack.removeEventListener('pointermove', move);
+      effortTrack.removeEventListener('pointerup', up);
+      effortTrack.removeEventListener('pointercancel', up);
+    };
+    effortTrack.addEventListener('pointermove', move);
+    effortTrack.addEventListener('pointerup', up);
+    effortTrack.addEventListener('pointercancel', up);
+  });
+
+  effortTrack.addEventListener('keydown', (event) => {
+    if (effortTrack.getAttribute('aria-disabled') === 'true') return;
+    const k = event.key;
+    if (k === 'ArrowRight' || k === 'ArrowUp') { event.preventDefault(); setEffort(effortIndex + 1, true); }
+    else if (k === 'ArrowLeft' || k === 'ArrowDown') { event.preventDefault(); setEffort(effortIndex - 1, true); }
+    else if (k === 'Home') { event.preventDefault(); setEffort(0, true); }
+    else if (k === 'End') { event.preventDefault(); setEffort(4, true); }
+  });
+
+  window.addEventListener('resize', () => { resizeFx(); });
+
+  /* 空状态演示：Alt+E */
+  document.addEventListener('keydown', (event) => {
+    if (event.altKey && event.key.toLowerCase() === 'e') {
+      const showEmpty = emptyNote.hidden;
+      emptyNote.hidden = !showEmpty;
+      for (const node of menu.querySelectorAll('.group-head, .model-item')) node.hidden = showEmpty;
+    }
+  });
+
+  applyLang();
+  setOpen(true);
+  renderEffort(true);
+})();
+</script>
+</body>
+</html>

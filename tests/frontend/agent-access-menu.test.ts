@@ -26,7 +26,7 @@ describe('Agent access menu trigger border contract', () => {
   })
 
   it('keeps the dropdown menu border', () => {
-    const menuRule = cssSource.match(/\.quickforge-agent-access-menu,\n\.quickforge-thinking-menu \{([\s\S]*?)\n\}/)?.[1]
+    const menuRule = cssSource.match(/\.quickforge-agent-access-menu \{([\s\S]*?)\n\}/)?.[1]
 
     expect(menuRule).toBeDefined()
     expect(menuRule).toMatch(/border:\s*1px solid/)

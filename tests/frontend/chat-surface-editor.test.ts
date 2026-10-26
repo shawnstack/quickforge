@@ -11,6 +11,7 @@ import {
   resolveEditorKeyDown,
 } from '../../src/components/chat/surface/MessageEditor'
 import { createComposerStore } from '../../src/components/chat/surface/composer-store'
+import { THINKING_LEVELS } from '../../src/lib/thinking-levels'
 
 /**
  * Composer text/attachments live in an external `ComposerStore` now (the store
@@ -192,22 +193,22 @@ describe('chat surface MessageEditor rendering', () => {
     expect(markup).toContain('photo.png')
   })
 
-  it('shows the thinking selector only for reasoning models', () => {
+  it('no longer renders a thinking selector inside the composer', () => {
+    // 思考等级已并入模型选择弹层底部的滑杆（lib/thinking-slider.ts）。
+    // composer 里不再有第二个入口，避免同一状态出现在两处控件上。
     const reasoningModel = { id: 'reasoner', reasoning: true } as never
     const plainModel = { id: 'plain', reasoning: false } as never
 
     const withThinking = renderToStaticMarkup(
       createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: reasoningModel, thinkingLevel: 'low' })),
     )
-    expect(withThinking).toContain('value="xhigh"')
-    expect(withThinking).toContain('XHigh')
-    // Application-wide vocabulary is off/low/medium/high/xhigh.
-    expect(withThinking).not.toContain('Minimal')
+    expect(withThinking).not.toContain('<select')
+    expect(withThinking).not.toContain('value="xhigh"')
 
     const withoutThinking = renderToStaticMarkup(
       createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: plainModel })),
     )
-    expect(withoutThinking).not.toContain('XHigh')
+    expect(withoutThinking).not.toContain('<select')
   })
 })
 
@@ -237,17 +238,12 @@ describe('chat surface composer localization', () => {
     expect(chinese).toContain('title="移除"')
   })
 
-  it('renders the thinking levels with the application vocabulary in both languages', () => {
-    const reasoningModel = { id: 'reasoner', reasoning: true } as never
-
-    const english = renderToStaticMarkup(createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: reasoningModel })))
-    expect(english).toContain('<option value="xhigh">XHigh</option>')
-    expect(english).not.toContain('Minimal')
-
-    applyAppLanguageFromSnapshot('zh')
-    const chinese = renderToStaticMarkup(createElement(MessageEditor, composerProps({ text: 'x' }, { currentModel: reasoningModel })))
-    expect(chinese).toContain('<option value="xhigh">超高</option>')
-    expect(chinese).not.toContain('Minimal')
+  it('keeps the thinking vocabulary available to the model dropdown', () => {
+    // 档位文案不再由 composer 的 <select> 渲染，改为由模型弹层滑杆按 i18n 取。
+    // 这里锁定词表本身（服务端同步与持久化共用同一套档位）。
+    expect(THINKING_LEVELS).toEqual(['off', 'low', 'medium', 'high', 'xhigh'])
+    // `minimal` 不是 QuickForge 的档位（类型里有，但应用层未启用）。
+    expect(THINKING_LEVELS).not.toContain('minimal')
   })
 })
 

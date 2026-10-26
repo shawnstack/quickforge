@@ -103,18 +103,6 @@ describe('chat area compact controls (narrow chat host)', () => {
       expect(modelIcon.body).toMatch(/display:\s*block/)
     })
 
-    it('shrinks the thinking-level control to 2rem and hides its label and chevron', () => {
-      const shrink = ruleFor(`${compactPrefix} .quickforge-thinking-inline`)
-      expect(shrink.body).toMatch(/width:\s*2rem/)
-      expect(shrink.body).toMatch(/gap:\s*0/)
-      expect(shrink.body).toMatch(/padding-inline:\s*0\s*!important/)
-
-      // :is() 参数表内的逗号会让朴素的选择器 split 失配，改用精确规则文本断言
-      expect(cssRules).toContain(
-        `${compactPrefix} .quickforge-thinking-inline :is(.quickforge-thinking-label, .quickforge-thinking-chevron) {\n  display: none;\n}`,
-      )
-    })
-
     it('shrinks the plan button to 2rem and hides its plain text span only', () => {
       const shrink = ruleFor(`${compactPrefix} .quickforge-plan-inline`)
       expect(shrink.body).toMatch(/width:\s*2rem/)
@@ -147,12 +135,6 @@ describe('chat area compact controls (narrow chat host)', () => {
       )
       expect(mobileBlock).toContain(
         '  .quickforge-composer .quickforge-model-trigger::before {\n    display: block;\n  }',
-      )
-      expect(mobileBlock).toContain(
-        '  .quickforge-composer .quickforge-thinking-inline {\n    width: 2rem;\n    gap: 0;\n    padding-inline: 0 !important;\n  }',
-      )
-      expect(mobileBlock).toContain(
-        '  .quickforge-composer .quickforge-thinking-inline :is(.quickforge-thinking-label, .quickforge-thinking-chevron) {\n    display: none;\n  }',
       )
     })
   })

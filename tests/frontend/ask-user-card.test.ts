@@ -119,7 +119,12 @@ describe('askUserReviewRowsFromDetails', () => {
 
 describe('ask-user card wiring', () => {
   const css = appCss
-  const host = readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8')
+  // The card injection/removal wiring moved to `panel-wiring/approval-cards.ts`;
+  // read both so the host-level and subsystem-level contracts stay pinned.
+  const host = [
+    readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8'),
+    readFileSync('src/components/chat/panel-wiring/approval-cards.ts', 'utf8'),
+  ].join('\n')
   const serverAgent = readFileSync('src/lib/server-agent.ts', 'utf8')
   const sseClient = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
   const i18n = readFileSync('src/lib/i18n.ts', 'utf8')

@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 
-const sourceText = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
-const sourceFile = ts.createSourceFile('WorkspaceInspector.tsx', sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+// tab 菜单已从 WorkspaceInspector 拆到 WorkspaceTabStrip，JSX 结构断言随实现迁移。
+const sourceText = readFileSync(new URL('../../src/components/workspace/WorkspaceTabStrip.tsx', import.meta.url), 'utf8')
+const sourceFile = ts.createSourceFile('WorkspaceTabStrip.tsx', sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
 
 function enclosingJsxElement(node: ts.Node | undefined) {
   let current = node

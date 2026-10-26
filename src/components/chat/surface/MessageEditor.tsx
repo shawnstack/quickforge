@@ -4,6 +4,7 @@ import { Loader2, Paperclip, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t, type AppTextKey } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { showAlert } from '@/components/ui/confirm-dialog'
 import { thinkingLevelLabel, toThinkingLevel } from '@/lib/thinking-levels'
 import type { Api, Attachment, Model, ThinkingLevel } from './ChatTypes'
 import { AttachmentTile } from './AttachmentTile'
@@ -492,12 +493,13 @@ export function MessageEditor({
 
       const decision = filterFilesByLimits(files, store.getAttachments().length, maxFiles, maxFileSize)
       if (decision.countExceeded) {
-        window.alert(t('composerMaxFiles', { count: maxFiles }))
+        void showAlert(t('composerMaxFiles', { count: maxFiles }))
         return
       }
-      for (const file of decision.oversized) {
-        window.alert(t('composerFileTooLarge', { name: file.name, size: Math.round(maxFileSize / 1024 / 1024) }))
-      }
+      const oversizedMessages = decision.oversized.map((file) => (
+        t('composerFileTooLarge', { name: file.name, size: Math.round(maxFileSize / 1024 / 1024) })
+      ))
+      if (oversizedMessages.length > 0) void showAlert(oversizedMessages.join('\n'))
       if (decision.accepted.length === 0) return
 
       setProcessingFiles(true)
@@ -506,7 +508,7 @@ export function MessageEditor({
         try {
           newAttachments.push(await loadAttachmentFile(file))
         } catch (error) {
-          window.alert(t('composerFileFailed', { name: file.name, error: String(error) }))
+          void showAlert(t('composerFileFailed', { name: file.name, error: String(error) }))
         }
       }
       // The parses above may have outlived composer changes (deleted files,
@@ -515,7 +517,7 @@ export function MessageEditor({
       const current = store.getAttachments()
       const settled = filterFilesByLimits(newAttachments, current.length, maxFiles, maxFileSize)
       if (settled.countExceeded) {
-        window.alert(t('composerMaxFiles', { count: maxFiles }))
+        void showAlert(t('composerMaxFiles', { count: maxFiles }))
       } else {
         const merged = [...current, ...settled.accepted]
         store.setAttachments(merged)

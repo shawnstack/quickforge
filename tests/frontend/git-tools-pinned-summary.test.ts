@@ -11,19 +11,27 @@ import type { SubagentRunPayload } from '../../src/lib/subagent-run-detail'
 import { appCss } from '../helpers/app-css'
 
 const summarySource = readFileSync(new URL('../../src/components/git/GitToolsPinnedSummary.tsx', import.meta.url), 'utf8')
+const layoutSource = readFileSync(new URL('../../src/components/git/usePinnedSummaryLayout.ts', import.meta.url), 'utf8')
+const sectionsSource = readFileSync(new URL('../../src/components/git/PinnedSummarySections.tsx', import.meta.url), 'utf8')
+const widgetSource = readFileSync(new URL('../../src/components/git/PinnedSummaryDesktopWidget.tsx', import.meta.url), 'utf8')
+const capsuleSource = readFileSync(new URL('../../src/components/git/usePinnedSummaryCapsule.tsx', import.meta.url), 'utf8')
 const goalSectionSource = readFileSync(new URL('../../src/components/git/GoalSummarySection.tsx', import.meta.url), 'utf8')
 const goalUiSource = readFileSync(new URL('../../src/lib/goal-ui.ts', import.meta.url), 'utf8')
 const goalInspectorSource = readFileSync(new URL('../../src/components/workspace/GoalInspectorContent.tsx', import.meta.url), 'utf8')
 const dragSource = readFileSync(new URL('../../src/lib/pinned-summary-drag.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const pinnedSummaryModelSource = readFileSync(new URL('../../src/hooks/usePinnedSummaryModel.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const cssSource = appCss
 
+// `summarySource` is the orchestrator (props, toolbar root, mobile panel). The
+// layout state machine, floating widget, summary sections and capsule segments
+// live in sibling modules; `allSummarySources` is their union for the
+// cross-module absence/count assertions that used to target one file.
+const allSummarySources = [summarySource, layoutSource, sectionsSource, widgetSource, capsuleSource].join('\n')
+
 function desktopWidgetBlock() {
-  return summarySource.slice(
-    summarySource.indexOf('const desktopFloatingWidget'),
-    summarySource.indexOf('return (\n    <>', summarySource.indexOf('const desktopFloatingWidget')),
-  )
+  return widgetSource
 }
 
 describe('GitToolsPinnedSummary source contract', () => {
@@ -57,17 +65,17 @@ describe('GitToolsPinnedSummary source contract', () => {
 
   it('hides both toolbar and fixed widget from layout, input, Tab order, and accessibility while suspended', () => {
     expect(summarySource).toContain("className={cn('relative', suspended && 'hidden')}")
-    expect(summarySource).toContain("className={cn('quickforge-pinned-summary-widget fixed z-40', suspended && 'hidden')}")
-    expect(summarySource.match(/hidden=\{suspended\}/g)).toHaveLength(2)
-    expect(summarySource.match(/aria-hidden=\{suspended \|\| undefined\}/g)).toHaveLength(2)
-    expect(summarySource.match(/inert=\{suspended \? true : undefined\}/g)).toHaveLength(2)
-    expect(summarySource).not.toContain("suspended && 'opacity-0'")
+    expect(widgetSource).toContain("className={cn('quickforge-pinned-summary-widget fixed z-40', suspended && 'hidden')}")
+    expect(allSummarySources.match(/hidden=\{suspended\}/g)).toHaveLength(2)
+    expect(allSummarySources.match(/aria-hidden=\{suspended \|\| undefined\}/g)).toHaveLength(2)
+    expect(allSummarySources.match(/inert=\{suspended \? true : undefined\}/g)).toHaveLength(2)
+    expect(allSummarySources).not.toContain("suspended && 'opacity-0'")
   })
 
   it('pauses temporary interactions without cancelling an explicit close timer or normalizing mounted state', () => {
-    const suspensionEffect = summarySource.slice(
-      summarySource.indexOf('if (!suspended) return'),
-      summarySource.indexOf("if (typeof window.matchMedia !== 'function')", summarySource.indexOf('if (!suspended) return')),
+    const suspensionEffect = layoutSource.slice(
+      layoutSource.indexOf('if (!suspended) return'),
+      layoutSource.indexOf("if (typeof window.matchMedia !== 'function')", layoutSource.indexOf('if (!suspended) return')),
     )
     expect(suspensionEffect).toContain('clearFocusFrame()')
     expect(suspensionEffect).toContain('finishDrag()')
@@ -84,34 +92,34 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(suspensionEffect).not.toContain('setExpandedTasksSignature(')
     expect(suspensionEffect).not.toContain('setFinishedSubagentRunsCollapsed(')
     expect(suspensionEffect).not.toContain('onExpandedChange(')
-    expect(summarySource).not.toContain('normalizePinnedSummaryMountedForSuspension')
-    expect(summarySource).not.toContain('suspensionCleanupFrameRef')
-    const unmountCleanup = summarySource.slice(
-      summarySource.indexOf('useEffect(() => () => {'),
-      summarySource.indexOf('if (todos.length === 0', summarySource.indexOf('useEffect(() => () => {')),
+    expect(allSummarySources).not.toContain('normalizePinnedSummaryMountedForSuspension')
+    expect(allSummarySources).not.toContain('suspensionCleanupFrameRef')
+    const unmountCleanup = layoutSource.slice(
+      layoutSource.indexOf('useEffect(() => () => {'),
+      layoutSource.indexOf('\n  return {\n    rootRef', layoutSource.indexOf('useEffect(() => () => {')),
     )
     expect(unmountCleanup).toContain('clearCloseAnimationTimer()')
-    expect(summarySource).toContain('if (desktopDraggable || !floatingSummaryVisible || suspended) return')
-    expect(summarySource).toContain('if (!desktopDraggable || suspended) return\n    window.addEventListener(\'resize\', clampCurrentPosition)')
-    expect(summarySource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return undefined')
-    expect(summarySource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return')
+    expect(layoutSource).toContain('if (desktopDraggable || !floatingSummaryVisible || suspended) return')
+    expect(layoutSource).toContain('if (!desktopDraggable || suspended) return\n    window.addEventListener(\'resize\', clampCurrentPosition)')
+    expect(layoutSource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return undefined')
+    expect(layoutSource).toContain('if (!desktopDraggable || !desktopWidgetMounted || suspended) return')
   })
 
   it('cancels pending focus work while suspended and never focuses a hidden summary node', () => {
-    expect(summarySource).toContain('const focusFrameRef = useRef<number | null>(null)')
-    expect(summarySource).toContain('window.cancelAnimationFrame(focusFrameRef.current)')
-    expect(summarySource).toContain('if (suspended) return\n      target()?.focus()')
-    expect(summarySource).toContain('scheduleSummaryFocus(() => desktopPanelMinimizeRef.current)')
-    expect(summarySource).toContain('scheduleSummaryFocus(() => capsuleMainRef.current)')
-    expect(summarySource).toContain('scheduleSummaryFocus(() => topTriggerRef.current)')
-    expect(summarySource).not.toContain('window.requestAnimationFrame(() => desktopPanelMinimizeRef.current?.focus())')
-    expect(summarySource).not.toContain('window.requestAnimationFrame(() => capsuleMainRef.current?.focus())')
-    expect(summarySource).not.toContain('window.requestAnimationFrame(() => topTriggerRef.current?.focus())')
+    expect(layoutSource).toContain('const focusFrameRef = useRef<number | null>(null)')
+    expect(layoutSource).toContain('window.cancelAnimationFrame(focusFrameRef.current)')
+    expect(layoutSource).toContain('if (suspended) return\n      target()?.focus()')
+    expect(layoutSource).toContain('scheduleSummaryFocus(() => desktopPanelMinimizeRef.current)')
+    expect(layoutSource).toContain('scheduleSummaryFocus(() => capsuleMainRef.current)')
+    expect(layoutSource).toContain('scheduleSummaryFocus(() => topTriggerRef.current)')
+    expect(allSummarySources).not.toContain('window.requestAnimationFrame(() => desktopPanelMinimizeRef.current?.focus())')
+    expect(allSummarySources).not.toContain('window.requestAnimationFrame(() => capsuleMainRef.current?.focus())')
+    expect(allSummarySources).not.toContain('window.requestAnimationFrame(() => topTriggerRef.current?.focus())')
   })
 
   it('marks the PanelRight toggle for compatibility without requiring desktop outside-dismiss exceptions', () => {
     expect(appSource).toContain('data-pinned-summary-inspector-toggle="true"')
-    expect(summarySource).not.toContain("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")
+    expect(allSummarySources).not.toContain("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")
   })
 
   it('uses the same future suspension capability for the direct PanelRight open branch and leaves close untouched', () => {
@@ -155,9 +163,9 @@ describe('GitToolsPinnedSummary source contract', () => {
   })
 
   it('reuses directional layout safety on suspension exit without opening, minimizing, or focusing', () => {
-    const resumeEffect = summarySource.slice(
-      summarySource.indexOf('const wasSuspended = wasSuspendedRef.current'),
-      summarySource.indexOf('useEffect(() => {', summarySource.indexOf('const wasSuspended = wasSuspendedRef.current')),
+    const resumeEffect = layoutSource.slice(
+      layoutSource.indexOf('const wasSuspended = wasSuspendedRef.current'),
+      layoutSource.indexOf('useEffect(() => {', layoutSource.indexOf('const wasSuspended = wasSuspendedRef.current')),
     )
     expect(resumeEffect).toContain('if (!wasSuspended || suspended || !desktopDraggable || !desktopWidgetMounted) return')
     expect(resumeEffect).toContain("const target = desktopMode === 'panel' ? desktopPanelRef.current : capsuleRef.current")
@@ -173,15 +181,15 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(trigger).toContain('onClick={toggleSummaryFromToolbar}')
     expect(trigger).toContain('aria-pressed={floatingSummaryVisible}')
     expect(trigger).toContain('aria-expanded={floatingSummaryVisible}')
-    expect(summarySource).toContain("const desktopMode: DesktopMode = expanded ? 'panel' : capsuleVisible ? 'capsule' : 'closed'")
-    expect(summarySource).toContain('if (floatingSummaryVisible) closeSummary()')
-    expect(summarySource).toContain('else if (desktopDraggable) openDesktopPanel()')
+    expect(layoutSource).toContain("const desktopMode: DesktopMode = expanded ? 'panel' : capsuleVisible ? 'capsule' : 'closed'")
+    expect(layoutSource).toContain('if (floatingSummaryVisible) closeSummary()')
+    expect(layoutSource).toContain('else if (desktopDraggable) openDesktopPanel()')
   })
 
   it('implements desktop closed, capsule, and panel transitions with compatible expanded semantics', () => {
-    const open = summarySource.slice(summarySource.indexOf('const openDesktopPanel'), summarySource.indexOf('const minimizeDesktopPanel'))
-    const minimize = summarySource.slice(summarySource.indexOf('const minimizeDesktopPanel'), summarySource.indexOf('const closeSummary'))
-    const close = summarySource.slice(summarySource.indexOf('const closeSummary'), summarySource.indexOf('const toggleSummaryFromToolbar'))
+    const open = layoutSource.slice(layoutSource.indexOf('const openDesktopPanel'), layoutSource.indexOf('const minimizeDesktopPanel'))
+    const minimize = layoutSource.slice(layoutSource.indexOf('const minimizeDesktopPanel'), layoutSource.indexOf('const closeSummary'))
+    const close = layoutSource.slice(layoutSource.indexOf('const closeSummary'), layoutSource.indexOf('const toggleSummaryFromToolbar'))
     expect(open).toContain('setCapsuleVisible(false)')
     expect(open).toContain('onExpandedChange(true)')
     expect(minimize).toContain('setCapsuleVisible(true)')
@@ -190,35 +198,35 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(close).toContain('onExpandedChange(false)')
     expect(close).toContain('setDesktopWidgetClosing(true)')
     expect(close).toContain('}, 160)')
-    expect(summarySource).toContain('const previousExpandedRef = useRef(expanded)')
-    expect(summarySource).toContain('if (previousExpanded && !capsuleVisible && desktopWidgetMounted && !desktopWidgetClosing)')
+    expect(layoutSource).toContain('const previousExpandedRef = useRef(expanded)')
+    expect(layoutSource).toContain('if (previousExpanded && !capsuleVisible && desktopWidgetMounted && !desktopWidgetClosing)')
   })
 
   it('keeps one mounted desktop widget and crossfades panel/capsule with measured dimensions', () => {
     const widget = desktopWidgetBlock()
-    const applyResolvedLayoutBlock = summarySource.slice(
-      summarySource.indexOf('const applyResolvedLayout'),
-      summarySource.indexOf('const getPanelNaturalHeight'),
+    const applyResolvedLayoutBlock = layoutSource.slice(
+      layoutSource.indexOf('const applyResolvedLayout'),
+      layoutSource.indexOf('const getPanelNaturalHeight'),
     )
     expect(widget).toContain('data-mode={desktopMode === \'closed\' ? \'capsule\' : desktopMode}')
     expect(widget).toContain('data-closing={desktopWidgetClosing ? \'true\' : \'false\'}')
     expect(widget).toContain('data-dragging={dragging ? \'true\' : \'false\'}')
     expect(widget).toContain('quickforge-pinned-summary-capsule')
     expect(widget).toContain('quickforge-pinned-summary-panel')
-    expect(summarySource).toContain('new ResizeObserver(measure)')
-    expect(summarySource).toContain("const layoutPosition = dragRef.current?.current ?? positionRef.current")
-    expect(summarySource).toContain("if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)")
+    expect(layoutSource).toContain('new ResizeObserver(measure)')
+    expect(layoutSource).toContain("const layoutPosition = dragRef.current?.current ?? positionRef.current")
+    expect(layoutSource).toContain("if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)")
     expect(applyResolvedLayoutBlock).not.toContain('updatePosition(layout.position)\n    setPanelMaxHeight')
-    expect(summarySource).toContain("'--quickforge-pinned-summary-panel-height'")
-    expect(summarySource).toContain('const borderBoxDelta = Math.max(0, panel.offsetHeight - panel.clientHeight)')
-    expect(summarySource).toContain('const headerHeight = desktopPanelHeaderRef.current?.offsetHeight ?? 0')
-    expect(summarySource).toContain('return headerHeight + content.scrollHeight + borderBoxDelta')
-    expect(summarySource).toContain('ref={desktopPanelContentRef}')
-    expect(summarySource).toContain("'--quickforge-pinned-summary-capsule-width'")
-    expect(summarySource).toContain("'--quickforge-pinned-summary-panel-max-height': desktopMode !== 'panel' || panelMaxHeight === undefined")
-    expect(summarySource).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4')
-    expect(summarySource).not.toContain("branchMenuOpen ? 'overflow-visible'")
-    expect(summarySource).not.toContain("branchMenuSide === 'left'")
+    expect(layoutSource).toContain("'--quickforge-pinned-summary-panel-height'")
+    expect(layoutSource).toContain('const borderBoxDelta = Math.max(0, panel.offsetHeight - panel.clientHeight)')
+    expect(layoutSource).toContain('const headerHeight = desktopPanelHeaderRef.current?.offsetHeight ?? 0')
+    expect(layoutSource).toContain('return headerHeight + content.scrollHeight + borderBoxDelta')
+    expect(widget).toContain('ref={desktopPanelContentRef}')
+    expect(layoutSource).toContain("'--quickforge-pinned-summary-capsule-width'")
+    expect(layoutSource).toContain("'--quickforge-pinned-summary-panel-max-height': desktopMode !== 'panel' || panelMaxHeight === undefined")
+    expect(widget).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4')
+    expect(allSummarySources).not.toContain("branchMenuOpen ? 'overflow-visible'")
+    expect(allSummarySources).not.toContain("branchMenuSide === 'left'")
     expect(cssSource).toContain('width 220ms cubic-bezier(.22,.8,.24,1)')
     expect(cssSource).toContain('height 220ms cubic-bezier(.22,.8,.24,1)')
     expect(cssSource).toContain('max-height: var(--quickforge-pinned-summary-panel-max-height')
@@ -259,33 +267,33 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(widget).toContain("closeSummary({ focusTrigger: true })")
     expect(widget).toContain('<X className="size-4"')
     expect(widget).toContain('size-8 shrink-0')
-    expect(summarySource).not.toContain('ChevronUp')
+    expect(allSummarySources).not.toContain('ChevronUp')
   })
 
   it('uses three semantic capsule categories with icons and one combined agent segment', () => {
-    expect(summarySource).toContain("key: 'tasks'")
-    expect(summarySource).toContain('<ListTodo className="size-3.5"')
-    expect(summarySource).toContain("key: 'git'")
-    expect(summarySource).toContain('<FileDiff className="size-3.5"')
-    expect(summarySource).toContain("key: 'agents'")
-    expect(summarySource).toContain('<Bot className="size-3.5"')
-    expect(summarySource).toContain('<span>{agentRunningCount}/{agentFinishedCount}</span>')
-    expect(summarySource).not.toContain('pinnedSummaryCapsuleRunningAria')
-    expect(summarySource).not.toContain('pinnedSummaryCapsuleFinishedAria')
-    expect(summarySource).toContain("key: 'fallback'")
+    expect(capsuleSource).toContain("key: 'tasks'")
+    expect(capsuleSource).toContain('<ListTodo className="size-3.5"')
+    expect(capsuleSource).toContain("key: 'git'")
+    expect(capsuleSource).toContain('<FileDiff className="size-3.5"')
+    expect(capsuleSource).toContain("key: 'agents'")
+    expect(capsuleSource).toContain('<Bot className="size-3.5"')
+    expect(capsuleSource).toContain('<span>{agentRunningCount}/{agentFinishedCount}</span>')
+    expect(allSummarySources).not.toContain('pinnedSummaryCapsuleRunningAria')
+    expect(allSummarySources).not.toContain('pinnedSummaryCapsuleFinishedAria')
+    expect(capsuleSource).toContain("key: 'fallback'")
   })
 
   it('renders dividers only between actual segments without dead opacity classes', () => {
-    expect(summarySource).toContain('capsuleSegments.map((segment, index) => (')
-    expect(summarySource).toContain('index > 0 ? <span className="h-3.5 w-px shrink-0"')
-    expect(summarySource).not.toContain('bg-foreground/15')
-    expect(summarySource).not.toContain('border-border/60')
+    expect(widgetSource).toContain('capsuleSegments.map((segment, index) => (')
+    expect(widgetSource).toContain('index > 0 ? <span className="h-3.5 w-px shrink-0"')
+    expect(allSummarySources).not.toContain('bg-foreground/15')
+    expect(allSummarySources).not.toContain('border-border/60')
   })
 
   it('does not install or handle summary-level outside/Escape dismissal on desktop', () => {
-    const dismissEffect = summarySource.slice(
-      summarySource.indexOf('if (desktopDraggable || !floatingSummaryVisible || suspended) return'),
-      summarySource.indexOf('useEffect(() => () => {'),
+    const dismissEffect = layoutSource.slice(
+      layoutSource.indexOf('if (desktopDraggable || !floatingSummaryVisible || suspended) return'),
+      layoutSource.indexOf('useEffect(() => () => {'),
     )
     expect(dismissEffect).toContain("getPinnedSummaryOutsideAction(false) === 'close'")
     expect(dismissEffect).toContain("if (event.key === 'Escape') closeSummary({ focusTrigger: true })")
@@ -306,61 +314,58 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(mobile).toContain("aria-label={t('pinnedSummaryClose')}")
     expect(mobile).not.toContain('pinnedSummaryMinimize')
     expect(mobile).not.toContain('quickforge-pinned-summary-capsule')
-    expect(summarySource.match(/top-\[9\.25rem\]/g)).toHaveLength(3)
-    expect(summarySource.match(/max-h-\[calc\(100dvh-9\.75rem\)\]/g)).toHaveLength(2)
-    expect(summarySource).not.toContain('touch-none')
-    expect(summarySource).not.toContain('touchAction')
+    expect(sectionsSource.match(/top-\[9\.25rem\]/g)).toHaveLength(3)
+    expect(sectionsSource.match(/max-h-\[calc\(100dvh-9\.75rem\)\]/g)).toHaveLength(2)
+    expect(allSummarySources).not.toContain('touch-none')
+    expect(allSummarySources).not.toContain('touchAction')
   })
 
   it('opens the branch menu beside the desktop floating panel instead of inside its content flow', () => {
     const widget = desktopWidgetBlock()
-    const sections = summarySource.slice(
-      summarySource.indexOf('const summarySections'),
-      summarySource.indexOf('const desktopWidgetStyle'),
-    )
+    const sections = sectionsSource
     expect(widget).toContain('{branchMenuOpen && desktopDraggable && branchMenuPlacement && projectId ? (')
     expect(widget).toContain("branchMenuPlacement.side === 'left' ? 'right-full mr-1 origin-top-right' : 'left-full ml-1 origin-top-left'")
     expect(widget).toContain('style={{ top: branchMenuPlacement.top, maxHeight: branchMenuPlacement.maxHeight }}')
     expect(sections).toContain('{!desktopDraggable && branchMenuOpen ? (')
     expect(sections).toContain('top-[9.25rem]')
     expect(sections).not.toContain('md:top-full')
-    expect(summarySource).not.toContain('md:top-full')
-    expect(summarySource).not.toContain('md:w-full md:overflow-y-auto')
-    expect(summarySource).toContain('const rowRect = row.getBoundingClientRect()')
-    expect(summarySource).toContain('const widgetRect = widget.getBoundingClientRect()')
-    expect(summarySource).toContain('Math.round(rowRect.top - widgetRect.top)')
-    expect(summarySource).toContain('PINNED_BRANCH_MENU_WIDTH')
-    expect(summarySource).toContain('PINNED_BRANCH_MENU_MAX_HEIGHT')
-    expect(summarySource).toContain('useEffect(() => {\n    queueMicrotask(() => setBranchMenuOpen(false))\n  }, [desktopDraggable])')
+    expect(allSummarySources).not.toContain('md:top-full')
+    expect(allSummarySources).not.toContain('md:w-full md:overflow-y-auto')
+    expect(layoutSource).toContain('const rowRect = row.getBoundingClientRect()')
+    expect(layoutSource).toContain('const widgetRect = widget.getBoundingClientRect()')
+    expect(layoutSource).toContain('Math.round(rowRect.top - widgetRect.top)')
+    expect(layoutSource).toContain('PINNED_BRANCH_MENU_WIDTH')
+    expect(layoutSource).toContain('PINNED_BRANCH_MENU_MAX_HEIGHT')
+    expect(layoutSource).toContain('useEffect(() => {\n    queueMicrotask(() => setBranchMenuOpen(false))\n  }, [desktopDraggable])')
   })
 
   it('tracks the active pointer on window until move/up/cancel and captures only after a real drag', () => {
-    expect(summarySource).toContain('hasPinnedSummaryDragThreshold(drag.start, currentPointer)')
-    expect(summarySource).toContain('pointerTarget: event.currentTarget')
-    expect(summarySource).toContain('drag.captureTarget = drag.pointerTarget')
-    expect(summarySource).toContain('drag.pointerTarget.setPointerCapture(event.pointerId)')
-    expect(summarySource.indexOf('drag.captureTarget = drag.pointerTarget')).toBeGreaterThan(summarySource.indexOf('hasPinnedSummaryDragThreshold(drag.start, currentPointer)'))
-    expect(summarySource).toContain("window.addEventListener('pointermove', handlePointerMove)")
-    expect(summarySource).toContain("window.addEventListener('pointerup', handlePointerEnd)")
-    expect(summarySource).toContain("window.addEventListener('pointercancel', handlePointerEnd)")
-    expect(summarySource).toContain("window.removeEventListener('pointermove', handlePointerMove)")
-    expect(summarySource).toContain("window.removeEventListener('pointerup', handlePointerEnd)")
-    expect(summarySource).toContain("window.removeEventListener('pointercancel', handlePointerEnd)")
-    expect(summarySource).toContain('dragTrackingCleanupRef.current?.()')
-    expect(summarySource).toContain('suppressClickRef.current = true')
-    expect(summarySource).toContain('if (suppressClickRef.current) return')
-    expect(summarySource).toContain("document.body.style.userSelect = 'none'")
-    expect(summarySource).toContain('window.requestAnimationFrame(() => {')
-    expect(summarySource).toContain("window.addEventListener('resize', clampCurrentPosition)")
-    expect(summarySource).toContain('drag.captureTarget.releasePointerCapture(drag.pointerId)')
-    expect(summarySource).not.toContain('captureTarget: event.currentTarget')
+    expect(layoutSource).toContain('hasPinnedSummaryDragThreshold(drag.start, currentPointer)')
+    expect(layoutSource).toContain('pointerTarget: event.currentTarget')
+    expect(layoutSource).toContain('drag.captureTarget = drag.pointerTarget')
+    expect(layoutSource).toContain('drag.pointerTarget.setPointerCapture(event.pointerId)')
+    expect(layoutSource.indexOf('drag.captureTarget = drag.pointerTarget')).toBeGreaterThan(layoutSource.indexOf('hasPinnedSummaryDragThreshold(drag.start, currentPointer)'))
+    expect(layoutSource).toContain("window.addEventListener('pointermove', handlePointerMove)")
+    expect(layoutSource).toContain("window.addEventListener('pointerup', handlePointerEnd)")
+    expect(layoutSource).toContain("window.addEventListener('pointercancel', handlePointerEnd)")
+    expect(layoutSource).toContain("window.removeEventListener('pointermove', handlePointerMove)")
+    expect(layoutSource).toContain("window.removeEventListener('pointerup', handlePointerEnd)")
+    expect(layoutSource).toContain("window.removeEventListener('pointercancel', handlePointerEnd)")
+    expect(layoutSource).toContain('dragTrackingCleanupRef.current?.()')
+    expect(layoutSource).toContain('suppressClickRef.current = true')
+    expect(allSummarySources).toContain('if (suppressClickRef.current) return')
+    expect(layoutSource).toContain("document.body.style.userSelect = 'none'")
+    expect(layoutSource).toContain('window.requestAnimationFrame(() => {')
+    expect(layoutSource).toContain("window.addEventListener('resize', clampCurrentPosition)")
+    expect(layoutSource).toContain('drag.captureTarget.releasePointerCapture(drag.pointerId)')
+    expect(allSummarySources).not.toContain('captureTarget: event.currentTarget')
     expect(dragSource).toContain('Math.hypot(currentX - startX, currentY - startY) >= safeThreshold')
   })
 
   it('clears desktop-only widget state on mobile downgrade without closing an expanded mobile panel', () => {
-    const responsiveEffect = summarySource.slice(
-      summarySource.indexOf('const previousExpanded = previousExpandedRef.current'),
-      summarySource.indexOf('useLayoutEffect(() =>', summarySource.indexOf('const previousExpanded = previousExpandedRef.current')),
+    const responsiveEffect = layoutSource.slice(
+      layoutSource.indexOf('const previousExpanded = previousExpandedRef.current'),
+      layoutSource.indexOf('useLayoutEffect(() =>', layoutSource.indexOf('const previousExpanded = previousExpandedRef.current')),
     )
     expect(responsiveEffect).toContain('if (!desktopDraggable)')
     expect(responsiveEffect).toContain('setPosition(undefined)')
@@ -371,22 +376,22 @@ describe('GitToolsPinnedSummary source contract', () => {
   })
 
   it('clamps shape changes against transform-independent target layout dimensions', () => {
-    expect(summarySource).toContain('const width = element.offsetWidth')
-    expect(summarySource).toContain('const height = element.offsetHeight')
-    expect(summarySource).toContain('if (width > 0 && height > 0) return { width, height }')
-    expect(summarySource).toContain('width: width || rect.width')
-    expect(summarySource).toContain('height: height || rect.height')
-    expect(summarySource).toContain("const target = desktopMode === 'panel' ? desktopPanelRef.current : capsuleRef.current")
-    expect(summarySource.match(/const targetSize = getPinnedSummaryLayoutSize\(target \?\? widget\)/g)).toHaveLength(3)
-    expect(summarySource).toContain('const capsuleSize = getPinnedSummaryLayoutSize(capsule)')
-    expect(summarySource).toContain('const panelSize = getPinnedSummaryLayoutSize(panel)')
-    expect(summarySource).not.toContain('(target ?? widget).getBoundingClientRect()')
-    expect(summarySource).toContain('const fallbackRect = rootRef.current?.getBoundingClientRect() ?? widgetRect')
-    expect(summarySource).toContain('fallbackRect,')
-    expect(summarySource).toContain('resolvePinnedSummaryInitialPosition({')
-    expect(summarySource).toContain('resolvePinnedSummaryLayout(')
-    expect(summarySource).toContain("if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)")
-    expect(summarySource).toContain('targetSize,')
+    expect(layoutSource).toContain('const width = element.offsetWidth')
+    expect(layoutSource).toContain('const height = element.offsetHeight')
+    expect(layoutSource).toContain('if (width > 0 && height > 0) return { width, height }')
+    expect(layoutSource).toContain('width: width || rect.width')
+    expect(layoutSource).toContain('height: height || rect.height')
+    expect(layoutSource).toContain("const target = desktopMode === 'panel' ? desktopPanelRef.current : capsuleRef.current")
+    expect(layoutSource.match(/const targetSize = getPinnedSummaryLayoutSize\(target \?\? widget\)/g)).toHaveLength(3)
+    expect(layoutSource).toContain('const capsuleSize = getPinnedSummaryLayoutSize(capsule)')
+    expect(layoutSource).toContain('const panelSize = getPinnedSummaryLayoutSize(panel)')
+    expect(allSummarySources).not.toContain('(target ?? widget).getBoundingClientRect()')
+    expect(layoutSource).toContain('const fallbackRect = rootRef.current?.getBoundingClientRect() ?? widgetRect')
+    expect(layoutSource).toContain('fallbackRect,')
+    expect(layoutSource).toContain('resolvePinnedSummaryInitialPosition({')
+    expect(layoutSource).toContain('resolvePinnedSummaryLayout(')
+    expect(layoutSource).toContain("if (mode === 'panel') setPanelMaxHeight(layout.panelMaxHeight)")
+    expect(layoutSource).toContain('targetSize,')
   })
 
   it('anchors only the first desktop position below the conversation header and preserves toolbar-root then widget fallback order', () => {
@@ -395,34 +400,34 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(appSource).toContain('initialAnchorRef={conversationHeaderRef}')
     expect(summarySource).toContain('initialAnchorRef: RefObject<HTMLElement | null>')
 
-    const initialPositionBranch = summarySource.slice(
-      summarySource.indexOf('if (!positionRef.current) {'),
-      summarySource.indexOf('clampCurrentPosition()', summarySource.indexOf('if (!positionRef.current) {')),
+    const initialPositionBranch = layoutSource.slice(
+      layoutSource.indexOf('if (!positionRef.current) {'),
+      layoutSource.indexOf('clampCurrentPosition()', layoutSource.indexOf('if (!positionRef.current) {')),
     )
     expect(initialPositionBranch).toContain('resolvePinnedSummaryInitialPosition({')
     expect(initialPositionBranch).toContain('anchorRect: initialAnchorRef.current?.getBoundingClientRect()')
     expect(initialPositionBranch).toContain('const fallbackRect = rootRef.current?.getBoundingClientRect() ?? widgetRect')
     expect(initialPositionBranch).toContain('fallbackRect,')
     expect(initialPositionBranch).toContain('applyResolvedLayout(initialPosition, targetSize')
-    expect(summarySource.match(/initialAnchorRef\.current\?\.getBoundingClientRect\(\)/g)).toHaveLength(1)
-    expect(summarySource).not.toContain('querySelector')
+    expect(layoutSource.match(/initialAnchorRef\.current\?\.getBoundingClientRect\(\)/g)).toHaveLength(1)
+    expect(allSummarySources).not.toContain('querySelector')
     expect(dragSource).toContain('export const PINNED_SUMMARY_INITIAL_GAP = 10')
     expect(dragSource).toContain('export const PINNED_SUMMARY_INITIAL_RIGHT_INSET = 12')
     expect(dragSource).toContain('x: finiteOr(anchorRect.right, fallbackRect.right) - Math.max(0, finiteOr(targetSize.width, 0)) - PINNED_SUMMARY_INITIAL_RIGHT_INSET')
     expect(dragSource).toContain('y: Math.ceil(finiteOr(anchorRect.bottom, fallbackRect.y)) + PINNED_SUMMARY_INITIAL_GAP')
     expect(dragSource).not.toMatch(/\b(?:28|32|56)\b/)
-    expect(summarySource).not.toContain('localStorage')
+    expect(allSummarySources).not.toContain('localStorage')
   })
 
   it('never re-reads the conversation header for drag, shape changes, resize, or Inspector resume', () => {
-    const initialBranchStart = summarySource.indexOf('if (!positionRef.current) {')
-    const initialBranchEnd = summarySource.indexOf('clampCurrentPosition()', initialBranchStart)
-    const withoutInitialBranch = `${summarySource.slice(0, initialBranchStart)}${summarySource.slice(initialBranchEnd)}`
+    const initialBranchStart = layoutSource.indexOf('if (!positionRef.current) {')
+    const initialBranchEnd = layoutSource.indexOf('clampCurrentPosition()', initialBranchStart)
+    const withoutInitialBranch = `${layoutSource.slice(0, initialBranchStart)}${layoutSource.slice(initialBranchEnd)}`
     expect(withoutInitialBranch).not.toContain('initialAnchorRef.current')
 
-    const resumeEffect = summarySource.slice(
-      summarySource.indexOf('const wasSuspended = wasSuspendedRef.current'),
-      summarySource.indexOf('useEffect(() => {', summarySource.indexOf('const wasSuspended = wasSuspendedRef.current')),
+    const resumeEffect = layoutSource.slice(
+      layoutSource.indexOf('const wasSuspended = wasSuspendedRef.current'),
+      layoutSource.indexOf('useEffect(() => {', layoutSource.indexOf('const wasSuspended = wasSuspendedRef.current')),
     )
     expect(resumeEffect).toContain('const current = positionRef.current ??')
     expect(resumeEffect).toContain('applyResolvedLayout(current, targetSize')
@@ -432,11 +437,11 @@ describe('GitToolsPinnedSummary source contract', () => {
 
   it('keeps current groups, task expansion, and agent folding state inside the component', () => {
     expect(summarySource).toContain('todos.slice(0, 3)')
-    expect(summarySource).toContain("t('pinnedViewAllTasks'")
+    expect(sectionsSource).toContain("t('pinnedViewAllTasks'")
     expect(summarySource).toContain('setFinishedSubagentRunsCollapsed((value) => !value)')
-    expect(summarySource).toContain('aria-expanded={!finishedSubagentRunsCollapsed}')
+    expect(sectionsSource).toContain('aria-expanded={!finishedSubagentRunsCollapsed}')
     // Finished subagent rows are no longer truncated to the first 3 runs.
-    expect(summarySource).not.toContain('finishedSubagentRuns.slice(0, 3)')
+    expect(allSummarySources).not.toContain('finishedSubagentRuns.slice(0, 3)')
   })
 
   it('defines matching three-state and capsule aria keys in both languages', () => {
@@ -523,10 +528,10 @@ describe('GitToolsPinnedSummary goal section', () => {
   })
 
   it('keeps the goal section above git/tasks/agents and out of their density', () => {
-    const goalIndex = summarySource.indexOf('{hasGoalSection && goal && goalSessionId ? (')
+    const goalIndex = sectionsSource.indexOf('{hasGoalSection && goal && goalSessionId ? (')
     expect(goalIndex).toBeGreaterThan(-1)
-    expect(goalIndex).toBeLessThan(summarySource.indexOf('{hasGitSection && status && projectId ? ('))
-    expect(summarySource).toContain("<GoalSummarySection goal={goal} sessionId={goalSessionId} onAction={onGoalAction} />")
+    expect(goalIndex).toBeLessThan(sectionsSource.indexOf('{hasGitSection && status && projectId ? ('))
+    expect(sectionsSource).toContain("<GoalSummarySection goal={goal} sessionId={goalSessionId} onAction={onGoalAction} />")
     // The goal group itself (title + criteria + navigation) is owned by the
     // section component, matching the pinned git/tasks group structure.
     expect(goalSectionSource).toContain('<section aria-labelledby="pinned-goal-title">')
@@ -534,15 +539,15 @@ describe('GitToolsPinnedSummary goal section', () => {
     expect(goalSectionSource).toContain("t('pinnedGoalTitle')")
     // Goal-first capsule with a real status and accepted-criteria count, capped
     // density for the remaining segments.
-    expect(summarySource.indexOf("key: 'goal'")).toBeLessThan(summarySource.indexOf("key: 'tasks'"))
-    expect(summarySource).toContain("import { GoalIcon } from '@/components/goal-icon'")
-    const goalCapsule = summarySource.slice(summarySource.indexOf("key: 'goal'"), summarySource.indexOf('if (todos.length > 0)'))
+    expect(capsuleSource.indexOf("key: 'goal'")).toBeLessThan(capsuleSource.indexOf("key: 'tasks'"))
+    expect(capsuleSource).toContain("import { GoalIcon } from '@/components/goal-icon'")
+    const goalCapsule = capsuleSource.slice(capsuleSource.indexOf("key: 'goal'"), capsuleSource.indexOf('if (todos.length > 0)'))
     expect(goalCapsule).toContain('<GoalIcon className="size-3.5" aria-hidden="true" />')
-    expect(summarySource).not.toContain('<Target')
-    expect(summarySource).toContain("t('goalCriteriaProgress', { completed: goalPassedCriteria, total: goalView.criteria.length })")
-    expect(summarySource).toContain('return goalView ? segments.slice(0, 3) : segments')
+    expect(allSummarySources).not.toContain('<Target')
+    expect(capsuleSource).toContain("t('goalCriteriaProgress', { completed: goalPassedCriteria, total: goalView.criteria.length })")
+    expect(capsuleSource).toContain('return goalView ? segments.slice(0, 3) : segments')
     // Terminal goals stay reviewable: the section is never gated on an active status.
-    expect(summarySource).not.toContain('isGoalActive')
+    expect(allSummarySources).not.toContain('isGoalActive')
   })
 
   it('keeps the two-line summary navigation-only and owns the shared action lock in the Inspector', () => {
@@ -556,15 +561,15 @@ describe('GitToolsPinnedSummary goal section', () => {
     expect(goalInspectorSource).toContain('runGoalUiAction(sessionId, goal.id, action, () => onAction(action, undefined, options))')
     expect(goalInspectorSource).toContain('runGoalUiAction(sessionId, goal.id, action, () => onAction(action, undefined, { ...options!, signal: controller.signal }))')
     expect(goalUiSource).toContain('export const OPEN_GOAL_SUMMARY_EVENT')
-    expect(summarySource).not.toContain('runGoalUiAction')
+    expect(allSummarySources).not.toContain('runGoalUiAction')
     // The shell executes updateGoal once; the Inspector/controller own the lock.
     expect(appSource).toContain('await agent.updateGoal(action, objective, options)')
     expect(appSource).not.toContain('runGoalUiAction')
-    expect(appSource).toContain("'goal_updated',")
+    expect(pinnedSummaryModelSource).toContain("'goal_updated',")
   })
 
   it('routes goal summary navigation to the existing Inspector without a new global mode', () => {
-    expect(appSource).toContain("const pinnedSummaryGoalEnabled = pinnedSummaryGoalSource !== 'acp'")
+    expect(pinnedSummaryModelSource).toContain("const goalEnabled = goalSource !== 'acp'")
     const goalOpenListener = appSource.indexOf('window.addEventListener(OPEN_GOAL_SUMMARY_EVENT')
     expect(goalOpenListener).toBeGreaterThan(-1)
     const goalOpenHandler = appSource.slice(appSource.lastIndexOf('const handler = (event: Event) => {', goalOpenListener), goalOpenListener)
@@ -609,6 +614,6 @@ describe('GitToolsPinnedSummary goal section', () => {
     // Row rendering is covered by source contract: the visible list is derived
     // from the full finishedSubagentRuns array without truncation.
     expect(summarySource).toContain('const visibleSubagentRuns = finishedSubagentRuns')
-    expect(summarySource).not.toContain('finishedSubagentRuns.slice(0, 3)')
+    expect(allSummarySources).not.toContain('finishedSubagentRuns.slice(0, 3)')
   })
 })

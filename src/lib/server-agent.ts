@@ -24,22 +24,9 @@ import {
 } from '@/lib/session-message-cache'
 import { fetchJsonWithTimeout } from './server-agent-http'
 import { globalAgentSseClient } from './global-agent-sse-client'
-import {
-  LEASE_HEARTBEAT_MS,
-  acquireLease,
-  getClientId,
-  leaseSnapshotFromWire,
-  releaseLease,
-  takeOverLease,
-  type SessionLeaseSnapshot,
-} from './session-lease-client'
-
-/**
- * 允许的连续租约失败次数。1 表示「单次失败就降级」，这里取 2：一次网络抖动
- * 或服务端瞬时 5xx 不该立刻把 composer 锁成只读，而两次失败（相隔 20s）之后
- * 剩下的租约余量已经不足以撑到下次心跳成功，此时降级才合理。
- */
-const LEASE_DEGRADE_AFTER_FAILURES = 2
+import { GoalStateController } from './goal-state-controller'
+import { leaseSnapshotFromWire, type SessionLeaseSnapshot } from './session-lease-client'
+import { SessionLeaseController } from './session-lease-controller'
 import type {
   ActiveAgentStatus,
   ServerAgentContextCompaction,
@@ -421,16 +408,6 @@ async function fetchAllSessionMessages(baseUrl: string, sessionId: string): Prom
   return all
 }
 
-/**
- * Outcome of adopting a goal snapshot (`ServerAgent.adoptGoalState`):
- * - `applied`: the snapshot was accepted (not superseded by a newer goal update
- *   and not a same-id revision regression).
- * - `changed`: the accepted snapshot differs from the previous goal. Only a
- *   changed adoption may broadcast `goal_updated`, so a same-value echo or a
- *   rejected stale snapshot never triggers a no-op re-render.
- */
-type GoalAdoptionResult = { applied: boolean; changed: boolean }
-
 export class ServerAgent {
   // --- Public state (mutable, AgentInterface-compatible) ---
   state: {
@@ -478,19 +455,7 @@ export class ServerAgent {
     (event: ServerAgentEvent) => void
   >()
   private unsubscribeSse: (() => void) | undefined
-  /**
-   * Session write lease heartbeat (see `src/lib/session-lease-client.ts`).
-   * `null` when this agent never enabled the lease (read-only views, shared
-   * conversations, ACP) — those keep the pre-lease behaviour.
-   */
-  private leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null
-  private leaseEnabled = false
-  /**
-   * 连续失败计数。单次网络抖动不该把本页切成只读：租约 TTL 是 60s，而心跳
-   * 每 20s 一次，所以连一次失败都容忍不等于冒险 —— 两次失败之间仍有 20s
-   * 余量，下一次心跳成功即恢复。达到 `LEASE_DEGRADE_AFTER_FAILURES` 才降级。
-   */
-  private leaseFailures = 0
+  private readonly sessionLeaseController: SessionLeaseController
   private baseUrl: string
   private disposed = false
   private _syncingThinkingLevel = false
@@ -517,7 +482,7 @@ export class ServerAgent {
    * detect that a newer goal update superseded it — including cross-id
    * replacements and explicit `null` clears where revisions are meaningless.
    */
-  private goalSeq = 0
+  private readonly goalStateController: GoalStateController
   private nextPromptCapabilities: PromptCapabilitySelection[] = []
   private nextPromptContextReferences: FileContextReference[] = []
   private onPromptContextReferencesConsumed?: () => void
@@ -598,6 +563,20 @@ export class ServerAgent {
       },
     })
 
+    this.sessionLeaseController = new SessionLeaseController({
+      baseUrl: this.baseUrl,
+      sessionId: this.sessionId,
+      getSnapshot: () => this.state.sessionLease,
+      applySnapshot: (next) => this.applySessionLease(next),
+      isDisposed: () => this.disposed,
+    })
+
+    this.goalStateController = new GoalStateController({
+      getGoal: () => this.state.goal,
+      setGoal: (goal) => { this.state.goal = goal },
+      notifyChanged: () => this.notifyGoalChanged(),
+    })
+
     this.unsubscribeSse = globalAgentSseClient.subscribe(this.sessionId, this.baseUrl, (event) => {
       this.handleSseEvent(event)
       if (MESSAGE_CACHE_EVENT_TYPES.has(String(event.type))) {
@@ -618,12 +597,7 @@ export class ServerAgent {
    * 不是异常。
    */
   enableSessionLease(): void {
-    if (this.leaseEnabled || this.disposed) return
-    this.leaseEnabled = true
-    void this.renewSessionLease()
-    this.leaseHeartbeatTimer = setInterval(() => {
-      void this.renewSessionLease()
-    }, LEASE_HEARTBEAT_MS)
+    this.sessionLeaseController.enable()
   }
 
   /**
@@ -642,11 +616,7 @@ export class ServerAgent {
 
   /** 主动接管租约（用户点「在此窗口接管」）。 */
   async takeOverSessionLease(): Promise<boolean> {
-    if (this.disposed) return false
-    const result = await takeOverLease(this.baseUrl, this.sessionId)
-    this.leaseFailures = result.ok ? 0 : this.leaseFailures + 1
-    this.applySessionLease(result.snapshot)
-    return result.snapshot.isOwner
+    return this.sessionLeaseController.takeOver()
   }
 
   /**
@@ -654,56 +624,12 @@ export class ServerAgent {
    * 这个入口只是不让用户被动等着 —— 网络恢复的那一刻可以立刻点一下。
    */
   async retrySessionLease(): Promise<boolean> {
-    if (this.disposed || !this.leaseEnabled) return false
-    await this.renewSessionLease()
-    return this.canWrite()
+    return this.sessionLeaseController.retry()
   }
 
   /** 当前标签页是否持有写租约（未启用租约时恒为 true）。 */
   canWrite(): boolean {
-    const lease = this.state.sessionLease
-    if (!lease) return true
-    return lease.isOwner
-  }
-
-  private async renewSessionLease(): Promise<void> {
-    if (this.disposed) return
-    const result = await acquireLease(this.baseUrl, this.sessionId)
-    if (this.disposed) return
-    this.applyLeaseResult(result.ok, result.snapshot)
-  }
-
-  /**
-   * 合并一次租约请求的结果，并把「服务端没有租约端点」与「暂时失败」分开处理：
-   *
-   * - `unsupported`：老服务端。它本来就不做租约校验，客户端也就不该因此禁写。
-   *   置回可写并停掉心跳（继续打一个必定 404 的端点是纯噪音）。
-   * - 其他失败：计数 +1，只有连续达到阈值才降级；任何一次成功立刻清零恢复。
-   */
-  private applyLeaseResult(ok: boolean, snapshot: SessionLeaseSnapshot): void {
-    if (ok) {
-      this.leaseFailures = 0
-      this.applySessionLease({ ...snapshot, failure: undefined, failureStatus: undefined })
-      return
-    }
-    if (snapshot.failure === 'unsupported') {
-      this.leaseFailures = 0
-      this.stopSessionLeaseHeartbeat()
-      this.applySessionLease({ ...snapshot, degraded: false })
-      return
-    }
-    // 旁观者（409）不是失败，服务端明确回答了「别人持有」，照实展示。
-    if (snapshot.failure === undefined) {
-      this.leaseFailures = 0
-      this.applySessionLease(snapshot)
-      return
-    }
-    this.leaseFailures += 1
-    if (this.leaseFailures < LEASE_DEGRADE_AFTER_FAILURES) {
-      // 还没到降级阈值：保持上一次的判定，不因为一次抖动就把本页锁成只读。
-      return
-    }
-    this.applySessionLease(snapshot)
+    return this.sessionLeaseController.canWrite()
   }
 
   private applySessionLease(next: SessionLeaseSnapshot): void {
@@ -728,12 +654,6 @@ export class ServerAgent {
     this.emitToListeners({ type: 'session_lease', lease: next })
   }
 
-  private stopSessionLeaseHeartbeat(): void {
-    if (!this.leaseHeartbeatTimer) return
-    clearInterval(this.leaseHeartbeatTimer)
-    this.leaseHeartbeatTimer = null
-  }
-
   /**
    * Headers identifying this tab as the lease owner on write requests.
    *
@@ -742,7 +662,9 @@ export class ServerAgent {
    * anonymous (non-owning) client. Read requests never need it.
    */
   private writeHeaders(): Record<string, string> {
-    return this.leaseEnabled ? { 'x-quickforge-client-id': getClientId() } : {}
+    // HTTP-only tests construct a prototype instance without the constructor;
+    // an absent controller is equivalent to the pre-lease behavior (no header).
+    return this.sessionLeaseController ? this.sessionLeaseController.writeHeaders() : {}
   }
 
   // --- Agent-compatible interface ---
@@ -1295,7 +1217,7 @@ export class ServerAgent {
     // Capture the goal watermark before the async gap. The response is only
     // adopted while no newer goal update (SSE / state / another action) landed
     // in the meantime; otherwise the newer goal already owns the card.
-    const capture = { seq: this.goalSeq }
+    const capture = this.goalStateController.capture()
     let res: Response
     let payload: { goal?: unknown; error?: string; code?: string } | undefined
     try {
@@ -1325,7 +1247,7 @@ export class ServerAgent {
       throw error
     }
     if (payload && Object.prototype.hasOwnProperty.call(payload, 'goal')) {
-      const goalResult = this.adoptGoalState(normalizeGoalState(payload.goal), capture)
+      const goalResult = this.goalStateController.adopt(normalizeGoalState(payload.goal), capture)
       // A goal action is applied through HTTP even when no SSE frame follows,
       // so a real change must be broadcast here too (a superseded response
       // reports `changed: false` and stays silent).
@@ -1349,7 +1271,7 @@ export class ServerAgent {
    */
   /** Save-only reconciliation: never changes message/stream ordering or swallows failures. */
   async refreshGoalForSave(goalId: string, signal: AbortSignal): Promise<{ isStreaming: boolean }> {
-    const capture = { seq: this.goalSeq }
+    const capture = this.goalStateController.capture()
     const localVersion = this.stateVersion
     const isCurrent = () => !this.disposed && !signal.aborted
       && this.state.goal?.id === goalId && this.state.goal.sessionId === this.sessionId
@@ -1364,30 +1286,16 @@ export class ServerAgent {
       || (typeof body.stateVersion === 'number' && body.stateVersion < this.lastServerStateVersion)) {
       throw new Error(t('goalRefreshUnsafe'))
     }
-    const result = this.adoptGoalState(next, capture)
+    const result = this.goalStateController.adopt(next, capture)
     if (!result.applied) throw new Error(t('goalRefreshUnsafe'))
     if (result.changed) this.notifyGoalChanged()
     return { isStreaming: body.isStreaming }
   }
 
-  private adoptGoalState(next: GoalState | null, capture?: { seq: number }): GoalAdoptionResult {
-    if (capture && capture.seq !== this.goalSeq) return { applied: false, changed: false }
-    const current = this.state.goal
-    if (next !== null && current && current.id === next.id && next.revision < current.revision) return { applied: false, changed: false }
-    // Only a real change advances the watermark: an identical echo must not
-    // invalidate another in-flight response that is still valid.
-    const unchanged = next === null
-      ? current === null
-      : Boolean(current && current.id === next.id && current.revision === next.revision)
-    this.state.goal = next
-    if (!unchanged) this.goalSeq++
-    return { applied: true, changed: !unchanged }
-  }
-
   /**
    * Broadcast an authoritative goal change to listeners. Only call this after
-   * `adoptGoalState` reported `changed`: a same-value echo or a superseded
-   * async response must not cause a pointless re-render / cache churn.
+   * `GoalStateController.adopt` reported `changed`: a same-value echo or a
+   * superseded async response must not cause a pointless re-render / cache churn.
    *
    * Deliberately does NOT bump the message `stateVersion`: a goal frame never
    * changes messages, so advancing the message watermark would discard an
@@ -1406,32 +1314,17 @@ export class ServerAgent {
    * adopted on the early-return path; cross-id replacements, explicit nulls and
    * equal/lower revisions stay blocked and remain owned by the normal path.
    *
-   * The `goalSeq` capture is the final arbiter: if a goal frame changed the goal
-   * while the fetch was in flight, the snapshot is superseded and rejected even
-   * when its revision looks newer.
+   * The controller's watermark capture is the final arbiter: if a goal frame
+   * changed the goal while the fetch was in flight, the snapshot is superseded
+   * and rejected even when its revision looks newer.
    */
-  private adoptNewerRevisionGoalFromSnapshot(goal: GoalState | null | undefined, goalSeqBeforeFetch: number): void {
-    if (!goal) return
-    const next = normalizeGoalState(goal)
-    const current = this.state.goal
-    if (!next || !current || current.id !== next.id || next.revision <= current.revision) return
-    const goalResult = this.adoptGoalState(next, { seq: goalSeqBeforeFetch })
-    if (goalResult.changed) this.notifyGoalChanged()
-  }
-
   dispose(): void {
     this.disposed = true
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
       this.pollTimer = null
     }
-    this.stopSessionLeaseHeartbeat()
-    if (this.leaseEnabled) {
-      // Hand the lease back so another window can take over immediately instead
-      // of waiting out the TTL. Fire-and-forget: dispose must stay synchronous.
-      void releaseLease(this.baseUrl, this.sessionId).catch(() => {})
-      this.leaseEnabled = false
-    }
+    this.sessionLeaseController.dispose()
     if (this.messageReconcileRetryTimer !== null) {
       clearTimeout(this.messageReconcileRetryTimer)
       this.messageReconcileRetryTimer = null
@@ -1594,7 +1487,7 @@ export class ServerAgent {
           // The state frame returns below without forwarding, so a real goal
           // change must be broadcast explicitly (a repeat snapshot / stale
           // revision reports `changed: false` and stays silent).
-          const goalResult = this.adoptGoalState(normalizeGoalState(s.goal))
+          const goalResult = this.goalStateController.adopt(normalizeGoalState(s.goal))
           if (goalResult.changed) this.notifyGoalChanged()
         }
         let wasStreaming = this.state.isStreaming
@@ -1876,7 +1769,7 @@ export class ServerAgent {
           // The raw frame is forwarded once below for a real change; a
           // same-value echo or a superseded revision returns early instead of
           // triggering a no-op re-render (never emit a second time here).
-          if (!this.adoptGoalState(normalizeGoalState(goalEvent.goal)).changed) return
+          if (!this.goalStateController.adopt(normalizeGoalState(goalEvent.goal)).changed) return
         }
         break
       }
@@ -1972,7 +1865,7 @@ export class ServerAgent {
         // is what flips a secondary tab into (or out of) read-only without
         // polling: the holder's heartbeat never broadcasts, only hand-overs do.
         const leaseEvent = event as { lease?: { clientId?: string; expiresAt?: string } | null }
-        this.applySessionLease(leaseSnapshotFromWire(leaseEvent.lease ?? null))
+        this.sessionLeaseController.applyWireLease(leaseEvent.lease ?? null)
         return
       }
 
@@ -2393,7 +2286,7 @@ export class ServerAgent {
       // (and, because goal frames never bump stateVersion, the fetched
       // messages are still applied).
       const versionBeforeFetch = this.stateVersion
-      const goalSeqBeforeFetch = this.goalSeq
+      const goalSeqBeforeFetch = this.goalStateController.capture()
       const { response: res, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot>(url, STATE_REQUEST_TIMEOUT_MS)
       if (!res.ok) {
         // If the session no longer exists (e.g. destroyed by idle timeout),
@@ -2412,7 +2305,7 @@ export class ServerAgent {
       if (serverStateVersion !== undefined && serverStateVersion < this.lastServerStateVersion) {
         // Version regression: the message list in this snapshot is stale, but a
         // same-goal strictly-newer revision still wins for the goal card.
-        this.adoptNewerRevisionGoalFromSnapshot(state.goal, goalSeqBeforeFetch)
+        this.goalStateController.adoptNewerRevision(state.goal, goalSeqBeforeFetch)
         return
       }
 
@@ -2423,7 +2316,7 @@ export class ServerAgent {
         // A concurrent SSE frame already owns the message list; the snapshot is
         // discarded for messages, but a same-goal strictly-newer revision is
         // still adopted so a goal change is not lost to the race.
-        this.adoptNewerRevisionGoalFromSnapshot(state.goal, goalSeqBeforeFetch)
+        this.goalStateController.adoptNewerRevision(state.goal, goalSeqBeforeFetch)
         return
       }
       // Capture whether the server reports the same version we already
@@ -2506,7 +2399,7 @@ export class ServerAgent {
         this.sessionSource = state.source || undefined
       }
       if (state.goal !== undefined) {
-        const goalResult = this.adoptGoalState(normalizeGoalState(state.goal), { seq: goalSeqBeforeFetch })
+        const goalResult = this.goalStateController.adopt(normalizeGoalState(state.goal), goalSeqBeforeFetch)
         // HTTP refresh (syncState / watchdog / agent_end fallback) must notify
         // goal subscribers even when no SSE frame follows; a snapshot that lost
         // the race against a newer goal update reports `changed: false`.

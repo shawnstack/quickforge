@@ -1,6 +1,6 @@
 # `src/hooks/` — 自定义 React Hooks
 
-包含 24 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
+包含 25 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
 
 ---
 
@@ -30,6 +30,7 @@
 | [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 74 | 工具审批 / ask_user 应答 / auto-compact 审批统一出口（走当前 agent，失败统一抛错） |
 | [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
 | [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 104 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装 |
+| [usePinnedSummaryModel.ts](../../../../src/hooks/usePinnedSummaryModel.ts) | 126 | 置顶摘要 view-model：从 agent 快照派生 Todo/Subagent/后台命令/Goal，内部订阅相关 Agent 事件递增 revision，并同步 Goal UI store；ACP 会话排除 Goal，`invalidate()` 供 Goal 动作后强制刷新 |
 
 ---
 

@@ -17,7 +17,7 @@ src/
 ├── hooks/               # 自定义 React Hooks (24 个)，详见 [hooks 文档](hooks/README.md)
 ├── lib/                 # 前端工具库 (87 个模块)，详见 [lib 文档](lib/README.md)
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
-├── App.tsx              # 主应用组件 (2019 行；区域组件在 components/app/，状态域 hooks 见 hooks 文档)
+├── App.tsx              # 主应用组件 (1970 行；区域组件在 components/app/，状态域 hooks 见 hooks 文档)
 ├── styles/              # 全局样式入口与领域模块，详见 [styles 文档](styles/README.md)
 └── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
 ```
@@ -27,7 +27,7 @@ src/
 | 文件 | 说明 | 行数 |
 |------|------|------|
 | [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 83 |
-| [App.tsx](../../../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 2019 |
+| [App.tsx](../../../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 1970 |
 | [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 39 个 CSS 文件 |
 
 ### main.tsx (69 行)
@@ -47,7 +47,7 @@ src/
 
 终端请求、顶栏 Git 编排、启动/会话加载过渡已分别移入 `useAppTerminal.ts`、`useAppGit.ts`、`useAppLoadingTransitions.ts`（参见 [hooks 导航](hooks/README.md#app-三域编排phase-hooks)）。各模块按 state/effects/actions 分阶段调用，保留原 effect 相对顺序；跨域 project scope 失效处理、JSX、URL 基础 hooks 仍由原入口持有，不新增 context 或重建既有基础 hooks。
 
-上帝组件拆分（第二轮）：`MainApp` 从 2431 行收敛到 2019 行——侧栏排序持久化 / 项目外部打开 / 桌面标题栏菜单 / Agent 审批应答 / 轮次回滚 / 移动侧栏抽屉六个状态域移入 `useSidebarOrdering` / `useProjectExternalOpen` / `useDesktopTitlebarMenu` / `useAgentApprovalActions` / `useTurnFileRollback` / `useMobileSidebar`；桌面标题栏、会话头（标题/分支菜单/视图切换/⋯ 菜单）、启动屏移入 `components/app/`。`ChatPanelHostProps` 在 `ChatPanelHost.tsx` 内按「会话身份 / 消息操作 / 审批应答 / 产物跳转 / 视图状态」做类型级分组（运行时 props 仍是平铺结构，调用方零变化）。被测试钉死的接线（两处 `ChatSidebar` 实例、`GitToolsPinnedSummary` 工具条、`ChatPanelHost`/`WorkspaceInspector` 传参）刻意留在 `MainApp`。
+上帝组件拆分（第二轮）：`MainApp` 从 2431 行收敛到 2019 行；本轮再把置顶摘要派生与 Agent 事件订阅迁到 `usePinnedSummaryModel`，当前 1970 行——侧栏排序持久化 / 项目外部打开 / 桌面标题栏菜单 / Agent 审批应答 / 轮次回滚 / 移动侧栏抽屉六个状态域移入 `useSidebarOrdering` / `useProjectExternalOpen` / `useDesktopTitlebarMenu` / `useAgentApprovalActions` / `useTurnFileRollback` / `useMobileSidebar`；桌面标题栏、会话头（标题/分支菜单/视图切换/⋯ 菜单）、启动屏移入 `components/app/`。`ChatPanelHostProps` 在 `ChatPanelHost.tsx` 内按「会话身份 / 消息操作 / 审批应答 / 产物跳转 / 视图状态」做类型级分组（运行时 props 仍是平铺结构，调用方零变化）。被测试钉死的接线（两处 `ChatSidebar` 实例、`GitToolsPinnedSummary` 工具条、`ChatPanelHost`/`WorkspaceInspector` 传参）刻意留在 `MainApp`。
 
 **核心状态**:
 - `storageRef` — 存储实例引用

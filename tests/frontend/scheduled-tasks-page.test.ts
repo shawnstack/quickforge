@@ -26,7 +26,7 @@ vi.mock('../../src/components/ui/confirm-dialog', () => ({ showConfirm: vi.fn() 
 import { ScheduledTasksPage } from '../../src/components/scheduled-tasks/ScheduledTasksPage'
 import { showConfirm } from '../../src/components/ui/confirm-dialog'
 
-type Node = ReactElement<{ children?: unknown; onClick?: () => unknown; onChange?: (event: { target: { value: string } }) => void; value?: unknown; type?: string; disabled?: boolean; checked?: boolean; 'aria-pressed'?: boolean; 'aria-label'?: string }>
+type Node = ReactElement<{ children?: unknown; onClick?: () => unknown; onChange?: (event: { target: { value: string } }) => void; onKeyDown?: (event: { key: string; preventDefault: () => void; stopPropagation: () => void }) => void; role?: string; tabIndex?: number; value?: unknown; type?: string; disabled?: boolean; checked?: boolean; 'aria-pressed'?: boolean; 'aria-label'?: string }>
 function nodes(tree: unknown): Node[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
   if (!tree || typeof tree !== 'object' || !('props' in tree)) return []
@@ -85,6 +85,26 @@ beforeEach(() => {
 })
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe('ScheduledTasksPage task row keyboard access', () => {
+  it('opens task details from the keyboard on the task row main area', () => {
+    harness.states[0] = [{ ...taskFixture }]
+    const main = render().find((node) => (
+      node.type === 'div'
+      && node.props.role === 'button'
+      && text(node.props.children).includes('Old task')
+    ))
+    expect(main).toBeDefined()
+    expect(main!.props.tabIndex).toBe(0)
+
+    const preventDefault = vi.fn()
+    const stopPropagation = vi.fn()
+    main!.props.onKeyDown?.({ key: 'Enter', preventDefault, stopPropagation })
+    expect(preventDefault).toHaveBeenCalledOnce()
+    expect(stopPropagation).toHaveBeenCalledOnce()
+    expect(harness.states[4]).toBe('old')
+  })
+})
 
 describe('ScheduledTasksPage manual frequency interactions', () => {
   it('edits a legacy weekly task without converting it to Cron', async () => {

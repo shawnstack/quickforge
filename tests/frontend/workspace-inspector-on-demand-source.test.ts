@@ -1,20 +1,25 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
+// Inspector 已拆分为 shell + 专用 hook/子组件：源码契约断言跟随实现迁移到对应文件。
 const source = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+const treeHook = readFileSync(new URL('../../src/components/workspace/useWorkspaceTree.ts', import.meta.url), 'utf8')
+const readerHook = readFileSync(new URL('../../src/components/workspace/useWorkspaceReader.ts', import.meta.url), 'utf8')
+const treePanel = readFileSync(new URL('../../src/components/workspace/WorkspaceTreePanel.tsx', import.meta.url), 'utf8')
+const reviewPanel = readFileSync(new URL('../../src/components/workspace/WorkspaceReviewPanel.tsx', import.meta.url), 'utf8')
 
 describe('workspace inspector on-demand source wiring', () => {
   it('renders a manual Git error retry that forces loadGitStatus', () => {
-    expect(source).toMatch(/shouldShowWorkspaceGitRetry\(gitLoadStatus\)[\s\S]*?onClick=\{\(\) => void loadGitStatus\(true\)\}/)
+    expect(reviewPanel).toMatch(/shouldShowWorkspaceGitRetry\(gitLoadStatus\)[\s\S]*?onClick=\{\(\) => void loadGitStatus\(true\)\}/)
   })
 
   it('loads the tree root from Inspector open state without coupling it to Git', () => {
-    expect(source).toMatch(/shouldLoadWorkspaceTreeRoot\(open, workspaceTreeDirectory\(treeState, '\.'\)\.status\)[\s\S]*?void loadTreeDirectory\('\.'\)/)
+    expect(treeHook).toMatch(/shouldLoadWorkspaceTreeRoot\(open, workspaceTreeDirectory\(treeState, '\.'\)\.status\)[\s\S]*?void loadTreeDirectory\('\.'\)/)
   })
 
   it('routes search refresh and search error retry through runWorkspaceSearch', () => {
-    expect(source).toMatch(/workspaceRefreshTarget\(filter\) === 'search'\) void runWorkspaceSearch\(filter\)/)
-    expect(source).toMatch(/searchState\.status === 'error'[\s\S]*?onClick=\{\(\) => void runWorkspaceSearch\(filter\)\}/)
+    expect(treePanel).toMatch(/workspaceRefreshTarget\(filter\) === 'search'\) void runWorkspaceSearch\(filter\)/)
+    expect(treePanel).toMatch(/searchState\.status === 'error'[\s\S]*?onClick=\{\(\) => void runWorkspaceSearch\(filter\)\}/)
   })
 })
 
@@ -26,20 +31,20 @@ describe('workspace inspector review request wiring', () => {
 
 describe('workspace inspector cache wiring', () => {
   it('seeds and writes the directory cache inside loadTreeDirectory', () => {
-    expect(source).toMatch(/readWorkspaceDirectoryCache\(resolveServerCacheKey\(\), projectId, directoryPath\)/)
-    expect(source).toMatch(/isWorkspaceDirectoryCacheFresh\(cached\)/)
-    expect(source).toMatch(/writeWorkspaceDirectoryCache\(resolveServerCacheKey\(\), projectId, directoryPath,/)
+    expect(treeHook).toMatch(/readWorkspaceDirectoryCache\(resolveServerCacheKey\(\), projectId, directoryPath\)/)
+    expect(treeHook).toMatch(/isWorkspaceDirectoryCacheFresh\(cached\)/)
+    expect(treeHook).toMatch(/writeWorkspaceDirectoryCache\(resolveServerCacheKey\(\), projectId, directoryPath,/)
   })
 
   it('reads the file cache and validates it against the meta endpoint', () => {
-    expect(source).toMatch(/readWorkspaceFileCache\(serverKey, projectId,/)
-    expect(source).toMatch(/getWorkspaceFileMeta\(projectId,/)
-    expect(source).toMatch(/workspaceFileMatchesMeta\(cached, meta\)/)
-    expect(source).toMatch(/writeWorkspaceFileCache\(serverKey, projectId, file\)/)
+    expect(readerHook).toMatch(/readWorkspaceFileCache\(serverKey, projectId,/)
+    expect(readerHook).toMatch(/getWorkspaceFileMeta\(projectId,/)
+    expect(readerHook).toMatch(/workspaceFileMatchesMeta\(cached, meta\)/)
+    expect(readerHook).toMatch(/writeWorkspaceFileCache\(serverKey, projectId, file\)/)
   })
 
   it('restores and persists expanded directory paths', () => {
-    expect(source).toMatch(/readWorkspaceExpandedCache\(resolveServerCacheKey\(\), projectId\)/)
-    expect(source).toMatch(/writeWorkspaceExpandedCache\(resolveServerCacheKey\(\), projectId, \[\.\.\.next\]\)/)
+    expect(treeHook).toMatch(/readWorkspaceExpandedCache\(resolveServerCacheKey\(\), projectId\)/)
+    expect(treeHook).toMatch(/writeWorkspaceExpandedCache\(resolveServerCacheKey\(\), projectId, \[\.\.\.next\]\)/)
   })
 })

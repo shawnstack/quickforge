@@ -1,3 +1,36 @@
+# 当前交接：frontend-god-components-split-round-3（done，2026-10-26）
+
+- Current Objective（当前目标）：按前端只读评审的 P0–P6 建议完成行为保真整改，不影响功能与产品体验。
+- 结论（一句话）：P0 可访问性/alert 修复；P1 ChatPanelHost 2270 → 1750 行；P2 ScheduledTasksPage 1270 → 532；P3 WorkspaceInspector 2003 → 544（独立 feature）；P4 GitToolsPinnedSummary 1124 → 253；P5 App 2028 → 1970（置顶摘要 view-model）；P6 ServerAgent 抽取 SessionLeaseController + GoalStateController。全量 429/429 测试文件通过。
+- 改动文件：`src/components/chat/panel-wiring/`（5 个 setup 模块）、`src/components/scheduled-tasks/`（state/data/form/types/sections）、`src/components/workspace/`（useWorkspaceTree/useWorkspaceReader + 6 个展示组件 + 2 个工具）、`src/components/git/`（layout/DesktopWidget/Sections/Capsule）、`src/hooks/usePinnedSummaryModel.ts`、`src/lib/session-lease-controller.ts`、`src/lib/goal-state-controller.ts`、`src/lib/server-agent.ts`、`src/App.tsx`、`src/components/workspace/useInspectorLayout.ts`、`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/surface/MessageEditor.tsx`、`src/lib/i18n.ts`、`src/styles/settings/controls.css`；对应测试与 docs/wiki 已同步。
+- Evidence（验证）：`npm run test` → 429 files / 4984 passed / 2 skipped；`npm run lint` → 0 error（仅既有 `usePinnedSummaryCapsule` exhaustive-deps warning）；`npm run build` → 成功（仅既有 chunk 体积警告）；`npx tsc -b` → 通过。定向覆盖：ScheduledTasksPage 50、PinnedSummary 71、Workspace 88、ChatPanelHost 314/315（唯一失败为已同步的旧 console shadow 断言）、ServerAgent/Goal/Lease 187、file-rollback-api 14。
+- Blockers（阻塞）：无构建/测试阻塞。P6 仅完成租约与 Goal 两个协作者，SSE/消息缓存/审批仍在 `ServerAgent`；P1 主 effect 仍有 838 行，`decorate()` 本体/agent 事件扇出/scroll sync 因 DOM 契约留在 host。未做真实窗口目视冒烟。
+- Next Session（下一步）：① 如需继续 P6，可抽 SSE transport / 消息缓存 / 审批协作者；② 如需继续 P1，可把 decorate 本体按过程折叠/产物卡/滚动分块，但需先补 characterization tests；③ 真机冒烟：任务行键盘、Inspector 键盘调宽、Tab 键盘排序/关闭、聊天气泡与过程折叠、Pinned summary 拖拽/挂起、Goal 预算/编辑、定时任务列表/历史。未创建 Git commit，未手工修改生成产物。
+
+---
+
+# 当前交接：workspace-inspector-module-split（done，2026-10-26）
+
+- Current Objective（当前目标）：行为保真拆分 `WorkspaceInspector.tsx`（2003 行），不改变 UI/DOM/class/aria、tab 持久化、请求 scope guard、i18n 与测试期望。
+- 结论（一句话）：入口缩到 544 行，职责拆为 `useWorkspaceTree.ts` / `useWorkspaceReader.ts` + `WorkspaceTabStrip` / `WorkspaceInspectorHeader` / `WorkspacePanelLanding` / `WorkspaceTreePanel` / `WorkspaceReviewPanel` / `WorkspaceReaderPanel` + `workspace-panel-tabs.ts` / `workspace-path-utils.ts`；元素/handler/aria/className 计数与原文件逐项相等。
+- 改动文件：上述 10 个新模块 + `WorkspaceInspector.tsx`、7 个源码契约测试（断言指向迁移后文件，语义不变）、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：定向 vitest 76 passed（workspace-inspector-* + inspector-layout/git-hooks + workspace-diff-*）；workspace/goal 相关 33 文件 461 passed；全量 vitest 426/429（3 个失败均为既有 WIP：tool-output.css 阴影删除、server-agent.ts rollback、scheduled-tasks 并发 flake 单跑通过）；`npx eslint .` 0 error（仅既有 warning）；`npx tsc -b` 无新增错误。
+- Blockers（阻塞）：工作区既有 WIP 导致 `npm run build`（tsc -b）仍失败于 ChatPanelHost/composer-input，与本次拆分无关；`chat-surface-css-contract` / `file-rollback-api` 需等对应 WIP 收尾；未在真实窗口目视冒烟（无可见浏览器），靠源码契约测试 + DOM 计数对齐兜底。
+- Next Session（下一步）：① WIP 收尾后跑 `npm run test` / `npm run lint` / `npm run build` 全绿；② 真实窗口冒烟：打开/关闭 tab、拖拽排序（含键盘）、下拉列表滚动、Files 搜索/刷新/展开、Review diff 空态、reader 刷新、命令日志 tab、全屏切换；③ 如需继续拆分可把 `WorkspaceOverview`/`InlineReader` 再拆为独立叶子文件。未创建 Git commit，未触碰生成产物。
+
+---
+
+# 当前交接：console-scroll-shadow-remove（done，2026-10-26）
+
+- Current Objective（当前目标）：用户反馈「运行命令的 tools 详情」右侧出现阴影，确认来源后选择「直接去掉左右两侧阴影」。
+- 结论（一句话）：右侧阴影不是卡片投影，而是 `.qf-console-scroll` 的横向溢出内阴影（`data-overflow-end`），且因垂直滚动条占宽被误判为常亮；已删除该提示的三条 `box-shadow` 规则。
+- 改动文件：`src/styles/chat/tool-output.css`（删除 `[data-overflow-start|end=true]` 与叠加规则，注释同步）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：`npx vitest run tests/frontend/tool-renderer-shared-state.test.ts` 21 passed；`npm run lint` 0 error（仅既有 `GitToolsPinnedSummary` exhaustive-deps warning）。
+- Blockers（阻塞）：未在用户正在使用的实例里目视复验（单实例 guard）；改动为纯 CSS 删除，风险低。
+- Next Session（下一步）：如需恢复横向溢出提示，改用淡出遮罩或文本提示而不是两侧内阴影；`syncConsoleScrollFades` 与 data 属性保留未删，恢复时只加 CSS 即可。未创建 Git commit，未触碰生成产物。
+
+---
+
 # 当前交接：project-create-in-workspace（done，2026-10-26）
 
 - Current Objective（当前目标）：用户要求项目选择器里「选择项目目录」下面增加「创建项目」，并直接在 workspace 下创建；先看 HTML 交互原型，确认后落地实现。

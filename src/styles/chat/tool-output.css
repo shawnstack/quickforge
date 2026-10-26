@@ -44,7 +44,8 @@
 }
 
 /* 命令控制台锁在对话列宽内。长命令不换行、不撑开对话框：
-   滚动发生在控制台内部。H5 不用 mask 裁字，只在溢出侧加滚动提示。 */
+   滚动发生在控制台内部。H5 不用 mask 裁字，横向溢出也不再加两侧内阴影
+   （`data-overflow-start/end` 仍由 SyncConsoleScrollFades 写，但不再有视觉效果）。 */
 .qf-chat-panel .qf-tool-message,
 .qf-chat-panel .quickforge-process-body,
 .qf-chat-panel .quickforge-process-body-inner,
@@ -79,19 +80,6 @@
   scrollbar-width: thin;
 }
 
-.qf-console-scroll[data-overflow-start="true"] {
-  box-shadow: inset 10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent);
-}
-
-.qf-console-scroll[data-overflow-end="true"] {
-  box-shadow: inset -10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent);
-}
-
-.qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {
-  box-shadow:
-    inset 10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent),
-    inset -10px 0 8px -8px color-mix(in oklab, var(--foreground) 28%, transparent);
-}
 
 .quickforge-diff-view {
   display: flex;

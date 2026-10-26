@@ -295,17 +295,18 @@ describe('workspace inspector tabs persistence', () => {
   })
 
   it('renders subagent run tabs with the Bot icon reused from the subagent design', () => {
-    const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+    // 菜单与可排序 strip 已拆到 WorkspaceTabStrip.tsx，图标契约随实现迁移。
+    const tabStripSource = readFileSync(new URL('../../src/components/workspace/WorkspaceTabStrip.tsx', import.meta.url), 'utf8')
 
-    expect(inspectorSource).toContain("tab.kind === 'subagent' ? <Bot className=\"size-4 shrink-0\" />")
-    expect(inspectorSource).toContain("tab.kind === 'subagent' ? (")
-    expect(inspectorSource).toContain('<Bot className={cn(\'size-4 shrink-0\'')
-    expect(inspectorSource).not.toContain('SquareActivity')
-    expect(inspectorSource).toContain("Bot, Check, ChevronDown")
+    expect(tabStripSource).toContain("tab.kind === 'subagent' ? <Bot className=\"size-4 shrink-0\" />")
+    expect(tabStripSource).toContain("tab.kind === 'subagent' ? (")
+    expect(tabStripSource).toContain('<Bot className={cn(\'size-4 shrink-0\'')
+    expect(tabStripSource).not.toContain('SquareActivity')
+    expect(tabStripSource).toMatch(/import \{ Bot, ChevronDown[^}]*\} from 'lucide-react'/)
   })
 
   it('selects the shared Goal icon in both tab entry source contracts, retaining other icon fallbacks', () => {
-    const source = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+    const source = readFileSync(new URL('../../src/components/workspace/WorkspaceTabStrip.tsx', import.meta.url), 'utf8')
     expect(source).toContain("import { GoalIcon } from '@/components/goal-icon'")
     const menu = source.slice(source.indexOf('{tabListOpen ? ('), source.indexOf('<DndContext'))
     const strip = source.slice(source.indexOf('<SortableContext'), source.indexOf('</SortableContext>'))

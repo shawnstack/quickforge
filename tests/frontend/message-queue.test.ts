@@ -16,7 +16,12 @@ import {
 } from '@/lib/message-queue'
 import { appCss } from '../helpers/app-css'
 
-const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+// Queue lifecycle wiring moved to `panel-wiring/message-queue.ts`; the host
+// keeps the call sites. Read both so the contract stays pinned end to end.
+const hostSource = [
+  readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/chat/panel-wiring/message-queue.ts', import.meta.url), 'utf8'),
+].join('\n')
 const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
 const controllerSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-queue.ts', import.meta.url), 'utf8')
 const todoSource = readFileSync(new URL('../../src/components/chat/panel-decoration/todo-write-summary.ts', import.meta.url), 'utf8')
@@ -148,7 +153,7 @@ describe('message queue source contracts', () => {
     expect(hostSource).toContain("endedStatus === 'aborted' || endedStatus === 'error'")
     // Steering goes through ServerAgent.steer with a client timestamp so the
     // optimistic copy reconciles with the server echo by role+timestamp.
-    expect(hostSource).toContain("await (agent as ServerAgent).steer({ role: 'user', content: item.text, timestamp: Date.now() })")
+    expect(hostSource).toContain("await serverAgent.steer({ role: 'user', content: item.text, timestamp: Date.now() })")
     expect(hostSource).not.toContain('steerSessionMessage')
     expect(hostSource).toContain('queuedPromptTimer = window.setTimeout(')
     expect(hostSource).toContain('const head = messageQueue.getState().items[0]')
@@ -249,7 +254,7 @@ describe('message queue source contracts', () => {
     const drainIndex = hostSource.indexOf('drainStoredMessageQueue(sessionId')
     const cleanupSaveIndex = hostSource.lastIndexOf('saveStoredMessageQueueState(sessionId, messageQueue.getState())')
     expect(drainIndex).toBeGreaterThan(cleanupSaveIndex)
-    expect(hostSource).toContain('void drainStoredMessageQueue(sessionId, agent as ServerAgent)')
+    expect(hostSource).toContain('void drainStoredMessageQueue(sessionId, serverAgent)')
     expect(hostSource).toContain('savedQueue.items.length > 0 && !savedQueue.paused && !agent.state.isStreaming')
   })
 
@@ -257,7 +262,7 @@ describe('message queue source contracts', () => {
     // Mount restore has no agent_end to come — reuse the regular 250ms
     // auto-send scheduling (submitQueuedPrompt) for the hydrated head.
     const restoreIndex = hostSource.indexOf('messageQueue.hydrate(storedQueue)')
-    const fallbackEnd = hostSource.indexOf('// Restore draft', restoreIndex)
+    const fallbackEnd = hostSource.indexOf('onAgentEnd(status)', restoreIndex)
     expect(restoreIndex).toBeGreaterThan(-1)
     expect(fallbackEnd).toBeGreaterThan(restoreIndex)
     const fallback = hostSource.slice(restoreIndex, fallbackEnd)

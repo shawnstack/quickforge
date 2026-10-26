@@ -11,11 +11,22 @@ import {
 } from '../../src/lib/chat-capabilities'
 
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
-const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+// Inspector 已拆分为 shell + 面板/hook：源码契约断言对迁移后的文件合集生效。
+const inspectorSource = [
+  readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/WorkspaceInspectorHeader.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/WorkspacePanelLanding.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/workspace-panel-tabs.ts', import.meta.url), 'utf8'),
+].join('\n')
 const tabSource = readFileSync(new URL('../../src/components/workspace/useInspectorTabs.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const clientSource = readFileSync(new URL('../../src/components/workspace/side-chat-client.ts', import.meta.url), 'utf8')
-const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
+// Composer suggestion wiring moved to `panel-wiring/composer-suggestions.ts`;
+// the host still owns every ChatSurface prop asserted below.
+const hostSource = [
+  readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/chat/panel-wiring/composer-suggestions.ts', import.meta.url), 'utf8'),
+].join('\n')
 const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
 const messageActionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
 const surfaceSource = readFileSync(new URL('../../src/components/chat/ChatConversationSurface.tsx', import.meta.url), 'utf8')

@@ -3,7 +3,13 @@ import { describe, expect, it } from 'vitest'
 
 // WorkspaceInspector/InlineDiffPreview 是依赖 Monaco/i18n 浏览器链路的 React 组件，
 // 这里按 assistant-artifact-card.test.ts 的源码契约风格断言（不做 DOM 挂载）。
-const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+// Inspector 已拆分为 shell + reader 面板/hook + review 面板：断言按迁移后的文件合集检查。
+const inspector = [
+  readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/WorkspaceReaderPanel.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/useWorkspaceReader.ts', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/WorkspaceReviewPanel.tsx', import.meta.url), 'utf8'),
+].join('\n')
 const gitReview = readFileSync(new URL('../../src/components/workspace/useInspectorGit.ts', import.meta.url), 'utf8')
 const changesList = readFileSync(new URL('../../src/components/workspace/WorkspaceChangesList.tsx', import.meta.url), 'utf8')
 const diffPreview = readFileSync(new URL('../../src/components/workspace/WorkspaceInlineDiffPreview.tsx', import.meta.url), 'utf8')

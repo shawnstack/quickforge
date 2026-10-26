@@ -26,6 +26,7 @@ import type { GoalAction, GoalState } from '@/lib/goal'
 import type { CapabilitySuggestion } from '../capability-suggestions'
 import type { AgentAccessMode } from '@/lib/types'
 import { t } from '@/lib/i18n'
+import { showAlert } from '@/components/ui/confirm-dialog'
 import { MessageList } from './MessageList'
 import { MessageEditor } from './MessageEditor'
 import { TodoWriteSummary } from './TodoWriteSummary'
@@ -1285,7 +1286,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         prompt: (message) => (typeof message === 'string' ? agent.prompt(message) : agent.prompt(message)),
         onError: (message) => {
           console.error(message)
-          window.alert(message)
+          void showAlert(message)
         },
       })
     },

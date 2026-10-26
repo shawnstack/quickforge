@@ -12,27 +12,16 @@ import { getLocalWorkspaceTools } from '@/lib/local-tools'
 import type { ComposerDraft, CustomCommandSummary, MessageWithUsage } from './chat-utils'
 import { emptyDraft, hasDraft } from './chat-utils'
 import { createScrollSync } from './scroll-sync'
-import { createCommandSuggestions } from './command-suggestions'
-import { fetchSlashCatalog } from '@/lib/slash-catalog'
-import { createCapabilitySuggestions, type CapabilitySuggestion } from './capability-suggestions'
-import { createTaskLauncher } from './task-launcher'
-import { createFileReferenceSuggestions, canUseFileReferenceSuggestions } from './file-reference-suggestions'
+import { type CapabilitySuggestion } from './capability-suggestions'
 import { createContextUsageIndicator, type ContextUsageDisplayInfo } from './context-usage'
 import { createTurnNavigation } from './turn-navigation'
 import {
   decorateMessages,
   decorateStreamingMessages,
   decorateEditor,
-  captureComposerDraft,
   readComposerDraft,
-  restoreComposerDraft,
   scheduleComposerDraftRestore,
-  injectApprovalCard,
-  removeApprovalCard,
-  injectAskUserCard,
-  removeAskUserCard,
   createScrollToBottomButton,
-  createMessageQueuePanelController,
   createTurnErrorTracker,
   removeSubagentRunningIndicator,
   type ComposerDraftRestoreHandle,
@@ -40,10 +29,10 @@ import {
 import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import { scheduleAfterPaint } from '@/lib/schedule-after-paint'
-import { markSessionOpen, recordFirstDecorateTiming } from '@/lib/session-open-timing'
-import { subscribeSessionViewActivity, isInsideHiddenView, isSessionViewActive } from '@/lib/session-view-activity'
+import { markSessionOpen } from '@/lib/session-open-timing'
+import { subscribeSessionViewActivity, isSessionViewActive } from '@/lib/session-view-activity'
 import { createMessageRowSnapshot } from './panel-decoration/message-rows'
-import { createChatDecorateScheduler, type ChatDecorateMode } from './panel-decoration/decorate-scheduler'
+import type { ChatDecorateMode } from './panel-decoration/decorate-scheduler'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { extractSessionArtifacts, extractToolExecutionArtifacts, type AiTurnArtifact } from '@/lib/tool-artifacts'
 import type { ToolExecutionEvent } from '@/lib/tool-execution-events'
@@ -56,18 +45,16 @@ import type { ChatScope, ProjectInfo, RestoredDraft, AgentAccessMode } from '@/l
 import {
   buildComposerDraftKey,
   clearComposerDraft,
-  loadComposerDraft,
   saveComposerDraft,
   createComposerDraftRestoreGuard,
   rememberConsumedRestoredDraftId,
   type ComposerDraftContext,
 } from '@/lib/composer-drafts'
-import {
-  loadStoredMessageQueueState,
-  saveStoredMessageQueueState,
-  type QueuedMessage,
-} from '@/lib/message-queue'
-import { drainStoredMessageQueue } from '@/lib/message-queue-drainer'
+import { createComposerInputWiring } from './panel-wiring/composer-input'
+import { setupComposerSuggestions } from './panel-wiring/composer-suggestions'
+import { setupMessageQueueWiring } from './panel-wiring/message-queue'
+import { setupDecoratePipeline } from './panel-wiring/decorate-pipeline'
+import { syncPendingApprovalCards, type ApprovalCardsAgent } from './panel-wiring/approval-cards'
 
 type AgentLike = ServerAgent | SharedServerAgent | DeferredSessionAgent | SideChatAgent
 
@@ -797,41 +784,15 @@ export function ChatPanelHost({
     const currentDraftContext = draftContextRef.current
     let disposed = false
     let observer: MutationObserver | undefined
-    let composerClearedForSend = false
-    let initialComposerStateReady = false
-    let composerInteracted = false
     setReplyWaiting(agent.state.isStreaming)
-    let toolUpdateScheduled = false
-    let processHandoffGeneration = 0
     let cancelInitialRenderReady: (() => void) | undefined
     /** 后台补齐历史的取消句柄（idle callback 或 timeout），与首帧通知分开管理。 */
     let cancelHydration: (() => void) | undefined
     let idleHandle: number | undefined
     let hydrationTimer: number | undefined
 
-    /**
-     * Capture / persist (or clear) this session's composer draft.
-     *
-     * Session views are kept mounted while hidden, so the unmount cleanup below
-     * no longer runs on every session switch. The draft must still be flushed at
-     * that moment: while typing it is only persisted on a 400ms debounce, so
-     * without this the last keystrokes before a switch would be lost.
-     *
-     * Extracted (rather than inlined in cleanup) so deactivation and unmount go
-     * through exactly the same rules — anything else would let the two paths
-     * disagree about when a draft is cleared.
-     */
-    const flushComposerDraft = () => {
-      if (sideChatMode) {
-        sideChatInputMemory?.set(readComposerDraft(panel).text)
-      } else if (composerClearedForSend) {
-        composerDraftsRef.current.delete(currentDraftKey)
-        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-      } else if (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)) {
-        captureComposerDraft(panel, composerDraftsRef.current, currentDraftKey)
-        persistCurrentComposerDraft(panel, currentDraftKey, currentDraftContext)
-      }
-    }
+    // Draft capture/flush (including the "kept view left the screen" rule) is
+    // owned by `composerInput`; see `panel-wiring/composer-input.ts`.
 
     /**
      * Publish "this view's content is on screen" to the host.
@@ -915,7 +876,7 @@ export function ChatPanelHost({
       (active) => {
         if (disposed) return
         if (!active) {
-          flushComposerDraft()
+          composerInput.flushComposerDraft()
           return
         }
         // Returning to this view must behave exactly like the remount it used
@@ -969,7 +930,7 @@ export function ChatPanelHost({
           consumeRestoredDraft(draft.id)
         }
         cancelPendingDraftSave()
-        composerClearedForSend = true
+        composerInput.markComposerClearedForSend()
         cmdSuggestions.remove()
         composerDraftsRef.current.delete(currentDraftKey)
         void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
@@ -1016,165 +977,85 @@ export function ChatPanelHost({
     // `enableConnectionNotices={!sideChatMode}` 关掉。
     let turnNavigation: ReturnType<typeof createTurnNavigation> | null = null
 
-    const restoreSuggestionDraft = (draft: ComposerDraft) => {
-      restoreComposerDraft(panel, draft, composerDraftsRef.current, currentDraftKey)
-      schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
-    }
-    // --- Command suggestions subsystem ---
-    const cmdSuggestions = createCommandSuggestions({
+    // Composer draft lifecycle is created before the suggestion wiring because
+    // the task launcher asks for its readiness flag synchronously when it
+    // renders for the first time.
+    const composerInput = createComposerInputWiring({
       panel,
-      getCustomCommands: () => customCommandsRef.current,
-      getComposerDrafts: () => composerDraftsRef.current,
-      sessionId: currentDraftKey,
-      setComposerDrafts: (drafts) => { composerDraftsRef.current = drafts },
-      restoreDraftIntoComposer: restoreSuggestionDraft,
-      loadSlashCatalog: () => fetchSlashCatalog(slashCatalogProjectIdRef.current),
+      hostRef,
+      sideChatMode,
+      sideChatInputMemory,
+      sessionId,
+      currentDraftKey,
+      currentDraftContext,
+      composerDraftsRef,
+      readyComposerPanels,
+      draftRestoreGuard,
+      restoredDraftRef,
+      restoredDraftIdRef,
+      restoredDraftRestoreRef,
+      applyingRestoredDraftRef,
+      isDisposed: () => disposed,
+      cancelRestoredDraftRestore,
+      cancelPendingDraftSave,
+      schedulePersistDraft,
+      persistCurrentComposerDraft,
+      consumeRestoredDraft,
+      restoreDraftForSession,
+      getSelectedCapabilities: () => capabilitySuggestions.snapshotSelectedCapabilities(),
+      restoreSelectedCapabilities: (capabilities) => capabilitySuggestions.restoreSelectedCapabilities(capabilities),
+      syncTaskLauncher: () => taskLauncher?.sync(),
+      scheduleDecorate: () => scheduleDecorateRef.current?.(),
     })
 
-    // --- Plugin capability selection subsystem (+ menu only; never inferred from @ text) ---
-    const capabilitySuggestions = createCapabilitySuggestions({
+    // --- Command / capability / file-reference suggestions + task launcher ---
+    const {
+      cmdSuggestions,
+      capabilitySuggestions,
+      taskLauncher,
+      fileReferenceSuggestions,
+      cleanup: cleanupSuggestions,
+    } = setupComposerSuggestions({
       panel,
-      enabled: effectiveCapabilities.capabilitySuggestions,
-      restoreDraftIntoComposer: restoreSuggestionDraft,
-    })
-    // The "+" menu is rendered by the surface, but its data comes from this
-    // subsystem: publish the handlers on the same ref the surface reads.
-    if (surfaceSendHooksRef.current) {
-      surfaceSendHooksRef.current.availablePluginRows = capabilitySuggestions.availablePluginRows
-      surfaceSendHooksRef.current.selectPluginCapability = capabilitySuggestions.selectPlugin
-    }
-
-    const taskLauncher = taskLauncherEnabled && !sideChatMode && !readOnly && !('shareId' in agent)
-      ? createTaskLauncher({
-          panel,
-          visible: () => taskLauncherStateRef.current.visible && !agent.state.isStreaming && agent.state.messages.length === 0,
-          read: () => readComposerDraft(panel),
-          restore: restoreSuggestionDraft,
-          interact: () => handleComposerInteraction(),
-          ready: () => !disposed && (initialComposerStateReady || composerInteracted || readyComposerPanels.has(panel)),
-          capabilities: capabilitySuggestions,
-          capabilitiesEnabled: effectiveCapabilities.capabilitySuggestions,
-        })
-      : null
-
-    // --- @ current-project file reference subsystem ---
-    const fileReferenceSuggestions = createFileReferenceSuggestions({
-      panel,
+      currentDraftKey,
+      currentDraftContext,
+      composerDraftsRef,
+      customCommandsRef,
+      slashCatalogProjectIdRef,
+      schedulePersistDraft,
+      surfaceSendHooksRef,
+      taskLauncherStateRef,
+      handleComposerInteraction: composerInput.handleComposerInteraction,
+      isComposerReady: composerInput.isReady,
+      isDisposed: () => disposed,
+      taskLauncherEnabled,
+      sideChatMode,
+      readOnly,
+      capabilitiesEnabled: effectiveCapabilities.capabilitySuggestions,
+      agent,
       projectId: project?.id ?? projectId,
-      enabled: !sideChatMode && canUseFileReferenceSuggestions({
-        projectId: project?.id ?? projectId,
-        readOnly,
-        shared: 'shareId' in agent,
-      }),
-      restoreDraftIntoComposer: restoreSuggestionDraft,
-      removeCommandSuggestions: cmdSuggestions.remove,
-      removeCapabilitySuggestions: capabilitySuggestions.remove,
-      // The "+" popover is React-owned and closes itself when a suggestion menu
-      // opens (both see the same outside pointerdown), so no remover is needed.
     })
 
     // --- Queued composer messages (Enter during streaming enqueues) ---
-    const messageQueueActive = () => (
-      !sideChatMode
-      && !readOnly
-      && typeof (agent as ServerAgent).prompt === 'function'
-    )
-    let queuedPromptTimer: number | undefined
-    let queuedPromptInFlight: QueuedMessage | undefined
-    const cancelQueuedPrompt = () => {
-      if (queuedPromptTimer === undefined) return
-      window.clearTimeout(queuedPromptTimer)
-      queuedPromptTimer = undefined
-    }
-    const submitQueuedPrompt = (item: QueuedMessage) => {
-      queuedPromptTimer = undefined
-      if (disposed) return
-      if (agent.state.isStreaming) {
-        // Keep the head in the queue until a prompt is actually accepted.
-        return
-      }
-      queuedPromptInFlight = item
-      void Promise.resolve()
-        .then(() => (agent as ServerAgent).prompt(item.text))
-        .then(() => {
-          if (disposed) return
-          queuedPromptInFlight = undefined
-          messageQueue.removeItem(item.id)
-          saveStoredMessageQueueState(sessionId, messageQueue.getState())
-        })
-        .catch((error) => {
-          if (disposed) return
-          queuedPromptInFlight = undefined
-          logger.warn('Failed to auto-send queued message:', error)
-          messageQueue.setPaused(true)
-          saveStoredMessageQueueState(sessionId, messageQueue.getState())
-        })
-    }
-    let messageQueuePersistTimer: number | undefined
-    const cancelMessageQueuePersist = () => {
-      if (messageQueuePersistTimer === undefined) return
-      window.clearTimeout(messageQueuePersistTimer)
-      messageQueuePersistTimer = undefined
-    }
-    const schedulePersistMessageQueue = () => {
-      if (!messageQueueActive()) return
-      cancelMessageQueuePersist()
-      messageQueuePersistTimer = window.setTimeout(() => {
-        messageQueuePersistTimer = undefined
-        saveStoredMessageQueueState(sessionId, messageQueue.getState())
-      }, 300)
-    }
-    const messageQueue = createMessageQueuePanelController({
+    const messageQueueWiring = setupMessageQueueWiring({
       panel,
-      enabled: messageQueueActive(),
-      isStreaming: () => agent.state.isStreaming,
-      steeringEnabled: () => propsRef.current.capabilities.messageSteering
-        && typeof (agent as ServerAgent).steer === 'function',
-      onChange: () => schedulePersistMessageQueue(),
+      sessionId,
+      agent,
+      sideChatMode,
+      readOnly,
+      isDisposed: () => disposed,
+      getCapabilities: () => propsRef.current.capabilities,
       onComposerCleared: () => {
         taskLauncher?.cancel()
         cmdSuggestions.remove()
         capabilitySuggestions.remove()
         fileReferenceSuggestions.remove()
-        handleEditorInput('')
-      },
-      submitJump: async (item) => {
-        if (!propsRef.current.capabilities.messageSteering || typeof (agent as ServerAgent).steer !== 'function' || !agent.state.isStreaming) {
-          // Steering unavailable right now — send it as the next normal prompt.
-          messageQueue.moveItemToHead(item.id)
-          messageQueue.setPaused(false)
-          const head = messageQueue.consumeHead()
-          if (head) submitQueuedPrompt(head)
-          return
-        }
-        try {
-          await (agent as ServerAgent).steer({ role: 'user', content: item.text, timestamp: Date.now() })
-          if (!disposed) messageQueue.removeItem(item.id)
-        } catch (error) {
-          logger.warn('Failed to steer queued message:', error)
-        }
-      },
-      resumeQueue: () => {
-        const head = messageQueue.consumeHead()
-        if (head) submitQueuedPrompt(head)
+        composerInput.handleEditorInput('')
       },
     })
+    const messageQueue = messageQueueWiring.controller
 
-    const restoreSideChatDraft = () => {
-      if (!sideChatMode) return
-      const text = sideChatInputMemory?.get() ?? ''
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
-      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
-      if (editor) {
-        editor.value = text
-        editor.attachments = []
-        editor.contextReferences = []
-        editor.selectedCapabilities = []
-        editor.requestUpdate?.()
-      }
-      if (textarea) textarea.value = text
-    }
-    restoreSideChatDraftRef.current = sideChatMode ? restoreSideChatDraft : null
+    restoreSideChatDraftRef.current = sideChatMode ? composerInput.restoreSideChatDraft : null
 
     // --- Context usage subsystem ---
     const contextUsage = createContextUsageIndicator({
@@ -1197,87 +1078,8 @@ export function ChatPanelHost({
       },
     })
 
-    // --- Composer input/file-change handlers (update draft map) ---
-    const handleComposerInteraction = () => {
-      if (applyingRestoredDraftRef.current) return
-      composerInteracted = true
-      draftRestoreGuard.invalidate()
-      cancelRestoredDraftRestore()
-      const draft = restoredDraftRef.current
-      if (draft && (!draft.sessionId || draft.sessionId === sessionId)) {
-        consumeRestoredDraft(draft.id)
-      }
-    }
-    const updateSideChatInputMemory = (text?: string) => {
-      if (!sideChatMode) return
-      const editor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
-      const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
-      sideChatInputMemory?.set(text ?? editor?.value ?? textarea?.value ?? '')
-    }
-    const updateComposerDraft = (draft: ComposerDraft) => {
-      if (sideChatMode) {
-        updateSideChatInputMemory(draft.text)
-        return
-      }
-      if (hasDraft(draft)) {
-        composerDraftsRef.current.set(currentDraftKey, draft)
-        schedulePersistDraft(currentDraftKey, draft, currentDraftContext)
-      } else {
-        composerDraftsRef.current.delete(currentDraftKey)
-        cancelPendingDraftSave()
-        void clearComposerDraft(currentDraftKey).catch((err) => logger.error('Failed to clear composer draft:', err))
-      }
-    }
-    /**
-     * Cached `.qf-message-editor` lookup.
-     *
-     * `handleEditorInput` runs on every keystroke and used to resolve the editor
-     * node (and its `<textarea>`) with two `querySelector` calls per key. The node
-     * only changes when the surface re-mounts (session switch / agent swap), so
-     * the lookup is validated with `isConnected` and reused; the query re-runs
-     * only when the cached node was detached.
-     */
-    let cachedEditor: import('./chat-utils').MessageEditorElement | null = null
-    const resolveEditor = () => {
-      if (cachedEditor?.isConnected) return cachedEditor
-      cachedEditor = panel.querySelector<import('./chat-utils').MessageEditorElement>('.qf-message-editor')
-      return cachedEditor
-    }
-    const handleEditorInput = (value: string) => {
-      handleComposerInteraction()
-      composerClearedForSend = false
-      if (sideChatMode) {
-        updateSideChatInputMemory(value)
-        return
-      }
-      // Draft persistence needs the attachment/context/capability slots, not the
-      // textarea: the text arrives as the argument.
-      const editor = resolveEditor()
-      const attachments = editor?.attachments ? [...editor.attachments] : []
-      const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
-      const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
-      updateComposerDraft({ text: value, attachments, contextReferences, selectedCapabilities })
-    }
-    const handleEditorFilesChange = (files: unknown[]) => {
-      handleComposerInteraction()
-      composerClearedForSend = false
-      const editor = resolveEditor()
-      if (sideChatMode) {
-        if (editor) {
-          editor.attachments = []
-          editor.contextReferences = []
-          editor.selectedCapabilities = []
-          editor.requestUpdate?.()
-        }
-        updateSideChatInputMemory()
-        return
-      }
-      const contextReferences = editor?.contextReferences ? [...editor.contextReferences] : []
-      const selectedCapabilities = capabilitySuggestions.snapshotSelectedCapabilities()
-      updateComposerDraft({ text: editor?.value ?? '', attachments: files ? [...files] : [], contextReferences, selectedCapabilities })
-
-      window.requestAnimationFrame(() => scheduleDecorateRef.current?.())
-    }
+    // Composer input / file-change handlers and the draft write rules live in
+    // `panel-wiring/composer-input.ts` (`composerInput` above).
 
     const syncProcessStreamingState = () => {
       if (agent.state.isStreaming) {
@@ -1416,8 +1218,8 @@ export function ChatPanelHost({
           getPendingToolCalls: () => agent.state.pendingToolCalls,
           getBackgroundCommands: () => (agent as ServerAgent).state.backgroundCommands ?? [],
           disabledControls: sideChatMode,
-          onInput: handleEditorInput,
-          onFilesChange: handleEditorFilesChange,
+          onInput: composerInput.handleEditorInput,
+          onFilesChange: composerInput.handleEditorFilesChange,
           sessionId,
           onOpenLocalFilePath: props.onOpenLocalFilePath,
           removeCommandSuggestions: cmdSuggestions.remove,
@@ -1453,7 +1255,7 @@ export function ChatPanelHost({
               ))
               currentEditor.requestUpdate?.()
               fileReferenceSuggestions.syncChips()
-              updateSideChatInputMemory()
+              composerInput.updateSideChatInputMemory()
             })
           },
         })
@@ -1481,129 +1283,20 @@ export function ChatPanelHost({
       // The goal strip is React-rendered inside the composer
       // (surface/GoalControlStrip); no decoration pass remains for it.
 
-      if (sideChatMode) {
-        removeApprovalCard(panel)
-        removeAskUserCard(panel)
-      } else {
-      // Render or remove approval card based on pending state.
-      // Must match the current session — otherwise a pending approval from a
-      // different session would leak into this panel.
-      const pending = pendingApprovalRef.current ?? (() => {
-        const statePending = (agent as AgentWithContextCompaction).state.pendingToolApproval
-        return statePending ? { ...statePending, sessionId: agent.sessionId } : null
-      })()
-      if (pending && pending.sessionId === agent.sessionId && typeof pending.toolCallId === 'string' && typeof pending.toolName === 'string') {
-        // Capture the toolCallId now — propsRef.current may change by click time
-        const capturedToolCallId = pending.toolCallId
-        injectApprovalCard(
-          {
-            panel,
-            tone: 'warning',
-            disabled: props.approvalReadOnly,
-            disabledReason: props.approvalReadOnlyMessage,
-            onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingToolApproval = null; removeApprovalCard(panel) },
-            onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); pendingApprovalRef.current = null; (agent as AgentWithContextCompaction).state.pendingToolApproval = null; removeApprovalCard(panel) },
-          },
-          pending.toolName,
-          capturedToolCallId,
-          pending.args,
-          pending.source,
-        )
-      } else {
-        const pendingAutoCompact = pendingAutoCompactApprovalRef.current ?? (() => {
-          const statePending = (agent as AgentWithContextCompaction).state.pendingAutoCompactApproval
-          return statePending ? { ...statePending, sessionId: agent.sessionId } : null
-        })()
-        if (pendingAutoCompact && pendingAutoCompact.sessionId === agent.sessionId) {
-          const capturedApprovalId = pendingAutoCompact.approvalId
-          const autoCompactCallbacksMissing = !props.onApproveAutoCompact || !props.onRejectAutoCompact
-          const autoCompactDisabled = props.approvalReadOnly || autoCompactCallbacksMissing
-          const autoCompactDisabledReason = props.approvalReadOnly
-            ? props.approvalReadOnlyMessage
-            : autoCompactCallbacksMissing
-              ? t('autoCompactApprovalUnavailable')
-              : undefined
-          injectApprovalCard(
-            {
-              panel,
-              tone: 'info',
-              copy: {
-                status: t('autoCompactApprovalStatus'),
-                title: t('autoCompactApprovalTitle'),
-                risk: t('autoCompactApprovalRisk', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0 }),
-                approve: t('autoCompactApprovalAccept'),
-                reject: t('autoCompactApprovalReject'),
-              },
-              disabled: autoCompactDisabled,
-              disabledReason: autoCompactDisabledReason,
-              getMessages: displayMessages,
-              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0,
-              onApprove: async () => {
-                const callback = propsRef.current.onApproveAutoCompact
-                if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
-                await callback(capturedApprovalId)
-                pendingAutoCompactApprovalRef.current = null
-                ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
-                removeApprovalCard(panel)
-              },
-              onReject: async () => {
-                const callback = propsRef.current.onRejectAutoCompact
-                if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
-                await callback(capturedApprovalId)
-                pendingAutoCompactApprovalRef.current = null
-                ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
-                removeApprovalCard(panel)
-              },
-            },
-            t('contextManagement'),
-            capturedApprovalId,
-            {
-              percent: pendingAutoCompact.usage?.percent ?? 0,
-              threshold: pendingAutoCompact.thresholdPercent ?? 0,
-              keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0,
-              summary: t('autoCompactApprovalWaiting', {
-                percent: pendingAutoCompact.usage?.percent ?? 0,
-                threshold: pendingAutoCompact.thresholdPercent ?? 0,
-              }),
-              description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0 }),
-            },
-          )
-        } else {
-          removeApprovalCard(panel)
-        }
-      }
-
-      // Render or remove the ask-user card based on pending state. Same
-      // session guard as the approval card.
-      const pendingAsk = pendingAskRef.current ?? (() => {
-        const statePending = (agent as AgentWithContextCompaction & { state: { pendingAsk?: ServerAgentPendingAsk | null } }).state.pendingAsk
-        return statePending ? { ...statePending, sessionId: agent.sessionId } : null
-      })()
-      if (pendingAsk && pendingAsk.sessionId === agent.sessionId && typeof pendingAsk.askId === 'string' && Array.isArray(pendingAsk.questions) && pendingAsk.questions.length > 0) {
-        const capturedAskId = pendingAsk.askId
-        const askDisabled = props.approvalReadOnly || !propsRef.current.onAnswerAsk
-        injectAskUserCard(
-          {
-            panel,
-            disabled: askDisabled,
-            disabledReason: props.approvalReadOnly ? props.approvalReadOnlyMessage : undefined,
-            onSubmit: async (answers, remark) => {
-              await propsRef.current.onAnswerAsk?.(capturedAskId, answers, false, remark)
-              pendingAskRef.current = null
-              removeAskUserCard(panel)
-            },
-            onSkip: async () => {
-              await propsRef.current.onAnswerAsk?.(capturedAskId, [], true)
-              pendingAskRef.current = null
-              removeAskUserCard(panel)
-            },
-          },
-          pendingAsk,
-        )
-      } else {
-        removeAskUserCard(panel)
-      }
-      }
+      // Pending approval / auto-compact / ask-user cards (see
+      // `panel-wiring/approval-cards.ts`). The approval card is critical UI, so
+      // it is reconciled every pass regardless of the message decorations.
+      syncPendingApprovalCards({
+        panel,
+        agent: agent as unknown as ApprovalCardsAgent,
+        sideChatMode,
+        props,
+        propsRef,
+        pendingApprovalRef,
+        pendingAutoCompactApprovalRef,
+        pendingAskRef,
+        getMessages: displayMessages,
+      })
 
       if (props.capabilities.contextUsage) contextUsage.update()
       else contextUsage.cleanup()
@@ -1616,108 +1309,27 @@ export function ChatPanelHost({
       }
     }
 
-    // --- Schedule decoration once per frame to coalesce mutation bursts in long chats ---
-    let suppressObserverMutations = false
-    let clearSuppressObserverFrame: number | undefined
-    const clearObserverSuppression = () => {
-      if (clearSuppressObserverFrame !== undefined) return
-      clearSuppressObserverFrame = window.requestAnimationFrame(() => {
-        clearSuppressObserverFrame = undefined
-        suppressObserverMutations = false
-      })
-    }
-    const runDecorate = () => {
-      if (disposed) return
-      // A kept (hidden) view must not decorate: its layout box is `display:none`,
-      // so every `getBoundingClientRect`/`offsetHeight` it reads is 0 and the
-      // results it would write back (compact class, fold state, scroll position)
-      // are meaningless. It also has no user to serve. Decoration resumes from
-      // the activity subscription below when the view becomes visible again.
-      // Judged from the DOM rather than the activity signal: the signal is
-      // published in a layout effect, so on the commit that reveals this view the
-      // signal may still name the previous one and the first (authoritative) pass
-      // would be skipped.
-      if (isInsideHiddenView(host)) return
-      // Single-flight: `decorate` moves nodes around, so a nested pass must not
-      // interleave with the one that owns the DOM (same guard as SubagentTrace).
-      if (decorateInFlightRef.current) return
-      decorateInFlightRef.current = true
-      suppressObserverMutations = true
-      const decorateStartedAt = performance.now()
-      try {
-        decorate()
-      } finally {
-        clearObserverSuppression()
-        decorateInFlightRef.current = false
-        // 第一轮装饰在 ready 之后才跑（它在 `scheduleAfterPaint` 之后由 rAF 触发），
-        // 但它决定按钮/折叠何时可用，属于用户感知成本，单独记一次。
-        recordFirstDecorateTiming(sessionId, performance.now() - decorateStartedAt)
-      }
-    }
-    // A pure `message_update` cannot change committed rows, actions, artifact
-    // cards or composer bindings; only process folding (and its streaming
-    // hints) must be reconciled before the next paint. Full passes still run on
-    // every structural event and DOM mutation.
-    const runStreamingDecorate = () => {
-      if (disposed) return
-      if (isInsideHiddenView(host)) return
-      if (decorateInFlightRef.current) return
-      decorateInFlightRef.current = true
-      suppressObserverMutations = true
-      try {
+    // --- Decoration scheduling (rAF coalescing, streaming fast path, handoff) ---
+    const decoratePipeline = setupDecoratePipeline({
+      panel,
+      host,
+      sessionId,
+      decorate,
+      decorateStreaming: () => {
         decorateStreamingMessages(panel, messageRowSnapshot.rows(), agent.state.isStreaming)
         // Content growth can cross the back-to-bottom threshold while the user
         // is scrolled up (no scroll event fires in that case).
         scrollBottomButton.setup()
-      } catch (error) {
-        logger.warn('Failed to decorate streaming chat messages:', error)
-      } finally {
-        clearObserverSuppression()
-        decorateInFlightRef.current = false
-      }
-    }
-    const decorateScheduler = createChatDecorateScheduler(
-      (mode) => {
-        if (mode === 'streaming') runStreamingDecorate()
-        else runDecorate()
       },
-      (callback) => window.requestAnimationFrame(callback),
-      (handle) => window.cancelAnimationFrame(handle),
-    )
-    const scheduleDecorate = decorateScheduler.schedule
+      decorateFnRef,
+      decorateInFlightRef,
+      isDisposed: () => disposed,
+      syncProcessStreamingState,
+      isScrollFollowing: () => scrollSync.isEnabled,
+      scheduleScrollToBottom: () => scrollSync.scheduleScrollToBottom(),
+    })
     // Expose for the decoration trigger effect
-    decorateFnRef.current = runDecorate
-    const scheduleToolInterfaceUpdate = () => {
-      if (toolUpdateScheduled) return
-      toolUpdateScheduled = true
-      window.requestAnimationFrame(() => {
-        toolUpdateScheduled = false
-        if (disposed) return
-        syncProcessStreamingState()
-        // The React surface re-renders from agent snapshots on its own; the
-        // rAF gives that commit time to land before decoration re-aligns.
-        runDecorate()
-        if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
-      })
-    }
-    scheduleDecorateRef.current = scheduleDecorate
-    const scheduleProcessHandoff = () => {
-      const generation = ++processHandoffGeneration
-      panel.dataset.quickforgeProcessHandoff = String(generation)
-      scheduleDecorateRef.current?.()
-      window.requestAnimationFrame(() => {
-        if (!disposed && processHandoffGeneration === generation) scheduleDecorateRef.current?.()
-      })
-      const finishProcessHandoff = () => {
-        if (disposed || processHandoffGeneration !== generation) return
-        delete panel.dataset.quickforgeProcessHandoff
-        scheduleDecorateRef.current?.()
-        window.requestAnimationFrame(() => {
-          if (!disposed && processHandoffGeneration === generation) scheduleDecorateRef.current?.()
-        })
-      }
-      window.requestAnimationFrame(finishProcessHandoff)
-    }
+    scheduleDecorateRef.current = decoratePipeline.schedule
 
     // --- Initialize panel ---
     // Register MCP tool renderers for this session's tool list (the side
@@ -1741,114 +1353,18 @@ export function ChatPanelHost({
     void initializePanel.then(() => {
       if (disposed) return
 
-      // Restore queued messages persisted for this session (reload mid-turn).
-      const storedQueue = loadStoredMessageQueueState(sessionId)
-      if (storedQueue.items.length > 0 || storedQueue.paused) {
-        messageQueue.hydrate(storedQueue)
-      }
-      // Switch-back fallback: a turn settled while this session was in the
-      // background leaves a non-empty queue with no agent_end to come — reuse
-      // the regular 250ms auto-send scheduling for the restored head.
-      if (messageQueueActive() && !agent.state.isStreaming
-        && storedQueue.items.length > 0 && !storedQueue.paused
-        && queuedPromptTimer === undefined && queuedPromptInFlight === undefined) {
-        queuedPromptTimer = window.setTimeout(() => {
-          const head = messageQueue.getState().items[0]
-          if (head) submitQueuedPrompt(head)
-        }, 250)
-      }
+      // Restore queued messages persisted for this session (reload mid-turn)
+      // and, when a turn settled while the session was in the background,
+      // resume auto-sending the restored head.
+      messageQueueWiring.hydrate()
 
-      // Restore draft
-      const draft = restoredDraftRef.current
-      const restoreVersion = draftRestoreGuard.version()
-      const restoreStoredDraft = (storedDraft?: ComposerDraft) => {
-        if (sideChatMode) {
-          restoreSideChatDraft()
-          initialComposerStateReady = true
-          readyComposerPanels.add(panel)
-          return
-        }
-        if (disposed || !draftRestoreGuard.isCurrent(restoreVersion)) return
-        capabilitySuggestions.restoreSelectedCapabilities(storedDraft?.selectedCapabilities ?? [])
-        if (draft && restoredDraftIdRef.current !== draft.id) {
-          restoreDraftForSession(panel, draft, sessionId, currentDraftKey)
-        } else {
-          const draftToRestore = storedDraft ?? composerDraftsRef.current.get(currentDraftKey) ?? emptyDraft()
-          if (!hasDraft(draftToRestore)) {
-            initialComposerStateReady = true
-            taskLauncher?.sync()
-          }
-          cancelRestoredDraftRestore()
-          restoredDraftRestoreRef.current = scheduleComposerDraftRestore(panel, draftToRestore, composerDraftsRef.current, currentDraftKey, {
-            shouldApply: () => (
-              !disposed
-              && draftRestoreGuard.isCurrent(restoreVersion)
-              && panel.isConnected
-              && Boolean(hostRef.current?.contains(panel))
-            ),
-            onApplyStart: () => { applyingRestoredDraftRef.current = true },
-            onApplyEnd: () => { applyingRestoredDraftRef.current = false },
-            onApplied: () => {
-              initialComposerStateReady = true
-              readyComposerPanelsRef.current.add(panel)
-              taskLauncher?.sync()
-            },
-          })
-        }
-      }
-      if (sideChatMode) {
-        restoreStoredDraft()
-      } else if (draft && restoredDraftIdRef.current !== draft.id) {
-        restoreStoredDraft()
-      } else {
-        const memoryDraft = composerDraftsRef.current.get(currentDraftKey)
-        if (memoryDraft) {
-          restoreStoredDraft(memoryDraft)
-        } else {
-          void loadComposerDraft(currentDraftKey)
-            .then((storedDraft) => restoreStoredDraft(storedDraft))
-            .catch((err) => {
-              logger.error('Failed to load composer draft:', err)
-              restoreStoredDraft()
-            })
-        }
-      }
+      // Restore the composer draft (restored draft, memory draft, or the
+      // persisted draft for this scope).
+      composerInput.restoreInitialDraft()
 
-      // Observe DOM changes for re-decoration — scoped to the MESSAGE AREA, not
-      // the whole panel.
-      //
-      // A panel-wide `{childList, subtree}` observer treats every composer-side
-      // node change as a reason to re-run the full decoration pass: the
-      // suggestion menu rebuilding its rows (`innerHTML = ''` + re-create), a
-      // slash chip mounting, an attachment tile appearing. That coupling is what
-      // made typing feed the O(messages) decorate pass
-      // (`readMessageRows` + `decorateMessages` + `artifactsInputKey` walk the
-      // whole conversation). The composer is React-owned now
-      // (`composer-store.ts` + the `MessageEditor` leaves), so it publishes its
-      // own re-decoration requests through `scheduleDecorate` on the few state
-      // flips that matter (capability/plan/attachment gates) instead of relying
-      // on node churn.
-      //
-      // The observer still targets `panel` (the message list may not be mounted
-      // yet when this runs) but only schedules a pass when at least one record
-      // lands inside the scroll container, so late mounting and message-area
-      // replacement keep working without composer churn paying for it.
-      const isMessageAreaNode = (node: Node | null): boolean => {
-        if (!node) return false
-        const element = node.nodeType === 1 ? (node as Element) : node.parentElement
-        return Boolean(element?.closest('.qf-scroll-container'))
-      }
-      observer = new MutationObserver((records) => {
-        if (suppressObserverMutations) return
-        // `added`/`removed` cover nodes re-parented by process folding (the group
-        // itself may be the added node while the original parent is gone).
-        const relevant = records.some((record) => isMessageAreaNode(record.target)
-          || Array.from(record.addedNodes).some(isMessageAreaNode)
-          || Array.from(record.removedNodes).some(isMessageAreaNode))
-        if (!relevant) return
-        scheduleDecorate()
-      })
-      observer.observe(panel, { childList: true, subtree: true })
+      // Observe the message area for re-decoration (the observer targets
+      // `.qf-scroll-container`, see `panel-wiring/decorate-pipeline.ts`).
+      observer = decoratePipeline.startObserver()
 
       // Defer initial decoration to the next animation frame so the React
       // surface's first paint has settled. Without this the approval card
@@ -1856,7 +1372,7 @@ export function ChatPanelHost({
       // fully laid out, causing style discrepancies.
       window.requestAnimationFrame(() => {
         if (disposed) return
-        runDecorate()
+        decoratePipeline.runDecorate()
       })
 
       const notifyInitialRenderReady = () => {
@@ -1889,8 +1405,7 @@ export function ChatPanelHost({
     // --- Subscribe to agent events for auto-scroll and tool approvals ---
     const unsubscribeScrollEvents = agent.subscribe((event) => {
       if (event.type === 'agent_start') {
-        processHandoffGeneration += 1
-        delete panel.dataset.quickforgeProcessHandoff
+        decoratePipeline.resetProcessHandoff()
         setReplyWaiting(true)
         syncProcessStreamingState()
         scheduleDecorateRef.current?.()
@@ -1907,8 +1422,7 @@ export function ChatPanelHost({
         syncProcessStreamingState()
         const eventMessage = (event as { message?: { role?: string } }).message
         if (event.type === 'message_start' && eventMessage?.role === 'assistant') {
-          processHandoffGeneration += 1
-          delete panel.dataset.quickforgeProcessHandoff
+          decoratePipeline.resetProcessHandoff()
           // Away from the tail → surface the arrival on the back-to-bottom badge.
           scrollBottomButton.notifyNewAssistantMessage()
         }
@@ -1919,7 +1433,7 @@ export function ChatPanelHost({
         }
         scheduleDecorateRef.current?.(event.type === 'message_update' && agent.state.isStreaming ? 'streaming' : 'full')
         if (event.type === 'message_end' && eventMessage?.role === 'assistant') {
-          scheduleProcessHandoff()
+          decoratePipeline.scheduleProcessHandoff()
         }
         if (scrollSync.isEnabled) scrollSync.scheduleScrollToBottom()
       }
@@ -1947,7 +1461,7 @@ export function ChatPanelHost({
         }
       }
       if (eventType === 'background_commands' || eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
-        scheduleToolInterfaceUpdate()
+        decoratePipeline.scheduleToolInterfaceUpdate()
         scheduleDecorateRef.current?.()
       }
       if (eventType === 'tool_execution_end' && !sideChatMode) {
@@ -1989,7 +1503,7 @@ export function ChatPanelHost({
         setReplyWaiting(false)
         setModelRetryInfo(null)
         syncProcessStreamingState()
-        scheduleProcessHandoff()
+        decoratePipeline.scheduleProcessHandoff()
         // Run finished (or aborted) — clear pending approval for this session
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
           pendingApprovalRef.current = null
@@ -2005,18 +1519,7 @@ export function ChatPanelHost({
         }
         // Queue drain: a settled turn auto-sends the next queued message;
         // aborted / errored turns pause the queue so the user stays in control.
-        if (messageQueueActive()) {
-          const endedStatus = (event as { status?: string }).status
-          const queueSnapshot = messageQueue.getState()
-          if ((endedStatus === 'aborted' || endedStatus === 'error') && queueSnapshot.items.length > 0) {
-            if (!queueSnapshot.paused) messageQueue.setPaused(true)
-          } else if (!queueSnapshot.paused && queueSnapshot.items.length > 0 && queuedPromptTimer === undefined && queuedPromptInFlight === undefined) {
-            queuedPromptTimer = window.setTimeout(() => {
-              const head = messageQueue.getState().items[0]
-              if (head) submitQueuedPrompt(head)
-            }, 250)
-          }
-        }
+        messageQueueWiring.onAgentEnd((event as { status?: string }).status)
       }
       if (eventType === 'auto_compact_completed' || eventType === 'auto_compact_failed') {
         if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
@@ -2082,13 +1585,8 @@ export function ChatPanelHost({
       cancelInitialRenderReady?.()
       cancelHydration?.()
       unsubscribeActivity()
-      flushComposerDraft()
-      cmdSuggestions.remove()
-      cmdSuggestions.cleanupTextareaHandler()
-      capabilitySuggestions.remove()
-      capabilitySuggestions.cleanupTextareaHandler()
-      fileReferenceSuggestions.remove()
-      fileReferenceSuggestions.cleanupTextareaHandler()
+      composerInput.flushComposerDraft()
+      cleanupSuggestions()
       contextUsage.cleanup()
       turnNavigation?.cleanup()
       scrollSync.cleanup()
@@ -2096,28 +1594,10 @@ export function ChatPanelHost({
       scrollBottomButton.cleanup()
       taskLauncher?.dispose()
       removeSubagentRunningIndicator(panel)
-      cancelMessageQueuePersist()
-      cancelQueuedPrompt()
-      if (messageQueueActive()) {
-        if (queuedPromptInFlight) messageQueue.restoreHead(queuedPromptInFlight)
-        queuedPromptInFlight = undefined
-        saveStoredMessageQueueState(sessionId, messageQueue.getState())
-        // agent_end fired but the 250ms auto-send timer was just cancelled by
-        // this cleanup — hand the persisted queue (saved above, incl. the
-        // restored head) to the background drainer so it still auto-sends.
-        const savedQueue = messageQueue.getState()
-        if (savedQueue.items.length > 0 && !savedQueue.paused && !agent.state.isStreaming) {
-          void drainStoredMessageQueue(sessionId, agent as ServerAgent)
-        }
-      }
-      messageQueue.cleanup()
+      messageQueueWiring.cleanup()
       unsubscribeScrollEvents()
       observer?.disconnect()
-      decorateScheduler.cancel()
-      if (clearSuppressObserverFrame !== undefined) {
-        window.cancelAnimationFrame(clearSuppressObserverFrame)
-      }
-      decorateFnRef.current = null
+      decoratePipeline.cleanup()
       restoreSideChatDraftRef.current = null
       surfaceSendHooksRef.current = null
       // The ChatSurface DOM itself is owned by React (keyed by runtime scope /

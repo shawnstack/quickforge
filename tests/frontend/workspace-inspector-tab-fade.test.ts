@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { appCss } from '../helpers/app-css'
 
-const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+// tab 菜单与可排序 strip 已从 WorkspaceInspector 拆到 WorkspaceTabStrip。
+const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceTabStrip.tsx', import.meta.url), 'utf8')
 const css = appCss
 
 describe('Workspace Inspector tab strip', () => {

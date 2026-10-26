@@ -150,6 +150,12 @@
   transition: opacity 160ms ease-out;
 }
 
+.quickforge-settings-list-item-main:focus-visible {
+  border-radius: 0.5rem;
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: 4px;
+}
+
 .quickforge-agent-profile-row {
   min-height: 3.5rem;
   cursor: pointer;

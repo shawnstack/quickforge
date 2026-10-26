@@ -1957,3 +1957,35 @@
   - 本次状态文档一致性修复（2026-09-22）：仅同步 feature_list.json / progress.md / session-handoff.md，删除残留的 thinking-tail-hint in_progress 与“待验证”表述；未改源码、测试、Wiki 与生成产物。
   - Wiki 表述：本次修复不需要新增架构文档（未改变公共入口/模块职责）；工作区 docs/wiki 下已有 WIP 改动（docs/wiki/README.md、docs/wiki/src/components/README.md、docs/wiki/src/lib/README.md）不属本次修复，未回滚。
   - settings-row-infotip 仍为 pending，WIP 在同一工作区待验证；ChatSurface.tsx 的 pb-0→pb-4 属无关既有改动，本次未触碰。
+
+---
+
+## console-scroll-shadow-remove（done，2026-10-26）
+
+- Goal：用户反馈「运行命令的 tools 详情」右侧有阴影，选择「直接去掉左右两侧阴影」。
+- 根因：`src/styles/chat/tool-output.css` 给 `.qf-console-scroll[data-overflow-start/end="true"]` 加了 `inset ±10px 0 8px -8px` 内阴影作为横向溢出提示，由 `src/lib/tool-renderers/shared.tsx#syncConsoleScrollFades` 写 data 属性触发；垂直滚动条占宽会把 `clientWidth` 压小，导致没有真实横向溢出时右侧阴影也常亮。
+- 改动文件：`src/styles/chat/tool-output.css`（删除三条 inset box-shadow 规则，注释改为「横向溢出不再加内阴影」）。保留 data 属性与检测逻辑。
+- 验证 / Evidence：`npx vitest run tests/frontend/tool-renderer-shared-state.test.ts` 21 passed；`npm run lint` 0 error（仅既有 GitToolsPinnedSummary exhaustive-deps warning）。
+- Notes：不新增依赖；未手工修改 dist/package-dist/package-offline；未创建 Git commit。若以后想恢复溢出提示，建议改用文本或淡出遮罩，而不是两侧内阴影，避免再次被误读为卡片投影。
+
+---
+
+## workspace-inspector-module-split（done，2026-10-26）
+
+- Last Updated: 2026-10-26
+- Goal：行为保真拆分 `src/components/workspace/WorkspaceInspector.tsx`（2003 行）——不改变 UI/DOM/class/aria、tab 持久化、请求 scope guard、i18n 与测试期望。
+- 结论：入口缩到 544 行（-1459），其余职责拆为 2 个 hook + 6 个展示组件 + 2 个纯工具模块；元素/handler/aria/className 计数与原文件逐项一致（`<div>` 78、`<button>` 25、`className=` 175、`onClick=` 32、`role=*`/`aria-*` 全部相等）。
+- 改动文件：`src/components/workspace/useWorkspaceTree.ts`（目录树/搜索状态、缓存 seed、项目切换重置、展开恢复、refresh/load-more）、`useWorkspaceReader.ts`（reader/document/diff/命令日志打开与加载、缓存优先 + meta 校准、刷新重读）、`WorkspaceInspectorHeader.tsx`、`WorkspaceTabStrip.tsx`（下拉菜单 + 可排序 strip，Pointer+Keyboard sensor、独立关闭按钮）、`WorkspacePanelLanding.tsx`、`WorkspaceTreePanel.tsx`、`WorkspaceReviewPanel.tsx`、`WorkspaceReaderPanel.tsx`（InlineReader/WorkspaceOverview/reader 列）、`workspace-panel-tabs.ts`、`workspace-path-utils.ts`、`WorkspaceInspector.tsx`（shell）；测试同步：`workspace-inspector-tabs`/`tab-fade`/`tab-list-scroll`/`on-demand-source`/`workspace-diff-no-changes`/`workspace-diff-review-recovery`/`side-chat-workspace-tab`（断言语义不变，仅指向迁移后的文件/文件合集）；`docs/wiki/src/components/README.md`。
+- 验证 / Evidence：定向 vitest（workspace-inspector-* + inspector-layout/git-hooks + workspace-diff-*）76 passed；workspace/goal 相关 33 文件 461 passed；全量 `npx vitest run` 426/429 文件通过（失败 3 项均为既有 WIP：`chat-surface-css-contract` 因未提交的 tool-output.css 删除阴影规则、`file-rollback-api` 因未提交的 server-agent.ts 改动、`scheduled-tasks.commands` 并发 flake 单独重跑 24/24 通过）；`npx eslint .` 0 error（仅既有 GitToolsPinnedSummary warning）；`npx tsc -b` 除 ChatPanelHost/composer-input 既有 WIP 错误外无新增错误（`npm run build` 因此仍被该 WIP 阻塞）。
+- Notes：effect 相对顺序尽量保持（根加载 → 搜索 → 项目重置 → 展开恢复 → tabs 持久化 → reader 加载）；唯一 relocate 是 git demand effect 由「重置之前」变为「重置之后」，两者最终都落到「review 激活时按 idle 加载」，属等价。`useWorkspaceTree` 内 3 处 setState-in-effect 与原组件逻辑逐字相同，因规则在独立 hook 中触发而加了带说明的 `eslint-disable-next-line react-hooks/set-state-in-effect`；入口 `projectGuardRef.current.token()` 的 render 期读数沿用原写法并加 `react-hooks/refs` disable。未新增依赖；未触碰 dist/package-dist/package-offline、tool-output.css、App.tsx；未创建 Git commit。
+
+---
+
+## frontend-god-components-split-round-3（done，2026-10-26）
+
+- Last Updated: 2026-10-26
+- Goal：按 2026-10-26 前端只读评审的 P0–P6 建议落地行为保真整改，不影响功能与产品体验。
+- 结论：P0 可访问性/原生 alert 修复；P1 ChatPanelHost 2270 → 1750 行（主 effect ~1345 → 838）；P2 ScheduledTasksPage 1270 → 532；P3 WorkspaceInspector 2003 → 544（独立 feature 记录）；P4 GitToolsPinnedSummary 1124 → 253；P5 App 置顶摘要派生与事件订阅迁到 usePinnedSummaryModel（2028 → 1970）；P6 ServerAgent 抽取 SessionLeaseController 与 GoalStateController 两个协作者。全量测试 429/429 文件通过。
+- 改动文件：`src/components/chat/panel-wiring/`（5 个纯 setup 模块）、`src/components/scheduled-tasks/`（state/data/form/types/sections）、`src/components/workspace/`（useWorkspaceTree/useWorkspaceReader + 6 个展示组件 + 2 个纯工具）、`src/components/git/`（usePinnedSummaryLayout/DesktopWidget/Sections/Capsule）、`src/hooks/usePinnedSummaryModel.ts`、`src/lib/session-lease-controller.ts`、`src/lib/goal-state-controller.ts`、`src/lib/server-agent.ts`、`src/App.tsx`、`src/components/workspace/useInspectorLayout.ts`、`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/surface/MessageEditor.tsx`、`src/lib/i18n.ts`、`src/styles/settings/controls.css`；对应源码契约测试与 wiki 文档同步。
+- 验证 / Evidence：`npm run test` → 429 files / 4984 passed / 2 skipped；`npm run lint` → 0 error（仅既有 `usePinnedSummaryCapsule` exhaustive-deps warning）；`npm run build` → 成功（仅既有 chunk 体积警告）；`npx tsc -b` → 通过。定向覆盖：ScheduledTasksPage 50、PinnedSummary 相关 71、Workspace 88、ChatPanelHost 主套件 314/315（唯一失败为已同步的旧 console shadow 断言）、ServerAgent/Goal/Lease 187、file-rollback-api 14。
+- Notes：P6 只抽取租约与 Goal 状态机两个低耦合协作者，SSE/消息缓存/审批仍留在 `ServerAgent`，作为后续项；P1 主 effect 仍有 838 行，`decorate()` 本体、agent 事件扇出与 scroll sync 因 DOM/测试契约强耦合留在 host。`console-scroll-shadow-remove` 的旧 CSS 断言已同步为“无 box-shadow / mask”的新行为。未新增依赖；未手工修改 dist/package-dist/package-offline；未创建 Git commit。

@@ -11,6 +11,7 @@ function getDesktopTitlebarHeight() {
 }
 
 export const WORKSPACE_INSPECTOR_MIN_WIDTH = 340
+export const INSPECTOR_KEYBOARD_RESIZE_STEP = 16
 const WORKSPACE_INSPECTOR_DEFAULT_WIDTH = 380
 const WORKSPACE_INSPECTOR_MAX_WIDTH = 1200
 const WORKSPACE_INSPECTOR_MAX_VIEWPORT_RATIO = 0.75
@@ -200,6 +201,10 @@ export function useInspectorLayoutActions({ leftWidth, setLeftWidth, setIsNavRes
     try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* ignore */ }
   }
 
+  function resizeByKeyboard(delta: number) {
+    setWidth((current) => clampInspectorWidth(current + delta, leftSidebarWidth, conversationMinWidth))
+  }
+
   function startNavResizing(event: React.PointerEvent<HTMLDivElement>) {
     navResizeDragRef.current = { startX: event.clientX, startWidth: leftWidth, currentWidth: leftWidth }
     document.body.style.cursor = 'col-resize'
@@ -380,6 +385,6 @@ export function useInspectorLayoutActions({ leftWidth, setLeftWidth, setIsNavRes
       document.body.style.userSelect = previousBodyStyle.userSelect
     }
   }, [asideRef, fullscreenAnimationRef, navResizeFrameRef, previousBodyStyleRef, resizeFrameRef])
-  return { startResizing, resize, stopResizing, startNavResizing, navResize, stopNavResizing, toggleFullscreen }
+  return { startResizing, resize, stopResizing, resizeByKeyboard, startNavResizing, navResize, stopNavResizing, toggleFullscreen }
 }
 

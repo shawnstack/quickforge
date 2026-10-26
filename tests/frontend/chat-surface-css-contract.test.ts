@@ -430,7 +430,7 @@ describe('chat row font scale contract', () => {
     expect(block).toContain(MESSAGE_FONT_SCALE)
   })
 
-  it('locks the console to the chat column and fades horizontal overflow', () => {
+  it('locks the console to the chat column without horizontal-overflow shadows', () => {
     const column = declarationBlock('.qf-chat-panel > .qf-scroll-container > .max-w-3xl,')
     expect(column).toContain('min-width: 0;')
     expect(column).not.toContain('overflow-x: clip;')
@@ -458,15 +458,12 @@ describe('chat row font scale contract', () => {
     expect(scroll).not.toContain('mask-image')
     expect(scroll).not.toContain('pre-wrap')
 
-    const bothFades = declarationBlock('.qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {')
-    expect(bothFades).toContain('box-shadow:')
-    expect(bothFades).not.toContain('mask-image')
-    const startFade = declarationBlock('.qf-console-scroll[data-overflow-start="true"] {')
-    expect(startFade).toContain('box-shadow: inset 10px 0 8px -8px')
-    expect(startFade).not.toContain('mask-image')
-    const endFade = declarationBlock('.qf-console-scroll[data-overflow-end="true"] {')
-    expect(endFade).toContain('box-shadow: inset -10px 0 8px -8px')
-    expect(endFade).not.toContain('mask-image')
+    // The horizontal-overflow hint was removed deliberately (feature
+    // console-scroll-shadow-remove): the data attributes remain for future
+    // hints, but no visual box-shadow / mask is applied.
+    expect(declarationBlock('.qf-console-scroll[data-overflow-start="true"][data-overflow-end="true"] {')).toBe('')
+    expect(declarationBlock('.qf-console-scroll[data-overflow-start="true"] {')).toBe('')
+    expect(declarationBlock('.qf-console-scroll[data-overflow-end="true"] {')).toBe('')
 
     const summary = declarationBlock('.quickforge-local-tool,\n.quickforge-local-tool-shell,\n.quickforge-tool-summary {')
     expect(summary).toContain('max-width: 100%;')

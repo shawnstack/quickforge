@@ -6,7 +6,11 @@ import { getGitFileDiff } from '../../src/components/workspace/workspace-api'
 // reader tab 会永远停在「打开中」且再次点击只会激活死 tab；同时该无超时请求一直占用
 // 同源连接池的一个槽位，拖住其他请求。这里锁定 10s 超时与终态 tab 的重拉恢复。
 const apiSource = readFileSync(new URL('../../src/components/workspace/workspace-api.ts', import.meta.url), 'utf8')
-const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
+// openDiffTab/loadDiffIntoReaderTab 已从 Inspector 拆到 useWorkspaceReader；两处源码合并检查。
+const inspectorSource = [
+  readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../src/components/workspace/useWorkspaceReader.ts', import.meta.url), 'utf8'),
+].join('\n')
 
 function stubPendingFetch() {
   const calls: { url: string; signal: AbortSignal | undefined }[] = []

@@ -24,6 +24,7 @@ type Pointer = { clientX: number; pointerId: number; preventDefault: () => void;
 type Layout = {
   width: number; leftWidth: number; mounted: boolean; visible: boolean; fullscreen: boolean; fullscreenAnimating: boolean; mobileOverlay: boolean
   asideRef: { current: unknown }; startResizing: (event: Pointer) => void; resize: (event: Pointer) => void; stopResizing: (event: Pointer) => void
+  resizeByKeyboard: (delta: number) => void
   startNavResizing: (event: Pointer) => void; navResize: (event: Pointer) => void; stopNavResizing: (event: Pointer) => void
   toggleFullscreen: (afterExit?: () => void) => void
 }
@@ -85,6 +86,14 @@ it('coalesces outer resize RAFs, commits width on pointer stop and restores body
   expect(render().width).toBe(919)
   expect(document.body.style).toEqual({ cursor: 'crosshair', userSelect: 'text' })
   expect(frames.size).toBe(0)
+})
+it('resizes from the keyboard within the min/max bounds', () => {
+  const props = inputs(); const render = () => lifecycle.render(() => useLayout(props))
+  expect(render().width).toBe(380)
+  render().resizeByKeyboard(100000)
+  expect(render().width).toBe(919)
+  render().resizeByKeyboard(-100000)
+  expect(render().width).toBe(340)
 })
 it('bounds navigation resize at 140/400 and cancels pending resize frames on unmount', () => {
   const props = inputs(); const render = () => lifecycle.render(() => useLayout(props))

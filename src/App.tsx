@@ -24,14 +24,11 @@ import { t } from '@/lib/i18n'
 import { pickNewChatGreetingKey } from '@/lib/new-chat-greeting'
 import { cn } from '@/lib/utils'
 import {
-  MAX_TERMINAL_SUBAGENT_RUNS,
   OPEN_SUBAGENT_RUN_EVENT,
-  extractLatestTerminalSubagentRuns,
-  extractRunningSubagentRuns,
   normalizeOpenSubagentRunRequest,
   type SubagentRunPayload,
 } from '@/lib/subagent-run-detail'
-import { OPEN_GOAL_SUMMARY_EVENT, syncGoalUiState } from '@/lib/goal-ui'
+import { OPEN_GOAL_SUMMARY_EVENT } from '@/lib/goal-ui'
 import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
@@ -49,7 +46,6 @@ import { TurnRollbackDialog } from '@/components/chat/FileRollbackDialog'
 import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
 import { ConversationTraceView, type TraceAgentLike } from '@/components/chat/trace/ConversationTraceView'
 import { SessionViewPool } from '@/components/chat/SessionViewPool'
-import { extractLatestTodoWriteSnapshot } from '@/components/chat/panel-decoration'
 import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
 import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
@@ -102,8 +98,8 @@ import {
   shouldClosePinnedSummaryBeforeInspectorOpen,
   shouldSuspendPinnedSummary,
 } from '@/lib/pinned-summary-drag'
-import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import { useSidebarOrdering } from '@/hooks/useSidebarOrdering'
+import { usePinnedSummaryModel } from '@/hooks/usePinnedSummaryModel'
 import { useProjectExternalOpen } from '@/hooks/useProjectExternalOpen'
 import { useDesktopTitlebarMenu } from '@/hooks/useDesktopTitlebarMenu'
 import { useAgentApprovalActions } from '@/hooks/useAgentApprovalActions'
@@ -255,7 +251,6 @@ function MainApp() {
     projectId: 'global-workspace',
     runtimeScopeId: '',
   })
-  const [pinnedSummaryRevision, setPinnedSummaryRevision] = useState(0)
   const workspaceInspectorRequestIdRef = useRef(0)
   const chatFileRequestIdRef = useRef(0)
   const loadingState = useAppLoadingState()
@@ -412,27 +407,18 @@ function MainApp() {
   )
   const pinnedSummarySuspended = workspaceInspectorOpen && canSuspendPinnedSummaryOnInspectorOpen
 
-  useEffect(() => {
-    const agent = agentManager.agent
-    if (!agent) return undefined
-    const relevantEvents = new Set([
-      'tool_execution_start',
-      'tool_execution_update',
-      'tool_execution_end',
-      'message_end',
-      'messages_replaced',
-      'agent_end',
-      'background_commands',
-      // Goal transitions (plan confirm, pause/resume, accept, cancel) drive the
-      // pinned summary's goal section and capsule.
-      'goal_updated',
-    ])
-    return agent.subscribe((event) => {
-      if (relevantEvents.has(event.type)) setPinnedSummaryRevision((value) => value + 1)
-    })
-  }, [agentManager.agent])
-
-  const pinnedSummaryMessages = agentManager.agent?.state.messages ?? []
+  const {
+    todos: pinnedSummaryTodos,
+    subagentRuns: pinnedSummarySubagentRuns,
+    backgroundCommands: pinnedSummaryBackgroundCommands,
+    runningSubagentRuns: pinnedSummaryRunningSubagentRuns,
+    goal: pinnedSummaryGoal,
+    goalSessionId: pinnedSummaryGoalSessionId,
+    invalidate: invalidatePinnedSummary,
+  } = usePinnedSummaryModel({
+    agent: agentManager.agent,
+    currentSessionId: agentManager.currentSessionId,
+  })
 
   // 对话区视图：只有「打开视图的会话」仍是当前会话时才生效，切会话自动回对话。
   const conversationView: 'chat' | 'trace' =
@@ -444,51 +430,8 @@ function MainApp() {
     setConversationViewScope({ scopeId: agentManager.currentRuntimeScopeId, view })
   }, [setConversationViewScope, agentManager.currentRuntimeScopeId])
 
-  const pinnedSummaryTodos = useMemo(() => (
-    extractLatestTodoWriteSnapshot(pinnedSummaryMessages)?.todos ?? []
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
-  ), [agentManager.agent, pinnedSummaryRevision])
-  const pinnedSummarySubagentRuns = useMemo(() => extractLatestTerminalSubagentRuns(
-    pinnedSummaryMessages,
-    agentManager.agent?.state.pendingToolCalls,
-    getCachedToolDisplaySettings().toolDisplayMode,
-    t,
-    // 置顶摘要展开显示全部已结束 run，防御上限 MAX_TERMINAL_SUBAGENT_RUNS。
-    MAX_TERMINAL_SUBAGENT_RUNS,
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
-  ), [agentManager.agent, pinnedSummaryRevision])
-  const pinnedSummaryBackgroundCommands = useMemo(() => (
-    (agentManager.agent as { state?: { backgroundCommands?: import('@/components/chat/panel-decoration').BackgroundCommandSummary[] } } | null)?.state?.backgroundCommands ?? []
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
-  ), [agentManager.agent, pinnedSummaryRevision])
-  const pinnedSummaryRunningSubagentRuns = useMemo(() => extractRunningSubagentRuns(
-    pinnedSummaryMessages,
-    agentManager.agent?.state.pendingToolCalls,
-    getCachedToolDisplaySettings().toolDisplayMode,
-    t,
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
-  ), [agentManager.agent, pinnedSummaryRevision])
-
-  // 置顶摘要里的 Goal 分区与 ChatPanelHost 的 Goal 卡同源、同门禁：只读/共享页面
-  // 不渲染 MainApp，ACP 会话（服务端禁用 Goal 模式）由 authoritative sessionSource 排除。
-  const pinnedSummaryGoalSource = (agentManager.agent as { sessionSource?: string } | null)?.sessionSource
-  const pinnedSummaryGoalEnabled = pinnedSummaryGoalSource !== 'acp'
-  const pinnedSummaryGoal = useMemo(() => (
-    pinnedSummaryGoalEnabled ? agentManager.agent?.state.goal ?? null : null
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- revision tracks in-place agent state updates.
-  ), [agentManager.agent, pinnedSummaryGoalEnabled, pinnedSummaryRevision])
-  // 与 ChatPanelHost / 控制条共用同一个 store key：优先用 agent 自身的 sessionId。
-  const pinnedSummaryGoalSessionId = agentManager.agent?.sessionId ?? agentManager.currentSessionId ?? pinnedSummaryGoal?.sessionId ?? ''
-
-
-  // 服务端 goal 是权威：goal 离开可编辑状态、或目标被替换（revise）后，共享 store
-  // 里遗留的草稿/dirty 必须清除——否则摘要关闭、无 Goal surface 挂载时，控制条的
-  // pause/resume 会被旧锁卡死。用 effect 同步（不在 render 期写 store）。
-  useEffect(() => {
-    syncGoalUiState(pinnedSummaryGoalSessionId, pinnedSummaryGoal)
-  }, [pinnedSummaryGoal, pinnedSummaryGoalSessionId])
-
-
+  // Goal 分区与 ChatPanelHost 的 Goal 卡同源、同门禁；ACP 排除与共享 store
+  // 的草稿/dirty 清理由 usePinnedSummaryModel 统一处理。
   useAppLoadingEffects({ ...loadingState, loadingSessionId: agentManager.loadingSessionId })
 
   // Destructure stable values for use in dependency arrays
@@ -787,8 +730,8 @@ function MainApp() {
     const agent = agentRef.current
     if (!agent || typeof agent.updateGoal !== 'function' || agent.sessionId !== pinnedSummaryGoalSessionId || agent.state.goal?.id !== pinnedSummaryGoal?.id || agent.state.goal?.sessionId !== pinnedSummaryGoalSessionId) throw new Error(t('goalUnavailable'))
     await agent.updateGoal(action, objective, options)
-    setPinnedSummaryRevision((value) => value + 1)
-  }, [agentRef, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
+    invalidatePinnedSummary()
+  }, [agentRef, invalidatePinnedSummary, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
 
   const handleGoalSave = useCallback(async (baselineObjective: string, objective: string, confirmPause: boolean, signal: AbortSignal) => {
     const sessionId = pinnedSummaryGoalSessionId
@@ -804,12 +747,12 @@ function MainApp() {
         if (!(agent instanceof ServerAgent) || agent.sessionId !== sessionId || agent.state.goal?.id !== goalId || agent.state.goal.sessionId !== sessionId || signal.aborted || refreshSignal.aborted) throw new Error(t('goalUnavailable'))
         const snapshot = await agent.refreshGoalForSave(goalId, refreshSignal)
         if (agentRef.current !== agent || agent.sessionId !== sessionId || agent.state.goal?.id !== goalId || agent.state.goal.sessionId !== sessionId || signal.aborted || refreshSignal.aborted) throw new Error(t('goalUnavailable'))
-        setPinnedSummaryRevision((value) => value + 1)
+        invalidatePinnedSummary()
         return snapshot
       },
       update: handlePinnedGoalAction,
     })
-  }, [agentRef, handlePinnedGoalAction, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
+  }, [agentRef, handlePinnedGoalAction, invalidatePinnedSummary, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
 
   const openSubagentRun = useCallback((payload: SubagentRunPayload) => {
     setArtifactPreviewOpen(false)

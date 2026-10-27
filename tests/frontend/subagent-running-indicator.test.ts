@@ -13,6 +13,7 @@ vi.mock('@/lib/i18n', () => ({
       subagentRunningIndicatorItemAria: `Open ${params?.name}: ${params?.task}`,
       subagentRunningIndicatorElapsed: `${params?.seconds}s`,
       backgroundCommandLabel: 'Background command',
+      backgroundCommandIndicatorAria: `${params?.count} background commands running`,
       backgroundCommandStop: 'Stop',
       backgroundCommandStopAria: `Stop ${params?.command}`,
     }
@@ -50,6 +51,10 @@ class FakeElement {
 
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value)
+  }
+
+  removeAttribute(name: string) {
+    this.attributes.delete(name)
   }
 
   getAttribute(name: string) {
@@ -483,12 +488,11 @@ describe('subagent running Composer indicator', () => {
     expect(menu.querySelectorAll('[data-run-id="run-1"]')).toEqual([])
   })
 
-  it('shows a background command without a subagent and stops it from the summary', async () => {
+  it('opens the right-side background task panel instead of a popup', async () => {
     const dom = buildDom()
     vi.stubGlobal('document', dom.document)
     vi.stubGlobal('window', dom.windowObject)
-    const fetchMock = vi.fn(async () => ({ ok: true }))
-    vi.stubGlobal('fetch', fetchMock)
+    const { OPEN_BACKGROUND_TASKS_EVENT } = await import('../../src/lib/background-tasks-open')
     const { setupSubagentRunningIndicator } = await loadModule()
     const command = {
       taskId: 'task-1',
@@ -499,6 +503,7 @@ describe('subagent running Composer indicator', () => {
       startedAt: Date.now(),
     }
     let commands = [command]
+    const dismissComposerMenus = vi.fn()
     const options = {
       panel: dom.panel as unknown as HTMLElement,
       leftControls: dom.leftControls as unknown as HTMLElement,
@@ -506,15 +511,64 @@ describe('subagent running Composer indicator', () => {
       getPendingToolCalls: () => [],
       getBackgroundCommands: () => commands,
       sessionId: 'session-1',
-      dismissComposerMenus: vi.fn(),
+      dismissComposerMenus,
       store: new SubagentRunStore(),
     }
+    const opened: unknown[] = []
+    dom.windowObject.addEventListener(OPEN_BACKGROUND_TASKS_EVENT, (event) => {
+      opened.push(event.detail)
+    })
 
     setupSubagentRunningIndicator(options)
     const trigger = dom.panel.querySelector('.quickforge-background-command-trigger')!
     expect(trigger.innerHTML).toContain('<span class="quickforge-background-command-badge" aria-hidden="true">1</span>')
-    trigger.onpointerdown!(new FakeEvent())
-    const item = dom.body.querySelector('.quickforge-background-command-item')!
+    expect(trigger.getAttribute('aria-label')).toBe('1 background commands running')
+    expect((trigger as unknown as { title?: string }).title).toBe('1 background commands running')
+    // 不再有浮层：按钮不再声明 popup 语义。
+    expect(trigger.getAttribute('aria-haspopup')).toBeNull()
+
+    trigger.onclick!(new FakeEvent())
+    expect(opened).toEqual([{ sessionId: 'session-1' }])
+    expect(dismissComposerMenus).toHaveBeenCalledOnce()
+    // 点击不再在 body 上挂浮层。
+    expect(dom.body.querySelector('.quickforge-background-command-menu')).toBeNull()
+
+    commands = []
+    setupSubagentRunningIndicator(options)
+    expect(dom.panel.querySelector('.quickforge-background-command-trigger')).toBeNull()
+  })
+
+  it('stops a background command from the running Subagent menu', async () => {
+    const dom = buildDom()
+    vi.stubGlobal('document', dom.document)
+    vi.stubGlobal('window', dom.windowObject)
+    const fetchMock = vi.fn(async () => ({ ok: true }))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = new SubagentRunStore()
+    store.publish(payload('run-1', 'running'))
+    const { setupSubagentRunningIndicator } = await loadModule()
+    const command = {
+      taskId: 'task-1',
+      sessionId: 'session-1',
+      toolCallId: 'tool-1',
+      command: 'npm test',
+      description: 'tests',
+      startedAt: Date.now(),
+    }
+
+    setupSubagentRunningIndicator({
+      panel: dom.panel as unknown as HTMLElement,
+      leftControls: dom.leftControls as unknown as HTMLElement,
+      enabled: true,
+      getPendingToolCalls: () => ['run-1'],
+      getBackgroundCommands: () => [command],
+      sessionId: 'session-1',
+      dismissComposerMenus: vi.fn(),
+      store,
+    })
+
+    dom.panel.querySelector('.quickforge-subagent-running-trigger')!.onpointerdown!(new FakeEvent())
+    const item = dom.body.querySelector('.quickforge-subagent-running-menu')!.querySelector('.quickforge-background-command-item')!
     expect(item.querySelector('.quickforge-subagent-running-task')!.textContent).toBe('npm test')
     const stop = item.querySelector('.quickforge-background-command-stop')!
     stop.onclick!(new FakeEvent())
@@ -524,10 +578,6 @@ describe('subagent running Composer indicator', () => {
       body: JSON.stringify({ toolCallId: 'tool-1' }),
     }))
     expect(stop.disabled).toBe(true)
-
-    commands = []
-    setupSubagentRunningIndicator(options)
-    expect(dom.panel.querySelector('.quickforge-background-command-trigger')).toBeNull()
   })
 
   it('keeps the open menu and rebinds the owner trigger when the trigger element is recreated', async () => {
@@ -615,13 +665,19 @@ describe('subagent running indicator source contracts', () => {
     expect(cssSource).toContain('.quickforge-subagent-running-badge')
     expect(cssSource).toContain('html.dark .quickforge-subagent-running-badge')
     expect(cssSource).toContain('max-height: min(420px, calc(100vh - 24px))')
-    const commandMenu = ruleFor('.quickforge-background-command-menu').body
-    expect(commandMenu).toMatch(/width:\s*min\(22\.5rem,\s*calc\(100vw - 1\.5rem\)\)/)
-    expect(commandMenu).toMatch(/overflow:\s*hidden/)
-    const commandTask = ruleFor('.quickforge-background-command-menu .quickforge-subagent-running-task').body
-    expect(commandTask).toMatch(/overflow-x:\s*auto/)
-    expect(commandTask).toMatch(/white-space:\s*pre/)
-    expect(commandTask).toContain('mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent)')
+    // 后台命令图标已改为直接打开右侧面板，浮层样式一并删除；
+    // 命令行的 item / copy / stop / log 仍被 subagent 浮层复用，必须保留。
+    expect(cssSource).not.toContain('.quickforge-background-command-menu')
+    for (const selector of [
+      '.quickforge-background-command-trigger',
+      '.quickforge-background-command-badge',
+      '.quickforge-background-command-item',
+      '.quickforge-background-command-copy',
+      '.quickforge-background-command-stop',
+      '.quickforge-background-command-log',
+    ]) {
+      expect(cssSource).toContain(selector)
+    }
     expect(cssSource).not.toContain('.quickforge-subagent-running-spinner')
     expect(cssSource).not.toContain('.quickforge-subagent-running-trigger-label')
   })

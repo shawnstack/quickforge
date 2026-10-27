@@ -3,6 +3,7 @@ import { Eye, EyeOff, SlidersHorizontal } from 'lucide-react'
 import type { CustomProvider } from '@/storage'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
+import { SettingsSelect } from '@/components/settings/SettingsSelect'
 import {
   connectionDraftOf,
   type ConnectionDraft,
@@ -17,9 +18,9 @@ export type ConnectionSectionProps = {
   isDraft: boolean
   keyConfigured: boolean
   testState: ConnectionTestState
-  /** 保存连接层（名称/地址/协议/请求头；草稿态同时带上密钥）。返回是否成功。 */
+  /** 保存连接层（名称/地址/协议/请求头 + 输入的密钥）。返回是否成功。 */
   onSaveConnection: (draft: ConnectionDraft, apiKey: string) => boolean | Promise<boolean>
-  /** 已持久化的提供商单独更换密钥；空值 = 清除。返回是否成功。 */
+  /** 清除已存密钥（空值 = 清除），立即生效、不依赖连接保存。返回是否成功。 */
   onSaveKey: (value: string) => boolean | Promise<boolean>
   onTest: (draft: ConnectionDraft, apiKey: string) => void
 }
@@ -29,17 +30,22 @@ const sameDraft = (a: ConnectionDraft, b: ConnectionDraft) =>
   && a.headerRows.length === b.headerRows.length
   && a.headerRows.every((row, index) => row.key === b.headerRows[index].key && row.value === b.headerRows[index].value)
 
+const PROTOCOL_OPTIONS: { value: ProviderProtocol; labelKey: 'apiFormatChatCompletions' | 'apiFormatAnthropicMessages' }[] = [
+  { value: 'openai-completions', labelKey: 'apiFormatChatCompletions' },
+  { value: 'anthropic-messages', labelKey: 'apiFormatAnthropicMessages' },
+]
+
 export function ConnectionSection(props: ConnectionSectionProps) {
   const { provider, isDraft, keyConfigured, testState, onSaveConnection, onSaveKey, onTest } = props
   const [baseline, setBaseline] = useState<ConnectionDraft>(() => connectionDraftOf(provider))
   const [draft, setDraft] = useState<ConnectionDraft>(baseline)
-  const [keyEditing, setKeyEditing] = useState(false)
   const [keyValue, setKeyValue] = useState('')
   const [keyVisible, setKeyVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [headersOpen, setHeadersOpen] = useState(baseline.headerRows.length > 0 || baseline.protocol === 'anthropic-messages')
 
-  const dirty = !sameDraft(draft, baseline)
+  // 输入了新密钥也算连接层脏状态（随「保存连接」一起落库；留空则保留现有密钥）
+  const dirty = !sameDraft(draft, baseline) || keyValue.trim() !== ''
 
   const update = (patch: Partial<ConnectionDraft>) => setDraft((current) => ({ ...current, ...patch }))
 
@@ -49,20 +55,6 @@ export function ConnectionSection(props: ConnectionSectionProps) {
       const ok = await onSaveConnection(draft, keyValue)
       if (ok) {
         setBaseline(draft)
-        setKeyEditing(false)
-        setKeyValue('')
-      }
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const saveKey = async () => {
-    setSaving(true)
-    try {
-      const ok = await onSaveKey(keyValue)
-      if (ok) {
-        setKeyEditing(false)
         setKeyValue('')
       }
     } finally {
@@ -92,24 +84,7 @@ export function ConnectionSection(props: ConnectionSectionProps) {
         </div>
       </div>
 
-      <div className="quickforge-providers-connection-grid">
-        <label className="quickforge-settings-form-row quickforge-providers-connection-wide">
-          <span className="quickforge-settings-form-label">{t('protocolType')}<InfoTip label={t('protocolHelp')} /></span>
-          <div className="quickforge-settings-segmented">
-            {(['openai-completions', 'anthropic-messages'] as const).map((protocol) => (
-              <button
-                key={protocol}
-                type="button"
-                className={`quickforge-settings-segmented-option${draft.protocol === protocol ? ' quickforge-settings-segmented-option-active' : ''}`}
-                aria-pressed={draft.protocol === protocol ? 'true' : 'false'}
-                onClick={() => update({ protocol: protocol as ProviderProtocol })}
-              >
-                {protocol === 'anthropic-messages' ? 'Anthropic Messages' : 'OpenAI Compatible'}
-              </button>
-            ))}
-          </div>
-        </label>
-
+      <div className="quickforge-providers-connection-stack">
         <label className="quickforge-settings-form-row">
           <span className="quickforge-settings-form-label">{t('providerName')}</span>
           <input
@@ -129,63 +104,62 @@ export function ConnectionSection(props: ConnectionSectionProps) {
             onChange={(event) => update({ baseUrl: event.currentTarget.value })}
           />
         </label>
-      </div>
 
-      <div className="quickforge-providers-key-row">
-        <div className="quickforge-providers-key-head">
-          <span className="quickforge-providers-key-title">
-            {t('apiKey')}
-            <span className={`quickforge-settings-badge ${keyConfigured ? 'quickforge-settings-badge-success' : 'quickforge-settings-badge-warning'}`}>
-              {keyConfigured ? t('keyConfigured') : t('keyNotConfigured')}
+        <div className="quickforge-settings-form-row">
+          <span className="quickforge-settings-form-label">{t('protocolType')}<InfoTip label={t('protocolHelp')} /></span>
+          <SettingsSelect
+            value={draft.protocol}
+            label={t('protocolType')}
+            onChange={(value) => update({ protocol: value as ProviderProtocol })}
+            options={PROTOCOL_OPTIONS.map((option) => ({ value: option.value, label: t(option.labelKey) }))}
+          />
+        </div>
+
+        <div className="quickforge-settings-form-row">
+          <div className="quickforge-providers-key-label">
+            <span className="quickforge-settings-form-label">
+              {t('apiKey')}
+              <span className={`quickforge-settings-badge ${keyConfigured ? 'quickforge-settings-badge-success' : 'quickforge-settings-badge-warning'}`}>
+                {keyConfigured ? t('keyConfigured') : t('keyNotConfigured')}
+              </span>
             </span>
-          </span>
-          {!isDraft
-            ? keyEditing
+            {keyConfigured
               ? (
-                <>
-                  <button className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact" type="button" disabled={saving} onClick={() => void saveKey()}>
-                    {t('saveKey')}
-                  </button>
-                  <button className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact" type="button" onClick={() => { setKeyEditing(false); setKeyValue('') }}>
-                    {t('cancel')}
-                  </button>
-                </>
-              )
-              : (
-                <button className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact" type="button" onClick={() => setKeyEditing(true)}>
-                  {keyConfigured ? t('replaceKey') : t('addKey')}
+                <button
+                  className="quickforge-providers-key-clear"
+                  type="button"
+                  onClick={() => void Promise.resolve(onSaveKey(''))}
+                >
+                  {t('clearKey')}
                 </button>
               )
-            : null}
+              : null}
+          </div>
+          <div className="quickforge-settings-inline-field">
+            <input
+              className="quickforge-settings-input quickforge-settings-mono"
+              value={keyValue}
+              type={keyVisible ? 'text' : 'password'}
+              name="qf-provider-api-key"
+              autoComplete="new-password"
+              placeholder={t('apiKeyPlaceholder')}
+              onChange={(event) => setKeyValue(event.currentTarget.value)}
+            />
+            <button
+              className="quickforge-settings-inline-field-button"
+              type="button"
+              title={keyVisible ? t('hideApiKey') : t('showApiKey')}
+              aria-label={keyVisible ? t('hideApiKey') : t('showApiKey')}
+              aria-pressed={keyVisible ? 'true' : 'false'}
+              onClick={() => setKeyVisible(!keyVisible)}
+            >
+              {keyVisible ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+            </button>
+          </div>
+          <div className="quickforge-providers-key-hint">
+            {isDraft ? t('keySavedWithConnection') : t('keyStorageHint')}
+          </div>
         </div>
-        <div className="quickforge-providers-key-hint">
-          {isDraft ? t('keySavedWithConnection') : t('keyStorageHint')}
-        </div>
-        {keyEditing || isDraft
-          ? (
-            <div className="quickforge-settings-inline-field quickforge-providers-key-edit">
-              <input
-                className="quickforge-settings-input quickforge-settings-mono"
-                value={keyValue}
-                type={keyVisible ? 'text' : 'password'}
-                name="qf-provider-api-key"
-                autoComplete="new-password"
-                placeholder={t('apiKeyPlaceholder')}
-                onChange={(event) => setKeyValue(event.currentTarget.value)}
-              />
-              <button
-                className="quickforge-settings-inline-field-button"
-                type="button"
-                title={keyVisible ? t('hideApiKey') : t('showApiKey')}
-                aria-label={keyVisible ? t('hideApiKey') : t('showApiKey')}
-                aria-pressed={keyVisible ? 'true' : 'false'}
-                onClick={() => setKeyVisible(!keyVisible)}
-              >
-                {keyVisible ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
-              </button>
-            </div>
-          )
-          : null}
       </div>
 
       <div className="quickforge-providers-headers-row">
@@ -257,7 +231,7 @@ export function ConnectionSection(props: ConnectionSectionProps) {
               className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
               type="button"
               disabled={saving}
-              onClick={() => setDraft(baseline)}
+              onClick={() => { setDraft(baseline); setKeyValue('') }}
             >
               {t('discard')}
             </button>

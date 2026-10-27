@@ -1,6 +1,50 @@
 {
   "features": [
     {
+      "id": "present-files-inline-links",
+      "title": "展示文件工具卡改为文件名下划线链接，去掉眼睛图标",
+      "status": "done",
+      "summary": "present_files（展示文件）工具卡摘要区改为逐文件渲染「文件类型图标 + 仅文件名」（与 write_file / edit_file / read_file 同一套元素），文件名 hover 出下划线、点击直接跳转预览；右上角动作区的眼睛（预览）按钮 `renderPreviewButton` 整体删除，因为它只能预览其中一个默认文件。新增 `renderPresentedFilesSummary(params)`（presentedFileEntries 归一化 + previewArtifactClickHandler → PREVIEW_ARTIFACT_EVENT）；不可预览或工作区外绝对路径的文件纯静态。范围仅 present_files，write/edit/read 摘要行为不变。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "tests/frontend/tool-renderer-file-icon.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx tsc -b → 0 错误；npx vitest run tests/frontend/tool-renderer-file-icon.test.ts tests/frontend/local-tool-running-sweep.test.ts tests/frontend/tool-param-summary.test.ts tests/frontend/css-architecture.test.ts → 4 files / 39 tests passed；npx eslint 改动文件 0 error；npm run lint 0 error / 3 存量 warning；npm run build 成功；npm run test 402 files / 4731 tests（4727 passed / 3 failed / 1 skipped），失败项属工作区中其他未提交改动（background-tasks-tab / subagent-running-indicator），与 tool-renderers 无交集。",
+      "updatedAt": "2026-10-26"
+    },
+    {
+      "id": "background-tasks-sidebar",
+      "title": "后台运行命令支持右侧边栏查看",
+      "status": "done",
+      "summary": "Workspace Inspector 新增 background-tasks 运行时 Tab（单实例复用、不持久化）：全部/运行中/已结束筛选 + 关键字搜索、任务列表与详情元信息、日志预览与跟随输出（2s 轮询，仅运行中）、停止任务与查看完整日志。运行中来自 backgroundCommands 快照，终态由前端从 toolResult 消息 details 派生（src/lib/background-tasks-model.ts），未新增服务端接口；入口为置顶摘要「后台命令」区块（查看全部 + 整行命令主体）+ Composer 左下角命令图标两处，顶栏不设入口——Composer 图标经 quickforge:open-background-tasks 窗口事件（src/lib/background-tasks-open.ts）交给 App，App 只接受当前会话或缺省 sessionId 的请求。",
+      "files": [
+        "src/lib/background-tasks-model.ts",
+        "src/components/workspace/BackgroundTasksTabContent.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/workspace-panel-tabs.ts",
+        "src/components/workspace/workspace-inspector-tabs.ts",
+        "src/components/workspace/useInspectorTabs.ts",
+        "src/components/app/ConversationHeader.tsx",
+        "src/App.tsx",
+        "src/styles/workspace/background-tasks.css",
+        "src/styles/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/background-tasks-model.test.ts",
+        "tests/frontend/background-tasks-tab.test.ts",
+        "tests/frontend/server-agent-background-commands-frame.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/styles/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/tools/README.md"
+      ],
+      "verification": "npx vitest run tests/frontend/background-tasks-model.test.ts tests/frontend/background-tasks-tab.test.ts tests/frontend/server-agent-background-commands-frame.test.ts → passed；npm run test 402 files / 4722 tests passed（1 skipped），退出码 1 仅来自 31 个 jsdom 缺包的 Unhandled Error（既有环境噪音，31 个 jsdom 缺包导致 worker 启动失败属既有环境问题）；npm run lint 0 error / 3 存量 warning；npm run build 成功。",
+      "updatedAt": "2026-10-26"
+    },
+    {
       "id": "models-providers-layered-settings",
       "title": "模型与提供商设置页分层重构：提供商列表 / 连接 / 模型三层",
       "status": "done",

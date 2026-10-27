@@ -10,7 +10,7 @@ import {
   renderConsoleBlock,
   renderDiff,
   renderInlineDiffStats,
-  renderPreviewButton,
+  renderPresentedFilesSummary,
   renderStatus,
   renderTerminateCommandButton,
   renderToolChevron,
@@ -48,7 +48,7 @@ function runCommandLogContext(params: Record<string, unknown> | undefined, resul
  *
  * class 链与 DOM 结构逐字复刻原模板：quickforge-local-tool-shell > details >
  * summary（图标 + 标题 + 折叠箭头 + diff 统计 + 状态）+ 展开区（input/output/
- * diff/details），外加 quickforge-tool-actions（预览 / 终止命令按钮）。
+ * diff/details），外加 quickforge-tool-actions（终止命令按钮）。
  */
 export class LocalWorkspaceToolRenderer {
   private toolName: string
@@ -62,13 +62,16 @@ export class LocalWorkspaceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status = toolStatus(result, isStreaming)
     const timing = extractQuickForgeTiming(result?.details)
-    // write_file / edit_file / read_file 摘要区渲染 FileIcon + basename 的整体元素：
-    // 可预览时该元素是静态 span 挂 click 直接预览（span 非交互元素，不违反
-    // 「summary 内禁嵌交互元素」的 HTML 规范，也是本工具唯一预览入口，右侧
-    // 不再渲染眼睛按钮去重）；其余工具保持 summarizeParams 纯文本摘要。
+    // write_file / edit_file / read_file 摘要区渲染 FileIcon + basename 的整体元素，
+    // present_files 同理逐文件渲染（每个文件各自是预览入口）：可预览时该元素是
+    // 静态 span 挂 click 直接预览（span 非交互元素，不违反「summary 内禁嵌交互元素」
+    // 的 HTML 规范）；present_files 不再额外渲染右上角眼睛按钮，文件名 hover 下划线
+    // 即可点提示。其余工具保持 summarizeParams 纯文本摘要。
     const rawSummary = (this.toolName === 'write_file' || this.toolName === 'edit_file' || this.toolName === 'read_file')
       ? renderToolFileSummary(this.toolName, params)
-      : summarizeParams(this.toolName, params, result)
+      : this.toolName === 'present_files'
+        ? renderPresentedFilesSummary(params)
+        : summarizeParams(this.toolName, params, result)
     // run_command 带 description 时摘要行优先显示描述；悬停 title 同时带上命令，命令仍可达。
     const commandText = this.toolName === 'run_command' && typeof params?.command === 'string'
       ? params.command.replace(/\s+/g, ' ').trim()
@@ -117,7 +120,6 @@ export class LocalWorkspaceToolRenderer {
             </div>
           </ToolDetails>
           <span className="quickforge-tool-actions inline-flex shrink-0 items-center gap-1">
-            {renderPreviewButton(this.toolName, params)}
             {renderTerminateCommandButton(this.toolName, status, result?.details)}
           </span>
         </div>

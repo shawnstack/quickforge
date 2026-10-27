@@ -56,6 +56,8 @@ type PinnedSummarySectionsProps = {
   setExpandedTasksSignature: (signature: string | undefined) => void
   backgroundCommands: BackgroundCommandSummary[]
   onStopBackgroundCommand?: (command: BackgroundCommandSummary) => void
+  /** 打开右侧后台任务面板（置顶摘要里点标题「查看全部」或某条命令都走这里）。 */
+  onOpenBackgroundTasks?: () => void
   runningSubagentRuns: SubagentRunPayload[]
   finishedSubagentRuns: SubagentRunPayload[]
   visibleSubagentRuns: SubagentRunPayload[]
@@ -124,6 +126,7 @@ export function PinnedSummarySections({
   setExpandedTasksSignature,
   backgroundCommands,
   onStopBackgroundCommand,
+  onOpenBackgroundTasks,
   runningSubagentRuns,
   finishedSubagentRuns,
   visibleSubagentRuns,
@@ -219,15 +222,29 @@ export function PinnedSummarySections({
         <section className={cn((hasGoalSection || hasGitSection || todos.length > 0) && 'mt-3 border-t-[0.5px] border-[color-mix(in_oklab,var(--border)_28%,transparent)] pt-3')} aria-labelledby="pinned-commands-title">
           <div id="pinned-commands-title" className="mb-2 flex items-center justify-between gap-3 pr-8 text-xs font-medium text-muted-foreground">
             <span>{t('backgroundCommandMenuTitle', { count: backgroundCommands.length })}</span>
+            {onOpenBackgroundTasks ? (
+              <button type="button" className="rounded-md px-1 text-xs font-medium transition-colors hover:text-foreground" onClick={onOpenBackgroundTasks} aria-label={t('backgroundTaskOpenPanelAria')}>
+                {t('backgroundTaskOpenPanel')}
+              </button>
+            ) : null}
           </div>
           <div className="space-y-1">
             {backgroundCommands.map((command) => (
               <div key={command.taskId} className="flex min-h-11 items-center gap-2.5 px-1.5">
-                <SquareTerminal className="size-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{command.description || t('backgroundCommandLabel')}</span>
-                  <span className="block truncate text-xs text-muted-foreground">{command.command}</span>
-                </span>
+                {/* 行主体是按钮、停止是兄弟按钮：整行可点时不再单独渲染「查看」入口。 */}
+                <button
+                  type="button"
+                  className="flex min-w-0 flex-1 items-center gap-2.5 text-left transition-colors"
+                  onClick={onOpenBackgroundTasks}
+                  disabled={!onOpenBackgroundTasks}
+                  aria-label={t('backgroundTaskOpenAria', { command: command.command })}
+                >
+                  <SquareTerminal className="size-4 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{command.description || t('backgroundCommandLabel')}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{command.command}</span>
+                  </span>
+                </button>
                 <button type="button" className="quickforge-background-command-stop" aria-label={t('backgroundCommandStopAria', { command: command.command })} onClick={() => onStopBackgroundCommand?.(command)}>{t('backgroundCommandStop')}</button>
               </div>
             ))}

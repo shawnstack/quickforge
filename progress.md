@@ -11,6 +11,105 @@
 - 验证 / Evidence：
 - Notes：
 
+## present-files-inline-links（done，2026-10-26）
+
+- Goal：`present_files`（展示文件）工具卡去掉右上角眼睛（预览）按钮，改为摘要区逐文件渲染「文件图标 + 文件名」，文件名 hover 出下划线、点击跳转预览（范围仅 present_files，write/edit/read 摘要保持不变）。
+- 结论（一句话）：`renderPreviewButton` 整体删除，新增 `renderPresentedFilesSummary(params)` 在摘要区逐文件渲染，与 `renderToolFileSummary` 同一套 span + click（`previewArtifactClickHandler` → `PREVIEW_ARTIFACT_EVENT`）与 `underline-offset-4 hover:underline` 文案，不可预览文件纯静态。
+- 改动文件：
+  1. `src/lib/tool-renderers/shared.tsx` — 删除 `renderPreviewButton`（present_files 的眼睛按钮）与其 `t` 依赖路径；`resolvePreviewableArtifact` 收窄为 write/edit/read 单文件；新增 `presentedFileEntries`（files 归一化，兼容 string 与 `{ path, kind }`）与导出 `renderPresentedFilesSummary`（逐文件 FileIcon + basename，逗号分隔，可预览各挂 click；工作区外绝对路径经 `isNonWorkspaceClickablePath` 静态化）。
+  2. `src/lib/tool-renderers/local-workspace-tool-renderer.tsx` — `present_files` 摘要改走 `renderPresentedFilesSummary`；`quickforge-tool-actions` 里移除 `renderPreviewButton`，只剩终止命令按钮。
+  3. `tests/frontend/tool-renderer-file-icon.test.ts` — 眼睛按钮用例替换为 3 个新用例（逐文件可点 + 各自派发事件、不可预览/工作区外静态、无 files 时不渲染元素）；新增 `presentedFileNodes` 辅助函数；顶部注释同步。
+  4. `docs/wiki/src/lib/README.md` — `shared.tsx` 条目把 `renderPreviewButton` 换为 `renderPresentedFilesSummary` 并说明「动作区不再有眼睛按钮」的理由。
+  5. `feature_list.json` / `progress.md` / `session-handoff.md` 记录本轮。
+- 验证 / Evidence：
+  - `npx tsc -b` → 0 错误。
+  - `npx vitest run tests/frontend/tool-renderer-file-icon.test.ts tests/frontend/local-tool-running-sweep.test.ts tests/frontend/tool-param-summary.test.ts tests/frontend/css-architecture.test.ts` → 4 files / 39 tests passed。
+  - `npx eslint src/lib/tool-renderers/shared.tsx src/lib/tool-renderers/local-workspace-tool-renderer.tsx tests/frontend/tool-renderer-file-icon.test.ts` → 0 error。
+  - `npm run test` → 402 files / 4731 tests（4727 passed，3 failed，1 skipped）。3 个失败均在 `tests/frontend/background-tasks-tab.test.ts`（1）与 `tests/frontend/subagent-running-indicator.test.ts`（3，并行跑时计 2）内，断言对象是工作区里既有的未提交改动（`src/components/app/ConversationHeader.tsx`、`src/components/chat/panel-decoration/subagent-running-indicator.ts`、`src/styles/workspace/background-tasks.css`、未跟踪的 `src/lib/background-tasks-open.ts`），与本轮改动的 `tool-renderers/*` 无交集（两文件均不引用 `tool-renderers` / `renderPreviewButton`）；另有 31 个 `Cannot find package 'jsdom'` 的既有环境错误。
+  - `npm run lint` → 0 error / 3 存量 warning（`coverage/` 生成目录）。
+  - `npm run build` → 成功（built in 5.47s）。
+- Notes：
+  - 摘要区逗号分隔符用裸文本 `', '`（未新增 CSS 类），避免引入无对应样式的选择器。
+  - `quickforge-tool-actions` 现在只在 `run_command` 运行中出现（终止按钮）；CSS 的 `:has(> .quickforge-tool-actions > button)` 预留区规则保持不变，present_files 摘要因此不再被预留 1.75rem 右侧内边距。
+  - 未改动 `summarizeParams` 的 present_files 纯文本分支——它仍供子代理跑马灯（`subagent-run-detail.ts`）与 MCP 渲染器使用。
+  - 已知与本轮无关的失败：`background-tasks-tab.test.ts` / `subagent-running-indicator.test.ts` 的 3-4 个用例（源码断言指向工作区里其他未提交改动），记在此备查、未扩大改动范围。
+
+## background-tasks-sidebar（done，2026-10-26）
+
+- Goal：把「后台运行命令」的运行与历史从临时浮层收进右侧边栏，提供可筛选、可搜索、可看日志的统一面板；终态历史不新增服务端接口，直接派生自会话消息。
+- 结论（一句话）：Workspace Inspector 新增 `background-tasks` 运行时 Tab（`BackgroundTasksTabContent`），运行中来自 `backgroundCommands` 快照、终态由 `toolResult` 消息 `details` 派生（`src/lib/background-tasks-model.ts`），入口为置顶摘要 + Composer 图标两处，顶栏不设入口（顶栏图标入口已于下方「跟进 2 · 入口重构」删除）。
+- 改动文件：
+  1. `src/lib/background-tasks-model.ts`（新增）— `buildBackgroundTasks` 统一视图模型：running 取后台命令快照，finished 从 `toolResult` 消息派生 `completed`/`failed`/`timed_out`/`aborted`、`exitCode`/`durationMs`；同 `taskId` 两边都有时以消息终态为准；筛选/搜索/时长格式化纯函数。
+  2. `src/components/workspace/BackgroundTasksTabContent.tsx`（新增）— 面板内容：全部/运行中/已结束筛选 + 关键字搜索、任务列表与状态点、详情元信息、命令日志预览（`getCommandLog`）、跟随输出、复制命令/任务、停止任务与查看完整日志入口；选中项失效时回落到第一条 running。
+  3. `src/components/workspace/WorkspaceInspector.tsx`、`workspace-panel-tabs.ts`、`workspace-inspector-tabs.ts`、`useInspectorTabs.ts` — 注册 `background-tasks` kind（`Activity` 图标）、单实例复用、`serializePanelTabs` 剔除（不持久化）。
+  4. `src/components/app/ConversationHeader.tsx` + `src/App.tsx` — 会话头入口与运行中数量徽标，点击打开/激活后台任务 Tab（经 `requestWorkspaceInspector`）；该入口后来在「跟进 2 · 入口重构」中整体删除。
+  5. `src/styles/workspace/background-tasks.css`（新增）+ `src/styles/index.css` — 面板样式，class 前缀 `.quickforge-background-tasks-*`。
+  6. `src/lib/i18n.ts` — en/zh 成对新增后台任务面板文案；本次清理未使用的 `backgroundTaskTabLabel`（两段各删除一行）。
+  7. `tests/frontend/background-tasks-model.test.ts`、`tests/frontend/background-tasks-tab.test.ts`（新增）、`tests/frontend/server-agent-background-commands-frame.test.ts`（新增，6 用例，覆盖 `background_commands` 帧短快照的 `toolCallId` 合并逻辑）。
+  8. `docs/wiki/src/components/README.md`、`docs/wiki/src/styles/README.md`、`docs/wiki/server/README.md`、`docs/wiki/server/tools/README.md` 同步；`feature_list.json`、`session-handoff.md` 记录。
+- 验证 / Evidence：
+  - `npm run test` → **402 files passed / 4722 tests passed（1 skipped）**；退出码 1 仅来自 31 个标注 `@vitest-environment jsdom` 的文件无法启动 fork worker（`Cannot find package 'jsdom'`，既有环境缺失），无真实断言失败，其余断言全部通过。首轮全量曾出现 `tests/server/scheduled-tasks.commands.test.mjs` 2 个用例失败，单独重跑该文件 24 passed，重跑全量后全绿——判定为并发下的既有 flake，与本次改动无关（本次只删了一个 i18n key 并改文档）。
+  - `npx vitest run tests/frontend/background-tasks-model.test.ts tests/frontend/background-tasks-tab.test.ts tests/frontend/server-agent-background-commands-frame.test.ts` → 全过（其中 `server-agent-background-commands-frame.test.ts` 6 用例，覆盖 `background_commands` 帧短快照的 `toolCallId` 就地合并）。
+  - `npm run lint` → 0 error / 3 warning（均为 `coverage/` 生成目录的 unused eslint-disable，存量）。
+  - `npm run build` → 成功（`tsc -b && vite build`，built in 3.78s）。
+- Notes：
+  - 后台命令输出非流式：日志预览靠 2s 轮询（仅「跟随输出」开启且任务仍在运行时）。
+  - `backgroundTasks` 是服务端内存 Map，服务重启后终态丢失，面板会变空。
+  - `listBackgroundCommandTasks` 仍只返回 running，未改动——会话 idle 回收语义依赖它。
+  - 服务端 `settleBackgroundCommandToolResult` 在找不到对应 `toolResult` 消息时返回 `false`，该任务不会出现在面板终态里（边界场景：会话被驱逐 / compaction 截断）。
+  - 本机 `node_modules/jsdom` 缺失，31 个 `tests/frontend/*.test.ts`（jsdom 环境）无法启动，属既有环境问题。
+  - Tab 条上的 tab 标签不显示任务数（运行中计数徽标在 Composer 命令图标上；原会话头入口在「跟进 2 · 入口重构」中删除），如需 tab 内计数需给 `panelTabLabel` 传入 count。
+
+- 跟进（2026-10-27，后台任务面板样式对齐 + 入口统一）：
+  - Goal：把后台任务面板的横向基准、控件高度、间距与字号刻度对齐 Inspector 其余 tab（`workflow-detail.css` 同轴），消除切 tab 时的横跳与工具栏 1px 高低差；同时把入口收敛到一处。
+  - 样式对齐（`src/styles/workspace/background-tasks.css` 重写）：
+    1. 水平基准从 0.5rem 改为 **0.875rem**，与 `workflow-detail.css` 同轴，切 Inspector tab 时正文不再横跳 5px。header / toolbar / detail-header / meta / output 外框统一落在基准线；列表用 `list 0.5rem + item 0.375rem` 叠出基准线。
+    2. 输出区内部三级（标题条 / 滚动区 / 底部提示）统一横向 0.5rem，去掉原来的 0.4rem。
+    3. 控件同高：分段控件 `1.375rem` + 容器 `0.125rem` 内距 = 搜索框 `1.625rem`，消除工具栏内 1px 高低差；输出标题条与底部提示也统一 `1.625rem`。
+    4. 空间节奏回到 1/16 网格：`0.375 / 0.5 / 0.75`，清除 `0.3 / 0.35 / 0.4 / 1.05 / 1.15 / 1.6` 等零散值。
+    5. 字号 4 档：`0.6875`（计数徽标）/ `0.75`（正文）/ `0.8125`（列表标题）/ `0.875`（面板标题与空态标题）。原面板标题 0.8125 小于 Inspector tab 的 13px，属层级倒挂，已提到 0.875。
+    6. 行内操作不再绝对定位覆盖元信息：`.item-meta` 与 `.item-actions` 共用网格第三列（`grid-template-columns: auto minmax(0,1fr) minmax(3.5rem, auto)`），悬停只做透明度交换。修掉原先「操作区比元信息格宽 10px、透明底让命令字从图标间透出」的压字问题。
+    7. 选中态（`is-active`）不再显示行内操作、也不淡出元信息——两者同格，常显会互相遮挡；选中行的停止/复制在详情区。
+    8. 命令从 `word-break: break-all` 换行改为单行 `ellipsis` 截断 + `title` 展示完整值，避免长命令把复制/停止按钮挤到行中间。
+    9. 详情头恢复 `border-bottom`（34% 弱线），meta 加 `padding-bottom: 0.5rem`，命令与元信息不再贴在一起。
+    10. 输出区加 `min-height: 4rem`，面板被压矮时不会把日志挤成 0 高；`.detail` 加 `overflow: hidden`。
+    11. 筛选/搜索无结果时新增 `.quickforge-background-tasks-no-results` 提示（新 i18n key `backgroundTaskNoResults`），不再复用「选择一个任务」空态文案。
+    12. `pointer: coarse` 下图标按钮提到 `2rem`，满足触摸目标。
+    13. 所有图标按钮、链接、跟随开关补 `:focus-visible` / `:hover` 过渡与 reduced-motion 关闭。
+  - 配套改动：
+    1. i18n（`src/lib/i18n.ts`）：`backgroundTaskElapsed`（`'{duration} elapsed'`，英文去参数后是小写 `elapsed`）替换为 `backgroundTaskMetaElapsed`（`'Elapsed'` / `'耗时'`）；新增 `backgroundTaskNoResults`。
+    2. `src/components/workspace/BackgroundTasksTabContent.tsx`：详情命令加 `title`；输出 footer 提示文案加 `quickforge-background-tasks-output-footer-hint` 单行截断类。
+    3. 入口统一：Composer 左下角命令图标不再弹浮层菜单（`openBackgroundCommandMenu` 已删），改为派发 `quickforge:open-background-tasks` 窗口事件（`src/lib/background-tasks-open.ts`），App 监听并按 `sessionId` 过滤后调 `requestWorkspaceInspector({ kind: 'background-tasks' })`。顶栏 `ConversationHeader` 没有后台任务按钮。停止/查看日志只在面板内。
+    4. `tests/frontend/background-tasks-tab.test.ts`：对齐断言改为 0.875rem 基准；新增「分段控件与搜索框同高」「操作区不与元信息压字（共用第三列）」「Composer 图标经窗口事件打开」三条；字号断言从 3 档改为 4 档。
+  - 验证 / Evidence：`npx tsc -b` 通过；`npm run lint` 0 error（3 条 warning 在 `coverage/` 生成目录，存量）；`npm run build` 通过；`npx vitest run tests/frontend/` → 228 个文件中 227 通过，唯一失败 `tests/frontend/custom-providers-tab.test.ts` 属另一并行 feature（与本次无关），31 个 jsdom 缺包 worker 启动失败属既有环境问题；后台任务相关 67 个用例全绿。
+  - Notes（跟进）：
+    1. `docs/design/background-tasks-align-preview.html` 是可视化对齐校验页：直接引用真实 CSS + foundation token 子集，叠加 0.875rem / 0.5rem 基准线，可切亮暗与 340/380px 宽度。
+    2. 列表正文比基准线多一个「圆点 + gap」的缩进，这是 bullet 列表固有缩进，圆点本身仍落在基准线上。
+    3. 选中行不显示行内操作是刻意取舍（与元信息同格）。
+    4. 日志预览仍是 2s 轮询，非流式（原限制未变）。
+
+- 跟进 2（2026-10-27，后台任务入口重构：顶栏入口删除 + 置顶摘要双入口）：
+  - Goal：把「打开后台任务面板」的入口从三方并存（顶栏图标、Composer 图标浮层、置顶摘要）收敛为「置顶摘要的后台命令区块」+「Composer 左下角命令图标」两个直开面板的入口，并清掉上一轮遗留的浮层代码与样式。
+  - 完成内容：
+    1. 会话顶栏：删除 `ConversationHeader` 的「后台任务」图标入口（含运行中数量徽标）。
+    2. 置顶摘要：`PinnedSummarySections` 的「后台命令」区块成为主入口——标题右侧「查看全部」按钮（`backgroundTaskOpenPanel` / `backgroundTaskOpenPanelAria`）+ 每条命令的行主体（行本身是 button，aria 走 `backgroundTaskOpenAria`），停止按钮是同级兄弟按钮、点击冒泡不影响；区块内不再单独渲染「查看」入口。
+    3. Composer 图标：`.quickforge-background-command-trigger`（终端图标 + 运行中角标）不再弹浮层，点击**直接打开右侧面板**；`openBackgroundCommandMenu` 与 `.quickforge-background-command-menu` 样式一并删除。
+    4. 新增事件桥 `src/lib/background-tasks-open.ts`：`OPEN_BACKGROUND_TASKS_EVENT`（`quickforge:open-background-tasks`）+ `dispatchOpenBackgroundTasks()` + `normalizeOpenBackgroundTasksRequest()`；`App.tsx` 监听后调 `requestWorkspaceInspector({ kind: 'background-tasks' })`，且只接受「当前会话或缺省 sessionId」的请求。
+    5. 保留：subagent 浮层仍复用 `renderBackgroundCommandItems`，`.quickforge-background-command-item/-copy/-stop/-log` 样式必须保留。
+  - 改动文件：
+    1. `src/components/app/ConversationHeader.tsx` — 删除后台任务入口按钮与徽标。
+    2. `src/components/git/PinnedSummarySections.tsx` + `src/components/git/GitToolsPinnedSummary.tsx` — 「后台命令」区块加「查看全部」按钮、命令行主体改为整行按钮 + 兄弟停止按钮，新增 `onOpenBackgroundTasks` 透传。
+    3. `src/components/chat/panel-decoration/subagent-running-indicator.ts` — 图标点击改为 `dispatchOpenBackgroundTasks({ sessionId })`，删除浮层打开逻辑。
+    4. `src/styles/chat/composer-controls.css` — 删除 `.quickforge-background-command-menu`，保留 trigger/badge 与 item/copy/stop/log。
+    5. `src/lib/background-tasks-open.ts`（新增）、`src/App.tsx`（事件监听 + 会话过滤）、`src/lib/i18n.ts`（`backgroundTaskOpenPanel` / `backgroundTaskOpenPanelAria` / `backgroundTaskOpenAria`）。
+    6. `tests/frontend/background-tasks-tab.test.ts`、`tests/frontend/subagent-running-indicator.test.ts` — 对齐新入口断言。
+    7. `docs/wiki/src/components/README.md`、`docs/wiki/src/styles/README.md`、`docs/wiki/src/lib/README.md`；`feature_list.json`、`progress.md`、`session-handoff.md`。
+  - 验证 / Evidence：`npx tsc -b` 通过；`npx eslint` 相关改动文件 0 error；`npx vitest run` 相关 5 个测试文件 79 passed；`npm run build` 成功（built in 3.39s）。
+  - Notes：
+    1. 浮层删除后 `renderBackgroundCommandItems` 仍被 subagent 运行浮层复用，`.quickforge-background-command-item/-copy/-stop/-log` 相关 CSS 不能随手一并删除。
+    2. 两处入口的打开路径不同：置顶摘要在 App 内直接持有 `requestWorkspaceInspector` 并顺带按既有规则收起摘要；Composer 图标在装饰层，只能经窗口事件回 App。事件 payload 只放 `sessionId`，App 侧做「只认当前会话」过滤，避免跨会话残留事件把面板切走。
+    3. 后台命令输出仍是 2s 轮询（原限制未变）。
+
 ## models-providers-layered-settings（done，2026-10-26）
 
 - Goal：按 `docs/design/models-providers-settings-redesign.html` 设计稿，把「模型与提供商」设置页从「一个表单管理全部配置」重构为分层设计：提供商列表 / 连接 / 模型三层各自保存。
@@ -26,6 +125,14 @@
 - 验证 / Evidence：`npx vitest run tests/frontend/custom-providers-tab.test.ts tests/frontend/settings-workspace-react.test.ts tests/frontend/css-architecture.test.ts tests/frontend/i18n-language-snapshot.test.ts` 全过；`npm run test` 399 files / 4684 tests 全过（31 个 `Cannot find package 'jsdom'` Unhandled Error 为存量环境缺失，jsdom 已声明未安装）；`npm run lint` 0 error / 4 既有 warning；`npm run build` 成功。
 
 - Notes（同日视觉打磨）：协议分段控件整行铺满、等分两段、`white-space: nowrap` 根除换行，字号 0.9375rem→0.8125rem、总高收到 2.25rem 与输入框对齐；协议独占连接网格整行（名称/Base URL 两列）；密钥行改「标题行/说明行/编辑行」三段纵排，标题与操作按钮同行对齐；模型行能力徽标取消 `.quickforge-settings-meta` 默认 margin-top（原先把 chips 顶歪 8px）并加 min-height 统一行高；模型 ID 0.78125→0.8125rem、规格 0.65625→0.6875rem 统一字号刻度；列表/详情头部协议徽标改短标签（OpenAI / Anthropic，`protocolShortLabel`），列表 meta 合并为单行。tsc / eslint / 18 目标用例 / `npm run build` 全过。
+
+  - 跟进（2026-10-27）：草稿提供商删除补二次确认（`confirmDiscardDraft` 破坏性确认，取消保留草稿）；已保存提供商删除的确认原有。新增 1 个测试用例（14/14 全过）。
+
+  - 跟进 2：主从卡片改固定高度（桌面 34rem / 窄屏 28rem，列表与详情卡内各自滚动，页面高度不随模型数变化）；新增「上次最后访问的提供商」记忆（localStorage `quickforge:custom-providers:last-selected:v1`，id 优先/名称兜底恢复，深链优先，草稿不写入，恢复时不自动展开窄屏抽屉）。测试 15/15 全过。
+
+  - 跟进 3（参考用户截图样式）：连接层改为全宽竖排表单——名称 / Base URL / API 格式（`SettingsSelect` 下拉，选项带端点说明 `Chat Completions (/chat/completions)` / `Anthropic Messages (/v1/messages)`）/ API Key（常驻密码框 + 行内眼睛切换 + 状态徽标 + 「清除密钥」即时生效）；密钥输入计入连接层脏状态、随「保存连接」落库（留空保留现有密钥）；移除密钥卡片与「更换/保存密钥」流程及 protocolType 分段控件。测试 15/15、tsc / eslint / build 全过。
+
+  - 跟进 4：每个模型行新增一键连通性测试图标（闪电 = 待测 / 旋转 = 测试中 / ✓ ✗ 徽标 = 结果，错误详情放 title 提示），用已保存的模型配置直接探测、无需展开编辑；展开编辑区里的「测试此模型」保留用于测试未保存的草稿参数。`ModelRow` 导出并补 1 个行内测试用例（16/16 全过）。
 - Notes：存储仍为 `custom-providers` + `provider-keys`（密钥按提供商名）；连接层保存语义 = 读-改-写整个提供商（协议/请求头下发到全部模型）并迁移改名密钥，密钥独立保存只写两个存储不触碰模型；草稿提供商（预设创建）在本地保存连接时落库。`customProviders` 深链从「打开编辑表单」改为「选中列表项」。工作区有并行会话（ask-user-echo-fix）在同文件 `src/lib/i18n.ts` 作业，本次 i18n 改动均为 provider 区块内成对增删，无交叉。
 
 ## ask-user-echo-fix（done，2026-10-26）

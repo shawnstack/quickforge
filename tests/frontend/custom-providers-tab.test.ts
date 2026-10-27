@@ -29,7 +29,9 @@ vi.mock('@/components/ui/confirm-dialog', () => ({
 
 import { CustomProvidersSettingsTab } from '../../src/components/settings/tabs/CustomProvidersSettingsTab'
 import { ConnectionSection } from '../../src/components/settings/custom-providers/connection-section'
-import { ModelListSection } from '../../src/components/settings/custom-providers/model-list-section'
+import { SettingsSelect } from '../../src/components/settings/SettingsSelect'
+import { ModelListSection, ModelRow, type ModelTestOutcome } from '../../src/components/settings/custom-providers/model-list-section'
+import type { AnyModel } from '../../src/components/settings/custom-providers/shared'
 import { ProviderListPane } from '../../src/components/settings/custom-providers/provider-list-pane'
 
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
@@ -125,6 +127,40 @@ describe('custom providers layered settings tab', () => {
     const models = findByType(tree, ModelListSection)
     expect(models.props.provider.models).toHaveLength(2)
     expect(models.props.canDiscover).toBe(true)
+  })
+
+  it('restores the last visited provider on open and persists selection', async () => {
+    const second = { ...fixture(), id: 'p2', name: 'LiteLLM', models: [baseModel('claude-sonnet')] }
+    storage.customProviders.getAll.mockResolvedValue([fixture(), second])
+    storage.providerKeys.get.mockResolvedValue('')
+    const store: Record<string, string> = {}
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store[key] ?? null,
+      setItem: (key: string, value: string) => { store[key] = value },
+      removeItem: (key: string) => { delete store[key] },
+    })
+    stubFetch()
+    const key = 'quickforge:custom-providers:last-selected:v1'
+
+    // 上次最后访问 p2：打开即恢复选中
+    store[key] = JSON.stringify({ id: 'p2', name: 'LiteLLM' })
+    let tree = await loadTab()
+    expect(findByType(tree, ProviderListPane).props.selectedId).toBe('p2')
+
+    // 手动切换 → 写入记忆
+    ;(findByType(tree, ProviderListPane).props.onSelect as (id: string) => void)('p1')
+    expect(JSON.parse(store[key])).toMatchObject({ id: 'p1', name: 'DeepSeek' })
+
+    // id 失效（如换了数据目录）→ 按名称兜底恢复
+    store[key] = JSON.stringify({ id: 'gone', name: 'LiteLLM' })
+    lifecycle.unmount()
+    lifecycle = new HookLifecycle()
+    tree = await loadTab()
+    expect(findByType(tree, ProviderListPane).props.selectedId).toBe('p2')
+
+    // 草稿选中不覆盖记忆
+    ;(findByType(tree, ProviderListPane).props.onAddPreset as (preset: string) => void)('openai')
+    expect(JSON.parse(store[key]).id).toBe('p2')
   })
 
   it('saving the connection layer rewrites the provider and migrates the key on rename', async () => {
@@ -284,6 +320,32 @@ describe('custom providers layered settings tab', () => {
     expect(findByType(tree, ProviderListPane).props.draftProvider).toBeNull()
   })
 
+  it('discarding a draft provider requires confirmation', async () => {
+    storage.customProviders.getAll.mockResolvedValue([])
+    storage.providerKeys.get.mockResolvedValue('')
+    confirmDialog.confirm.mockResolvedValue(false)
+    stubFetch()
+    let tree = await loadTab()
+    ;(findByType(tree, ProviderListPane).props.onAddPreset as (key: string) => void)('openai')
+    tree = renderTab()
+    const draft = findByType(tree, ProviderListPane).props.draftProvider
+    expect(draft).not.toBeNull()
+
+    // 取消：草稿保留
+    await (findByType(tree, ProviderListPane).props.onDelete as (provider: unknown) => Promise<void>)(draft)
+    expect(confirmDialog.confirm).toHaveBeenCalledOnce()
+    expect(confirmDialog.confirm.mock.calls[0][0]).toMatchObject({ variant: 'destructive' })
+    tree = renderTab()
+    expect(findByType(tree, ProviderListPane).props.draftProvider).not.toBeNull()
+
+    // 确认：草稿丢弃、选中回落
+    confirmDialog.confirm.mockResolvedValue(true)
+    await (findByType(tree, ProviderListPane).props.onDelete as (provider: unknown) => Promise<void>)(draft)
+    tree = renderTab()
+    expect(findByType(tree, ProviderListPane).props.draftProvider).toBeNull()
+    expect(findByType(tree, ProviderListPane).props.selectedId).toBeNull()
+  })
+
   it('deleting a provider confirms then removes provider and key', async () => {
     confirmDialog.confirm.mockResolvedValue(true)
     storage.customProviders.getAll.mockResolvedValue([fixture()])
@@ -313,24 +375,34 @@ describe('custom providers connection section (child render)', () => {
     onTest: vi.fn(),
   })
 
-  it('keeps password managers away from the key field and updates via inline replace', () => {
-    let props = sectionProps()
+  it('keeps password managers away and saves the typed key with the connection', () => {
+    const props = sectionProps()
     let tree = renderChild(() => ConnectionSection(props))
-    // 未进入编辑态：只有状态徽章，没有密钥输入框
+    // API 格式下拉：选项带端点说明（SettingsSelect 是不透明子组件，断言元素 props）
+    const formatSelect = findByType(tree, SettingsSelect)
+    expect(formatSelect.props.value).toBe('openai-completions')
+    expect(formatSelect.props.options).toEqual([
+      { value: 'openai-completions', label: 'en:apiFormatChatCompletions' },
+      { value: 'anthropic-messages', label: 'en:apiFormatAnthropicMessages' },
+    ])
+    // 密钥输入框常驻，状态徽标同行，清除入口可见
     expect(text(tree)).toContain('en:keyConfigured')
-    expect(tree.some((node) => node.type === 'input' && node.props.name === 'qf-provider-api-key')).toBe(false)
-
-    click(tree.find((node) => node.type === 'button' && text(node) === 'en:replaceKey')!)
-    tree = renderChild(() => ConnectionSection(props))
+    expect(text(tree)).toContain('en:clearKey')
     const keyInput = tree.find((node) => node.type === 'input' && node.props.name === 'qf-provider-api-key')!
     expect(keyInput.props.autoComplete).toBe('new-password')
     expect(keyInput.props.type).toBe('password')
 
+    // 清除密钥立即生效（复用 onSaveKey('')，不依赖连接保存）
+    click(tree.find((node) => node.type === 'button' && text(node) === 'en:clearKey')!)
+    expect(props.onSaveKey).toHaveBeenCalledWith('')
+
+    // 输入新密钥 → 计入连接层脏状态，随「保存连接」提交
     change(keyInput, 'sk-new')
     tree = renderChild(() => ConnectionSection(props))
-    click(tree.find((node) => node.type === 'button' && text(node) === 'en:saveKey')!)
-    expect(props.onSaveKey).toHaveBeenCalledWith('sk-new')
-    props = sectionProps()
+    expect(text(tree)).toContain('en:connectionDirty')
+    click(tree.find((node) => node.type === 'button' && text(node) === 'en:saveConnection')!)
+    const [, apiKey] = props.onSaveConnection.mock.calls[0]
+    expect(apiKey).toBe('sk-new')
   })
 
   it('tracks connection edits as dirty and saves the whole connection draft', async () => {
@@ -360,6 +432,39 @@ describe('custom providers connection section (child render)', () => {
     expect(tree.some((node) => node.type === 'input' && node.props.name === 'qf-provider-api-key')).toBe(true)
     expect(text(tree)).toContain('en:keySavedWithConnection')
     expect(text(tree)).toContain('en:keyNotConfigured')
+  })
+})
+
+describe('custom providers model row (child render)', () => {
+  const rowProps = () => ({
+    model: baseModel('deepseek-chat') as unknown as AnyModel,
+    index: 0,
+    canDelete: true,
+    onSave: vi.fn(async () => true),
+    onRemove: vi.fn(),
+    onToggleVisible: vi.fn(),
+    onTest: vi.fn(async () => ({ ok: true })),
+    onQuickTest: vi.fn(async () => ({ ok: true }) as ModelTestOutcome),
+  })
+
+  it('runs a one-click connectivity test from the row icon and shows the outcome', async () => {
+    const props = rowProps()
+    props.onQuickTest.mockResolvedValueOnce({ ok: false, error: 'ECONNREFUSED' })
+    let tree = renderChild(() => ModelRow(props))
+    click(tree.find((node) => node.type === 'button' && node.props['aria-label'] === 'en:testThisModel')!)
+    expect(props.onQuickTest).toHaveBeenCalledWith(0)
+    await flush()
+    tree = renderChild(() => ModelRow(props))
+    // 失败：行内出现 ✗ 徽标，错误详情放 title 提示
+    expect(tree.find((node) => node.props?.title === 'ECONNREFUSED')).toBeTruthy()
+
+    // 再测成功 → ✓ 徽标
+    props.onQuickTest.mockResolvedValueOnce({ ok: true })
+    tree = renderChild(() => ModelRow(props))
+    click(tree.find((node) => node.type === 'button' && node.props['aria-label'] === 'en:testThisModel')!)
+    await flush()
+    tree = renderChild(() => ModelRow(props))
+    expect(tree.find((node) => node.props?.title === 'en:connectionOk')).toBeTruthy()
   })
 })
 

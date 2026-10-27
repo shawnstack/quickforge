@@ -1,4 +1,5 @@
 import { t } from '@/lib/i18n'
+import { dispatchOpenBackgroundTasks } from '@/lib/background-tasks-open'
 import { dispatchViewCommandLog } from '@/lib/tool-renderers/shared'
 import {
   OPEN_SUBAGENT_RUN_EVENT,
@@ -465,45 +466,25 @@ function setupBackgroundCommandIndicator({ panel, leftControls, enabled, command
   if (!trigger) trigger = document.createElement('button')
   trigger.type = 'button'
   trigger.className = 'quickforge-background-command-trigger relative inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground'
-  trigger.setAttribute('aria-haspopup', 'menu')
+  // 点击直接进右侧后台任务面板：浮层里的「停止 / 查看日志」在面板里都有完整版本，
+  // 两套入口并存只会让同一份数据有两种操作路径。
+  trigger.removeAttribute('aria-haspopup')
   trigger.setAttribute('aria-label', t('backgroundCommandIndicatorAria', { count: commands.length }))
   trigger.title = t('backgroundCommandIndicatorAria', { count: commands.length })
   trigger.innerHTML = `<span class="quickforge-background-command-icon" aria-hidden="true">${TERMINAL_ICON_SVG}</span><span class="quickforge-background-command-badge" aria-hidden="true">${commands.length}</span>`
+  // pointerdown 只做「抢先」处理（保持既有浮层互斥手感），真正打开面板放在 click，
+  // 这样键盘 Enter / Space 也能触发，且 pointerdown + click 不会双开。
   trigger.onpointerdown = (event) => {
     event.preventDefault()
     event.stopPropagation()
+  }
+  trigger.onclick = (event) => {
+    event.preventDefault()
+    event.stopPropagation()
     dismissComposerMenus()
-    openBackgroundCommandMenu(trigger!, commands, sessionId)
+    dispatchOpenBackgroundTasks({ sessionId })
   }
   const subagentTrigger = leftControls.querySelector('.quickforge-subagent-running-trigger')
   if (subagentTrigger?.nextSibling) leftControls.insertBefore(trigger, subagentTrigger.nextSibling)
   else leftControls.append(trigger)
-}
-
-function openBackgroundCommandMenu(trigger: HTMLButtonElement, commands: BackgroundCommandSummary[], sessionId: string) {
-  const existing = document.querySelector('.quickforge-background-command-menu')
-  if (existing) {
-    existing.remove()
-    return
-  }
-  const menu = document.createElement('div')
-  menu.className = 'quickforge-background-command-menu quickforge-subagent-running-menu'
-  menu.setAttribute('role', 'menu')
-  const title = document.createElement('div')
-  title.className = 'quickforge-subagent-running-menu-title'
-  title.textContent = t('backgroundCommandMenuTitle', { count: commands.length })
-  const list = document.createElement('div')
-  list.className = 'quickforge-subagent-running-list'
-  menu.append(title, list)
-  renderBackgroundCommandItems({ list, commands, sessionId, onStopped: () => menu.remove() })
-  document.body.append(menu)
-  const rect = trigger.getBoundingClientRect()
-  menu.style.left = `${Math.max(12, rect.left)}px`
-  menu.style.top = `${Math.max(12, rect.top - menu.offsetHeight - 8)}px`
-  const dismiss = (event: Event) => {
-    if (menu.contains(event.target as Node) || trigger.contains(event.target as Node)) return
-    menu.remove()
-    document.removeEventListener('pointerdown', dismiss, true)
-  }
-  document.addEventListener('pointerdown', dismiss, true)
 }

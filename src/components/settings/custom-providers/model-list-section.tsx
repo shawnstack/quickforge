@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Download, Plus, Trash2 } from 'lucide-react'
+import { ChevronRight, Download, Loader2, Plus, Trash2, Zap } from 'lucide-react'
 import type { CustomProvider } from '@/storage'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
@@ -17,6 +17,8 @@ export type ModelListSectionProps = {
   onRemoveModel: (index: number) => void
   onToggleVisible: (index: number) => void
   onTestModel: (index: number | 'new', draft: ModelDraft) => Promise<ModelTestOutcome>
+  /** 行内一键测试：用已保存的模型配置直接探测连通性。 */
+  onQuickTest: (index: number) => Promise<ModelTestOutcome>
   onDiscover: () => void
 }
 
@@ -122,7 +124,7 @@ function ModelEditBody(props: {
   )
 }
 
-function ModelRow(props: {
+export function ModelRow(props: {
   model: AnyModel
   index: number
   canDelete: boolean
@@ -130,12 +132,15 @@ function ModelRow(props: {
   onRemove: (index: number) => void
   onToggleVisible: (index: number) => void
   onTest: (index: number, draft: ModelDraft) => Promise<ModelTestOutcome>
+  onQuickTest: (index: number) => Promise<ModelTestOutcome>
 }) {
-  const { model, index, canDelete, onSave, onRemove, onToggleVisible, onTest } = props
+  const { model, index, canDelete, onSave, onRemove, onToggleVisible, onTest, onQuickTest } = props
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<ModelDraft>(() => modelDraftOf(model))
   const [testing, setTesting] = useState(false)
   const [testOutcome, setTestOutcome] = useState<ModelTestOutcome | null>(null)
+  const [quick, setQuick] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [quickError, setQuickError] = useState('')
 
   const update = (patch: Partial<ModelDraft>) => setDraft((current) => ({ ...current, ...patch }))
 
@@ -157,6 +162,19 @@ function ModelRow(props: {
     }
   }
 
+  const quickTest = async () => {
+    setQuick('testing')
+    setQuickError('')
+    try {
+      const outcome = await onQuickTest(index)
+      setQuick(outcome.ok ? 'ok' : 'fail')
+      setQuickError(outcome.error || '')
+    } catch (error) {
+      setQuick('fail')
+      setQuickError((error as Error)?.message || '')
+    }
+  }
+
   return (
     <div className={`quickforge-providers-model${open ? ' quickforge-providers-model-open' : ''}`}>
       <div className="quickforge-providers-model-main">
@@ -174,6 +192,24 @@ function ModelRow(props: {
         <span className="quickforge-providers-model-spec">
           {(model.contextWindow ?? 0).toLocaleString()} ctx · {(model.maxTokens ?? 0).toLocaleString()} out
         </span>
+        {quick === 'ok'
+          ? <span className="quickforge-settings-badge quickforge-settings-badge-success" title={t('connectionOk')}>✓</span>
+          : null}
+        {quick === 'fail'
+          ? <span className="quickforge-settings-badge quickforge-settings-badge-warning" title={quickError || t('connectionFailed')}>✗</span>
+          : null}
+        <button
+          className="quickforge-settings-icon-action"
+          type="button"
+          title={t('testThisModel')}
+          aria-label={t('testThisModel')}
+          disabled={quick === 'testing'}
+          onClick={() => void quickTest()}
+        >
+          {quick === 'testing'
+            ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+            : <Zap className="size-3.5" aria-hidden="true" />}
+        </button>
         <label className="quickforge-settings-switch" title={t('showModelInSelectorsHelp')}>
           <input
             type="checkbox"
@@ -215,7 +251,7 @@ function ModelRow(props: {
 }
 
 export function ModelListSection(props: ModelListSectionProps) {
-  const { provider, notice, discovering, canDiscover, onSaveModel, onRemoveModel, onToggleVisible, onTestModel, onDiscover } = props
+  const { provider, notice, discovering, canDiscover, onSaveModel, onRemoveModel, onToggleVisible, onTestModel, onQuickTest, onDiscover } = props
   const models = provider.models ?? []
   const [newDraft, setNewDraft] = useState<ModelDraft | null>(null)
   const [newTesting, setNewTesting] = useState(false)
@@ -308,6 +344,7 @@ export function ModelListSection(props: ModelListSectionProps) {
                 onRemove={onRemoveModel}
                 onToggleVisible={onToggleVisible}
                 onTest={onTestModel}
+                onQuickTest={onQuickTest}
               />
             ))}
           </div>

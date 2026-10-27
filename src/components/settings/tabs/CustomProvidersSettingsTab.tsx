@@ -33,6 +33,32 @@ export type CustomProvidersSettingsTabProps = {
 const IDLE_TEST: ConnectionTestState = { status: 'idle' }
 const JSON_HEADERS = { 'content-type': 'application/json' }
 const DRAFT_ID = 'draft'
+const LAST_SELECTED_KEY = 'quickforge:custom-providers:last-selected:v1'
+
+type LastSelectedRef = { id: string; name: string }
+
+/** 上次最后访问的提供商（id 优先，改名后按名称兜底）；存储不可用时静默降级。 */
+function readLastSelected(): LastSelectedRef | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(LAST_SELECTED_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<LastSelectedRef>
+    if (typeof parsed?.id === 'string' && typeof parsed?.name === 'string') {
+      return { id: parsed.id, name: parsed.name }
+    }
+  } catch {
+    // 隐私模式等存储不可用场景：不记忆即可
+  }
+  return null
+}
+
+function writeLastSelected(ref: LastSelectedRef) {
+  try {
+    globalThis.localStorage?.setItem(LAST_SELECTED_KEY, JSON.stringify(ref))
+  } catch {
+    // 同上：写入失败不影响功能
+  }
+}
 
 export function CustomProvidersSettingsTab({ customProvider, active }: CustomProvidersSettingsTabProps) {
   const [providers, setProviders] = useState<CustomProvider[]>([])
@@ -87,11 +113,20 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
     }
   }
 
-  const selectProvider = (id: string) => {
+  /** reveal=false 供恢复上次选中使用：不自动打开窄屏抽屉。草稿不写入记忆。 */
+  const selectProvider = (id: string, options?: { reveal?: boolean }) => {
     setSelectedId(id)
     selectedIdRef.current = id
     setModelsNotice('')
-    setDetailOpen(true)
+    if (options?.reveal !== false) {
+      setDetailOpen(true)
+    }
+    if (id !== DRAFT_ID) {
+      const provider = providersRef.current.find((candidate) => candidate.id === id)
+      if (provider) {
+        writeLastSelected({ id: provider.id, name: provider.name })
+      }
+    }
   }
 
   const addPreset = (presetKey: PresetKey) => {
@@ -342,6 +377,16 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
     }
   }
 
+  /** L3：模型行内一键连通性测试——直接用已保存的模型配置，不需要展开编辑。 */
+  const quickTestModel = async (index: number): Promise<ModelTestOutcome> => {
+    const current = currentProvider()
+    const model = current?.models?.[index]
+    if (!current || !model) {
+      return { ok: false, error: t('connectionFailed') }
+    }
+    return testModel(index, modelDraftOf(model as AnyModel))
+  }
+
   /** L3：从服务器拉取模型列表，合并为新的模型行。 */
   const discoverModels = async () => {
     const current = currentProvider()
@@ -388,7 +433,17 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
   }
 
   const deleteProvider = async (provider: CustomProvider) => {
+    // 草稿提供商虽未落库，但连接/模型可能已填了一半，同样走破坏性二次确认。
     if (provider.id === DRAFT_ID) {
+      const confirmed = await showConfirm({
+        description: t('confirmDiscardDraft', {
+          name: provider.name.trim() || t('newProviderFallback'),
+        }),
+        confirmLabel: t('discard'),
+        cancelLabel: t('cancel'),
+        variant: 'destructive',
+      })
+      if (!confirmed) return
       setDraftProvider(null)
       draftRef.current = null
       if (selectedIdRef.current === DRAFT_ID) {
@@ -437,6 +492,16 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
         const provider = providersRef.current.find((candidate) => candidate.name === customProvider)
         if (provider) {
           selectProvider(provider.id)
+        }
+      } else if (selectedIdRef.current === null) {
+        // 恢复上次最后访问的提供商：id 命中优先，改名后按名称兜底；不自动展开窄屏抽屉。
+        const last = readLastSelected()
+        const restored = last
+          ? providersRef.current.find((candidate) => candidate.id === last.id)
+            ?? providersRef.current.find((candidate) => candidate.name === last.name)
+          : undefined
+        if (restored) {
+          selectProvider(restored.id, { reveal: false })
         }
       }
     })()
@@ -504,6 +569,7 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
                 onRemoveModel={removeModel}
                 onToggleVisible={toggleVisible}
                 onTestModel={testModel}
+                onQuickTest={quickTestModel}
                 onDiscover={() => void discoverModels()}
               />
             </ProviderDetailPane>

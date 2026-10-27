@@ -117,7 +117,7 @@ export function usePinnedSummaryCapsule({
     }
     // 有 Goal 时限制胶囊密度：Goal 段固定第一，其余最多再保留两段。
     return goalView ? segments.slice(0, 3) : segments
-  }, [agentFinishedCount, agentRunningCount, goalPassedCriteria, goalView, hasGitSection, hasGitTotals, todos.length, todoCounts.completed, todoCounts.total, totals.additions, totals.deletions])
+  }, [agentFinishedCount, agentRunningCount, backgroundCommandCount, goalPassedCriteria, goalView, hasGitSection, hasGitTotals, todos.length, todoCounts.completed, todoCounts.total, totals.additions, totals.deletions])
 
   const capsuleAriaParts = capsuleSegments.map((segment) => segment.aria)
   const capsuleAria = capsuleAriaParts.length > 0

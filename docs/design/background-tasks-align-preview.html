@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>QuickForge · 后台任务面板 对齐预览</title>
+<!-- 直接引用真实样式文件，不复制规则，避免预览与实现漂移。 -->
+<link rel="stylesheet" href="../../src/styles/workspace/background-tasks.css" />
+<style>
+  /* 只在这里给出 foundation.css 的 token 子集，供真实样式文件消费。 */
+  :root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --success: oklch(0.55 0.13 158);
+    --warning: oklch(0.7 0.15 70);
+    --info: oklch(0.4 0.18 240);
+    --quickforge-sidebar-active-bg: #d9dee7;
+    --shadow-quickforge: 0 10px 26px -18px rgb(15 23 42 / 0.48);
+    --quickforge-dur-fast: 120ms;
+    --quickforge-dur-base: 180ms;
+    --quickforge-ease-out: cubic-bezier(0.2, 0, 0, 1);
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    --preview-bg: #f3f4f6;
+  }
+  html.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.275 0 0);
+    --ring: oklch(0.556 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --success: oklch(0.75 0.15 160);
+    --warning: oklch(0.78 0.14 75);
+    --info: oklch(0.75 0.14 240);
+    --quickforge-sidebar-active-bg: color-mix(in oklab, oklch(0.371 0 0) 78%, oklch(0.269 0 0));
+    --shadow-quickforge: 0 10px 26px -18px rgb(0 0 0 / 0.6);
+    --preview-bg: #0a0a0a;
+  }
+
+  html { font-size: 13px; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    background: var(--preview-bg);
+    color: var(--foreground);
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+
+  /* 模拟 Inspector 的 380px 面板外壳（含 1px 左边框与固定高度）。 */
+  .preview-panel {
+    position: relative;
+    width: 380px;
+    height: 620px;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--background);
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    border-radius: 0.5rem;
+  }
+  .preview-narrow .preview-panel { width: 340px; }
+
+  .preview-annot {
+    flex: 1;
+    max-width: 360px;
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  }
+  .preview-annot h1 { font-size: 0.9375rem; margin: 0 0 0.5rem; }
+  .preview-annot h2 { font-size: 0.8125rem; margin: 1rem 0 0.25rem; color: var(--foreground); }
+  .preview-annot ul { margin: 0; padding-left: 1.1rem; }
+  .preview-annot code {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    padding: 0 0.2rem;
+    border-radius: 0.25rem;
+    background: color-mix(in oklab, var(--muted) 80%, transparent);
+  }
+
+  .preview-toolbar {
+    position: fixed;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    gap: 0.375rem;
+    padding: 0.375rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    background: var(--card);
+    box-shadow: var(--shadow-quickforge);
+    z-index: 10;
+  }
+  .preview-toolbar button {
+    font: inherit;
+    font-size: 0.75rem;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid color-mix(in oklab, var(--border) 80%, transparent);
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--foreground);
+    cursor: pointer;
+  }
+  .preview-toolbar button[aria-pressed="true"] {
+    background: var(--quickforge-sidebar-active-bg);
+  }
+
+  /* 对齐基准线：0.875rem 竖线，用来目视核验所有内容左缘是否同轴。 */
+  .preview-guides .preview-panel::before,
+  .preview-guides .preview-panel::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    z-index: 5;
+    pointer-events: none;
+  }
+  .preview-guides .preview-panel::before {
+    left: 0.875rem;
+    background: #e11d48;
+  }
+  .preview-guides .preview-panel::after {
+    right: 0.875rem;
+    background: #e11d48;
+  }
+  /* 输出区内部缩进基准线（0.875 + 边框 + 0.5）。 */
+  .preview-guides .quickforge-background-tasks-output::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0.5rem;
+    width: 1px;
+    background: #2563eb;
+    pointer-events: none;
+  }
+  .preview-guides .quickforge-background-tasks-output { position: relative; }
+</style>
+</head>
+<body class="preview-guides">
+
+<div class="preview-toolbar">
+  <button type="button" id="btn-theme">暗色</button>
+  <button type="button" id="btn-guides" aria-pressed="true">基准线</button>
+  <button type="button" id="btn-width">340px</button>
+</div>
+
+<!-- ============================ 面板（结构与 BackgroundTasksTabContent 一致） ============================ -->
+<div class="preview-panel">
+  <div class="quickforge-background-tasks">
+    <div class="quickforge-background-tasks-header">
+      <span class="quickforge-background-tasks-title">后台任务</span>
+      <span class="quickforge-background-tasks-count" title="2 个运行中">2</span>
+      <div class="quickforge-background-tasks-header-actions">
+        <button type="button" class="quickforge-background-tasks-icon-button" title="全部停止" aria-label="全部停止">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="quickforge-background-tasks-toolbar">
+      <div class="quickforge-background-tasks-filters">
+        <button type="button" class="quickforge-background-tasks-filter is-active" aria-pressed="true">全部 5</button>
+        <button type="button" class="quickforge-background-tasks-filter" aria-pressed="false">运行中 2</button>
+        <button type="button" class="quickforge-background-tasks-filter" aria-pressed="false">已结束 3</button>
+      </div>
+      <div class="quickforge-background-tasks-search-row">
+        <span class="quickforge-background-tasks-search-icon" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </span>
+        <input type="search" class="quickforge-background-tasks-search" placeholder="过滤命令…" aria-label="过滤命令…" />
+      </div>
+    </div>
+
+    <div class="quickforge-background-tasks-list">
+      <div class="quickforge-background-tasks-item is-active" role="button" tabindex="0" aria-current="true">
+        <span class="quickforge-background-tasks-dot is-running" aria-hidden="true"></span>
+        <span class="quickforge-background-tasks-item-body">
+          <span class="quickforge-background-tasks-item-label">Vite 开发服务器</span>
+          <span class="quickforge-background-tasks-item-command">npm run dev -- --port 5173</span>
+        </span>
+        <span class="quickforge-background-tasks-item-meta">1m24s</span>
+        <span class="quickforge-background-tasks-item-actions">
+          <button type="button" class="quickforge-background-tasks-icon-button" title="停止">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
+          </button>
+          <button type="button" class="quickforge-background-tasks-icon-button" title="打开完整日志">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+        </span>
+      </div>
+
+      <div class="quickforge-background-tasks-item" role="button" tabindex="0">
+        <span class="quickforge-background-tasks-dot is-running" aria-hidden="true"></span>
+        <span class="quickforge-background-tasks-item-body">
+          <span class="quickforge-background-tasks-item-label">静态服务器</span>
+          <span class="quickforge-background-tasks-item-command">python -m http.server 8000</span>
+        </span>
+        <span class="quickforge-background-tasks-item-meta">42s</span>
+        <span class="quickforge-background-tasks-item-actions">
+          <button type="button" class="quickforge-background-tasks-icon-button" title="停止">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/></svg>
+          </button>
+          <button type="button" class="quickforge-background-tasks-icon-button" title="打开完整日志">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+        </span>
+      </div>
+
+      <div class="quickforge-background-tasks-item" role="button" tabindex="0">
+        <span class="quickforge-background-tasks-dot is-completed" aria-hidden="true"></span>
+        <span class="quickforge-background-tasks-item-body">
+          <span class="quickforge-background-tasks-item-label">生产构建</span>
+          <span class="quickforge-background-tasks-item-command">npm run build</span>
+        </span>
+        <span class="quickforge-background-tasks-item-meta">退出码 0</span>
+        <span class="quickforge-background-tasks-item-actions">
+          <button type="button" class="quickforge-background-tasks-icon-button" title="打开完整日志">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+        </span>
+      </div>
+
+      <div class="quickforge-background-tasks-item" role="button" tabindex="0">
+        <span class="quickforge-background-tasks-dot is-failed" aria-hidden="true"></span>
+        <span class="quickforge-background-tasks-item-body">
+          <span class="quickforge-background-tasks-item-label">单元测试</span>
+          <span class="quickforge-background-tasks-item-command">npm run test -- --runInBand</span>
+        </span>
+        <span class="quickforge-background-tasks-item-meta">退出码 1</span>
+        <span class="quickforge-background-tasks-item-actions">
+          <button type="button" class="quickforge-background-tasks-icon-button" title="打开完整日志">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+        </span>
+      </div>
+
+      <div class="quickforge-background-tasks-item" role="button" tabindex="0">
+        <span class="quickforge-background-tasks-dot is-timed-out" aria-hidden="true"></span>
+        <span class="quickforge-background-tasks-item-body">
+          <span class="quickforge-background-tasks-item-label">健康检查</span>
+          <span class="quickforge-background-tasks-item-command">curl -N http://localhost:3000/health</span>
+        </span>
+        <span class="quickforge-background-tasks-item-meta">已超时</span>
+        <span class="quickforge-background-tasks-item-actions">
+          <button type="button" class="quickforge-background-tasks-icon-button" title="打开完整日志">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+          </button>
+        </span>
+      </div>
+    </div>
+
+    <div class="quickforge-background-tasks-detail">
+      <div class="quickforge-background-tasks-detail-header">
+        <div class="quickforge-background-tasks-detail-command" title="npm run dev -- --port 5173">npm run dev -- --port 5173</div>
+        <button type="button" class="quickforge-background-tasks-icon-button" title="复制命令">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+        </button>
+        <button type="button" class="quickforge-background-tasks-stop">停止</button>
+      </div>
+
+      <dl class="quickforge-background-tasks-meta">
+        <dt>任务 ID</dt><dd>task_9f2c1a4e</dd>
+        <dt>状态</dt><dd>运行中</dd>
+        <dt>开始时间</dt><dd>00:36:08</dd>
+        <dt>耗时</dt><dd>1m24s</dd>
+        <dt>进程 ID</dt><dd>41288</dd>
+        <dt>日志文件</dt><dd title="C:\Users\20159\.quickforge\logs\commands\2026-10-26T16-36-07-203Z.log">C:\Users\20159\.quickforge\logs\commands\c…</dd>
+      </dl>
+
+      <div class="quickforge-background-tasks-output">
+        <div class="quickforge-background-tasks-output-bar">
+          <span>输出</span>
+          <button type="button" class="quickforge-background-tasks-follow is-on" aria-pressed="true">
+            <span class="quickforge-background-tasks-follow-dot" aria-hidden="true"></span>跟随输出
+          </button>
+        </div>
+        <pre class="quickforge-background-tasks-output-scroll">  VITE v8.0.0  ready in 312 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.1.6:5173/
+  ➜  press h + enter to show help
+<span class="quickforge-background-tasks-output-stderr">[stderr 2026-10-26T16:36:08.826Z]</span>
+  warning: unused css class .legacy-panel</pre>
+        <div class="quickforge-background-tasks-output-footer">
+          <span class="quickforge-background-tasks-output-footer-hint">仅显示最后 7 行 · 完整日志已写入日志文件</span>
+          <button type="button" class="quickforge-background-tasks-link">打开完整日志</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ 说明 ============================ -->
+<div class="preview-annot">
+  <h1>后台任务面板 · 对齐校验</h1>
+  <p>左侧是真实 <code>background-tasks.css</code> 的渲染结果，红线是 0.875rem 基准线，蓝线是输出区内部 0.5rem 缩进线。</p>
+
+  <h2>本次修正</h2>
+  <ul>
+    <li><strong>统一水平基准</strong>：header / toolbar / detail-header / meta / output 外框全部落在 0.875rem，与 workflow-detail 同级面板同轴，切 tab 不再横跳 5px。</li>
+    <li><strong>正文字号升档</strong>：面板内正文统一 0.75rem，标题 0.875rem（原来 0.6875rem 的正文过小）。</li>
+    <li><strong>控件同高</strong>：分段控件 1.375rem + 容器 0.125rem 内距 = 搜索框 1.625rem，工具栏内无 1px 高低差。</li>
+    <li><strong>元信息与操作不再互相压字</strong>：两者共用网格第三列，第三列预留 3.5rem，靠透明度交换而不是绝对定位覆盖。</li>
+    <li><strong>空间节奏回到 1/16 网格</strong>：0.375 / 0.5 / 0.75，去掉 0.3 / 0.35 / 0.4 / 1.6 这类零散值。</li>
+    <li><strong>命令单行截断</strong>：长命令不再换行把复制/停止按钮挤到中间；完整值挂 <code>title</code>。</li>
+    <li><strong>详情区加了分隔线与 padding-bottom</strong>，命令与元信息不再贴在一起。</li>
+    <li><strong>输出区最低 4rem</strong>：面板被压矮时不会把日志挤成 0 高。</li>
+    <li><strong>筛选无结果</strong>单独提示，不再复用「选择一个任务」空态文案。</li>
+    <li><strong>触摸目标</strong>：<code>pointer: coarse</code> 下图标按钮提到 2rem。</li>
+  </ul>
+
+  <h2>入口</h2>
+  <ul>
+    <li>唯一入口是 <strong>Composer 左下角的命令图标</strong>（终端图标 + 运行中数量角标）。点击不再弹浮层，直接打开右侧面板。</li>
+    <li>链路：图标 → <code>dispatchOpenBackgroundTasks()</code>（<code>src/lib/background-tasks-open.ts</code>）→ App 监听 <code>quickforge:open-background-tasks</code> 并按 <code>sessionId</code> 过滤 → <code>requestWorkspaceInspector({ kind: 'background-tasks' })</code>。</li>
+    <li>顶栏没有后台任务按钮；停止与查看日志只在面板内，不存在第二套操作路径。</li>
+  </ul>
+
+  <h2>核对方法</h2>
+  <ul>
+    <li>切换「基准线」，看所有内容的左缘是否都压在红线上（列表正文比红线多一个圆点+间距，这是 bullet 缩进）。</li>
+    <li>鼠标移到任一列表行，元信息应原地淡出、操作按钮原地淡入，<strong>不发生位移</strong>。</li>
+    <li>切到 340px 宽度，检查长命令、日志提示是否仍然单行截断而不破版。</li>
+    <li>切暗色，确认选中行底色、状态圆点、stderr 红字都有足够对比度。</li>
+  </ul>
+
+  <h2>仍然已知的取舍</h2>
+  <ul>
+    <li>选中行不显示行内操作（与元信息同格）；停止/复制在详情区里。</li>
+    <li>日志预览仍是 2s 轮询，不是流式。</li>
+    <li>tab 条上的标签不显示任务数，计数在 Composer 图标的角标与面板头。</li>
+  </ul>
+</div>
+
+<script>
+  const btnTheme = document.getElementById('btn-theme')
+  const btnGuides = document.getElementById('btn-guides')
+  const btnWidth = document.getElementById('btn-width')
+
+  btnTheme.addEventListener('click', () => {
+    const dark = document.documentElement.classList.toggle('dark')
+    btnTheme.textContent = dark ? '亮色' : '暗色'
+  })
+
+  btnGuides.addEventListener('click', () => {
+    const on = document.body.classList.toggle('preview-guides')
+    btnGuides.setAttribute('aria-pressed', String(on))
+  })
+
+  btnWidth.addEventListener('click', () => {
+    const narrow = document.body.classList.toggle('preview-narrow')
+    btnWidth.textContent = narrow ? '380px' : '340px'
+  })
+
+  // 悬停时让元信息与操作区原地交换（CSS 已实现，这里只补键盘可达的选中切换）。
+  document.querySelectorAll('.quickforge-background-tasks-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.quickforge-background-tasks-item').forEach((other) => {
+        other.classList.remove('is-active')
+        other.removeAttribute('aria-current')
+      })
+      item.classList.add('is-active')
+      item.setAttribute('aria-current', 'true')
+    })
+  })
+</script>
+</body>
+</html>

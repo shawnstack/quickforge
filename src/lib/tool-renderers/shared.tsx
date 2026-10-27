@@ -576,45 +576,20 @@ function isNonWorkspaceClickablePath(path: string) {
   return path.startsWith('~') || path.startsWith('/') || path.startsWith('\\') || /^[a-zA-Z]:[\\/]/.test(path)
 }
 
-// 从工具参数中解析出可展示的文件（若存在）。
-// write_file/edit_file/read_file 取单个已知文件；present_files 按 defaultPreview 优先，
-// 否则取第一个可在 Browser 或 Reader 中打开的文件。找不到则不渲染按钮/不可点击。
+// 从工具参数中解析出可展示的单文件（write_file / edit_file / read_file）。
+// present_files 是逐文件入口，由 renderPresentedFilesSummary 各自判定可预览性。
 // read_file 的 path 可能是工作区外的绝对路径（如 ~/.claude/CLAUDE.md、盘符路径）：
 // 预览链路（App.tsx openArtifactPreview → 工作区文件 API）只认工作区内路径——
 // 工作区外绝对路径会被服务端 403 拒绝，`~` 前缀也不会被展开；渲染层拿不到
 // 工作区根目录、无法区分「工作区内绝对路径」，故绝对路径一律视为不可预览。
 function resolvePreviewableArtifact(toolName: string, params: Record<string, unknown> | undefined): PreviewableArtifact | undefined {
+  const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
   if (toolName === 'write_file' || toolName === 'edit_file') {
-    const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
     return path ? previewableArtifact(path) : undefined
   }
   if (toolName === 'read_file') {
-    const path = params && 'path' in params && typeof params.path === 'string' ? params.path : ''
     if (!path || isNonWorkspaceClickablePath(path)) return undefined
     return previewableArtifact(path)
-  }
-  if (toolName === 'present_files') {
-    const files = params && Array.isArray(params.files) ? params.files : []
-    const entries = files
-      .map((item) => {
-        if (typeof item === 'string') return { path: item, kind: undefined }
-        if (!isRecord(item) || typeof item.path !== 'string') return undefined
-        return {
-          path: item.path,
-          kind: typeof item.kind === 'string' ? item.kind : undefined,
-        }
-      })
-      .filter((entry): entry is { path: string; kind: string | undefined } => Boolean(entry))
-    const defaultPreview = params && typeof params.defaultPreview === 'string' ? params.defaultPreview : ''
-    const defaultEntry = entries.find((entry) => entry.path === defaultPreview)
-    if (defaultEntry) {
-      const artifact = previewableArtifact(defaultEntry.path, defaultEntry.kind)
-      if (artifact) return artifact
-    }
-    for (const entry of entries) {
-      const artifact = previewableArtifact(entry.path, entry.kind)
-      if (artifact) return artifact
-    }
   }
   return undefined
 }
@@ -630,22 +605,62 @@ function previewArtifactClickHandler(artifact: PreviewableArtifact) {
   }
 }
 
-export function renderPreviewButton(toolName: string, params: Record<string, unknown> | undefined) {
-  // 仅 present_files 渲染右侧眼睛按钮：write_file / edit_file / read_file 的
-  // 预览入口是摘要区文件元素本身（见 renderToolFileSummary 的 span click），
-  // 不再重复渲染；present_files 为多文件摘要、无法整体充当入口，眼睛按钮
-  // 是其唯一预览入口。
-  if (toolName !== 'present_files') return null
-  const artifact = resolvePreviewableArtifact(toolName, params)
-  if (!artifact) return null
+type PresentedFileEntry = {
+  path: string
+  kind?: string
+}
+
+/** present_files 的 files 参数归一化：兼容字符串与 { path, kind } 两种写法。 */
+function presentedFileEntries(params: Record<string, unknown> | undefined): PresentedFileEntry[] {
+  const files = params && Array.isArray(params.files) ? params.files : []
+  return files
+    .map((item): PresentedFileEntry | undefined => {
+      if (typeof item === 'string') return item ? { path: item } : undefined
+      if (!isRecord(item) || typeof item.path !== 'string' || !item.path) return undefined
+      return { path: item.path, kind: typeof item.kind === 'string' ? item.kind : undefined }
+    })
+    .filter((entry): entry is PresentedFileEntry => Boolean(entry))
+}
+
+// present_files 摘要区的文件元素：与 write_file / edit_file / read_file 同一套
+// 「文件类型图标 + 仅文件名」元素，逐文件各成一个可点入口（hover 时文件名出下划线），
+// 取代原先动作区右上角的眼睛（预览）按钮——那个按钮只能预览其中一个默认文件，
+// 而展示出来的每个文件都值得直接点击跳转；文件名下划线也比眼睛图标更直白。
+// 与 renderToolFileSummary 相同的 HTML 约束：元素恒为静态 span（无 role / tabindex，
+// 不进 tab 序列），仅在可预览时挂 click，经 previewArtifactClickHandler 阻断
+// summary 折叠后派发 PREVIEW_ARTIFACT_EVENT；不可预览（含工作区外绝对路径）时纯静态。
+export function renderPresentedFilesSummary(params: Record<string, unknown> | undefined) {
+  const entries = presentedFileEntries(params)
+  if (!entries.length) return null
   return (
-    <button
-      type="button"
-      className="shrink-0 inline-flex size-5 items-center justify-center text-muted-foreground transition-colors hover:text-foreground"
-      title={t('previewArtifact')}
-      aria-label={t('previewArtifact')}
-      onClick={previewArtifactClickHandler(artifact)}
-    ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg></button>
+    <>
+      {entries.map((entry, index) => {
+        const artifact = isNonWorkspaceClickablePath(entry.path)
+          ? undefined
+          : previewableArtifact(entry.path, entry.kind)
+        const content = (
+          <>
+            <FileIcon path={entry.path} className="size-3.5 shrink-0" />
+            <span className={`quickforge-command-summary${artifact ? ' underline-offset-4 hover:underline' : ''}`}>{artifactFileName(entry.path)}</span>
+          </>
+        )
+        const className = 'quickforge-tool-file-summary inline-flex min-w-0 max-w-full items-center gap-1'
+        return (
+          <Fragment key={`${index}:${entry.path}`}>
+            {index > 0 ? ', ' : null}
+            {artifact
+              ? (
+                  <span
+                    className={`${className} cursor-pointer`}
+                    title={entry.path}
+                    onClick={previewArtifactClickHandler(artifact)}
+                  >{content}</span>
+                )
+              : <span className={className} title={entry.path}>{content}</span>}
+          </Fragment>
+        )
+      })}
+    </>
   )
 }
 

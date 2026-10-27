@@ -347,11 +347,6 @@ html.dark .quickforge-subagent-running-badge {
   justify-content: center;
 }
 
-.quickforge-background-command-menu {
-  width: min(22.5rem, calc(100vw - 1.5rem));
-  overflow: hidden;
-}
-
 .quickforge-background-command-item {
   display: flex;
   min-width: 0;
@@ -397,16 +392,6 @@ html.dark .quickforge-subagent-running-badge {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.quickforge-background-command-menu .quickforge-subagent-running-task {
-  min-width: 0;
-  overflow-x: auto;
-  text-overflow: clip;
-  white-space: pre;
-  scrollbar-width: thin;
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent);
-  mask-image: linear-gradient(to right, transparent, #000 1.15rem, #000 calc(100% - 1.35rem), transparent);
 }
 
 .quickforge-composer .quickforge-plan-inline[aria-pressed="true"] {

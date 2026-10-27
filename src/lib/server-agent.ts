@@ -1780,7 +1780,32 @@ export class ServerAgent {
           this.state.backgroundCommands = backgroundEvent.backgroundCommands
         }
         if (Array.isArray(backgroundEvent.messages)) {
-          this.state.messages = backgroundEvent.messages
+          const incoming = backgroundEvent.messages
+          if (incoming.length >= this.state.messages.length) {
+            this.state.messages = incoming
+          } else {
+            // 本地已乐观追加了服务端尚未登记的消息（快照更短），整表替换会吞掉它们。
+            // 改为按 toolCallId 就地合并：后台命令退出帧的作用只是把对应
+            // toolResult 的 details 落成终态，不需要整表覆盖。
+            const incomingByToolCall = new Map<string, AgentMessage>()
+            for (const message of incoming) {
+              if (message?.role !== 'toolResult') continue
+              const toolCallId = typeof message.toolCallId === 'string' ? message.toolCallId : ''
+              if (toolCallId) incomingByToolCall.set(toolCallId, message)
+            }
+            if (incomingByToolCall.size > 0) {
+              let replaced = false
+              const merged: AgentMessage[] = this.state.messages.map((message) => {
+                if (message?.role !== 'toolResult') return message
+                const toolCallId = typeof message.toolCallId === 'string' ? message.toolCallId : ''
+                const next = toolCallId ? incomingByToolCall.get(toolCallId) : undefined
+                if (!next) return message
+                replaced = true
+                return next
+              })
+              if (replaced) this.state.messages = merged
+            }
+          }
         }
         this.stateVersion++
         break

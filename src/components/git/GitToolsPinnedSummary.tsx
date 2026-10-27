@@ -21,6 +21,8 @@ type GitToolsPinnedSummaryProps = {
   finishedSubagentRuns: SubagentRunPayload[]
   backgroundCommands?: BackgroundCommandSummary[]
   onStopBackgroundCommand?: (command: BackgroundCommandSummary) => void
+  /** 打开右侧后台任务面板（置顶摘要里点标题「查看全部」或某条命令都走这里）。 */
+  onOpenBackgroundTasks?: () => void
   /** Authoritative session goal; drives the first section and the goal capsule segment. */
   goal?: GoalState | null
   /** Session the goal belongs to (the shared pending/dirty key). */
@@ -62,6 +64,7 @@ export function GitToolsPinnedSummary({
   finishedSubagentRuns,
   backgroundCommands = [],
   onStopBackgroundCommand,
+  onOpenBackgroundTasks,
   goal,
   goalSessionId,
   onGoalAction,
@@ -178,6 +181,7 @@ export function GitToolsPinnedSummary({
       setExpandedTasksSignature={setExpandedTasksSignature}
       backgroundCommands={backgroundCommands}
       onStopBackgroundCommand={onStopBackgroundCommand}
+      onOpenBackgroundTasks={onOpenBackgroundTasks}
       runningSubagentRuns={runningSubagentRuns}
       finishedSubagentRuns={finishedSubagentRuns}
       visibleSubagentRuns={visibleSubagentRuns}

@@ -1,19 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
+import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
 import { fileIconUrls } from '../../src/components/workspace/file-icon-assets'
 import { PREVIEW_ARTIFACT_EVENT } from '../../src/lib/tool-renderers/shared'
 import { LocalWorkspaceToolRenderer } from '../../src/lib/tool-renderers/local-workspace-tool-renderer'
 
-// 工具卡摘要区文件元素（write_file / edit_file / read_file）：summary 最左侧仍是工具图标
-// （renderToolIcon），摘要文本渲染为 FileIcon + basename 的整体元素（可见文本
-// 不含目录，hover title 保留完整路径）。结构断言直接遍历 React 元素树（与
-// tool-renderer-shared-state.test.ts 同一套 nodes() 遍历模式，无 DOM 依赖）；
-// window 派发用 stub 全局捕获。文件元素始终是静态 span（HTML 规范禁止
-// summary 内嵌交互元素）：可预览时 span 挂 click 即唯一预览入口（右侧
-// 不再渲染眼睛按钮去重）；quickforge-tool-actions 眼睛按钮仅 present_files
-// 保留（多文件摘要无法整体充当入口）。
+// 工具卡摘要区文件元素（write_file / edit_file / read_file，以及 present_files
+// 的每个文件）：summary 最左侧仍是工具图标（renderToolIcon），摘要文本渲染为
+// FileIcon + basename 的整体元素（可见文本不含目录，hover title 保留完整路径）。
+// 结构断言直接遍历 React 元素树（与 tool-renderer-shared-state.test.ts 同一套
+// nodes() 遍历模式，无 DOM 依赖）；window 派发用 stub 全局捕获。文件元素始终是
+// 静态 span（HTML 规范禁止 summary 内嵌交互元素）：可预览时 span 挂 click 即预览
+// 入口，hover 只在文件名上下划线；quickforge-tool-actions 里不再有眼睛按钮。
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
 
 const LABEL_KEYS = {
@@ -71,6 +70,11 @@ function actionsNode(content: unknown): TestNode {
   const actions = nodes(content).find((node) => classNameOf(node).includes('quickforge-tool-actions'))
   expect(actions).toBeDefined()
   return actions!
+}
+
+/** present_files 摘要区内的全部文件元素（逐文件 FileIcon + basename）。 */
+function presentedFileNodes(content: unknown): TestNode[] {
+  return nodes(content).filter((node) => classNameOf(node).includes('quickforge-tool-file-summary'))
 }
 
 /** 收集元素树内的全部可见文本。 */
@@ -252,19 +256,67 @@ describe('tool summary file element preview click', () => {
     expect(classNameOf(fileIcon!)).not.toContain('underline')
   })
 
-  it('keeps the eye preview button in the actions area for present_files', () => {
+  it('renders every presented file as a clickable file element and drops the eye button', () => {
     const dispatchEvent = vi.fn()
     vi.stubGlobal('window', { dispatchEvent })
-    const content = renderToolContent('present_files', { files: [{ path: 'docs/guide.md', kind: 'markdown' }] })
+    const content = renderToolContent('present_files', {
+      files: [{ path: 'docs/guide.md', kind: 'markdown' }, 'app/page.html'],
+      defaultPreview: 'app/page.html',
+    })
 
-    const buttons = nodes(actionsNode(content)).filter((node) => node.type === 'button')
-    expect(buttons).toHaveLength(1)
-    expect(buttons[0].props.title).toBe(t('previewArtifact'))
-    ;(buttons[0].props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    // 动作区不再有眼睛（预览）按钮：文件名本身就是入口。
+    expect(nodes(actionsNode(content)).filter((node) => node.type === 'button')).toHaveLength(0)
 
-    const event = dispatchEvent.mock.calls[0][0] as CustomEvent<{ path: string; kind?: string }>
-    expect(event.type).toBe(PREVIEW_ARTIFACT_EVENT)
-    expect(event.detail).toEqual({ path: 'docs/guide.md', kind: 'markdown' })
+    const files = presentedFileNodes(content)
+    expect(files).toHaveLength(2)
+    expect(files.map((node) => textOf(node))).toEqual(['guide.md', 'page.html'])
+    expect(files.map((node) => node.props.title)).toEqual(['docs/guide.md', 'app/page.html'])
+
+    // 可点暗示：仅文件名 span 悬停出下划线（图标不下划线、元素不变色）。
+    for (const file of files) {
+      expect(file.type).toBe('span')
+      expect(classNameOf(file)).toContain('quickforge-tool-file-summary')
+      expect(classNameOf(file)).toContain('cursor-pointer')
+      expect(classNameOf(file)).not.toContain('hover:text-')
+      const nameSpan = nodes(file).find((node) => classNameOf(node).includes('quickforge-command-summary'))
+      expect(nameSpan).toBeDefined()
+      expect(classNameOf(nameSpan!)).toContain('hover:underline')
+    }
+
+    // 每个文件名各自派发自己那个文件的预览事件（kind 来自 present_files 参数）。
+    ;(files[0].props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    ;(files[1].props.onClick as (event: { preventDefault(): void; stopPropagation(): void }) => void)({ preventDefault: vi.fn(), stopPropagation: vi.fn() })
+    expect(dispatchEvent).toHaveBeenCalledTimes(2)
+    const first = dispatchEvent.mock.calls[0][0] as CustomEvent<{ path: string; kind?: string }>
+    const second = dispatchEvent.mock.calls[1][0] as CustomEvent<{ path: string; kind?: string }>
+    expect(first.type).toBe(PREVIEW_ARTIFACT_EVENT)
+    expect(first.detail).toEqual({ path: 'docs/guide.md', kind: 'markdown' })
+    expect(second.detail).toEqual({ path: 'app/page.html', kind: undefined })
+  })
+
+  it('keeps non-previewable and workspace-external presented files static', () => {
+    const dispatchEvent = vi.fn()
+    vi.stubGlobal('window', { dispatchEvent })
+    const content = renderToolContent('present_files', {
+      files: [{ path: 'build/artifact.bin' }, { path: 'C:\\Users\\me\\notes.md' }],
+    })
+
+    const files = presentedFileNodes(content)
+    expect(files).toHaveLength(2)
+    for (const file of files) {
+      expect(classNameOf(file)).toContain('quickforge-tool-file-summary')
+      expect(classNameOf(file)).not.toContain('cursor-pointer')
+      expect(file.props.onClick).toBeUndefined()
+      const nameSpan = nodes(file).find((node) => classNameOf(node).includes('quickforge-command-summary'))
+      expect(classNameOf(nameSpan!)).not.toContain('hover:underline')
+    }
+    expect(dispatchEvent).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a plain summary when present_files carries no files', () => {
+    const content = renderToolContent('present_files', {})
+    expect(presentedFileNodes(content)).toHaveLength(0)
+    expect(nodes(content).some((node) => node.type === 'img')).toBe(false)
   })
 
   it('shares the same dispatch for edit_file html artifacts', () => {

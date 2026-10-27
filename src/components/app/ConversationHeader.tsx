@@ -48,8 +48,6 @@ export function ConversationHeader({
   onRename,
   onShare,
   onArchive,
-  backgroundTaskCount = 0,
-  onOpenBackgroundTasks,
   mobileShell,
 }: {
   headerRef: React.RefObject<HTMLElement | null>
@@ -77,8 +75,6 @@ export function ConversationHeader({
   onRename: () => void
   onShare: () => void
   onArchive: () => void
-  backgroundTaskCount?: number
-  onOpenBackgroundTasks?: () => void
   mobileShell: boolean
 }) {
   return (
@@ -161,30 +157,6 @@ export function ConversationHeader({
                 <span>{t('trace.viewTrace')}</span>
               </button>
             </div>
-          ) : null}
-          {onOpenBackgroundTasks ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="relative shrink-0 rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40"
-              onClick={onOpenBackgroundTasks}
-              aria-label={
-                backgroundTaskCount > 0
-                  ? t('backgroundTaskRunningAria', { count: backgroundTaskCount })
-                  : t('backgroundTaskOpenPanelAria')
-              }
-              title={t('backgroundTaskOpenPanelAria')}
-            >
-              <Activity className="size-[18px] stroke-[1.85]" />
-              {backgroundTaskCount > 0 ? (
-                <span
-                  aria-hidden="true"
-                  className="absolute -right-0.5 -top-0.5 inline-flex min-w-[14px] items-center justify-center rounded-full bg-[var(--destructive)] px-[3px] py-[1px] text-[10px] leading-none font-medium text-[var(--background)]"
-                >
-                  {backgroundTaskCount > 9 ? '9+' : backgroundTaskCount}
-                </span>
-              ) : null}
-            </Button>
           ) : null}
           <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
             <Button

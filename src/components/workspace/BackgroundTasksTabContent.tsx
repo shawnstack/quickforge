@@ -5,10 +5,18 @@
  * finished 任务派生自会话 toolResult 消息（details.running === false 的终态）。
  * 两者由 `@/lib/background-tasks-model` 统一成 `BackgroundTaskView`；本组件只负责
  * 筛选 / 搜索 / 选中 / 计时与命令日志（`getCommandLog`）的展示，不产生新的数据源。
+ *
+ * 渲染约束：
+ * - 1s 心跳下沉到 `BackgroundTaskElapsed` 叶子组件，面板顶层不持有 `now`，
+ *   否则每次 tick 都会重新协调整棵日志树（`<pre>` 里有数千个行 `<span>`）。
+ * - 列表项是 `div[role="button"]`，内部的「停止 / 打开日志」是真正的 `<button>`：
+ *   HTML 规范禁止 interactive 后代嵌套在 `button` 内（nested-interactive），
+ *   那会让屏幕阅读器拿不到内层按钮。
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { Copy, ExternalLink, Search, Square, SquareTerminal } from 'lucide-react'
 import { t, type AppTextKey } from '@/lib/i18n'
+import { cn } from '@/lib/utils'
 import {
   filterBackgroundTasks,
   formatBackgroundTaskDuration,
@@ -42,12 +50,9 @@ const STATUS_LABEL_KEY: Record<BackgroundTaskStatus, AppTextKey> = {
   aborted: 'backgroundTaskStatusAborted',
 }
 
-/** 每秒重渲染的时间戳来源；非 running 任务用 durationMs / finishedAt 计算。 */
-function backgroundTaskElapsedMs(task: BackgroundTaskView, now: number): number | null {
-  if (task.status === 'running') {
-    if (typeof task.startedAt !== 'number') return null
-    return Math.max(0, now - task.startedAt)
-  }
+/** 终态任务的耗时是固定值，直接由 durationMs / finishedAt-startedAt 算出，不依赖当前时间。 */
+function backgroundTaskStaticElapsedMs(task: BackgroundTaskView): number | null {
+  if (task.status === 'running') return null
   if (typeof task.durationMs === 'number') return task.durationMs
   if (typeof task.startedAt === 'number' && typeof task.finishedAt === 'number') {
     return Math.max(0, task.finishedAt - task.startedAt)
@@ -55,9 +60,30 @@ function backgroundTaskElapsedMs(task: BackgroundTaskView, now: number): number 
   return null
 }
 
-/** 合并后的日志无法区分真实 stderr，只对显式标记行做弱化着色。 */
+/**
+ * running 任务的耗时显示：心跳与重渲染只发生在这个叶子组件内，
+ * 不会牵动面板顶层（列表命中项 / 日志行都保持原来的 fiber）。
+ */
+function BackgroundTaskElapsed({ startedAt, running }: { startedAt?: number; running: boolean }) {
+  const [now, setNow] = useState<number>(() => Date.now())
+
+  useEffect(() => {
+    if (!running) return undefined
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [running])
+
+  if (!running) return null
+  return <>{formatBackgroundTaskDuration(startedAt ? Math.max(0, now - startedAt) : 0)}</>
+}
+
+/**
+ * 合并后的日志无法区分真实 stderr，只对显式标记行做弱化着色。
+ * 服务端 `writeCommandLog` 写入的分段头是 `[stderr <ISO 时间>]`（见 server/tools/index.mjs），
+ * 因此同时兼容带时间戳 / 不带时间戳两种前缀；`error:` 与 `Error` 开头保留原有的启发式。
+ */
 function isStderrLine(line: string): boolean {
-  return line.startsWith('stderr:') || line.startsWith('Error')
+  return /^\[stderr[\s\]]/i.test(line) || /^error[:\s]/i.test(line) || line.startsWith('Error')
 }
 
 function backgroundTaskDotClass(status: BackgroundTaskStatus): string {
@@ -71,16 +97,39 @@ type LogSnapshot = {
   available: boolean
 }
 
+/**
+ * 日志行渲染单独成 memo 组件：面板因 filter / query / copied 等 state 变化时，
+ * 只要日志内容不变就直接 bail out，不必重新协调数千个行 `<span>`
+ * （非导出组件，符合 `react-refresh/only-export-components`）。
+ */
+const LogOutput = memo(function LogOutput({ lines }: { lines: readonly string[] }) {
+  const lastIndex = lines.length - 1
+  return (
+    <>
+      {lines.map((line, index) => (
+        <span
+          key={index}
+          className={isStderrLine(line) ? 'quickforge-background-tasks-output-stderr' : undefined}
+        >
+          {line}
+          {index === lastIndex ? '' : '\n'}
+        </span>
+      ))}
+    </>
+  )
+})
+
 export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpenLog }: BackgroundTasksTabContentProps) {
   const [filter, setFilter] = useState<BackgroundTaskFilter>('all')
   const [query, setQuery] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
-  const [now, setNow] = useState<number>(() => Date.now())
   const [followOverride, setFollowOverride] = useState<{ taskId: string; follow: boolean } | null>(null)
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null)
   const [logState, setLogState] = useState<LogSnapshot | null>(null)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const outputRef = useRef<HTMLPreElement | null>(null)
+  // 记录「自动兜底选中的 id」：未手动选择时兜底只发生一次，避免新任务抢占详情。
+  const [pinnedTaskId, setPinnedTaskId] = useState<string | null>(null)
 
   const runningCount = tasks.reduce((count, task) => (task.status === 'running' ? count + 1 : count), 0)
   const finishedCount = tasks.length - runningCount
@@ -92,29 +141,38 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
   }, [tasks, filter, query])
 
   // 选中项失效（任务被清理）时回落到「第一条 running，否则第一条」，不在 effect 里改 state。
-  const defaultTaskId = tasks.find((task) => task.status === 'running')?.taskId ?? tasks[0]?.taskId ?? null
-  const resolvedTaskId = selectedTaskId !== null && tasks.some((task) => task.taskId === selectedTaskId)
+  const preferredDefaultTaskId = tasks.find((task) => task.status === 'running')?.taskId ?? tasks[0]?.taskId ?? null
+  const manualTaskId = selectedTaskId !== null && tasks.some((task) => task.taskId === selectedTaskId)
     ? selectedTaskId
-    : defaultTaskId
-  const selected = tasks.find((task) => task.taskId === resolvedTaskId) ?? null
+    : null
+  // 未手动选择时的兜底只钉住一次：新 running 任务排序最前，若每轮都重新取「第一条 running」，
+  // 每来一个新后台任务详情就会自己跳走。因此把兜底结果「钉」下来，仅当该任务从 tasks 消失后才重挑。
+  // 用 state 而不是 ref：react-hooks/refs 禁止渲染期读写 ref，而带守卫的渲染期 setState
+  // 是 React 官方认可的同组件派生写法（同一次渲染内立即以新值继续，不会出现可见的中间态）。
+  const pinnedStillExists = pinnedTaskId !== null && tasks.some((task) => task.taskId === pinnedTaskId)
+  const autoSelectedTaskId = pinnedStillExists ? pinnedTaskId : preferredDefaultTaskId
+  if (autoSelectedTaskId !== pinnedTaskId) setPinnedTaskId(autoSelectedTaskId)
+  // 手动选中的任务被清理后 manualTaskId 为 null，自然落回兜底，不会留空详情。
+  const resolvedTaskId = manualTaskId ?? autoSelectedTaskId
+  // 筛选/搜索后选中项可能不在可见列表里：此时详情跟随可见列表首项，
+  // 避免出现「详情有内容但列表没有任何高亮」的脱节状态。selectedTaskId 本身不变，
+  // 切回「全部」时自动恢复用户原来的选择。
+  const effectiveTaskId = visibleTasks.some((task) => task.taskId === resolvedTaskId)
+    ? resolvedTaskId
+    : visibleTasks[0]?.taskId ?? null
+  const selected = tasks.find((task) => task.taskId === effectiveTaskId) ?? null
   const selectedIsRunning = selected?.status === 'running'
   // 跟随默认值：running 任务默认开启，终态任务恒为关闭；用户显式切换后按 taskId 记住。
   const follow = selectedIsRunning
     ? (followOverride !== null && followOverride.taskId === selected?.taskId ? followOverride.follow : true)
     : false
 
-  // 仅存在 running 任务时按 1s 心跳刷新已运行时长。
-  useEffect(() => {
-    if (runningCount === 0) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [runningCount])
-
   useEffect(() => () => {
     if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current)
   }, [])
 
-  const logSessionId = sessionId ?? selected?.sessionId ?? null
+  // 与 App.tsx 的停止 / 打开日志保持一致：任务自身的 sessionId 优先，面板 sessionId 兜底。
+  const logSessionId = selected?.sessionId ?? sessionId ?? null
   const logPath = selected?.outputFile ?? null
   const logKey = logSessionId !== null && logPath !== null ? `${logSessionId}\u0000${logPath}` : null
 
@@ -141,10 +199,20 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
       controller.abort()
       if (polling !== null) clearInterval(polling)
     }
+    // `selectedIsRunning` / `follow` 在 deps 里：running → finished 时会补读一次日志，
+    // 以便拿到服务端刚写入的尾部（`Command finished.` / `Exit code`）。代价是切换 follow 开关
+    // 会额外产生一次请求，这是刻意接受的（拆成两个 effect 反而更难读）。
   }, [logSessionId, logPath, logKey, follow, selectedIsRunning])
 
   const log = logState !== null && logState.key === logKey ? logState : null
-  const logLines = log !== null && log.available && log.content.length > 0 ? log.content.split('\n') : []
+  // 派生 loading：logState 只在请求 settle 后写入 key，key 不匹配即「首屏加载中」。
+  // 用派生值而不是 state，切换任务时不会先闪一帧「日志暂不可用」，也少一次渲染。
+  const logLoading = logKey !== null && log === null
+  const logContent = log !== null && log.available ? log.content : ''
+  const logLines = useMemo(
+    () => (logContent.length > 0 ? logContent.split('\n') : []),
+    [logContent],
+  )
 
   // 跟随输出时贴底，避免轮询把滚动位置留在旧内容处。
   useEffect(() => {
@@ -179,14 +247,13 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
     return tasks.length
   }
 
-  const elapsedLabel = (task: BackgroundTaskView) => {
-    const elapsed = backgroundTaskElapsedMs(task, now)
-    return elapsed === null ? null : formatBackgroundTaskDuration(elapsed)
-  }
-
-  const selectedElapsed = selected === null ? null : elapsedLabel(selected)
-  // `backgroundTaskElapsed` / `backgroundTaskExitCode` 都带占位符，去掉参数即 `dt` 的短语标签。
-  const elapsedLabelText = t('backgroundTaskElapsed', { duration: '' }).trim()
+  const selectedStaticElapsedMs = selected === null ? null : backgroundTaskStaticElapsedMs(selected)
+  const selectedHasElapsed = selected !== null && (
+    selectedStaticElapsedMs !== null
+    || (selectedIsRunning && typeof selected.startedAt === 'number')
+  )
+  // `backgroundTaskExitCode` 带占位符，去掉参数即 `dt` 的短语标签；
+  // 耗时标签用独立 key，避免英文去掉参数后得到小写的 `elapsed`。
   const exitCodeLabelText = t('backgroundTaskExitCode', { code: '' }).trim()
 
   if (tasks.length === 0) {
@@ -238,16 +305,17 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
               aria-pressed={filter === value}
               onClick={() => setFilter(value)}
             >
-              {t(FILTER_LABEL_KEY[value])}
-              <span> {filterCount(value)}</span>
+              {`${t(FILTER_LABEL_KEY[value])} ${filterCount(value)}`}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1">
-          <Search className="size-3.5 shrink-0 stroke-[1.85]" aria-hidden="true" />
+        <div className="quickforge-background-tasks-search-row">
+          <span className="quickforge-background-tasks-search-icon" aria-hidden="true">
+            <Search className="size-3.5 stroke-[1.85]" />
+          </span>
           <input
             type="search"
-            className="quickforge-background-tasks-search min-w-0 flex-1"
+            className="quickforge-background-tasks-search"
             value={query}
             placeholder={t('backgroundTaskSearchPlaceholder')}
             aria-label={t('backgroundTaskSearchPlaceholder')}
@@ -257,20 +325,35 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
       </div>
 
       <div className="quickforge-background-tasks-list">
+        {visibleTasks.length === 0 && (
+          <div className="quickforge-background-tasks-no-results">{t('backgroundTaskNoResults')}</div>
+        )}
         {visibleTasks.map((task) => {
-          const active = task.taskId === resolvedTaskId
-          const elapsed = elapsedLabel(task)
-          const meta = task.status === 'running'
-            ? (elapsed ?? t('backgroundTaskStatusRunning'))
+          const active = task.taskId === effectiveTaskId
+          const taskIsRunning = task.status === 'running'
+          const meta = taskIsRunning
+            ? (
+              typeof task.startedAt === 'number'
+                ? <BackgroundTaskElapsed startedAt={task.startedAt} running />
+                : t('backgroundTaskStatusRunning')
+            )
             : task.exitCode !== null && task.exitCode !== undefined
               ? t('backgroundTaskExitCode', { code: task.exitCode })
               : t(STATUS_LABEL_KEY[task.status])
           return (
-            <button
+            // 外层不能再是 <button>：里面还有真按钮，button 里嵌 interactive 会被 AT 吞掉。
+            <div
               key={task.taskId}
-              type="button"
-              className={active ? 'quickforge-background-tasks-item is-active' : 'quickforge-background-tasks-item'}
+              role="button"
+              tabIndex={0}
+              className={cn('quickforge-background-tasks-item', active && 'is-active')}
+              aria-current={active ? 'true' : undefined}
               onClick={() => setSelectedTaskId(task.taskId)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return
+                event.preventDefault()
+                setSelectedTaskId(task.taskId)
+              }}
             >
               <span className={backgroundTaskDotClass(task.status)} aria-hidden="true" />
               <span className="quickforge-background-tasks-item-body">
@@ -278,13 +361,12 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
                 <span className="quickforge-background-tasks-item-command">{task.command}</span>
               </span>
               <span className="quickforge-background-tasks-item-meta">{meta}</span>
-              {task.status === 'running' || task.outputFile
+              {taskIsRunning || task.outputFile
                 ? (
                   <span className="quickforge-background-tasks-item-actions">
-                    {task.status === 'running' && (
-                      <span
-                        role="button"
-                        tabIndex={0}
+                    {taskIsRunning && (
+                      <button
+                        type="button"
                         className="quickforge-background-tasks-icon-button"
                         aria-label={t('backgroundTaskStopAria', { command: task.command })}
                         title={t('backgroundTaskStopAria', { command: task.command })}
@@ -292,20 +374,17 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
                           event.stopPropagation()
                           onStopTask?.(task)
                         }}
+                        // 空格 / 回车交给原生 button，必须阻止冒泡，否则外层会再选中一次。
                         onKeyDown={(event) => {
-                          if (event.key !== 'Enter' && event.key !== ' ') return
-                          event.preventDefault()
                           event.stopPropagation()
-                          onStopTask?.(task)
                         }}
                       >
                         <Square className="size-3.5 stroke-[1.85]" aria-hidden="true" />
-                      </span>
+                      </button>
                     )}
                     {task.outputFile && (
-                      <span
-                        role="button"
-                        tabIndex={0}
+                      <button
+                        type="button"
                         className="quickforge-background-tasks-icon-button"
                         aria-label={t('backgroundTaskOpenFullLog')}
                         title={t('backgroundTaskOpenFullLog')}
@@ -314,19 +393,16 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
                           onOpenLog?.(task)
                         }}
                         onKeyDown={(event) => {
-                          if (event.key !== 'Enter' && event.key !== ' ') return
-                          event.preventDefault()
                           event.stopPropagation()
-                          onOpenLog?.(task)
                         }}
                       >
                         <ExternalLink className="size-3.5 stroke-[1.85]" aria-hidden="true" />
-                      </span>
+                      </button>
                     )}
                   </span>
                 )
                 : null}
-            </button>
+            </div>
           )
         })}
       </div>
@@ -340,7 +416,7 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
         : (
           <div className="quickforge-background-tasks-detail">
             <div className="quickforge-background-tasks-detail-header">
-              <div className="quickforge-background-tasks-detail-command">{selected.command}</div>
+              <div className="quickforge-background-tasks-detail-command" title={selected.command}>{selected.command}</div>
               <button
                 type="button"
                 className="quickforge-background-tasks-icon-button"
@@ -372,10 +448,14 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
                   <dd>{new Date(selected.startedAt).toLocaleTimeString()}</dd>
                 </>
               )}
-              {selectedElapsed !== null && (
+              {selectedHasElapsed && (
                 <>
-                  <dt>{elapsedLabelText}</dt>
-                  <dd>{selectedElapsed}</dd>
+                  <dt>{t('backgroundTaskMetaElapsed')}</dt>
+                  <dd>
+                    {selectedIsRunning
+                      ? <BackgroundTaskElapsed startedAt={selected.startedAt} running />
+                      : formatBackgroundTaskDuration(selectedStaticElapsedMs ?? 0)}
+                  </dd>
                 </>
               )}
               {!selectedIsRunning && selected.exitCode !== null && selected.exitCode !== undefined && (
@@ -414,21 +494,18 @@ export function BackgroundTasksTabContent({ tasks, sessionId, onStopTask, onOpen
                 )}
               </div>
               <pre className="quickforge-background-tasks-output-scroll" ref={outputRef}>
-                {logLines.length === 0
-                  ? <span className="quickforge-background-tasks-output-empty">{t('backgroundTaskLogUnavailable')}</span>
-                  : logLines.map((line, index) => (
-                    <span
-                      key={`${index}-${line.length}`}
-                      className={isStderrLine(line) ? 'quickforge-background-tasks-output-stderr' : undefined}
-                    >
-                      {line}
-                      {index === logLines.length - 1 ? '' : '\n'}
-                    </span>
-                  ))}
+                {logLoading
+                  ? <span className="quickforge-background-tasks-output-empty">…</span>
+                  : logLines.length === 0
+                    ? <span className="quickforge-background-tasks-output-empty">{t('backgroundTaskLogUnavailable')}</span>
+                    : <LogOutput lines={logLines} />}
               </pre>
               {log !== null && log.available && (
                 <div className="quickforge-background-tasks-output-footer">
-                  <span>{t('backgroundTaskLogHint', { lines: log.totalLines })}</span>
+                  {/* 文案是「仅显示最后 N 行」，因此传实际渲染行数，而不是文件总行数。 */}
+                  <span className="quickforge-background-tasks-output-footer-hint">
+                    {logLines.length > 0 ? t('backgroundTaskLogHint', { lines: logLines.length }) : ''}
+                  </span>
                   {selected.outputFile && (
                     <button
                       type="button"

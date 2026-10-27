@@ -20,6 +20,7 @@ const workspaceTypesSource = read('src/components/workspace/workspace-types.ts')
 const useInspectorTabsSource = read('src/components/workspace/useInspectorTabs.ts')
 const workspaceInspectorSource = read('src/components/workspace/WorkspaceInspector.tsx')
 const appSource = read('src/App.tsx')
+const indicatorSource = read('src/components/chat/panel-decoration/subagent-running-indicator.ts')
 const stylesIndexSource = read('src/styles/index.css')
 const backgroundTasksCss = read('src/styles/workspace/background-tasks.css')
 
@@ -143,8 +144,18 @@ describe('background tasks tab registration', () => {
     expect(appSource).toContain('backgroundTasks={backgroundTasks}')
     expect(appSource).toContain('onOpenBackgroundTaskLog')
     expect(appSource).toContain('onStopBackgroundTask')
-    expect(appSource).toContain('backgroundTaskCount={runningBackgroundTaskCount}')
     expect(appSource).toContain("kind: 'background-tasks'")
+  })
+
+  it('opens the panel from the composer command icon through a window event', () => {
+    // 入口只有一处：Composer 左下角的命令图标。它拿不到 requestWorkspaceInspector，
+    // 因此发窗口事件，由 App 决定往哪个 project / runtime scope 打开。
+    expect(appSource).toContain('OPEN_BACKGROUND_TASKS_EVENT')
+    expect(appSource).toContain('normalizeOpenBackgroundTasksRequest')
+    expect(appSource).toContain("kind: 'background-tasks'")
+    expect(indicatorSource).toContain('dispatchOpenBackgroundTasks({ sessionId })')
+    // 浮层菜单已被面板取代，不应再有第二套操作路径。
+    expect(indicatorSource).not.toContain('openBackgroundCommandMenu')
   })
 })
 
@@ -174,6 +185,68 @@ describe('background tasks stylesheet registration', () => {
     expect(backgroundTasksCss).not.toMatch(/^\.quickforge-(?:sidebar|chat|terminal|message|subagent|inspector|goal|workflow)/m)
     // 模块顺序统一由 src/styles/index.css 声明，子模块不得自行 @import。
     expect(backgroundTasksCss).not.toMatch(/^\s*@import/m)
+  })
+
+  it('keeps the panel horizontally aligned on a single 0.875rem baseline', () => {
+    // 根元素在 flex row 宿主里必须自己撑宽，否则宽度会塌陷到内容宽度。
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks \{[^}]*flex: 1;/)
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks \{[^}]*min-width: 0;/)
+    // 与 workflow-detail 同级面板同轴：直接子级横向 padding 统一 0.875rem。
+    for (const block of [
+      '.quickforge-background-tasks-header',
+      '.quickforge-background-tasks-toolbar',
+      '.quickforge-background-tasks-detail-header',
+    ]) {
+      const pattern = new RegExp(`${block.replaceAll('.', '\\.')} \\{[^}]*padding: [^;]*0\\.875rem`)
+      expect(backgroundTasksCss).toMatch(pattern)
+    }
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-meta \{[^}]*padding: [^;]*0\.875rem/)
+    // 列表留 0.5rem 内缩、列表项再留 0.375rem，合计与 header / toolbar / detail 对齐。
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-list \{[^}]*padding: 0\.25rem 0\.5rem;/)
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-item \{[^}]*padding: 0\.375rem;/)
+    // 输出区外框用 margin 与基准线对齐，框内三级统一横向 0.5rem。
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-output \{[^}]*margin: 0 0\.875rem 0\.75rem;/)
+    for (const block of [
+      '.quickforge-background-tasks-output-bar',
+      '.quickforge-background-tasks-output-scroll',
+      '.quickforge-background-tasks-output-footer',
+    ]) {
+      const pattern = new RegExp(`${block.replaceAll('.', '\\.')} \\{[^}]*padding: [^;]*0\\.5rem`)
+      expect(backgroundTasksCss).toMatch(pattern)
+    }
+    // 搜索图标绝对定位在框内，输入框靠 padding-left 让文本回到基准线。
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-search-icon \{[^}]*position: absolute;/)
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-search \{[^}]*padding: 0 0\.5rem 0 1\.625rem;/)
+  })
+
+  it('keeps the segmented control and search box the same height', () => {
+    // 工具栏内两个控件同高，避免顶对齐但底部差 1px。
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-filter \{[^}]*height: 1\.375rem;/)
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-filters \{[^}]*padding: 0\.125rem;/)
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-search \{[^}]*height: 1\.625rem;/)
+  })
+
+  it('does not stack the row actions on top of the meta text', () => {
+    // 操作区绝对定位覆盖元信息那一格，必须同一时刻把元信息淡出。
+    expect(backgroundTasksCss).toMatch(
+      /\.quickforge-background-tasks-item:hover \.quickforge-background-tasks-item-meta/,
+    )
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-item-actions \{[^}]*opacity: 0;/)
+    // 操作区与元信息同格竞争，选中态只常显元信息，不常显操作区。
+    expect(backgroundTasksCss).not.toMatch(/\.quickforge-background-tasks-item\.is-active \.quickforge-background-tasks-item-meta/)
+    expect(backgroundTasksCss).not.toMatch(/\.quickforge-background-tasks-item\.is-active \.quickforge-background-tasks-item-actions/)
+    // 第三列必须给操作区留出最小宽度，否则会溢出压住正文列。
+    expect(backgroundTasksCss).toMatch(/grid-template-columns: auto minmax\(0, 1fr\) minmax\(3\.5rem, auto\);/)
+    // 元信息与操作区共用第三列同一格，靠透明度交换，不做绝对定位覆盖。
+    expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-item-meta,\s*\.quickforge-background-tasks-item-actions \{[^}]*grid-column: 3;/)
+    expect(backgroundTasksCss).not.toMatch(/\.quickforge-background-tasks-item-actions \{[^}]*position: absolute;/)
+  })
+
+  it('only uses four font sizes so the hierarchy stays readable', () => {
+    const sizes = new Set(
+      [...backgroundTasksCss.matchAll(/font-size: ([^;]+);/g)].map((match) => match[1].trim()),
+    )
+    expect([...sizes].sort()).toEqual(['0.6875rem', '0.75rem', '0.8125rem', '0.875rem'])
   })
 })
 

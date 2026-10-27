@@ -8,6 +8,8 @@
 
 普通会话 idle 回收（`IDLE_TIMEOUT_MS` 10 分钟）到点时，若该会话仍有运行中的后台命令（`listBackgroundCommandTasks(sessionId)` 非空），回收改为重置计时器：后台命令的退出通知依赖活跃 session 对象投递，进程只应由显式销毁（删除会话、服务 shutdown）或手动停止终止，空闲回收不得连带杀进程。最后一个后台命令退出后经通知路径重置计时器，再按普通 10 分钟回收。
 
+`listBackgroundCommandTasks(sessionId)` **只返回 running 任务**，这个语义本身就是上面 idle 回收的判断依据，不可改为返回终态。前端「后台任务」面板（Inspector `background-tasks` Tab）的运行中列表即来自它；终态历史不新增服务端接口，由前端从会话 `toolResult` 消息的 `details` 派生（`src/lib/background-tasks-model.ts` 的 `buildBackgroundTasks`），因此服务端不需要额外维护可查询的历史列表。
+
 `restoreAgent` 仅在存储确认无记录时返回 `null`；原 503 保留，其他读取/构建失败记录内部日志后抛出安全通用错误（500 / `SESSION_RESTORE_FAILED`），不误报 404 或泄漏内部细节。同会话并发恢复仍 single-flight，成功或失败后均清除 pending，允许重试。
 
 ## Goal 内部提示与聊天输出（现行契约）

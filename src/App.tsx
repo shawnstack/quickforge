@@ -30,6 +30,7 @@ import {
 } from '@/lib/subagent-run-detail'
 import { OPEN_GOAL_SUMMARY_EVENT } from '@/lib/goal-ui'
 import { buildBackgroundTasks } from '@/lib/background-tasks-model'
+import { OPEN_BACKGROUND_TASKS_EVENT, normalizeOpenBackgroundTasksRequest } from '@/lib/background-tasks-open'
 import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
@@ -432,10 +433,6 @@ function MainApp() {
     }),
     [agentManager.currentSessionId, pinnedSummaryBackgroundCommands, pinnedSummaryMessages],
   )
-  const runningBackgroundTaskCount = useMemo(
-    () => backgroundTasks.filter((task) => task.status === 'running').length,
-    [backgroundTasks],
-  )
 
   // 对话区视图：只有「打开视图的会话」仍是当前会话时才生效，切会话自动回对话。
   const conversationView: 'chat' | 'trace' =
@@ -709,10 +706,12 @@ function MainApp() {
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ sessionId?: unknown; path?: unknown; label?: unknown }>).detail
-      const projectId = agentManager.currentToolProject?.id
+      // 与 Inspector 的兜底保持一致：后台任务面板在没有关联项目时也可用，
+      // 此时 currentToolProject 为空，仍需把 command-log 打开到 global-workspace。
+      const projectId = agentManager.currentToolProject?.id ?? 'global-workspace'
       const logSessionId = typeof detail?.sessionId === 'string' ? detail.sessionId : ''
       const logPath = typeof detail?.path === 'string' ? detail.path : ''
-      if (!projectId || !logSessionId || !logPath) return
+      if (!logSessionId || !logPath) return
       requestWorkspaceInspector({
         projectId,
         kind: 'command-log',
@@ -724,6 +723,22 @@ function MainApp() {
     window.addEventListener('quickforge:view-command-log', handler as EventListener)
     return () => window.removeEventListener('quickforge:view-command-log', handler as EventListener)
   }, [agentManager.currentToolProject?.id, requestWorkspaceInspector])
+
+  // 「打开后台任务面板」桥接（src/lib/background-tasks-open.ts）：
+  // 入口分散在 Inspector 子树之外（Composer 命令图标、置顶摘要），它们拿不到
+  // requestWorkspaceInspector，因此统一用窗口事件把意图交到这里。
+  // requestWorkspaceInspector 内部已登记打开 scope，不需要再调 onOpenChange。
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail
+      const request = normalizeOpenBackgroundTasksRequest(detail)
+      // 跨会话残留事件不应把面板切走：只接受当前会话或缺省。
+      if (request.sessionId && request.sessionId !== agentManager.currentSessionId) return
+      requestWorkspaceInspector({ projectId: workspaceInspectorProjectId, kind: 'background-tasks' })
+    }
+    window.addEventListener(OPEN_BACKGROUND_TASKS_EVENT, handler as EventListener)
+    return () => window.removeEventListener(OPEN_BACKGROUND_TASKS_EVENT, handler as EventListener)
+  }, [agentManager.currentSessionId, requestWorkspaceInspector, workspaceInspectorProjectId])
 
   // 其它 Goal surface（控制条/卡片）请求打开摘要：只认当前会话 + 当前 Goal，
   // 打开前复用现有收起 Inspector 入口解除 suspension，不新增全局模式。
@@ -1408,6 +1423,12 @@ function MainApp() {
               body: JSON.stringify({ toolCallId: command.toolCallId }),
             })
           }}
+          onOpenBackgroundTasks={() => {
+            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
+              setGitToolsExpanded(false)
+            }
+            requestWorkspaceInspector({ projectId: workspaceInspectorProjectId, kind: 'background-tasks' })
+          }}
           goal={pinnedSummaryGoal}
           goalSessionId={pinnedSummaryGoalSessionId}
           onGoalAction={handlePinnedGoalAction}
@@ -1714,11 +1735,6 @@ function MainApp() {
           onRename={handleRenameCurrentSession}
           onShare={handleShareCurrentSession}
           onArchive={handleArchiveCurrentSession}
-          backgroundTaskCount={runningBackgroundTaskCount}
-          onOpenBackgroundTasks={() => {
-            requestWorkspaceInspector({ projectId: workspaceInspectorProjectId, kind: 'background-tasks' })
-            handleWorkspaceInspectorOpenChange(true)
-          }}
           mobileShell={mobileShell}
         />
 

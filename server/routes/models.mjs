@@ -65,7 +65,7 @@ function readProviderProbeBody(body) {
   return { baseUrl, protocol, apiKey, headers }
 }
 
-// Provider-level probe: list models from the server's /models endpoint.
+// Provider-level model discovery: list models from the server's /models endpoint.
 // Works for OpenAI-compatible services and the Anthropic Messages API; does not
 // require any locally configured model (unlike /api/models/test-connection).
 async function fetchProviderModelIds({ baseUrl, protocol, apiKey, headers }) {
@@ -122,19 +122,15 @@ export async function handleModelsApi(req, res, url, context = {}) {
     return
   }
 
-  if (
-    (req.method === 'POST' && url.pathname === '/api/models/provider-test') ||
-    (req.method === 'POST' && url.pathname === '/api/models/provider-discover')
-  ) {
-    const discover = url.pathname === '/api/models/provider-discover'
+  if (req.method === 'POST' && url.pathname === '/api/models/provider-discover') {
     const body = readProviderProbeBody(await readJsonBody(req))
     if (!body.baseUrl) throw requestError('baseUrl is required')
 
     try {
       const models = await fetchProviderModelIds(body)
-      sendJson(res, 200, discover ? { ok: true, models } : { ok: true })
+      sendJson(res, 200, { ok: true, models })
     } catch (error) {
-      logger.warn(`Provider ${discover ? 'discover' : 'test'} failed:`, error?.message || error)
+      logger.warn('Provider discover failed:', error?.message || error)
       sendJson(res, 200, { ok: false, error: error?.message || String(error) })
     }
     return

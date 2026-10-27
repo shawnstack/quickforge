@@ -432,11 +432,10 @@ async function handleApi(req, res, url, requestContext = {}) {
     return
   }
 
-  // Custom model management (connection test, provider-level test/discover)
+  // Custom model management (model connection test, provider-level model discovery)
   if (
     pathname === '/api/models/catalog' ||
     pathname === '/api/models/test-connection' ||
-    pathname === '/api/models/provider-test' ||
     pathname === '/api/models/provider-discover'
   ) {
     await handleModelsApi(req, res, url, requestContext)

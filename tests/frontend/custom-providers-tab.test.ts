@@ -247,31 +247,6 @@ describe('custom providers layered settings tab', () => {
     expect(storage.customProviders.set).not.toHaveBeenCalled()
   })
 
-  it('provider-level test calls the new endpoint without requiring a model', async () => {
-    storage.customProviders.getAll.mockResolvedValue([{ ...fixture(), models: [] }])
-    storage.providerKeys.get.mockResolvedValue('sk-live')
-    fetchRoutes['/api/models/provider-test'] = () => ({ ok: true })
-    stubFetch()
-    let tree = await loadTab({ customProvider: 'DeepSeek' })
-    const connection = findByType(tree, ConnectionSection)
-    ;(connection.props.onTest as (draft: unknown, apiKey: string) => void)(
-      { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', protocol: 'openai-completions', headerRows: [] },
-      '',
-    )
-    await flush()
-
-    const fetchMock = vi.mocked(globalThis.fetch)
-    const call = fetchMock.mock.calls.find((args) => args[0] === '/api/models/provider-test')
-    expect(call).toBeTruthy()
-    expect(JSON.parse(String(call![1]!.body))).toMatchObject({
-      baseUrl: 'https://api.deepseek.com/v1',
-      protocol: 'openai-completions',
-      apiKey: 'sk-live',
-    })
-    tree = renderTab({ customProvider: 'DeepSeek' })
-    expect(findByType(tree, ConnectionSection).props.testState).toMatchObject({ status: 'ok' })
-  })
-
   it('fetching models merges fresh server ids into the model list', async () => {
     storage.customProviders.getAll.mockResolvedValue([fixture()])
     storage.providerKeys.get.mockResolvedValue('')
@@ -369,10 +344,38 @@ describe('custom providers connection section (child render)', () => {
     provider: fixture(),
     isDraft: false,
     keyConfigured: true,
-    testState: { status: 'idle' as const },
+    onRevealKey: vi.fn(async () => 'sk-stored'),
     onSaveConnection: vi.fn(async () => true),
     onSaveKey: vi.fn(async () => true),
-    onTest: vi.fn(),
+  })
+
+  it('reveals the stored key on demand without marking the connection dirty', async () => {
+    const props = sectionProps()
+    let tree = renderChild(() => ConnectionSection(props))
+    const eye = () => tree.find((node) => node.type === 'button' && node.props['aria-label'] === 'en:showApiKey')!
+
+    // 已保存的密钥不回填输入框，但占位文案提示可点眼睛查看
+    let keyInput = tree.find((node) => node.type === 'input' && node.props.name === 'qf-provider-api-key')!
+    expect(keyInput.props.value).toBe('')
+    expect(keyInput.props.placeholder).toBe('en:storedKeyHiddenHint')
+
+    click(eye())
+    await flush()
+    tree = renderChild(() => ConnectionSection(props))
+
+    // 按需拉取明文并切成 text 类型，明文可见
+    expect(props.onRevealKey).toHaveBeenCalledTimes(1)
+    keyInput = tree.find((node) => node.type === 'input' && node.props.name === 'qf-provider-api-key')!
+    expect(keyInput.props.value).toBe('sk-stored')
+    expect(keyInput.props.type).toBe('text')
+    // 回显内容不算用户改动：脏标记条不出现
+    expect(text(tree)).not.toContain('en:connectionDirty')
+
+    // 已回显后再次点击只切回密码态，不重复读取
+    click(tree.find((node) => node.type === 'button' && node.props['aria-label'] === 'en:hideApiKey')!)
+    await flush()
+    tree = renderChild(() => ConnectionSection(props))
+    expect(props.onRevealKey).toHaveBeenCalledTimes(1)
   })
 
   it('keeps password managers away and saves the typed key with the connection', () => {
@@ -474,20 +477,18 @@ describe('custom providers list pane (child render)', () => {
     draftProvider: null,
     selectedId: 'p1',
     keyConfigured: { p1: false },
-    testStatus: { p1: 'fail' as const },
     loading: false,
     onSelect: vi.fn(),
     onAddPreset: vi.fn(),
     onDelete: vi.fn(),
   })
 
-  it('passes key/test status into rows and opens the preset picker', () => {
+  it('passes key status into rows and opens the preset picker', () => {
     const props = paneProps()
     let tree = renderChild(() => ProviderListPane(props))
     expect(text(tree)).toContain('en:providersListTitle')
     // 行渲染在 ProviderRow 子组件里：密钥未配置的状态经 props 下发
     expect(tree.some((node) => node.props?.keyConfigured === false)).toBe(true)
-    expect(tree.some((node) => node.props?.testStatus === 'fail')).toBe(true)
 
     click(tree.find((node) => node.type === 'button' && text(node) === 'en:addProvider')!)
     tree = renderChild(() => ProviderListPane(props))

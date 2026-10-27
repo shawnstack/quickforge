@@ -7,8 +7,10 @@
   position: relative;
   display: grid;
   grid-template-columns: 17.5rem 1fr;
-  /* 固定高度：内容在卡内滚动（列表/详情各自 overflow），页面高度不随模型数量变化 */
-  height: 34rem;
+  /* 固定高度：内容在卡内滚动（列表/详情各自 overflow），页面高度不随模型数量变化。
+   * 高度跟随视口：桌面 34rem 起，向上最多 52rem，且始终给页面头尾留出约 13rem，
+   * 避免大屏只显示几行、小屏把卡片顶出视口。 */
+  height: max(34rem, min(52rem, calc(100vh - 13rem)));
   overflow: hidden;
   border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
   border-radius: 0.75rem;
@@ -439,10 +441,11 @@
 
 .quickforge-providers-model-main {
   display: flex;
-  min-height: 2.5rem;
+  /* 行高按行内最高控件（1.875rem 图标按钮）撑开：1.875 + 上下 0.4375×2 */
+  min-height: 2.75rem;
   align-items: center;
   gap: 0.5625rem;
-  padding: 0.5rem 0.6875rem;
+  padding: 0.4375rem 0.6875rem;
 }
 
 .quickforge-providers-model-id {
@@ -465,6 +468,25 @@
   flex-wrap: nowrap;
   overflow: hidden;
   margin-top: 0;
+}
+
+/* 行内开关：按行动作刻度（图标按钮 1.875rem）收敛，并禁止 flex 压缩，
+ * 否则窄列下轨道被挤窄、滑块 translateX 溢出导致显示不全。 */
+.quickforge-providers-model-main .quickforge-settings-switch {
+  width: 2.25rem;
+  height: 1.25rem;
+  flex: 0 0 auto;
+}
+
+.quickforge-providers-model-main .quickforge-settings-switch span::after {
+  top: 0.1875rem;
+  left: 0.1875rem;
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.quickforge-providers-model-main .quickforge-settings-switch input:checked + span::after {
+  transform: translateX(1rem);
 }
 
 .quickforge-providers-model-spec {
@@ -495,7 +517,8 @@
 @media (max-width: 767px) {
   .quickforge-providers-card {
     grid-template-columns: 1fr;
-    height: 28rem;
+    /* 窄屏抽屉本就占满屏宽，高度同样跟视口走，下限收到 28rem 给小屏留余量 */
+    height: max(28rem, min(52rem, calc(100vh - 11rem)));
   }
 
   .quickforge-providers-list {

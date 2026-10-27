@@ -3,29 +3,17 @@ import { ChevronLeft, Trash2 } from 'lucide-react'
 import type { CustomProvider } from '@/storage'
 import { t } from '@/lib/i18n'
 import { protocolShortLabel } from './shared'
-import type { ConnectionTestState } from './connection-section'
 
 export type ProviderDetailPaneProps = {
   provider: CustomProvider
   isDraft: boolean
-  testState: ConnectionTestState
   onDelete: () => void
   onBack: () => void
   children: ReactNode
 }
 
-function testBadge(testState: ConnectionTestState) {
-  if (testState.status === 'ok') {
-    return <span className="quickforge-settings-badge quickforge-settings-badge-success">{t('connectionOk')}</span>
-  }
-  if (testState.status === 'fail') {
-    return <span className="quickforge-settings-badge quickforge-settings-badge-warning">{t('connectionFailed')}</span>
-  }
-  return null
-}
-
 export function ProviderDetailPane(props: ProviderDetailPaneProps) {
-  const { provider, isDraft, testState, onDelete, onBack, children } = props
+  const { provider, isDraft, onDelete, onBack, children } = props
   const [menuOpen, setMenuOpen] = useState(false)
   const menuAnchorRef = useRef<HTMLDivElement>(null)
 
@@ -59,7 +47,6 @@ export function ProviderDetailPane(props: ProviderDetailPaneProps) {
           <div className="quickforge-providers-detail-name">
             {displayName}
             {isDraft ? <span className="quickforge-settings-badge quickforge-settings-badge-info">{t('providerDraftBadge')}</span> : null}
-            {testBadge(testState)}
             <span className="quickforge-settings-badge quickforge-settings-badge-muted">{protocolShortLabel(provider)}</span>
           </div>
           <div className="quickforge-providers-detail-host">{provider.baseUrl}</div>

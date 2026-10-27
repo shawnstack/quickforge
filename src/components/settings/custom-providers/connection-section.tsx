@@ -11,18 +11,16 @@ import {
   type ProviderProtocol,
 } from './shared'
 
-export type ConnectionTestState = { status: 'idle' | 'testing' | 'ok' | 'fail'; error?: string }
-
 export type ConnectionSectionProps = {
   provider: CustomProvider
   isDraft: boolean
   keyConfigured: boolean
-  testState: ConnectionTestState
+  /** 读取已保存的密钥明文，供「查看 API Key」按需回显（未配置/草稿返回空串）。 */
+  onRevealKey: () => Promise<string>
   /** 保存连接层（名称/地址/协议/请求头 + 输入的密钥）。返回是否成功。 */
   onSaveConnection: (draft: ConnectionDraft, apiKey: string) => boolean | Promise<boolean>
   /** 清除已存密钥（空值 = 清除），立即生效、不依赖连接保存。返回是否成功。 */
   onSaveKey: (value: string) => boolean | Promise<boolean>
-  onTest: (draft: ConnectionDraft, apiKey: string) => void
 }
 
 const sameDraft = (a: ConnectionDraft, b: ConnectionDraft) =>
@@ -36,26 +34,55 @@ const PROTOCOL_OPTIONS: { value: ProviderProtocol; labelKey: 'apiFormatChatCompl
 ]
 
 export function ConnectionSection(props: ConnectionSectionProps) {
-  const { provider, isDraft, keyConfigured, testState, onSaveConnection, onSaveKey, onTest } = props
+  const { provider, isDraft, keyConfigured, onRevealKey, onSaveConnection, onSaveKey } = props
   const [baseline, setBaseline] = useState<ConnectionDraft>(() => connectionDraftOf(provider))
   const [draft, setDraft] = useState<ConnectionDraft>(baseline)
   const [keyValue, setKeyValue] = useState('')
   const [keyVisible, setKeyVisible] = useState(false)
+  const [revealing, setRevealing] = useState(false)
+  // 回显的已存密钥不算「用户改动」：不参与脏状态，也不随连接保存回写。
+  const [keyFromStore, setKeyFromStore] = useState(false)
   const [saving, setSaving] = useState(false)
   const [headersOpen, setHeadersOpen] = useState(baseline.headerRows.length > 0 || baseline.protocol === 'anthropic-messages')
 
-  // 输入了新密钥也算连接层脏状态（随「保存连接」一起落库；留空则保留现有密钥）
-  const dirty = !sameDraft(draft, baseline) || keyValue.trim() !== ''
+  // 输入了新密钥才算连接层脏状态（随「保存连接」一起落库；留空则保留现有密钥）
+  const dirty = !sameDraft(draft, baseline) || (!keyFromStore && keyValue.trim() !== '')
 
   const update = (patch: Partial<ConnectionDraft>) => setDraft((current) => ({ ...current, ...patch }))
+
+  /**
+   * 已保存的密钥不回填输入框（避免明文常驻 DOM），但「查看」需要能看到内容：
+   * 首次点击眼睛时按需拉取一次明文，只放在本地 state 里，不参与脏状态。
+   */
+  const toggleKeyVisible = async () => {
+    if (keyVisible) {
+      setKeyVisible(false)
+      return
+    }
+    if (!keyValue && keyConfigured) {
+      setRevealing(true)
+      try {
+        const stored = await onRevealKey()
+        if (stored) {
+          setKeyValue(stored)
+          setKeyFromStore(true)
+        }
+      } finally {
+        setRevealing(false)
+      }
+    }
+    setKeyVisible(true)
+  }
 
   const saveConnection = async () => {
     setSaving(true)
     try {
-      const ok = await onSaveConnection(draft, keyValue)
+      // 回显的已存密钥原样回写等价于「留空保留现有密钥」，避免把它当成用户输入重复提交。
+      const ok = await onSaveConnection(draft, keyFromStore ? '' : keyValue)
       if (ok) {
         setBaseline(draft)
         setKeyValue('')
+        setKeyFromStore(false)
       }
     } finally {
       setSaving(false)
@@ -66,24 +93,8 @@ export function ConnectionSection(props: ConnectionSectionProps) {
     update({ headerRows: draft.headerRows.map((row, i) => (i === index ? { ...row, [field]: value } : row)) })
   }
 
-  const testLabel = testState.status === 'testing' ? t('testingConnection') : t('testConnection')
-
   return (
     <section className="quickforge-providers-section" aria-label={t('connectionSection')}>
-      <div className="quickforge-providers-section-head">
-        <div className="quickforge-providers-section-title">{t('connectionSection')}</div>
-        <div className="quickforge-providers-section-actions">
-          <button
-            className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
-            type="button"
-            disabled={testState.status === 'testing'}
-            onClick={() => onTest(draft, keyValue)}
-          >
-            {testLabel}
-          </button>
-        </div>
-      </div>
-
       <div className="quickforge-providers-connection-stack">
         <label className="quickforge-settings-form-row">
           <span className="quickforge-settings-form-label">{t('providerName')}</span>
@@ -142,16 +153,17 @@ export function ConnectionSection(props: ConnectionSectionProps) {
               type={keyVisible ? 'text' : 'password'}
               name="qf-provider-api-key"
               autoComplete="new-password"
-              placeholder={t('apiKeyPlaceholder')}
-              onChange={(event) => setKeyValue(event.currentTarget.value)}
+              placeholder={keyConfigured && !keyValue ? t('storedKeyHiddenHint') : t('apiKeyPlaceholder')}
+              onChange={(event) => { setKeyValue(event.currentTarget.value); setKeyFromStore(false) }}
             />
             <button
               className="quickforge-settings-inline-field-button"
               type="button"
+              disabled={revealing}
               title={keyVisible ? t('hideApiKey') : t('showApiKey')}
               aria-label={keyVisible ? t('hideApiKey') : t('showApiKey')}
               aria-pressed={keyVisible ? 'true' : 'false'}
-              onClick={() => setKeyVisible(!keyVisible)}
+              onClick={() => void toggleKeyVisible()}
             >
               {keyVisible ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
             </button>
@@ -211,14 +223,6 @@ export function ConnectionSection(props: ConnectionSectionProps) {
             >
               + {t('addHeader')}
             </button>
-          </div>
-        )
-        : null}
-
-      {testState.status !== 'idle' && testState.status !== 'testing'
-        ? (
-          <div className={testState.status === 'ok' ? 'quickforge-settings-message' : 'quickforge-settings-alert'}>
-            {testState.status === 'ok' ? `✓ ${t('connectionOk')}` : `✗ ${testState.error || t('connectionFailed')}`}
           </div>
         )
         : null}

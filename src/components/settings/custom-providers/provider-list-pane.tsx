@@ -4,14 +4,11 @@ import type { CustomProvider } from '@/storage'
 import { t } from '@/lib/i18n'
 import { PROVIDER_PRESETS, protocolShortLabel, type PresetKey } from './shared'
 
-export type ProviderTestStatus = 'ok' | 'fail' | undefined
-
 export type ProviderListPaneProps = {
   providers: CustomProvider[]
   draftProvider: CustomProvider | null
   selectedId: string | null
   keyConfigured: Record<string, boolean>
-  testStatus: Record<string, ProviderTestStatus>
   loading: boolean
   onSelect: (id: string) => void
   onAddPreset: (preset: PresetKey) => void
@@ -33,26 +30,15 @@ function providerInitial(provider: CustomProvider) {
   return providerDisplayName(provider).charAt(0).toUpperCase() || 'M'
 }
 
-function statusBadge(status: ProviderTestStatus) {
-  if (status === 'ok') {
-    return <span className="quickforge-settings-badge quickforge-settings-badge-success">{t('connectionOk')}</span>
-  }
-  if (status === 'fail') {
-    return <span className="quickforge-settings-badge quickforge-settings-badge-warning">{t('connectionFailed')}</span>
-  }
-  return null
-}
-
 function ProviderRow(props: {
   provider: CustomProvider
   isDraft: boolean
   selected: boolean
   keyConfigured: boolean
-  testStatus: ProviderTestStatus
   onSelect: () => void
   onDelete: () => void
 }) {
-  const { provider, isDraft, selected, keyConfigured, testStatus, onSelect, onDelete } = props
+  const { provider, isDraft, selected, keyConfigured, onSelect, onDelete } = props
   const models = provider.models ?? []
   return (
     <div className={`quickforge-providers-row${selected ? ' quickforge-providers-row-active' : ''}`}>
@@ -66,7 +52,6 @@ function ProviderRow(props: {
           <span className="quickforge-providers-row-url">{provider.baseUrl}</span>
           <span className="quickforge-settings-meta quickforge-providers-row-meta">
             <span className="quickforge-settings-badge quickforge-settings-badge-muted">{protocolShortLabel(provider)}</span>
-            {statusBadge(testStatus)}
             {keyConfigured ? null : <span className="quickforge-settings-badge quickforge-settings-badge-warning">{t('keyNotConfigured')}</span>}
             <span className="quickforge-providers-row-count">{t('modelsCount', { count: models.length })}</span>
           </span>
@@ -86,7 +71,7 @@ function ProviderRow(props: {
 }
 
 export function ProviderListPane(props: ProviderListPaneProps) {
-  const { providers, draftProvider, selectedId, keyConfigured, testStatus, loading, onSelect, onAddPreset, onDelete } = props
+  const { providers, draftProvider, selectedId, keyConfigured, loading, onSelect, onAddPreset, onDelete } = props
   const [addOpen, setAddOpen] = useState(false)
   const addAnchorRef = useRef<HTMLDivElement>(null)
 
@@ -164,7 +149,6 @@ export function ProviderListPane(props: ProviderListPaneProps) {
                 isDraft={row.isDraft}
                 selected={selectedId === row.id}
                 keyConfigured={row.isDraft ? false : keyConfigured[row.id] === true}
-                testStatus={testStatus[row.id]}
                 onSelect={() => onSelect(row.id)}
                 onDelete={() => onDelete(row.provider)}
               />

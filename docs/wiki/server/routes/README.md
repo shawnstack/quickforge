@@ -20,7 +20,7 @@
 | `tools.mjs` | 82 | 工具定义和执行 |
 | `skills.mjs` | 213 | Skills 管理 |
 | `agent-profiles.mjs` | 236 | Agent Profile 管理 API，支持 AI 填充基础定义 |
-| `models.mjs` | 144 | 统一模型目录、连接测试与提供商级测试/发现 |
+| `models.mjs` | 140 | 统一模型目录、模型连接测试与提供商级模型发现 |
 | `hooks.mjs` | 53 | Hooks 手动测试与最近执行记录查询 |
 | `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
@@ -175,15 +175,14 @@ Agent Profile 管理路由。
 
 内置 Agent 不允许删除，其提示词、工具和运行预算不可修改；模型、思考等级以及 MCP/Agent Skills 能力开关通过 override 管理。
 
-## models.mjs (144 行)
+## models.mjs (140 行)
 
-统一模型目录、模型连接测试与提供商级测试/发现路由。
+统一模型目录、模型连接测试与提供商级模型发现路由。
 
 **主要端点**:
 - `GET /api/models/catalog` — 返回当前可使用的公开自定义模型目录。每个条目携带版本化 `quickforgeModelRef`；不返回 API Key 或请求 Header。
 - `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。探测的 AI 调用总预算 60 秒（`AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS`），超时按连通失败返回。
-- `POST /api/models/provider-test` — 提供商级连通测试（设置页「连接」层）：`GET {baseUrl}/models` 探测，OpenAI 兼容走 `Authorization: Bearer`，Anthropic 走 `x-api-key` + `anthropic-version`；请求体 `{ baseUrl, protocol, apiKey?, headers? }`，不要求已配置任何模型；15 秒超时，返回 `{ ok }` / `{ ok: false, error }`。
-- `POST /api/models/provider-discover` — 从服务器 `{baseUrl}/models` 拉取模型 ID 列表（「从服务器拉取模型」入口）；同 provider-test 的鉴权与请求体，返回 `{ ok: true, models: string[] }`，供前端合并为新的模型行。
+- `POST /api/models/provider-discover` — 从服务器 `{baseUrl}/models` 拉取模型 ID 列表（「从服务器拉取模型」入口）：OpenAI 兼容走 `Authorization: Bearer`，Anthropic 走 `x-api-key` + `anthropic-version`；请求体 `{ baseUrl, protocol, apiKey?, headers? }`，不要求已配置任何模型；15 秒超时，返回 `{ ok: true, models: string[] }` / `{ ok: false, error }`，供前端合并为新的模型行。
 
 ## hooks.mjs (53 行)
 

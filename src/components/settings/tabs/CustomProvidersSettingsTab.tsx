@@ -5,9 +5,9 @@ import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { showAlert, showConfirm } from '@/components/ui/confirm-dialog'
 import { clearModelListCache } from '@/lib/model-list-cache'
-import { ProviderListPane, type ProviderTestStatus } from '@/components/settings/custom-providers/provider-list-pane'
+import { ProviderListPane } from '@/components/settings/custom-providers/provider-list-pane'
 import { ProviderDetailEmpty, ProviderDetailPane } from '@/components/settings/custom-providers/provider-detail-pane'
-import { ConnectionSection, type ConnectionTestState } from '@/components/settings/custom-providers/connection-section'
+import { ConnectionSection } from '@/components/settings/custom-providers/connection-section'
 import { ModelListSection, type ModelTestOutcome } from '@/components/settings/custom-providers/model-list-section'
 import {
   PROVIDER_PRESETS,
@@ -30,7 +30,6 @@ export type CustomProvidersSettingsTabProps = {
   active?: boolean
 }
 
-const IDLE_TEST: ConnectionTestState = { status: 'idle' }
 const JSON_HEADERS = { 'content-type': 'application/json' }
 const DRAFT_ID = 'draft'
 const LAST_SELECTED_KEY = 'quickforge:custom-providers:last-selected:v1'
@@ -66,7 +65,6 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
   const [draftSeq, setDraftSeq] = useState(0)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [keyConfigured, setKeyConfigured] = useState<Record<string, boolean>>({})
-  const [testStates, setTestStates] = useState<Record<string, ConnectionTestState>>({})
   const [modelsNotice, setModelsNotice] = useState('')
   const [discovering, setDiscovering] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -220,6 +218,19 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
     }
   }
 
+  /** L2：按需读取已存密钥明文，供「查看 API Key」回显（不落库、不进脏状态）。 */
+  const revealKey = async (): Promise<string> => {
+    const current = currentProvider()
+    if (!current || current.id === DRAFT_ID) return ''
+    try {
+      const stored = await getAppStorage().providerKeys.get(current.name)
+      return stored || current.apiKey || ''
+    } catch (error) {
+      logger.error('Failed to read provider key:', error)
+      return current.apiKey || ''
+    }
+  }
+
   /** L2：单独更换/清除密钥，只写 provider-keys 与 apiKey 镜像，不触碰模型。 */
   const saveKey = async (value: string): Promise<boolean> => {
     const current = currentProvider()
@@ -308,42 +319,6 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
         logger.error('Failed to toggle model visibility:', error)
         void showAlert(t('saveCustomModelFailed'))
       })
-    }
-  }
-
-  /** L2：提供商级测试连接（GET baseUrl/models），不依赖已配置模型。 */
-  const testProvider = async (draft: ConnectionDraft, apiKey: string) => {
-    const id = selectedIdRef.current
-    if (!id) return
-    const baseUrl = draft.baseUrl.trim()
-    if (!baseUrl) {
-      setTestStates((states) => ({ ...states, [id]: { status: 'fail', error: t('testRequiresBaseUrl') } }))
-      return
-    }
-    setTestStates((states) => ({ ...states, [id]: { status: 'testing' } }))
-    try {
-      const current = currentProvider()
-      let key = apiKey.trim()
-      if (!key && current && current.id !== DRAFT_ID) {
-        key = (await getAppStorage().providerKeys.get(current.name)) ?? current.apiKey ?? ''
-      }
-      const resp = await fetch('/api/models/provider-test', {
-        method: 'POST',
-        headers: JSON_HEADERS,
-        body: JSON.stringify({
-          baseUrl,
-          protocol: draft.protocol,
-          apiKey: key || undefined,
-          headers: headersFromRows(draft.headerRows),
-        }),
-      })
-      const data = (await resp.json().catch(() => ({}))) as { ok?: boolean; error?: string }
-      setTestStates((states) => ({
-        ...states,
-        [id]: data?.ok ? { status: 'ok' } : { status: 'fail', error: data?.error || t('connectionFailed') },
-      }))
-    } catch (error) {
-      setTestStates((states) => ({ ...states, [id]: { status: 'fail', error: (error as Error)?.message || t('connectionFailed') } }))
     }
   }
 
@@ -516,12 +491,7 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
     ? draftProvider
     : providers.find((provider) => provider.id === selectedId) ?? null
   const isDraft = selectedId === DRAFT_ID && draftProvider !== null
-  const testState = (selectedId ? testStates[selectedId] : undefined) ?? IDLE_TEST
   const detailKey = isDraft ? `${DRAFT_ID}:${draftSeq}` : selectedProvider?.id ?? 'none'
-  const rowTestStatus: Record<string, ProviderTestStatus> = {}
-  for (const [id, state] of Object.entries(testStates)) {
-    rowTestStatus[id] = state.status === 'ok' ? 'ok' : state.status === 'fail' ? 'fail' : undefined
-  }
 
   return (
     <div className="quickforge-settings-stack">
@@ -534,7 +504,6 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
           draftProvider={draftProvider}
           selectedId={selectedId}
           keyConfigured={keyConfigured}
-          testStatus={rowTestStatus}
           loading={loading}
           onSelect={selectProvider}
           onAddPreset={addPreset}
@@ -545,7 +514,6 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
             <ProviderDetailPane
               provider={selectedProvider}
               isDraft={isDraft}
-              testState={testState}
               onDelete={() => void deleteProvider(selectedProvider)}
               onBack={() => setDetailOpen(false)}
             >
@@ -554,10 +522,9 @@ export function CustomProvidersSettingsTab({ customProvider, active }: CustomPro
                 provider={selectedProvider}
                 isDraft={isDraft}
                 keyConfigured={isDraft ? false : keyConfigured[selectedProvider.id] === true}
-                testState={testState}
+                onRevealKey={revealKey}
                 onSaveConnection={saveConnection}
                 onSaveKey={saveKey}
-                onTest={(draft, apiKey) => void testProvider(draft, apiKey)}
               />
               <ModelListSection
                 key={`models:${detailKey}`}

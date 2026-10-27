@@ -2,6 +2,28 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## process-stage-scroll（done，2026-10-27）
+
+- Goal：把「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段（stage）展开后的工具列表收拢为固定高度，超出部分在区域内滚动；执行中新增工具行要自动贴底到最新一行，用户手动上翻后不再抢回阅读位置。
+- 结论（一句话）：限高 `min(50vh, 18rem)` 挂在折叠动画壳层 `.quickforge-process-body-inner`（stage-body 的子级选择器，DOM 结构不变），滚动能力只在 `[data-expanded="true"]` 挂上并加 `overscroll-behavior: contain`；执行中由 `scheduleProcessStageStick`（rAF）贴底跟随，`resolveProcessStageScrollFollow` 用 24px/8px 双向滞回判断是否继续跟随，跟随标记存 inner 的 `dataset.quickforgeStageFollow`，手动收起时复位。
+- 改动文件：
+  1. `src/styles/chat/process.css` — 新增 `.quickforge-process-stage-body > .quickforge-process-body-inner { max-height: min(50vh, 18rem) }` 与展开态 `overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain`（含设计注释：为什么滚动容器必须是 inner、为什么限高两态都保留而滚动只在展开态）。
+  2. `src/components/chat/panel-decoration/process-folding.ts` — 新增 `resolveProcessStageScrollFollow`（导出供测试）、`bindProcessStageScrollFollow`、`applyProcessStageStick`、`scheduleProcessStageStick`（WeakSet 去重 + rAF，无 rAF 环境退化为同步）、`resetProcessStageScrollFollow`；`updateProcessStageGroups` 在 label 写入后对 stage inner 绑监听并按 `expanded && stageStreaming` 排队贴底，收起态复位跟随标记；stage summary 的 onclick 收起时同样复位。
+  3. `tests/frontend/process-folding.test.ts` — 新增 `resolveProcessStageScrollFollow` 滞回用例（24/25、8/9、NaN/Infinity）。
+  4. `tests/frontend/process-folding-incremental.test.ts` — 新增「流式新增工具行后区域滚动贴底、用户上翻后不再贴底」用例（fake inner 上挂 scrollTop/scrollHeight/clientHeight）。
+  5. `tests/frontend/chat-surface-css-contract.test.ts` — 新增 `caps the expanded stage body height and scrolls inside it`：限高只能挂 stage inner、滚动只在展开态、折叠壳层（body/stage-body）不得变成滚动容器、顶层组 inner 不得限高。
+  6. `docs/wiki/src/styles/README.md`、`docs/wiki/src/components/README.md` — 同步 process.css 条目与 process-folding 折叠说明（限高滚动 + 贴底跟随 + 滞回阈值）。
+  7. `feature_list.json` / `progress.md` / `session-handoff.md` — 本轮记录。
+- 验证 / Evidence：
+  - `npx tsc -b` → 0 错误；`npx eslint` 改动源码/测试文件 → 0 error。
+  - `npx vitest run` process 相关 11 文件（process-folding / -incremental / -ownership、chat-surface-css-contract、css-architecture、thinking-streaming-stage、motion-design、thinking-hint、thinking-header-adoption、subagent-process-trace、scroll-sync）→ 11 files / 186 tests passed。
+  - `npm run lint` → 0 error；`npm run build` → 成功（built in 6.08s）。
+- Notes：
+  - 没有给 stage body 插新包装层：滚动容器复用既有动画壳层 inner，`stage-body > inner > step` 的结构契约（`appendProcessToolSuffix` 的校验链、`process-folding-incremental.test.ts` 的选择器）因此零改动。
+  - 限高放在两态共用的 inner 规则里、只把 `overflow` 放到展开态：收起瞬间若放开上限，内容会先弹回全高再塌陷（观感一次跳变）。
+  - 贴底用 rAF 而不是装饰 pass 内同步读写：`scrollHeight`/`clientHeight` 是布局查询，装饰 pass 刚写完 DOM 时同步读会触发强制重排。
+  - 滚动条画在 inner 右缘，stage body 的 `padding-left: 0.75rem` 缩进与左侧连接线留在滚动区外、不随内容滚动。
+
 ## <feature-id>（<status>，<YYYY-MM-DD>）
 
 - Goal：
@@ -133,6 +155,15 @@
   - 跟进 3（参考用户截图样式）：连接层改为全宽竖排表单——名称 / Base URL / API 格式（`SettingsSelect` 下拉，选项带端点说明 `Chat Completions (/chat/completions)` / `Anthropic Messages (/v1/messages)`）/ API Key（常驻密码框 + 行内眼睛切换 + 状态徽标 + 「清除密钥」即时生效）；密钥输入计入连接层脏状态、随「保存连接」落库（留空保留现有密钥）；移除密钥卡片与「更换/保存密钥」流程及 protocolType 分段控件。测试 15/15、tsc / eslint / build 全过。
 
   - 跟进 4：每个模型行新增一键连通性测试图标（闪电 = 待测 / 旋转 = 测试中 / ✓ ✗ 徽标 = 结果，错误详情放 title 提示），用已保存的模型配置直接探测、无需展开编辑；展开编辑区里的「测试此模型」保留用于测试未保存的草稿参数。`ModelRow` 导出并补 1 个行内测试用例（16/16 全过）。
+
+  - 跟进 8（2026-10-27，修复「查看 API Key」看不到内容）：已保存的密钥从不回填输入框（`keyValue` 初值空串），点眼睛只是切换一个空输入框的 type，所以看不到任何内容。改为按需读取：`ConnectionSection` 新增 `onRevealKey`，首次点眼睛时调用（编排器 `revealKey` 读 `provider-keys`，兜底 `provider.apiKey`），明文只进本地 state；新增 `keyFromStore` 标记，回显内容不计入连接层脏状态、保存时按「留空保留现有密钥」提交；占位文案在已配置且未回显时提示 `storedKeyHiddenHint`（中英成对）；读取期间按钮 disabled。新增 1 个用例（reveal-on-demand：明文可见、脏标记不出现、二次点击不重复读取），16/16 全过；tsc / lint / build 全过。
+
+  - 跟进 7（2026-10-27，卡片高度跟视口）：`quickforge-providers-card` 从固定 `height: 34rem` 改为 `height: max(34rem, min(52rem, calc(100vh - 13rem)))`——桌面 34rem 起、最多 52rem、且始终给页面头尾留约 13rem，大屏能看到更多模型行，小屏不出视口；窄屏抽屉同步 `max(28rem, min(52rem, calc(100vh - 11rem)))`。列表与详情仍在卡内各自滚动，页面高度不随模型数变化。定向测试 20 项、`npm run lint`、`npm run build` 全过。
+
+  - 跟进 6（2026-10-27，模型行开关尺寸收敛）：模型行「在选择器中显示」开关原用全局 3.125×1.75rem 轨道，比同行 1.875rem 图标按钮大一圈，且在窄列被 flex 压缩后滑块 `translateX(1.375rem)` 溢出轨道、显示不全。改为行内局部覆盖：轨道 2.25×1.25rem、滑块 0.875rem / 位移 1rem、`flex: 0 0 auto` 禁压缩；行本身 `min-height` 2.5→2.75rem、上下 padding 0.5→0.4375rem（行高由最高控件 1.875rem 撑开）。`tests/frontend/css-architecture.test.ts` 5 + `custom-providers-tab.test.ts` 15 全过；`npm run lint` 0 error；`npm run build` 成功。
+
+  - 跟进 5（2026-10-27，删除连接分区头部行）：连接层顶部的「连接」标题行 + 右侧「测试连接」按钮整行删除（模型行已有逐模型测试，provider 级测试冗余）；表单直接贴在详情卡顶部。连带清理 provider 级测试死链：`CustomProvidersSettingsTab` 去 `testStates` / `IDLE_TEST` / `testProvider` / `rowTestStatus`，`ConnectionSection` 去 `testState` / `onTest` 与结果提示，`ProviderDetailPane` 去 `testBadge` 与 `testState`，`ProviderListPane` 去 `ProviderTestStatus` / `statusBadge` / `testStatus`；服务端删除 `POST /api/models/provider-test`（`provider-discover` 保留，复用同一 `fetchProviderModelIds`）；i18n 删除成对死 key `testConnection` / `testRequiresBaseUrl`（`connectionOk` / `connectionFailed` / `testingConnection` / `connectionSection` 仍被模型行复用，保留）。测试删去 provider 级测试用例，其余 15/15 全过；tsc / eslint / `npm run lint` / `npm run build` 全过。
+
 - Notes：存储仍为 `custom-providers` + `provider-keys`（密钥按提供商名）；连接层保存语义 = 读-改-写整个提供商（协议/请求头下发到全部模型）并迁移改名密钥，密钥独立保存只写两个存储不触碰模型；草稿提供商（预设创建）在本地保存连接时落库。`customProviders` 深链从「打开编辑表单」改为「选中列表项」。工作区有并行会话（ask-user-echo-fix）在同文件 `src/lib/i18n.ts` 作业，本次 i18n 改动均为 provider 区块内成对增删，无交叉。
 
 ## ask-user-echo-fix（done，2026-10-26）

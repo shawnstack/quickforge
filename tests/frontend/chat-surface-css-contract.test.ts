@@ -517,4 +517,34 @@ describe('process fold hierarchy contract', () => {
     // 连接线只挂在 stage body 展开区上，不落到 step / 工具行等叶子节点。
     expect(css).not.toMatch(/\.quickforge-process-step[^{]*\{[^}]*border-left/)
   })
+
+  it('caps the expanded stage body height and scrolls inside it', () => {
+    // process-stage-scroll：工具行多时（「执行中 · 16 个工具调用」）只在内层阶段
+    // 展开区滚，不再把对话无限拉长。限高挂在动画壳层 inner（stage-body > inner > step
+    // 结构不变），滚动能力只在展开态挂上——收起态的 inner 必须保持纯钳高裁切层，
+    // 否则 0fr 塌陷过程中会在缩小的可视区里露出滚动条。
+    const declared = (selector: string) => {
+      const start = css.indexOf(selector)
+      if (start < 0) return ''
+      const end = css.indexOf('}', start)
+      return end < 0 ? '' : css.slice(start, end)
+    }
+
+    const capped = declared('.quickforge-process-stage-body > .quickforge-process-body-inner {')
+    expect(capped).toContain('max-height: min(50vh, 18rem);')
+
+    const scrolling = declared(
+      '.quickforge-process-stage[data-expanded="true"] > .quickforge-process-stage-body > .quickforge-process-body-inner {',
+    )
+    expect(scrolling).toContain('overflow-y: auto;')
+    expect(scrolling).toContain('overflow-x: hidden;')
+    expect(scrolling).toContain('overscroll-behavior: contain;')
+
+    // 折叠动画壳层（body / stage-body 共享规则）本身不得变成滚动容器。
+    const sharedRule = css.match(/\.quickforge-process-body,\s*\.quickforge-process-stage-body \{[\s\S]*?\n\}/)?.[0] ?? ''
+    expect(sharedRule).not.toContain('overflow-y')
+    // 顶层组 body 的 inner 不做限高（只有 stage 展开区限高）。
+    const groupInnerRules = css.match(/\.quickforge-process-body > \.quickforge-process-body-inner \{[\s\S]*?\n\}/g) ?? []
+    expect(groupInnerRules.every((rule) => !rule.includes('max-height'))).toBe(true)
+  })
 })

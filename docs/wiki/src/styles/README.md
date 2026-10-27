@@ -41,7 +41,7 @@ src/styles/
 │   ├── context-compaction.css   # 上下文压缩提示卡
 │   ├── observer-strips.css      # persist-degraded / 会话写租约观察条
 │   ├── waiting-bubble.css       # assistant 等待气泡
-│   ├── process.css              # 过程组/阶段折叠
+│   ├── process.css              # 过程组/阶段折叠；stage 展开区限高滚动（inner max-height: min(50vh,18rem)，展开态 overflow-y:auto + overscroll-behavior:contain）
 │   ├── tool-summary.css         # 工具摘要行排版与标题
 │   ├── math.css                 # KaTeX 展示公式横滑
 │   ├── running-state.css        # 工具运行扫光与思考流光

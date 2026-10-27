@@ -1,6 +1,25 @@
 {
   "features": [
     {
+      "id": "process-stage-scroll",
+      "title": "过程内层阶段工具列表限高滚动 + 执行中贴底跟随",
+      "status": "done",
+      "summary": "「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段展开后不再无限拉长：限高 min(50vh, 18rem) 挂在折叠动画壳层 .quickforge-process-body-inner（stage-body 的 + 子级选择器，stage-body > inner > step 结构不变），滚动只在 [data-expanded=true] 挂上并带 overscroll-behavior: contain，避免收起动画期露滚动条与滚到底连锁滚动消息主滚动区。执行中新增工具行由 scheduleProcessStageStick（rAF，避免装饰 pass 内强制重排）贴底到最新一行；用户上翻超过 24px 停止跟随、回到 8px 内才重挂（resolveProcessStageScrollFollow 双向滞回），跟随标记存 inner 的 dataset.quickforgeStageFollow，手动收起时复位。",
+      "files": [
+        "src/styles/chat/process.css",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "tests/frontend/process-folding.test.ts",
+        "tests/frontend/process-folding-incremental.test.ts",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "docs/wiki/src/styles/README.md",
+        "docs/wiki/src/components/README.md",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx tsc -b 0 错误；npx eslint 改动源码/测试文件 0 error；npx vitest run process 相关 11 文件（process-folding / -incremental / -ownership、chat-surface-css-contract、css-architecture、thinking-streaming-stage、motion-design、thinking-hint、thinking-header-adoption、subagent-process-trace、scroll-sync）→ 11 files / 186 tests passed；npm run lint 0 error；npm run build 成功（6.08s）。",
+      "updatedAt": "2026-10-27"
+    },
+    {
       "id": "present-files-inline-links",
       "title": "展示文件工具卡改为文件名下划线链接，去掉眼睛图标",
       "status": "done",
@@ -48,7 +67,7 @@
       "id": "models-providers-layered-settings",
       "title": "模型与提供商设置页分层重构：提供商列表 / 连接 / 模型三层",
       "status": "done",
-      "summary": "把「一个表单管理全部配置」重构为主从三层：L1 提供商列表（状态徽章、预设添加弹层、草稿行），L2 连接（协议分段、名称/地址、密钥行内独立保存、请求头折叠、提供商级测试），L3 模型（行内编辑独立保存、可见性即时写回、模型级测试、从服务器拉取合并）。存储结构不变（连接层保存 = 读-改-写整个提供商并迁移改名密钥）；新增服务端 POST /api/models/provider-test 与 /api/models/provider-discover（GET baseUrl/models 探测/发现，不依赖已配置模型）。",
+      "summary": "把「一个表单管理全部配置」重构为主从三层：L1 提供商列表（状态徽章、预设添加弹层、草稿行），L2 连接（协议下拉、名称/地址、密钥行内独立保存、请求头折叠），L3 模型（行内编辑独立保存、可见性即时写回、模型级测试、从服务器拉取合并）。存储结构不变（连接层保存 = 读-改-写整个提供商并迁移改名密钥）；新增服务端 POST /api/models/provider-discover（GET baseUrl/models 发现，不依赖已配置模型）。跟进（2026-10-27）：删除连接层「连接」分区标题行与其右侧「测试连接」按钮（模型行已有逐模型测试），并连带清理 provider 级测试链路——testStates/testProvider/IDLE_TEST、详情头与列表行的 ✓✗ 徽标、POST /api/models/provider-test 路由、i18n 死 key（testConnection / testRequiresBaseUrl）。",
       "files": [
         "src/components/settings/tabs/CustomProvidersSettingsTab.tsx",
         "src/components/settings/custom-providers/shared.ts",
@@ -66,10 +85,12 @@
         "docs/design/models-providers-settings-redesign.html",
         "docs/wiki/src/lib/README.md",
         "docs/wiki/src/styles/README.md",
-        "docs/wiki/server/routes/README.md"
+        "docs/wiki/server/routes/README.md",
+        "progress.md",
+        "session-handoff.md"
       ],
-      "verification": "npx vitest run tests/frontend/custom-providers-tab.test.ts tests/frontend/settings-workspace-react.test.ts → 28 passed；npm run test 399 files / 4684 tests 全过（31 个 jsdom 缺包的 Unhandled Error 为存量环境噪音，与本改动无关）；npm run lint 0 error（存量 warning）；npm run build 成功。",
-      "updatedAt": "2026-10-26"
+      "verification": "跟进（2026-10-27）：npx tsc -b 0 错误；npx vitest run custom-providers-tab + settings-workspace-react + css-architecture + i18n-language-snapshot → 4 files / 43 tests passed；npx eslint 改动文件 0 error；npm run lint 0 error；npm run build 成功；npm run test → 433 files / 5052 passed（2 skipped），退出码 0。首版：npx vitest run custom-providers-tab + settings-workspace-react → 28 passed；npm run test 399 files / 4684 tests 全过（31 个 jsdom 缺包的 Unhandled Error 为存量环境噪音）；npm run lint 0 error；npm run build 成功。",
+      "updatedAt": "2026-10-27"
     },
     {
       "id": "ask-user-echo-fix",

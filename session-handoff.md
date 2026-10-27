@@ -1,5 +1,23 @@
 # Current Session Handoff
 
+## process-stage-scroll（done，2026-10-27）
+
+- Current Objective（当前目标）：把「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段展开后的工具列表收拢为固定高度、超出区域内部滚动，并在执行中自动贴底到最新一行。
+- 结论（一句话）：限高 `min(50vh, 18rem)` 挂在折叠动画壳层 `.quickforge-process-body-inner`（stage 专属选择器，DOM 结构不变），滚动只在 `[data-expanded="true"]` 挂上 + `overscroll-behavior: contain`；执行中 `scheduleProcessStageStick`（rAF）贴底跟随，`resolveProcessStageScrollFollow` 24px/8px 双向滞回，跟随标记存 `dataset.quickforgeStageFollow`，手动收起复位。
+- 改动文件：`src/styles/chat/process.css`；`src/components/chat/panel-decoration/process-folding.ts`；`tests/frontend/process-folding.test.ts`；`tests/frontend/process-folding-incremental.test.ts`；`tests/frontend/chat-surface-css-contract.test.ts`；`docs/wiki/src/styles/README.md`；`docs/wiki/src/components/README.md`；`feature_list.json`；`progress.md`；本文件。
+- Evidence（验证）：`npx tsc -b` 0 错误；`npx eslint` 改动文件 0 error；`npx vitest run` process 相关 11 文件 → 11 files / 186 tests passed；`npm run lint` 0 error；`npm run build` 成功（6.08s）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未做真机视觉确认（限高取值 `min(50vh, 18rem)` 是否合适、H5 窄屏滚动条宽度观感）；npm 全量测试未跑（本轮只跑 process 相关 11 文件）。未创建 Git commit，未触碰生成产物。
+
+## models-providers-layered-settings · 跟进 5（删除连接分区头部行，done，2026-10-27）
+
+- Current Objective（当前目标）：删掉「模型与提供商」页连接层顶部的「连接」标题行与右侧「测试连接」按钮（模型行已有逐模型测试），并一并清理随之变成死代码的 provider 级测试链路。
+- 结论（一句话）：`ConnectionSection` 不再渲染分区头部，连接表单直接贴在详情卡顶部；`testStates` / `IDLE_TEST` / `testProvider` / `rowTestStatus`、`ConnectionSection` 的 `testState`+`onTest`、`ProviderDetailPane` 的 `testBadge`、`ProviderListPane` 的 `ProviderTestStatus`+`statusBadge` 全部删除；服务端移除 `POST /api/models/provider-test`（`provider-discover` 保留）；i18n 删除成对死 key `testConnection` / `testRequiresBaseUrl`。
+- 改动文件：`src/components/settings/custom-providers/connection-section.tsx`、`provider-detail-pane.tsx`、`provider-list-pane.tsx`、`src/components/settings/tabs/CustomProvidersSettingsTab.tsx`、`server/routes/models.mjs`、`server/index.mjs`、`src/lib/i18n.ts`、`tests/frontend/custom-providers-tab.test.ts`、`docs/wiki/server/routes/README.md`、`docs/wiki/src/lib/README.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npx tsc -b` 0 错误；`npx vitest run custom-providers-tab + settings-workspace-react + css-architecture + i18n-language-snapshot` → 4 files / 43 tests passed；`npx eslint` 改动文件 0 error；`npm run lint` 0 error；`npm run build` 成功；`npm run test` → 433 files / 5052 passed（2 skipped），退出码 0。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：`connectionOk` / `connectionFailed` / `testingConnection` / `connectionSection` 仍被模型行与连接分区 aria-label 复用，未删除；如需进一步精简可评估把 `connectionSection` 换成 aria-label 常量。未创建 Git commit，未触碰生成产物。
+
 ## background-tasks-sidebar · 跟进 2（入口重构，done，2026-10-27）
 
 - Current Objective（当前目标）：把「打开后台任务面板」的入口收敛为置顶摘要「后台命令」区块 + Composer 左下角命令图标两处，删除会话顶栏入口与 Composer 浮层。

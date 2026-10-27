@@ -214,10 +214,9 @@
 /* ------------------------------------------------------------------ 列表 */
 
 .quickforge-background-tasks-list {
-  /* 用内容高度而不是固定比例：只有 1~2 条任务时列表不该占掉 40% 的竖向空间，
-     任务很多时再由 max-height 封顶，把剩余空间留给输出区。 */
-  flex: 0 1 auto;
-  max-height: 45%;
+  /* 详情区封顶后，剩余竖向空间归列表（任务多时列表内部滚动，
+     任务少时空白留在列表区，详情始终贴在面板底部，不随任务数量上下跳）。 */
+  flex: 1 1 auto;
   min-height: 0;
   padding: 0.25rem 0.5rem;
   overflow-y: auto;
@@ -372,8 +371,11 @@
 .quickforge-background-tasks-detail {
   display: flex;
   flex-direction: column;
-  /* 详情吃满列表剩下的空间即可：列表是内容高 + max-height，详情是 flex:1。 */
-  flex: 1 1 auto;
+  /* 详情按内容占位，不再吃满列表剩下的空间：以前 flex:1 会把输出区拉成半屏
+     （日志越长越明显），把任务列表挤到只剩两行。
+     现在高度上限交给输出区自己的 max-height，短命令的详情就矮、长日志才长到上限为止。
+     flex-shrink 保留 1：面板被压矮（H5 / 窄窗口）时详情跟着收缩，不会顶出可视区。 */
+  flex: 0 1 auto;
   min-height: 0;
   overflow: hidden;
 }
@@ -406,6 +408,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 0.1875rem 0.5rem;
+  /* 固定高度：详情按内容占位，元信息行数由任务状态决定，不参与收缩。 */
   flex: none;
   padding: 0.375rem 0.875rem 0.5rem;
   margin: 0;
@@ -433,8 +436,12 @@
 .quickforge-background-tasks-output {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
+  /* 输出区整体封顶 18rem（≈14~16 行 + 标题条 + 底部提示）：按内容高度占位，
+     不再 flex-grow 撑满详情区剩余空间——日志长时会把整块输出拉成半屏。
+     min-height 保证面板被压矮时输出区仍然可见，不会被 header/meta 挤成 0。 */
+  flex: 0 1 auto;
   min-height: 4rem;
+  max-height: 18rem;
   margin: 0 0.875rem 0.75rem;
   border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
   border-radius: 0.5rem;
@@ -495,7 +502,10 @@
 }
 
 .quickforge-background-tasks-output-scroll {
-  flex: 1;
+  /* flex-basis 用 auto 而不是 0：详情区靠内容高度撑开（短日志只有几行、长日志才长高），
+     若写成 flex:1（basis 0）整块日志对详情高度零贡献，输出框会永远只剩 min-height 那么高。
+     内容超高时由 .quickforge-background-tasks-output 的 max-height 封顶，本项再收缩 + 内滚。 */
+  flex: 1 1 auto;
   min-height: 0;
   margin: 0;
   padding: 0.375rem 0.5rem;

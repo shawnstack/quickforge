@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## background-tasks-output-height（done，2026-10-27）
+
+- Current Objective（当前目标）：后台任务面板的终端输出区（终端明细）太高，长日志时被拉成半屏、把任务列表挤到只剩两行；改矮到约 14~16 行。
+- 结论（一句话）：输出区改为按内容占位并封顶 `max-height: 18rem`（保留 `min-height: 4rem`）、`flex: 0 1 auto`；`.quickforge-background-tasks-detail` 同步改为 `flex: 0 1 auto`（不再吃满剩余高度）；滚动区 `flex: 1` → `flex: 1 1 auto`（basis auto 才能让日志高度参与占位）；剩余竖向空间归还任务列表（`-list` 去掉 `max-height: 45%`，改 `flex: 1 1 auto`，仍是唯一滚动容器）。
+- 改动文件：`src/styles/workspace/background-tasks.css`；`tests/frontend/background-tasks-tab.test.ts`（新增封顶用例）；`docs/design/background-tasks-align-preview.html`；`docs/wiki/src/styles/README.md`；`docs/wiki/src/components/README.md`；`feature_list.json`；`progress.md`；本文件。
+- Evidence（验证）：`npx vitest run background-tasks-tab + css-architecture + subagent-running-indicator` → 3 files / 42 tests passed；`npm run lint` → 0 error；`npm run build` → 成功（5.82s）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：未做真机视觉确认（18rem 上限是否合适、340px 窄面板下 meta 行数多时的观感；如偏矮可只调 `.quickforge-background-tasks-output` 的 `max-height`）；`npm run test` 全量未跑（本轮只跑 3 个相关文件）。未创建 Git commit，未触碰生成产物。
+
 ## process-stage-scroll（done，2026-10-27）
 
 - Current Objective（当前目标）：把「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段展开后的工具列表收拢为固定高度、超出区域内部滚动，并在执行中自动贴底到最新一行。

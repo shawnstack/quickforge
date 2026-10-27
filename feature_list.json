@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "background-tasks-output-height",
+      "title": "后台任务面板输出区（终端明细）限高，不再拉成半屏",
+      "status": "done",
+      "summary": "后台任务面板的日志输出区以前是 flex: 1 1 auto + 父级 .detail flex:1，会吃满列表剩余高度，长日志时被拉成半屏、把任务列表挤到只剩两行。改为按内容高度占位并封顶：.quickforge-background-tasks-output → flex: 0 1 auto + min-height: 4rem + max-height: 18rem（≈14~16 行 + 标题条 + 底部提示），滚动区 flex 从 1（basis 0）改为 1 1 auto 让内容高度真正参与占位；.quickforge-background-tasks-detail 从 flex: 1 1 auto 改为 0 1 auto（保留 shrink，窄窗/H5 仍可收缩）；剩余竖向空间归还 .quickforge-background-tasks-list（flex: 1 1 auto，去掉 max-height: 45%，仍是唯一滚动容器）。",
+      "files": [
+        "src/styles/workspace/background-tasks.css",
+        "tests/frontend/background-tasks-tab.test.ts",
+        "docs/design/background-tasks-align-preview.html",
+        "docs/wiki/src/styles/README.md",
+        "docs/wiki/src/components/README.md",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend/background-tasks-tab.test.ts tests/frontend/css-architecture.test.ts tests/frontend/subagent-running-indicator.test.ts → 3 files / 42 tests passed（新增 caps the output area height 用例锁定 18rem 上限、detail 不得 flex-grow、list 为唯一滚动容器）；npm run lint → 0 error；npm run build → 成功（5.82s）。",
+      "updatedAt": "2026-10-27"
+    },
+    {
       "id": "process-stage-scroll",
       "title": "过程内层阶段工具列表限高滚动 + 执行中贴底跟随",
       "status": "done",

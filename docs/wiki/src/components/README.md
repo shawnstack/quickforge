@@ -153,7 +153,7 @@ components/
 │   ├── WorkspaceInspectorHeader.tsx # 顶栏：tab strip、+ 菜单、全屏/终端/收起按钮
 │   ├── WorkspaceTabStrip.tsx       # tab 溢出下拉菜单 + 可排序 tab strip（Pointer/Keyboard sensor、独立关闭按钮）
 │   ├── WorkspacePanelLanding.tsx   # 无 Tab 时的面板入口列表
-│   ├── BackgroundTasksTabContent.tsx # 后台任务面板内容：筛选（全部/运行中/已结束）+ 搜索、任务列表、详情元信息、日志预览、跟随输出（2s 轮询，仅运行中任务）与停止/查看完整日志入口；面板自身不含打开入口，入口只有置顶摘要「后台命令」区块（标题右侧「查看全部」+ 整行命令主体）与 Composer 左下角命令图标两处——前者在 App 内直接 `requestWorkspaceInspector`，后者经 `quickforge:open-background-tasks` 窗口事件通知 App，App 按 `sessionId` 过滤后调 `requestWorkspaceInspector({ kind: 'background-tasks' })`
+│   ├── BackgroundTasksTabContent.tsx # 后台任务面板内容：筛选（全部/运行中/已结束）+ 搜索、任务列表、详情元信息、日志预览、跟随输出（2s 轮询，仅运行中任务）与停止/查看完整日志入口；输出区按内容占位并封顶 18rem（≈14~16 行，超出内滚），高度上限与列表滚动见 `styles/workspace/background-tasks.css`；面板自身不含打开入口，入口只有置顶摘要「后台命令」区块（标题右侧「查看全部」+ 整行命令主体）与 Composer 左下角命令图标两处——前者在 App 内直接 `requestWorkspaceInspector`，后者经 `quickforge:open-background-tasks` 窗口事件通知 App，App 按 `sessionId` 过滤后调 `requestWorkspaceInspector({ kind: 'background-tasks' })`
 │   ├── WorkspaceTreePanel.tsx      # Files 视图：搜索框、刷新、目录树/搜索结果
 │   ├── WorkspaceReviewPanel.tsx    # Review 视图：过滤菜单、工具栏与变更列表
 │   ├── WorkspaceReaderPanel.tsx    # reader 列：InlineReader + 文件落地空态 + WorkspaceOverview

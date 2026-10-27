@@ -2,6 +2,25 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## background-tasks-output-height（done，2026-10-27）
+
+- Goal：后台任务面板的日志输出区（终端明细）太高——长日志时被拉成半屏，把任务列表挤到只剩两行；希望改矮到约 14~16 行。
+- 结论（一句话）：输出区从「吃满剩余高度」改为「按内容占位 + 封顶 18rem」——`.quickforge-background-tasks-output` 由 `flex: 1 1 auto` 改为 `flex: 0 1 auto` 并加 `max-height: 18rem`（保留 `min-height: 4rem`），`.quickforge-background-tasks-detail` 同步由 `flex: 1 1 auto` 改为 `flex: 0 1 auto`，滚动区 `-output-scroll` 的 `flex: 1`（basis 0）改为 `flex: 1 1 auto` 让日志高度真正参与占位；省下的竖向空间归还任务列表（`-list` 从 `flex: 0 1 auto + max-height: 45%` 改为 `flex: 1 1 auto`，仍是唯一滚动容器）。
+- 改动文件：
+  1. `src/styles/workspace/background-tasks.css` — 上述 4 条规则 + 设计注释（为什么 detail 不能 flex-grow、为什么 scroll 区 basis 必须是 auto、为什么列表不再按 45% 封顶）。
+  2. `tests/frontend/background-tasks-tab.test.ts` — 新增 `caps the output area height instead of stretching it to half the panel`：锁定 output 的 `max-height: 18rem` / `min-height: 4rem` / `flex: 0 1 auto`（且不得 `flex: 1 1 auto`）、detail 不得 flex-grow、list 为 `flex: 1 1 auto` 且无 max-height 并保留 `overflow-y: auto`。
+  3. `docs/design/background-tasks-align-preview.html` — 「本次修正」补一条输出区封顶 18rem 的说明（该页直接 link 真实 CSS，预览自动跟着变）。
+  4. `docs/wiki/src/styles/README.md`、`docs/wiki/src/components/README.md` — 同步竖向高度策略（detail/output 均 `flex: 0 1 auto`，输出 4rem~18rem，剩余高度归列表）。
+  5. `feature_list.json` / `progress.md` / `session-handoff.md` — 本轮记录。
+- 验证 / Evidence：
+  - `npx vitest run tests/frontend/background-tasks-tab.test.ts tests/frontend/css-architecture.test.ts tests/frontend/subagent-running-indicator.test.ts` → 3 files / 42 tests passed。
+  - `npm run lint` → 0 error。
+  - `npm run build` → 成功（built in 5.82s）。
+- Notes：
+  - 没有新增文案 / i18n key，纯样式改动；用户所说的「终端明细」实为面板内的「输出」区（仓库里没有该文案）。
+  - `max-height` 放在输出区而不是详情区：短日志时详情自然矮（不留大块空白），长日志才长到 18rem 为止；若把上限挂到 `.detail` 上，短日志的详情也会被撑成 18rem 高。
+  - 未做真机视觉确认（18rem 是否合适、窄窗下 meta 行数较多时的观感）；`npm run test` 全量未跑（本轮只跑 3 个相关文件，其中含既有 jsdom 缺包噪音）。
+
 ## process-stage-scroll（done，2026-10-27）
 
 - Goal：把「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段（stage）展开后的工具列表收拢为固定高度，超出部分在区域内滚动；执行中新增工具行要自动贴底到最新一行，用户手动上翻后不再抢回阅读位置。

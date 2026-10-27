@@ -316,6 +316,7 @@
     <li><strong>命令单行截断</strong>：长命令不再换行把复制/停止按钮挤到中间；完整值挂 <code>title</code>。</li>
     <li><strong>详情区加了分隔线与 padding-bottom</strong>，命令与元信息不再贴在一起。</li>
     <li><strong>输出区最低 4rem</strong>：面板被压矮时不会把日志挤成 0 高。</li>
+    <li><strong>输出区封顶 18rem</strong>（≈14~16 行 + 标题条 + 底部提示）：按内容高度占位、不再 <code>flex: 1</code> 撑满详情区，长日志不会再被拉成半屏、把任务列表挤到只剩两行；超出部分在输出框内滚动，省下的空间归任务列表。</li>
     <li><strong>筛选无结果</strong>单独提示，不再复用「选择一个任务」空态文案。</li>
     <li><strong>触摸目标</strong>：<code>pointer: coarse</code> 下图标按钮提到 2rem。</li>
   </ul>

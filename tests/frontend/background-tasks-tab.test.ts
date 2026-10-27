@@ -226,6 +226,25 @@ describe('background tasks stylesheet registration', () => {
     expect(backgroundTasksCss).toMatch(/\.quickforge-background-tasks-search \{[^}]*height: 1\.625rem;/)
   })
 
+  it('caps the output area height instead of stretching it to half the panel', () => {
+    // 「终端明细」输出区按内容高度占位并封顶 18rem（≈14~16 行 + 标题条 + 底部提示），
+    // 不再 flex-grow 撑满详情区——那是长日志把列表挤到两行的原因。
+    const outputRule = backgroundTasksCss.match(/\.quickforge-background-tasks-output \{[^}]*\}/)?.[0] ?? ''
+    expect(outputRule).toContain('max-height: 18rem;')
+    expect(outputRule).toContain('min-height: 4rem;')
+    expect(outputRule).toMatch(/flex: 0 1 auto;/)
+    expect(outputRule).not.toMatch(/flex: 1 1 auto;/)
+    // 详情区同样不能是弹性撑满，否则外层的 max-height 会被重新拉伸。
+    const detailRule = backgroundTasksCss.match(/\.quickforge-background-tasks-detail \{[^}]*\}/)?.[0] ?? ''
+    expect(detailRule).toMatch(/flex: 0 1 auto;/)
+    expect(detailRule).not.toMatch(/flex: 1/)
+    // 省下的竖向空间交给任务列表，列表仍是唯一的滚动容器。
+    const listRule = backgroundTasksCss.match(/\.quickforge-background-tasks-list \{[^}]*\}/)?.[0] ?? ''
+    expect(listRule).toMatch(/flex: 1 1 auto;/)
+    expect(listRule).not.toContain('max-height')
+    expect(listRule).toContain('overflow-y: auto;')
+  })
+
   it('does not stack the row actions on top of the meta text', () => {
     // 操作区绝对定位覆盖元信息那一格，必须同一时刻把元信息淡出。
     expect(backgroundTasksCss).toMatch(

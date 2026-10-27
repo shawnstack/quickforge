@@ -28,14 +28,24 @@ function messageTimestampMs(message) {
   return undefined
 }
 
+/**
+ * Session "updated" time: the latest thing we can prove about the session —
+ * the newer of the transcript's last timestamp and the supplied fallback
+ * (createdAt / last persisted value).
+ *
+ * The max matters for freshly seeded sessions: a fork reuses the source
+ * conversation, so its messages carry old timestamps. Stamping the new fork with
+ * them would sort it as old and bury it below the conversation it branched from,
+ * instead of showing it at the top where the user just created it.
+ */
 function sessionLastModifiedFromMessages(messages, fallback) {
+  const fallbackMs = Date.parse(fallback)
+  const resolvedFallbackMs = Number.isNaN(fallbackMs) ? Date.now() : fallbackMs
   for (let index = messages.length - 1; index >= 0; index--) {
     const timestamp = messageTimestampMs(messages[index])
-    if (timestamp !== undefined) return new Date(timestamp).toISOString()
+    if (timestamp !== undefined) return new Date(Math.max(timestamp, resolvedFallbackMs)).toISOString()
   }
-
-  const fallbackMs = Date.parse(fallback)
-  return Number.isNaN(fallbackMs) ? new Date().toISOString() : new Date(fallbackMs).toISOString()
+  return new Date(resolvedFallbackMs).toISOString()
 }
 
 // Fields the agent does not own; a concurrent sidebar pin/archive update is the

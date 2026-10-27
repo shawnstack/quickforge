@@ -9,6 +9,7 @@ import {
   GoalReportToolRenderer,
   GoalToolRenderer,
   TodoWriteToolRenderer,
+  RecallExperienceToolRenderer,
   McpToolRenderer,
   parseMcpToolName,
 } from '@/lib/tool-renderers'
@@ -78,6 +79,7 @@ registerToolRenderer('run_subagent', new SubagentToolRenderer())
 registerToolRenderer('run_workflow', new WorkflowToolRenderer())
 const todoWriteToolRenderer = new TodoWriteToolRenderer()
 registerToolRenderer('todo_write', todoWriteToolRenderer)
+registerToolRenderer('recall_experience', new RecallExperienceToolRenderer())
 registerToolRenderer('ask_user', new AskUserToolRenderer())
 registerToolRenderer('goal_report', new GoalReportToolRenderer())
 for (const name of ['get_goal', 'create_goal', 'update_goal']) {

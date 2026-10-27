@@ -20,7 +20,7 @@ import type {
   AssistantMessage as AssistantMessageType,
 } from './ChatTypes'
 import type { SurfaceEditorBridgeElement } from './ChatTypes'
-import type { SseConnectionStatus } from '@/lib/server-agent'
+import type { SseConnectionStatus, ServerAgentCompactionNotice } from '@/lib/server-agent'
 import type { SessionLeaseFailure, SessionLeaseSnapshot } from '@/lib/session-lease-client'
 import type { GoalAction, GoalState } from '@/lib/goal'
 import type { CapabilitySuggestion } from '../capability-suggestions'
@@ -168,6 +168,13 @@ export interface AgentSurfaceSnapshot {
    */
   contextCompaction?: ContextCompactionState | null
   /**
+   * In-flight compaction phase (`state.compactionNotice`). Drives the trailing
+   * status/decision rows inside the message list; `null` means idle. Being part
+   * of the snapshot (not a React-local state) is what makes a late-joining or
+   * reconnected client show "summarizing" instead of an idle-looking panel.
+   */
+  compactionNotice?: ServerAgentCompactionNotice | null
+  /**
    * Authoritative goal (`state.goal`). Drives the goal control strip; the
    * decoration layer used to read it off the agent on every pass and the host
    * re-ran that pass on `goal_updated`.
@@ -248,6 +255,10 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
   // `auto_compact_completed` / `messages_replaced`, so reference identity is
   // enough to detect a change.
   const contextCompaction = (state as { contextCompaction?: ContextCompactionState | null }).contextCompaction ?? null
+  // In-flight compaction notice. Compared by reference: the server agent swaps
+  // in a whole new object per phase change and `null` otherwise, so identity is
+  // enough (and identical repeats cost no render).
+  const compactionNotice = (state as { compactionNotice?: ServerAgentCompactionNotice | null }).compactionNotice ?? null
   // The goal is replaced wholesale by the server agent on `goal_updated`, so a
   // reference comparison is enough (same reasoning as contextCompaction).
   const goal = (state as { goal?: GoalState | null }).goal ?? null
@@ -266,6 +277,7 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     previous.persistDegraded === persistDegraded &&
     previous.sessionLease === sessionLease &&
     previous.contextCompaction === contextCompaction &&
+    previous.compactionNotice === compactionNotice &&
     previous.goal === goal &&
     previous.usage === usage &&
     previous.todoSnapshot === todoSnapshot &&
@@ -287,6 +299,7 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     persistDegraded,
     sessionLease,
     contextCompaction,
+    compactionNotice,
     goal,
     usage,
     todoSnapshot,
@@ -373,6 +386,11 @@ const SUBSCRIBED_EVENTS = new Set([
   // for the divider to appear/disappear at the right moment.
   'auto_compact_completed',
   'auto_compact_failed',
+  // `auto_compact_state` replaces `state.compactionNotice`. The in-flight row is
+  // rendered from that snapshot field, so without subscribing the panel would
+  // neither show "summarizing" nor clear it once the pipeline settled.
+  'auto_compact_state',
+  'auto_compact_approval_settled',
   // `goal_updated` replaces `state.goal`; the goal strip rendered by the
   // composer reads it, so the snapshot must refresh for the strip to update.
   'goal_updated',
@@ -625,6 +643,15 @@ type MessageAreaProps = {
   persistDegraded: boolean
   /** Context-compaction state; drives the timeline divider inside the list. */
   contextCompaction?: ContextCompactionState | null
+  /** In-flight compaction notice; drives the trailing status/decision rows. */
+  compactionNotice?: ServerAgentCompactionNotice | null
+  /** Compaction decision callbacks (approval id supplied by the notice). */
+  onApproveCompaction?: (approvalId: string) => void
+  onRejectCompaction?: (approvalId: string) => void
+  compactionDecisionReadOnly?: boolean
+  compactionDecisionDisabledReason?: string
+  compactionApprovePending?: boolean
+  compactionRejectPending?: boolean
   /** Host-owned "still waiting for the first assistant output" flag. */
   assistantWaiting?: boolean
   /** SSE connection status; drives the inline reconnect/model-retry rows. */
@@ -664,6 +691,13 @@ const MessageArea = memo(function MessageArea({
   onCostClick,
   persistDegraded,
   contextCompaction,
+  compactionNotice = null,
+  onApproveCompaction,
+  onRejectCompaction,
+  compactionDecisionReadOnly = false,
+  compactionDecisionDisabledReason,
+  compactionApprovePending = false,
+  compactionRejectPending = false,
   assistantWaiting = false,
   connectionStatus = null,
   modelRetryInfo = null,
@@ -693,13 +727,16 @@ const MessageArea = memo(function MessageArea({
   const assistantWaitingRow = useMemo(
     () => resolveAssistantWaitingRow({
       messages,
-      waiting: assistantWaiting,
+      // The compaction row already explains why nothing is streaming, and it is
+      // the more specific message ("summarizing") — showing the generic waiting
+      // dots beside it would say the same thing twice.
+      waiting: assistantWaiting && !compactionNotice,
       // The decoration required `isStreaming && isActive`; keeping it means the
       // bubble and the stop button's waiting ring stay in step.
       streaming: isStreaming,
       isRenderable: isRenderableMessage,
     }),
-    [assistantWaiting, isStreaming, messages],
+    [assistantWaiting, isStreaming, messages, compactionNotice],
   )
   return (
     <ProcessGroupReleaseBoundary
@@ -719,6 +756,13 @@ const MessageArea = memo(function MessageArea({
             persistDegraded={persistDegraded}
             compactionBoundary={compactionBoundary}
             assistantWaitingRow={assistantWaitingRow}
+            compactionNotice={compactionNotice}
+            onApproveCompaction={onApproveCompaction}
+            onRejectCompaction={onRejectCompaction}
+            compactionDecisionReadOnly={compactionDecisionReadOnly}
+            compactionDecisionDisabledReason={compactionDecisionDisabledReason}
+            compactionApprovePending={compactionApprovePending}
+            compactionRejectPending={compactionRejectPending}
           />
           {/* Streaming cursor container. The streaming assistant message itself
               renders as the message list's last row above (it commits in place
@@ -880,6 +924,10 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     onBeforeAbort,
     onWindowChanged,
     onProcessGroupsReleased,
+    onApproveCompaction,
+    onRejectCompaction,
+    compactionDecisionReadOnly = false,
+    compactionDecisionDisabledReason,
     enableConnectionNotices = true,
     modelRetryInfo = null,
     sessionId,
@@ -1384,6 +1432,11 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
             onCostClick={onCostClick}
             persistDegraded={snapshot.persistDegraded}
             contextCompaction={enableCompactionDivider ? snapshot.contextCompaction : null}
+            compactionNotice={enableCompactionDivider ? snapshot.compactionNotice : null}
+            onApproveCompaction={onApproveCompaction}
+            onRejectCompaction={onRejectCompaction}
+            compactionDecisionReadOnly={compactionDecisionReadOnly || readOnly}
+            compactionDecisionDisabledReason={compactionDecisionDisabledReason}
             assistantWaiting={isReplyWaiting}
             connectionStatus={enableConnectionNotices ? connectionStatus ?? null : null}
             modelRetryInfo={enableConnectionNotices ? modelRetryInfo ?? null : null}

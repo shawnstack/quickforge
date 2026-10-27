@@ -21,6 +21,7 @@ import {
 import {
   compactSessionInPlace,
   DEFAULT_AUTO_COMPACT_SETTINGS,
+  clearCompactionNotice,
   readAutoCompactSettings,
 } from './auto-compaction.mjs'
 import { generateAiTitle } from './session-utils.mjs'
@@ -35,6 +36,10 @@ export function resetSessionCompaction(session) {
   session.lastAutoCompactRejected = null
   session.lastTransformedContextMessages = null
   session.autoCompacting = false
+  // A rolled-back / cleared session must not keep a notice about history that no
+  // longer exists. The projection is emitted so an attached client drops the row
+  // immediately instead of waiting for the next run to overwrite it.
+  clearCompactionNotice(session, emitSessionEvent)
 }
 
 function finishManualSessionRun(session, status, errorMessage) {

@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand, listBackgroundCommandTasks, stopBackgroundCommandTasksForSession } from './tools/index.mjs'
-import { createSkillTools, globalMemoryTool, workspaceTools } from './tools/definitions.mjs'
+import { createSkillTools, globalMemoryTool, recallExperienceTool, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import { agentProfileSnapshot } from './agent-profiles.mjs'
@@ -333,6 +333,15 @@ export async function createServerTools(projectId, projectContext, skillsContext
     tools.push(wrapToolDefinition(globalMemoryTool, toolContext, toolPermissions))
   }
 
+  // `recall_experience` lives in `workspaceTools` so the direct-tool permission
+  // whitelist in routes/tools.mjs covers it, but the experience store is not
+  // tied to the project workspace: global-scope sessions and sessions without a
+  // project context still need it.
+  const workspaceToolsIncluded = Boolean(includeWorkspaceTools && projectContext)
+  if (!workspaceToolsIncluded && isAllowed(recallExperienceTool)) {
+    tools.push(wrapToolDefinition(recallExperienceTool, toolContext, toolPermissions))
+  }
+
   if (includeWorkspaceTools && projectContext) {
     const definitions = workspaceTools.filter((definition) => (
       (includeSubagentTool || definition.name !== 'run_subagent')
@@ -514,6 +523,9 @@ async function transformSessionContext(session, messages, signal) {
     emitSessionEvent,
     persistSession,
     logger,
+    // The approval id is minted by `maybeAutoCompactSession` and published in the
+    // notice before this is called, so the decision row and the pending entry
+    // share one id. `createAutoCompactApprovalPromise` adopts it from `details`.
     confirmAutoCompact: createAutoCompactApprovalPromise,
   })
   if (!autoCompactResult.compacted && autoCompactResult.usage && autoCompactResult.reason && autoCompactResult.reason !== 'below_threshold') {
@@ -933,6 +945,14 @@ export async function createAgent(sessionId, config = {}) {
     idleRetention,
     lastTransformedContextMessages: null,
     autoCompacting: false,
+    /**
+     * In-flight compaction notice (`{ phase, usage, thresholdPercent,
+     * keepRecentTurns, requestedAt }`) or null. Projected by
+     * `getSessionState` and mirrored to `state.compactionNotice` on the client;
+     * see `COMPACTION_NOTICE_PHASES` in `auto-compaction.mjs` for why the whole
+     * pipeline is projected instead of fire-and-forget events.
+     */
+    compactionNotice: null,
     stateVersion: Number.isFinite(stateVersion) ? Math.max(0, stateVersion) : 0,
     persistedStateVersion: Number.isFinite(config.persistedStateVersion) ? Math.max(0, config.persistedStateVersion) : null,
     persistedStorageRevision: Number.isFinite(config.persistedStorageRevision) ? Math.max(0, config.persistedStorageRevision) : null,
@@ -1093,6 +1113,28 @@ export async function createAgent(sessionId, config = {}) {
   agentSessions.set(sessionId, session)
   appendGoalControlTools(session)
   resetIdleTimer(session)
+
+  // A client-created session that already carries a transcript (fork, seeded
+  // conversation) must land in the session index immediately. The ordinary
+  // `session_created` write only happens on the first user message_end, and that
+  // path is skipped once messages were preseeded — so without this the fork
+  // lives in memory only and the sidebar stays empty until the user sends yet
+  // another message. No event is emitted here: the creating client already
+  // refreshes the list from the index, and skipping `emitSessionEvent` keeps
+  // `stateVersion` untouched at creation time.
+  //
+  // Restored sessions are excluded: `persistedStateJson` is produced only by the
+  // restore path, and those rows already exist. Sessions created without
+  // messages (deferred new chat, ACP, scheduled tasks) keep the existing
+  // lazy-persist behaviour.
+  if (messages.length > 0 && typeof config.persistedStateJson !== 'string') {
+    try {
+      await persistSession(session)
+    } catch (err) {
+      logger.error(`Failed to persist seeded session ${sessionId}:`, err, { sessionId })
+    }
+  }
+
   logger.info(`Created session ${sessionId} (scope: ${scope}, project: ${projectId || 'none'}, access: ${accessMode})`, { sessionId, scope, projectId: projectId || undefined, accessMode, yoloMode: resolvedYoloMode, idleRetention: idleRetention || undefined })
   return session
 }

@@ -6,6 +6,7 @@ import {
   estimateSessionContextUsage,
   hasNewMessagesSinceCompaction,
   normalizeAutoCompactSettings,
+  resolveAutoCompactTailStart,
   tailStartForRecentTurns,
 } from '../../server/auto-compaction.mjs'
 
@@ -303,5 +304,52 @@ describe('tailStartForRecentTurns', () => {
     messages.push(textMessage('user', 'latest question'))
 
     expect(tailStartForRecentTurns(messages, 2, Infinity)).toBe(0)
+  })
+})
+
+describe('resolveAutoCompactTailStart', () => {
+  function textMessage(role, text) {
+    return { role, content: [{ type: 'text', text }] }
+  }
+
+  function toolMessage(role) {
+    return { role, content: [{ type: role === 'assistant' ? 'toolCall' : 'toolResult', name: 'tool', arguments: { query: 'x'.repeat(80) } }] }
+  }
+
+  function conversation(turns, toolCallsPerTurn = 0) {
+    const messages = []
+    for (let turn = 0; turn < turns; turn++) {
+      messages.push(textMessage('user', `q${turn}`))
+      for (let call = 0; call < toolCallsPerTurn; call++) {
+        messages.push(toolMessage('assistant'))
+        messages.push(toolMessage('toolResult'))
+      }
+      messages.push(textMessage('assistant', `a${turn}`))
+    }
+    return messages
+  }
+
+  it('keeps the current user turn even when keepRecentTurns is 0', () => {
+    const messages = conversation(4, 2)
+
+    // The automatic path runs *inside* a turn, so "keep nothing" would put the
+    // divider in the middle of the turn the user is watching. Aligning to the
+    // current user turn gives the divider a real referent.
+    const tailStart = resolveAutoCompactTailStart(messages, 0)
+    expect(tailStart).toBe(messages.length - 6)
+    expect(messages[tailStart].role).toBe('user')
+  })
+
+  it('does not shrink a configured tail of one or more turns', () => {
+    const messages = conversation(4, 1)
+    expect(resolveAutoCompactTailStart(messages, 2)).toBe(tailStartForRecentTurns(messages, 2))
+    expect(resolveAutoCompactTailStart(messages, 1)).toBe(tailStartForRecentTurns(messages, 1))
+  })
+
+  it('falls back to the configured cut when the history has no user turn', () => {
+    const messages = [textMessage('assistant', 'a1'), textMessage('assistant', 'a2')]
+    // No user message to align to: returning 0 would compact nothing, so the
+    // configured semantics (keep everything) is kept instead.
+    expect(resolveAutoCompactTailStart(messages, 0)).toBe(tailStartForRecentTurns(messages, 0))
   })
 })

@@ -30,7 +30,7 @@ import { ReactSettingsTabContent } from '../../src/lib/react-settings-tabs'
 import { SettingsWorkspacePage } from '../../src/components/settings/SettingsWorkspacePage'
 import { CustomProvidersSettingsTab } from '../../src/components/settings/tabs/CustomProvidersSettingsTab'
 
-const keys: SettingsInitialTab[] = ['defaults', 'appearance', 'memory', 'network', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'hooks', 'scheduledTasks', 'projectCommands', 'data', 'about']
+const keys: SettingsInitialTab[] = ['defaults', 'appearance', 'memory', 'network', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'hooks', 'scheduledTasks', 'dreaming', 'projectCommands', 'data', 'about']
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
 function nodes(tree: unknown): TestNode[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
@@ -53,12 +53,12 @@ function render(initialTab: SettingsInitialTab = 'appearance', customProvider?: 
 function content(tree: TestNode[]) { return tree.find((node) => node.type === ReactSettingsTabContent)! }
 
 describe('pure React settings registry', () => {
-  it('preserves all fourteen ordered keys, names, descriptions and initial provider', () => {
+  it('preserves all fifteen ordered keys, names, descriptions and initial provider', () => {
     const registry = createSettingsTabs('provider-id')
     expect(registry.items.map((item) => item.key)).toEqual(keys)
     expect(registry.items.map((item) => item.getTabName())).toEqual([
       'en:defaultOptions', 'en:appearance', 'en:memory', 'en:networkAndDevices', 'en:customModels', 'en:agentsTab', 'en:skills',
-      'en:mcpServers', 'en:plugins', 'en:hooksTab', 'en:scheduledTasks', 'en:projectCommands', 'en:dataManagement', 'en:about',
+      'en:mcpServers', 'en:plugins', 'en:hooksTab', 'en:scheduledTasks', 'en:dreamingTab', 'en:projectCommands', 'en:dataManagement', 'en:about',
     ])
     for (const key of keys) {
       const item = registry.items[registry.indexOf(key)]
@@ -79,7 +79,7 @@ describe('pure React settings registry', () => {
       const tree = nodes(ReactSettingsTabContent({ tabKey, customProvider: 'chosen' }))
       return tree.find((node) => typeof node.type === 'object')!
     })
-    expect(new Set(components.map((node) => node.type)).size).toBe(14)
+    expect(new Set(components.map((node) => node.type)).size).toBe(15)
     expect(components[4].props.customProvider).toBe('chosen')
     expect(components[6].props).toMatchObject({ active: true, scope: 'global', embedded: true })
     expect(components[7].props.active).toBe(true)

@@ -10,6 +10,7 @@ src/
 │   ├── chat/            # 聊天面板（含多个子模块）
 │   ├── preview/          # 网页预览内容组件（iframe 加载本地 dev server URL）
 │   ├── scheduled-tasks/ # 定时任务页面
+│   ├── dreaming/       # Dreaming 设置页（开关 / 定时 / 运行历史 / 记忆浏览）
 │   ├── share/           # 对话分享
 │   ├── sidebar/         # 侧边栏
 │   ├── terminal/         # xterm.js 多终端 Dock

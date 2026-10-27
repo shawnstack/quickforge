@@ -132,6 +132,67 @@ export async function readGlobalMemoryPrompt(options = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Dreaming-managed region
+//
+// The dreaming worker owns exactly the bytes between the two markers and must
+// never touch the rest of the file. Users (and `manage_global_memory`) keep full
+// free-form control of the manual region, including deleting the markers to opt
+// out of automatic summarization entirely.
+// ---------------------------------------------------------------------------
+
+export const DREAMING_SECTION_BEGIN = '<!-- dreaming:auto:begin -->'
+export const DREAMING_SECTION_END = '<!-- dreaming:auto:end -->'
+export const DREAMING_SECTION_MAX_BYTES = 4 * 1024
+
+export function splitMemorySections(markdown) {
+  const text = typeof markdown === 'string' ? markdown : ''
+  const begin = text.indexOf(DREAMING_SECTION_BEGIN)
+  const end = text.indexOf(DREAMING_SECTION_END)
+  if (begin === -1 || end === -1 || end < begin) {
+    return { manual: text, auto: null, hasAuto: false }
+  }
+  return {
+    manual: `${text.slice(0, begin)}${text.slice(end + DREAMING_SECTION_END.length)}`.trimEnd(),
+    auto: text.slice(begin + DREAMING_SECTION_BEGIN.length, end).trim(),
+    hasAuto: true,
+  }
+}
+
+export function composeMemoryDocument(manual, auto) {
+  const head = String(manual ?? '').trimEnd()
+  if (!auto) return head ? `${head}\n` : ''
+  const block = `${DREAMING_SECTION_BEGIN}\n${String(auto).trim()}\n${DREAMING_SECTION_END}`
+  return head ? `${head}\n\n${block}\n` : `${block}\n`
+}
+
+/**
+ * Rewrite only the Dreaming region, preserving the manual region byte-for-byte.
+ * Passing an empty `auto` removes the region (used when dreaming is switched off).
+ */
+export async function writeDreamingMemorySection(autoMarkdown, options = {}) {
+  const validated = String(autoMarkdown ?? '').trim()
+  if (Buffer.byteLength(validated, 'utf8') > DREAMING_SECTION_MAX_BYTES) {
+    throw requestError('Dreaming memory section exceeds the size limit.')
+  }
+  if (options.allowSensitive !== true && containsSensitiveMemory(validated)) {
+    throw requestError('Sensitive credentials or secrets cannot be stored in global memory.')
+  }
+  return withMemoryWriteLock(async () => {
+    const memory = await readGlobalMemory(options)
+    const sections = splitMemorySections(memory.markdown)
+    const next = composeMemoryDocument(sections.manual, validated)
+    if (Buffer.byteLength(next, 'utf8') > MAX_MEMORY_FILE_BYTES) {
+      throw requestError('Global memory exceeds the size limit.')
+    }
+    if (next === memory.markdown) {
+      return { changed: false, markdown: next, path: '~/.quickforge/MEMORY.md' }
+    }
+    await writeGlobalMemoryMarkdown(next, options)
+    return { changed: true, markdown: next, path: '~/.quickforge/MEMORY.md' }
+  })
+}
+
 export async function manageGlobalMemory(params = {}, options = {}) {
   await assertMemoryEnabled(options)
   const action = String(params.action || '').trim().toLowerCase()

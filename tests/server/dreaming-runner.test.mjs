@@ -1,0 +1,292 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
+import { createDreamingRepository } from '../../server/sqlite/dreaming-repository.mjs'
+import {
+  isDreamingRunning,
+  nextScheduledRunAt,
+  resolveDreamingModel,
+  runDreaming,
+} from '../../server/dreaming/runner.mjs'
+import { normalizeDreamingSettings } from '../../server/dreaming/settings.mjs'
+
+// Hermetic settings: the real module writes `~/.quickforge/config/settings.json`.
+const settingsState = { current: normalizeDreamingSettings(null) }
+vi.mock('../../server/dreaming/settings.mjs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    readDreamingSettings: async () => settingsState.current,
+    saveDreamingSettings: async (patch) => {
+      settingsState.current = actual.normalizeDreamingSettings({ ...settingsState.current, ...patch })
+      return settingsState.current
+    },
+  }
+})
+
+const modelReply = { text: '', prompt: '' }
+vi.mock('../../server/ai-http-logger.mjs', () => ({
+  streamSimpleWithAiHttpLogging: (_model, context) => {
+    // Capture the user prompt so tests can assert the language directive.
+    modelReply.prompt = String(context?.messages?.[0]?.content ?? '')
+    const message = { role: 'assistant', content: [{ type: 'text', text: modelReply.text }] }
+    return { result: async () => message }
+  },
+}))
+
+// Model resolution is what decides which provider Dreaming bills. The mock keeps
+// the three sources separate so tests can assert the precedence order.
+const modelState = { catalog: null, active: null, explicit: null, bindingThrows: false }
+vi.mock('../../server/model-catalog.mjs', () => ({
+  resolveModelBinding: async () => {
+    if (modelState.bindingThrows) throw new Error('model_not_configured')
+    return modelState.explicit ? { model: modelState.explicit, modelRef: null } : null
+  },
+  resolveImplicitModelPreference: async (value) => (value ? modelState.active : modelState.catalog),
+}))
+vi.mock('../../server/storage.mjs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    // 'active-model' is what the runner reads to decide the chat-model fallback.
+    readStore: async () => (modelState.active ? { 'active-model': { modelSnapshot: modelState.active } } : {}),
+  }
+})
+
+// global-memory resolves its data directory from the process env at import
+// time, so a real write would land in the developer's ~/.quickforge/MEMORY.md.
+// The auto-section writer is mocked; its own behavior is covered by
+// tests/server/dreaming-memory.test.mjs against a temp directory.
+const memoryWrites = []
+vi.mock('../../server/global-memory.mjs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    isGlobalMemoryEnabled: async () => true,
+    writeDreamingMemorySection: async (markdown) => {
+      memoryWrites.push(markdown)
+      return { changed: true, markdown, path: '~/.quickforge/MEMORY.md' }
+    },
+  }
+})
+
+let directory
+let storage
+let repository
+
+const MODEL = { provider: 'mock', id: 'mock-model', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+
+function insertSession({ sessionId = 's1', projectId = 'p1', updatedAtMs = 5000, messages }) {
+  storage.prepare(`INSERT INTO sessions (
+      scope, project_id, session_id, title, created_at, updated_at, message_count,
+      state_version, body_json, meta_json, revision, updated_at_ms
+    ) VALUES ('project', ?, ?, 'work', '2026-10-26T00:00:00.000Z', '2026-10-26T00:10:00.000Z', ?, 1, '{"split":true}', '{}', 1, ?)`)
+    .run(projectId, sessionId, messages.length, updatedAtMs)
+  messages.forEach((message, index) => {
+    storage.prepare(`INSERT INTO session_messages (scope, project_id, session_id, seq, message_id, message_json, message_digest)
+      VALUES ('project', ?, ?, ?, ?, ?, ?)`)
+      .run(projectId, sessionId, index, `${sessionId}-m${index}`, JSON.stringify(message), 'a'.repeat(64))
+  })
+}
+
+const SAMPLE_MESSAGES = [
+  { role: 'user', content: [{ type: 'text', text: '发布一个小版本' }] },
+  { role: 'assistant', content: [{ type: 'toolCall', name: 'run_command', arguments: { command: 'npm run build' } }] },
+  { role: 'toolResult', toolName: 'run_command', content: [{ type: 'text', text: 'built in 6.36s' }] },
+]
+
+beforeEach(async () => {
+  settingsState.current = normalizeDreamingSettings({ enabled: true, scheduleEnabled: false })
+  modelState.catalog = MODEL
+  modelState.active = MODEL
+  modelState.explicit = null
+  modelState.bindingThrows = false
+  modelReply.text = ''
+  modelReply.prompt = ''
+  memoryWrites.length = 0
+  directory = await mkdtemp(path.join(os.tmpdir(), 'qf-dreaming-runner-'))
+  storage = await initializeSqliteStorage({ dataDir: directory, databasePath: path.join(directory, 'quickforge.sqlite3') })
+  repository = createDreamingRepository(storage)
+})
+
+afterEach(async () => {
+  await closeSqliteStorage()
+  vi.restoreAllMocks()
+  await rm(directory, { recursive: true, force: true })
+})
+
+describe('dreaming runner', () => {
+  it('skips without writing a run row when disabled', async () => {
+    settingsState.current.enabled = false
+    const result = await runDreaming({ trigger: 'manual', repository })
+    expect(result).toMatchObject({ skipped: true, reason: 'disabled' })
+    expect(repository.countRuns()).toBe(0)
+  })
+
+  it('records a skipped run when the window has no sessions', async () => {
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.skipped).toBe(true)
+    expect(result.run).toMatchObject({ status: 'skipped', sessionCount: 0 })
+    expect(settingsState.current.lastRunAt).toBe(10_000)
+  })
+
+  it('fails cleanly when no model is configured', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelState.catalog = null
+    modelState.active = null
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run).toMatchObject({ status: 'failed' })
+    expect(result.run.error).toContain('模型')
+  })
+
+  it('applies a full create pass and rewrites the MEMORY.md auto section', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = JSON.stringify({
+      summary: '一个发布流程',
+      operations: [{
+        action: 'create',
+        kind: 'experience',
+        scope: 'project',
+        projectId: 'p1',
+        content: '发布前先跑 npm run build 再打包，避免 dist 过期。',
+        evidence: [{ sessionId: 's1', seq: 2, note: 'build 成功' }],
+        confidence: 0.85,
+      }],
+    })
+
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run).toMatchObject({ status: 'succeeded', sessionCount: 1, createdCount: 1, rejectedCount: 0 })
+    expect(result.run.operations).toHaveLength(1)
+
+    const memories = repository.listMemories({ scope: 'project', projectId: 'p1' })
+    expect(memories).toHaveLength(1)
+    expect(memories[0]).toMatchObject({ kind: 'experience', status: 'active' })
+
+    expect(memoryWrites).toHaveLength(1)
+    expect(memoryWrites[0]).toContain('npm run build')
+    expect(memoryWrites[0]).toContain('experience')
+
+    // The watermark advances only on a completed run, so the next pass resumes.
+    expect(repository.latestSucceededPeriodTo()).toBe(10_000)
+  })
+
+  it('marks the run failed on an unparsable reply without touching memories', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = 'I could not find anything worth remembering.'
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run).toMatchObject({ status: 'failed' })
+    expect(result.run.error).toContain('JSON')
+    expect(repository.countMemories({ status: 'any' })).toBe(0)
+  })
+
+  it('succeeds with an empty operation list, creates nothing and clears the auto section', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = JSON.stringify({ summary: '没有值得记住的内容', operations: [] })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run).toMatchObject({ status: 'succeeded', createdCount: 0, updatedCount: 0, rejectedCount: 0 })
+    expect(repository.countMemories({ status: 'any' })).toBe(0)
+    // No active memories means the auto section is emptied, not left stale.
+    expect(memoryWrites).toEqual([''])
+  })
+
+  it('guards against concurrent runs', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = JSON.stringify({ summary: 'x', operations: [] })
+    const first = runDreaming({ trigger: 'manual', now: 10_000, repository })
+    // The second call observes the in-flight flag, not a queued pass.
+    await vi.waitFor(() => expect(isDreamingRunning()).toBe(true))
+    const second = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(second).toMatchObject({ skipped: true, reason: 'already_running' })
+    await first
+    expect(isDreamingRunning()).toBe(false)
+  })
+
+
+  it('pins the model chosen in settings and records which one ran', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    const pinned = { provider: 'zhipu', id: 'glm-4-plus', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+    modelState.explicit = pinned
+    settingsState.current.modelRef = { version: 1, source: 'custom', providerId: 'prov-1', modelId: 'glm-4-plus' }
+    modelReply.text = JSON.stringify({ summary: 'x', operations: [] })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run.modelLabel).toBe('zhipu/glm-4-plus')
+  })
+
+  it('falls back to the model last used in chat instead of the first catalog entry', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    const chatModel = { provider: 'deepseek', id: 'deepseek-chat', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+    modelState.catalog = { provider: 'zhipu', id: 'glm-4.6v', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+    modelState.active = chatModel
+    modelReply.text = JSON.stringify({ summary: 'x', operations: [] })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    // The regression this guards: the worker used to silently pick the first
+    // configured model (glm-4.6v) even though chat used deepseek.
+    expect(result.run.modelLabel).toBe('deepseek/deepseek-chat')
+  })
+
+  it('falls back when the pinned model was deleted', async () => {
+    insertSession({ messages: SAMPLE_MESSAGES })
+    settingsState.current.modelRef = { version: 1, source: 'custom', providerId: 'gone', modelId: 'gone' }
+    modelState.bindingThrows = true
+    modelState.active = { provider: 'deepseek', id: 'deepseek-chat', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+    modelReply.text = JSON.stringify({ summary: 'x', operations: [] })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run.status).toBe('succeeded')
+    expect(result.run.modelLabel).toBe('deepseek/deepseek-chat')
+  })
+
+  it('reports the resolution source so the settings page can explain it', async () => {
+    const pinned = { provider: 'zhipu', id: 'glm-4-plus', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
+    modelState.explicit = pinned
+    settingsState.current.modelRef = { version: 1, source: 'custom', providerId: 'p', modelId: 'glm-4-plus' }
+    await expect(resolveDreamingModel(settingsState.current)).resolves.toMatchObject({ source: 'explicit' })
+
+    modelState.explicit = null
+    modelState.active = pinned
+    await expect(resolveDreamingModel({ ...settingsState.current, modelRef: null })).resolves.toMatchObject({ source: 'active' })
+
+    modelState.active = null
+    modelState.catalog = pinned
+    await expect(resolveDreamingModel({ ...settingsState.current, modelRef: null })).resolves.toMatchObject({ source: 'catalog' })
+
+    modelState.catalog = null
+    await expect(resolveDreamingModel({ ...settingsState.current, modelRef: null })).resolves.toMatchObject({ model: null, source: 'none' })
+  })
+
+  it('schedules forward from the configured time', () => {
+    const base = new Date('2026-10-27T03:00:00')
+    const next = new Date(nextScheduledRunAt('03:00', base))
+    expect(next.getTime()).toBeGreaterThan(base.getTime())
+    expect(next.getDate()).toBe(28)
+  })
+  it('tells the model to answer in Chinese when the user writes Chinese', async () => {
+    insertSession({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: '帮我把这个接口改成支持分页，然后跑一下测试' }] },
+        { role: 'assistant', content: [{ type: 'text', text: '已经改成支持分页了，测试也通过了。' }] },
+      ],
+    })
+    modelReply.text = JSON.stringify({ summary: '分页改造', operations: [] })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run).toMatchObject({ status: 'succeeded', contentLanguage: 'zh' })
+    expect(modelReply.prompt).toContain('## Output language')
+    expect(modelReply.prompt).toContain('Simplified Chinese')
+  })
+
+  it('lets an explicit setting override detection', async () => {
+    insertSession({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'please refactor this module and run the tests' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Refactored, tests pass.' }] },
+      ],
+    })
+    settingsState.current.contentLanguage = 'zh'
+    modelReply.text = JSON.stringify({ summary: 'x', operations: [] })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    expect(result.run.contentLanguage).toBe('zh')
+    expect(modelReply.prompt).toContain('Simplified Chinese')
+  })
+
+})

@@ -135,3 +135,122 @@ describe('conversation compaction message handling', () => {
     expect(extractCompactSummaryText(textMessage('user', text))).toBe(text)
   })
 })
+
+describe('conversation compaction prompt', () => {
+  const longBody = 'A'.repeat(40_000)
+
+  it('uses an English system prompt and an English transcript instruction', async () => {
+    const { COMPACT_SYSTEM_PROMPT } = await import('../../server/conversation-compaction.mjs')
+    const logger = await import('../../server/ai-http-logger.mjs')
+
+    // The prompt must be English so it does not fight the model when the chat
+    // itself is in another language; only the *output* language follows the
+    // conversation.
+    expect(COMPACT_SYSTEM_PROMPT).toContain('conversation compactor')
+    expect(COMPACT_SYSTEM_PROMPT).not.toMatch(/[\u4e00-\u9fff]/)
+    expect(COMPACT_SYSTEM_PROMPT).toContain('# Compact Conversation Summary')
+    // Still asks the model to answer in the conversation's language.
+    expect(COMPACT_SYSTEM_PROMPT).toContain('same language as the majority of the original conversation')
+
+    await (await import('../../server/conversation-compaction.mjs')).compactConversation({
+      messages: [textMessage('user', 'u1'), textMessage('assistant', 'a1')],
+      model: { provider: 'mock', id: 'mock-model' },
+      minSourceChars: 0,
+    })
+
+    const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
+    expect(llmContext.messages[0].content).toContain('Below is the conversation history')
+    expect(llmContext.messages[0].content).toContain('<conversation_to_compact>')
+    expect(llmContext.messages[0].content).not.toMatch(/[\u4e00-\u9fff]/)
+  })
+
+  it('sends long message bodies in full instead of truncating the middle', async () => {
+    const logger = await import('../../server/ai-http-logger.mjs')
+
+    await (await import('../../server/conversation-compaction.mjs')).compactConversation({
+      messages: [
+        textMessage('user', longBody),
+        textMessage('assistant', 'ack'),
+        textMessage('user', 'follow-up'),
+        textMessage('assistant', 'done'),
+      ],
+      model: { provider: 'mock', id: 'mock-model', contextWindow: 128_000 },
+      minSourceChars: 0,
+    })
+
+    const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
+    const prompt = llmContext.messages[0].content
+    // The 40k-char body exceeds the old 10k per-message cap and the old
+    // 160k transcript cap is high enough to matter too — neither may cut it.
+    expect(prompt).toContain(longBody)
+    expect(prompt).not.toContain('[truncated')
+  })
+
+  it('sends large tool-call arguments in full', async () => {
+    const logger = await import('../../server/ai-http-logger.mjs')
+    const bigArgs = { path: 'src/app.ts', content: 'B'.repeat(5000) }
+
+    await (await import('../../server/conversation-compaction.mjs')).compactConversation({
+      messages: [
+        { role: 'assistant', content: [{ type: 'toolCall', name: 'write_file', arguments: bigArgs }] },
+        { role: 'toolResult', toolCallId: 'call-1', toolName: 'write_file', content: [{ type: 'text', text: 'ok' }] },
+        textMessage('user', 'next'),
+        textMessage('assistant', 'ok'),
+      ],
+      model: { provider: 'mock', id: 'mock-model' },
+      minSourceChars: 0,
+    })
+
+    const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
+    const prompt = llmContext.messages[0].content
+    // 5000 chars exceeded the old 2000-char argument cap.
+    expect(prompt).toContain('B'.repeat(5000))
+    expect(prompt).not.toContain('[truncated')
+  })
+
+  it('still redacts secrets while not truncating', async () => {
+    const logger = await import('../../server/ai-http-logger.mjs')
+
+    await (await import('../../server/conversation-compaction.mjs')).compactConversation({
+      messages: [
+        // Bare key (no `key =` prefix, which would be collapsed into
+        // `key=[REDACTED]` by the assignment rule instead).
+        textMessage('user', `use sk-abcdefghijklmnopqrstuvwxyz012345 then ${'C'.repeat(20_000)}`),
+        textMessage('assistant', 'ok'),
+        textMessage('user', 'next'),
+        textMessage('assistant', 'done'),
+      ],
+      model: { provider: 'mock', id: 'mock-model' },
+      minSourceChars: 0,
+    })
+
+    const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
+    const prompt = llmContext.messages[0].content
+    expect(prompt).not.toContain('sk-abcdefghijklmnopqrstuvwxyz012345')
+    expect(prompt).toContain('sk-[REDACTED]')
+    // Redaction is a targeted replace, not a length cap.
+    expect(prompt).toContain('C'.repeat(20_000))
+  })
+
+  it('collapses key assignments into a redacted form', async () => {
+    const logger = await import('../../server/ai-http-logger.mjs')
+
+    await (await import('../../server/conversation-compaction.mjs')).compactConversation({
+      messages: [
+        textMessage('user', 'token = sk-abcdefghijklmnopqrstuvwxyz012345'),
+        textMessage('assistant', 'ok'),
+        textMessage('user', 'next'),
+        textMessage('assistant', 'done'),
+      ],
+      model: { provider: 'mock', id: 'mock-model' },
+      minSourceChars: 0,
+    })
+
+    const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
+    const prompt = llmContext.messages[0].content
+    // The assignment rule wins over the provider-prefix rule; either way the
+    // secret itself must be gone.
+    expect(prompt).not.toContain('abcdefghijklmnopqrstuvwxyz012345')
+    expect(prompt).toContain('[REDACTED]')
+  })
+})

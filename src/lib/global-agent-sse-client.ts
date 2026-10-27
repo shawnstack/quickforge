@@ -118,7 +118,7 @@ class GlobalAgentSseClient {
       'turn_start', 'turn_end', 'message_update',
       'tool_execution_start', 'tool_execution_update', 'tool_execution_end',
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
-      'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_threshold_reached', 'auto_compact_approval_required', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
+      'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_state', 'auto_compact_approval_required', 'auto_compact_approval_settled', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
       'persist_degraded', 'model_stream_retry', 'goal_updated', 'background_commands', 'session_lease',
     ]
 

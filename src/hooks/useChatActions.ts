@@ -11,7 +11,7 @@ import {
   turnEndedWithError,
   rollbackStartIndexFromMessage,
   shouldSaveSession,
-  generateTitle,
+  generateForkTitle,
   hasUserMessage,
 } from '@/lib/message-utils'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
@@ -246,9 +246,7 @@ export function useChatActions({
     const scope = currentChatScopeRef.current
     const project = scope === 'project' ? activeProjectRef.current : undefined
     const newSessionId = randomId()
-    const title = generateTitle(messages)
-
-    const storage = storageRef.current
+    const title = generateForkTitle(messages)
 
     await createAgent(
       {
@@ -263,13 +261,18 @@ export function useChatActions({
         project,
         attachToView: true,
         title,
+        // The new session is persisted by createAgent itself, so the list
+        // refresh at the end of createAgent already includes it. Asking for a
+        // second round here would only duplicate a refreshSessions round.
+        refreshSessions: false,
       },
     )
 
-    if (storage) {
-      refreshSessions({ broadcast: true }).catch((error) => logger.error('Failed to refresh sessions:', error))
-    }
-  }, [activeModelRef, activeProjectRef, agentRef, createAgent, currentChatScopeRef, refreshSessions, storageRef])
+    // Refresh independently of the storage handle: the server write that makes
+    // the fork visible in the session index does not depend on the client's
+    // local storage being initialized.
+    refreshSessions({ broadcast: true }).catch((error) => logger.error('Failed to refresh sessions:', error))
+  }, [activeModelRef, activeProjectRef, agentRef, createAgent, currentChatScopeRef, refreshSessions])
 
   const retryFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current

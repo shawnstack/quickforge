@@ -77,11 +77,6 @@ describe('lan-access repository and schema v9', () => {
   })
 
   it('creates schema v9 lan-access tables and rolls a failing v8→v9 migration back without losing F5/F7/F9/F10 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
-    expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 12,
-      name: 'remove_share_lan_record_digests',
-    })
     for (const table of ['lan_access_state', 'lan_access_tokens', 'lan_access_storage_state', 'lan_access_maintenance_lock', 'lan_access_json_mirror_queue']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
     }

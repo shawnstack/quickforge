@@ -33,6 +33,7 @@ import type {
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
   ServerAgentPendingAutoCompactApproval,
+  ServerAgentCompactionNotice,
   ServerAgentPendingAsk,
   ServerAgentAskAnswer,
   ServerAgentConfig,
@@ -65,6 +66,7 @@ export type {
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
   ServerAgentPendingAutoCompactApproval,
+  ServerAgentCompactionNotice,
   ServerAgentPendingAsk,
   ServerAgentAskAnswer,
   ServerAgentConfig,
@@ -306,6 +308,7 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     errorMessage: snapshot.errorMessage,
     contextCompaction: snapshot.contextCompaction,
     contextUsage: snapshot.contextUsage,
+    compactionNotice: snapshot.compactionNotice ?? null,
     pendingToolApproval: snapshot.pendingToolApproval,
     pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
     pendingAsk: snapshot.pendingAsk,
@@ -425,6 +428,12 @@ export class ServerAgent {
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    /**
+     * In-flight compaction notice (summarizing / awaiting user decision).
+     * `null` means the pipeline is idle. Always rendered, never inferred from
+     * the absence of events.
+     */
+    compactionNotice?: ServerAgentCompactionNotice | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
@@ -914,6 +923,7 @@ export class ServerAgent {
     this.state.pendingToolCalls = new Set()
     this.state.pendingToolApproval = null
     this.state.pendingAutoCompactApproval = null
+    this.state.compactionNotice = null
     this.state.goal = null
   }
 
@@ -1466,6 +1476,9 @@ export class ServerAgent {
         } else if (s.messages) {
           this.state.contextUsage = null
         }
+        // State frames are full snapshots: an absent notice means idle, so a
+        // reconnect after the compaction settled cannot resurrect the row.
+        this.state.compactionNotice = s.compactionNotice ?? null
         if (s.pendingToolApproval !== undefined) {
           this.state.pendingToolApproval = s.pendingToolApproval
         }
@@ -1870,10 +1883,32 @@ export class ServerAgent {
         break
       }
 
+      case 'auto_compact_state': {
+        // Authoritative in-flight phase (see COMPACTION_NOTICE_PHASES on the
+        // server). Adopting it here — rather than deriving the row from
+        // approval/completion events — is what makes the notice impossible to
+        // desync: every server enter/exit publishes the complete state, and
+        // `null` unambiguously means "nothing running".
+        const noticeEvent = event as { compactionNotice?: ServerAgentCompactionNotice | null }
+        this.state.compactionNotice = noticeEvent.compactionNotice ?? null
+        break
+      }
+
+      case 'auto_compact_approval_settled': {
+        // The server dropped its pending approval (declined / timed out /
+        // cancelled). Clear the local copy in the same frame, so the card can
+        // never outlive the request it belongs to and produce a 404 on click.
+        const settledEvent = event as { approvalId?: string }
+        const pending = this.state.pendingAutoCompactApproval
+        if (!settledEvent.approvalId || pending?.approvalId === settledEvent.approvalId) {
+          this.state.pendingAutoCompactApproval = null
+        }
+        break
+      }
+
       case 'auto_compact_failed':
       case 'message_start':
       case 'turn_start':
-      case 'auto_compact_threshold_reached':
         // Forward as-is
         break
 
@@ -2409,6 +2444,8 @@ export class ServerAgent {
       if (state.contextUsage !== undefined) {
         this.state.contextUsage = state.contextUsage
       }
+      // `/state` is a full snapshot: absence of the notice means idle.
+      this.state.compactionNotice = state.compactionNotice ?? null
       if (state.pendingToolApproval !== undefined) {
         this.state.pendingToolApproval = state.pendingToolApproval
       }
@@ -2648,6 +2685,7 @@ export class ServerAgent {
         errorMessage: serverState.errorMessage as string | undefined,
         contextCompaction: serverState.contextCompaction as ServerAgentContextCompaction | null | undefined,
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
+        compactionNotice: serverState.compactionNotice as ServerAgentCompactionNotice | null | undefined,
         pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
         pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
         persistDegraded: serverState.persistDegraded === true ? true : undefined,

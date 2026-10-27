@@ -63,9 +63,12 @@
 | `server/agent-subagent-runner.mjs` | `runWorkflowSubagent`：按 Profile 解析并复用 `executeSubagentRun` 的完整 subagent 生命周期 |
 | `server/approval-store.mjs` | `run_workflow` 的命令权限限制（`/plan`、`allowSubagents:false`） |
 | `server/routes/tools.mjs` | `directRouteDisabledTools` 禁止直接 REST 执行；`GET /api/tools` 仍返回元数据 |
-| `src/lib/workflow-run-detail.ts` | 纯视图模型：details → 阶段/Agent/工具/日志/结果 |
-| `src/lib/workflow-subagent-detail.ts` | 由 workflow Agent record（含 bounded `subagentRun`）构建 Inspector 复用的 `SubagentRunPayload` |
-| `src/lib/tool-renderers/workflow-tool-renderer.tsx` | `run_workflow` 工具卡渲染与 Agent 行「进入 Subagent 运行详情」入口 |
+| `src/lib/workflow-run-detail.ts` | 纯视图模型：details → 阶段/Agent/工具/日志/结果；另含 `workflowTimeline`（并行统计）与 `workflowPhaseSpan` |
+| `src/lib/workflow-run-payload.ts` | 打开 Inspector 用的 payload 构建、`WorkflowRunStore`（50 条 FIFO）、`OPEN_WORKFLOW_RUN_EVENT` 与 `activeWorkflowRunStore`（卡片「已打开」广播） |
+| `src/lib/workflow-subagent-detail.ts` | 由 workflow Agent record（含全量 `subagentRun`）构建 Inspector 复用的 `SubagentRunPayload` |
+| `src/lib/workflow-agent-run-events.ts` | `run_workflow` 的 SSE 实时发布：把 `details.agents[]` 按 `${runId}:agent:${id}` 写入 `subagentRunStore`，`subagentRunDeferred` 帧复用上一份可见 trace |
+| `src/components/workspace/WorkflowRunDetailContent.tsx` | Inspector 里的运行详情单页（概览 + 阶段头 + 步骤流 + 折叠日志 + 脚本/结果抽屉）；聊天卡自身不再展开 |
+| `src/lib/tool-renderers/workflow-tool-renderer.tsx` | `run_workflow` 聊天卡：单行入口 `<button>`，点击打开 Inspector 运行详情 Tab |
 
 ### 2.2 执行链
 
@@ -135,7 +138,9 @@ worker → 父进程：
 4. `runWorkflowSubagent()` 按 `profile`（默认 `general`）解析已启用 subagent 的 Agent Profile，再调用 `executeSubagentRun()`：创建子 session、解析模型/思考等级、构建工具集、执行 prompt，完整复用 `run_subagent` 的工具审批、预算、超时与错误 details 路径（trace 与部分成果回传关闭）；
 5. 结果或错误回到 runner，runner 通过 `agent-result` 回传 worker，`agent()` 解析为文本、校验后的对象或 `null`。
 
-`tool()` 走同一条队列：worker 把 `{type:'tool', requestId, name, args, options}` 发给父进程；runner 的 `enqueueTool()` 登记 Tool record、检查 `maxTools` 与并发，然后调用 `runWorkflowTool()`。后者延迟构建当前会话工具集（`createServerTools`），排除递归/控制面工具，按会话权限发起审批，再执行工具并把文本结果回传；工具失败记录到 `details.tools`，`tool()` 解析为 `null`。
+`tool()` 走同一条队列：worker 把 `{type:'tool', requestId, name, args, options}` 发给父进程；runner 的 `enqueueTool()` 登记 Tool record、检查 `maxTools`，然后调用 `runWorkflowTool()`。后者在**首次调用时**懒构建当前会话工具集（`createServerTools`，结果在整个 workflow 生命周期内缓存复用），排除递归/控制面工具，按会话权限发起审批，再执行工具并把文本结果回传；工具失败记录到 `details.tools`，`tool()` 解析为 `null`。
+
+**工具集的懒构建与缓存含义**：`createServerTools` 只在第一个 `tool()` 到达时执行一次，之后整条 workflow 复用同一个 Map。因此 workflow 运行期间新连上的 MCP server 不会出现在 `tool()` 里；构建失败会清空缓存的 Promise 以便下次重试。
 
 每步的覆盖项：
 
@@ -155,15 +160,15 @@ worker → 父进程：
 
 | Hook | 签名 | 返回值 | 失败语义 |
 |------|------|--------|----------|
-| `agent` | `agent(prompt, options?) => Promise<string \| object \| null>` | 默认返回该 Agent 的最终文本；带 `schema` 时返回校验后的 JSON 值；失败返回 `null` | 参数非法（空 prompt、超长、未知 option、schema 不可序列化等）会 throw，通常导致脚本失败；运行失败（含 schema 不匹配、预算耗尽、被中止）返回 `null`，不 throw |
-| `tool` | `tool(name, args?, options?) => Promise<string \| null>` | 返回该工具结果的文本内容；失败返回 `null` | 未知/不可用/被排除的工具、参数非对象、`run_command run_in_background`、审批拒绝或工具异常都返回 `null`（错误记录在 details.tools，不中断脚本）；参数/预算耗尽同样返回 `null` |
+| `agent` | `agent(prompt, options?) => Promise<string \| object \| null>` | 默认返回该 Agent 的最终文本；带 `schema` 时返回校验后的 JSON 值；失败返回 `null` | 只有**空/非字符串 prompt** 在 guest bridge 内抛 `TypeError`（脚本失败）。prompt 超长、未知 option key、option 类型或长度非法、`schema` 不可序列化/超 20,000 等参数错误都由 `hostCall` 捕获后以 `ok:false` 回投，`agent()` 解析为 `null`。运行失败（含 schema 不匹配、预算耗尽、被中止）同样返回 `null`，不 throw |
+| `tool` | `tool(name, args?, options?) => Promise<string \| null>` | 返回该工具结果的文本内容；失败返回 `null` | 只有**空 tool name** 与 **`args` 非 plain object** 在 guest bridge 内抛 `TypeError`。未知/不可用/被排除的工具、未知 tool option、`run_command run_in_background`、命令权限限制、审批拒绝或工具异常都以 `ok:false` 回投，`tool()` 返回 `null`（错误记录在 details.tools，不中断脚本）；预算耗尽同样返回 `null` |
 | `parallel` | `parallel(thunks) => Promise<Array<...>>` | 按输入顺序返回每个 thunk 的结果 | 非函数项直接为 `null`；thunk throw 时为 `null`；不会因单项失败整体 reject |
 | `pipeline` | `pipeline(items, ...stages) => Promise<Array<...>>` | 每个 item 独立经过所有 stage，按输入顺序返回最终值 | stage 必须是函数；某个 stage throw 会把该 item 置为 `null` 并跳过它剩余的 stage，其他 item 不受影响；无 stage 时返回 `items.slice()` |
-| `phase` | `phase(title) => string` | 规范化后的阶段标题 | 非字符串/空白/超 120 字符 throw |
-| `log` | `log(message) => void` | 无 | 非字符串按 `Error.message` / `JSON.stringify` 归一；空文本忽略；单条最多 2000 字符 |
+| `phase` | `phase(title) => string` | 规范化后的阶段标题 | 非字符串/空白直接抛 `TypeError`；**超过 120 字符非抛错**：`phase` 是 notify 类型消息（无 `requestId`），父进程的 `normalizePhaseTitle` 校验失败后因 `id` 为空而静默丢弃，脚本内 `currentPhase` 已更新但该阶段不会出现在 `details.phases`（后续 `log()` 会被归到上一个阶段） |
+| `log` | `log(message) => void` | 无 | 非字符串按 `Error.message` / `JSON.stringify` 归一；空文本忽略；单条最多 2000 字符（超出截断，不报错） |
 | `args` | `args`（只读值） | 调用方传入的 JSON 值，深冻结 | 无法 `structuredClone` 时在启动前 400 |
 
-`pipeline` 的 stage 签名为 `(previousValue, item, index)`；`parallel` 的 thunk 无参数。两者都是**逻辑并发**，实际同时运行的 Agent/工具步骤数仍由 runner 的 `concurrency` 限制。
+`pipeline` 的 stage 签名为 `(previousValue, item, index)`；`parallel` 的 thunk 无参数。两者都是**逻辑并发**，实际同时运行的 Agent/工具步骤数仍由 runner 的 `concurrency` 限制。`parallel` 最多 256 个 thunk，`pipeline` 最多 256 个 item（超限抛 `TypeError`）。
 
 ### 3.2 agent() options
 
@@ -197,6 +202,8 @@ worker → 父进程：
 - 成功：`agent()` 返回解析后的对象，record 标记 `schemaValidated: true`，`resultPreview` 存规范化后的 JSON；
 - 失败：`agent()` 返回 `null`，record 状态为 `error`，错误文本说明“不是 JSON”或“未匹配 schema（含首个错误路径）”，脚本可自行决定是否继续。
 
+**当前实现的边界**：`schema` **只在 runner 侧做事后校验，不会下发给子 Agent**。`agent-workflow-runner.mjs` 调用 `runAgent()` 时传的是 `prompt/profile/label/context/expectedOutput/workflowLabel/maxRuntimeMs/maxToolCalls/model`，不含 `schema`；`runWorkflowSubagent()` 里虽然有 `schemaHint` 分支（把 JSON Schema 拼进 `expectedOutput`），但只有在 `params.schema` 存在时才生效，而该字段不会从 workflow 路径传入。因此工作流里的 `schema` 是**纯后置断言**：模型看不到契约，只能靠 `prompt` / `expectedOutput` 自行描述输出格式；写成散文时更容易解析失败并返回 `null`。若需要前置约束，应在脚本里把 schema 也写进 `expectedOutput`（或等后续把 `schema` 透传给 subagent）。
+
 ## 4. 限制与预算
 
 | 项 | 默认 | 硬上限/下限 | 超限行为 |
@@ -220,11 +227,18 @@ worker → 父进程：
 | 单 Agent prompt | — | 100,000 字符 | `TypeError`，通常脚本失败 |
 | 单 Agent `context` | — | 100,000 字符 | `TypeError` |
 | 单 Agent `expectedOutput` | — | 10,000 字符 | `TypeError` |
+| `parallel` 项数 | — | 256 | `TypeError` |
+| `pipeline` item 数 | — | 256 | `TypeError` |
 | 同步脚本执行 | — | 10 秒 | vm timeout，脚本错误 |
+| bridge 初始化 | — | 5 秒 | 沙箱初始化失败 → `WORKFLOW_FAILED` |
 | 进度节流 | 200ms | — | trailing 合并，终态强制 flush |
 | 审批卡脚本 | — | 20,000 字符（完整脚本） | 不再截断；审批展示的就是将执行的代码 |
 
 `options` 必须是普通对象；非对象、`script` 为空/超 20KB、args 无法 `structuredClone` 或 JSON 超 20KB 都会在 worker 启动前以 HTTP 400 / `WORKFLOW_INVALID` 拒绝。数字型 options 非法时回退默认值，超出范围时 clamp，而不是报错。
+
+**`concurrency` 是生效值而非配置值**：`effectiveConcurrency = hasFullAccess(parentSession) ? options.concurrency : 1`（`agent-workflow-runner.mjs`）。默认权限下无论传入多少都按 1 串行执行，且 `details.concurrency` 上报的是这个**生效值 1**——从 UI 上看不出「配了 4 但被降级」。完全访问模式下才使用 `options.concurrency`（默认 4）。
+
+**`maxAgents` / `maxTools` 与队列的关系**：达到上限后新的 `agent()` / `tool()` 直接返回 `null` 且**不登记 record**（`details.agentCount` 不增长），只追加一条 error 日志；排队等待的是并发配额（`activeSteps < effectiveConcurrency`），与预算上限是两件事。
 
 ## 5. 失败、中止、超时与孤儿步骤
 
@@ -243,8 +257,9 @@ worker → 父进程：
 ### 5.2 中止与超时的传播
 
 - runner 内部有一个 `AbortController`；每个 Agent/工具步骤的 signal 是 `AbortSignal.any([controller.signal, parentSignal])`。
-- 超时或父中止时：置状态 → `controller.abort()` → 把仍在队列中的 Agent 标为 `aborted`（错误文本 `Workflow stopped before this agent started.`）→ 把仍在运行的 Agent 标为 `aborted`（错误文本 `Workflow stopped while this agent was running.`）→ 清定时器 → 终止 worker → 最后一次 `onUpdate` → reject。
-- 正在运行的 Agent 通过组合 signal 收到中止；runner 不等待它们逐个收尾，但终态 details 不会留下 `running` 状态；工具调用返回后也不会再回传 worker。
+- 超时或父中止时：置状态 → `controller.abort()` → 把仍在队列中的 Agent/工具标为 `aborted`（错误文本 `Workflow stopped before this agent started.` / `Workflow stopped before this tool call started.`）→ 把仍在运行的步骤标为 `aborted`（错误文本 `Workflow stopped while this step was running.`）→ 清定时器 → 终止 worker → 最后一次 `onUpdate` → reject。
+- 「仍在运行」的标记是**同步**做的（`markRunningStepsStopped`），因为 `controller.abort()` 之后在途步骤是异步 settle 的；若等它们收尾，终态帧与持久化 details 就会永久留下 `running`。
+- 正在运行的 Agent 通过组合 signal 收到中止；runner 不等待它们逐个收尾。工具调用返回后也不会再回传 worker（`settled` 后 `sendAgentResult` 直接 return）。
 - 父 signal 在启动前已中止时，直接返回 rejected completion，不创建 worker。
 
 ### 5.3 单个 Agent / 工具失败
@@ -258,7 +273,7 @@ worker → 父进程：
 脚本 `return` 后，未 `await` 的 `agent()` / `tool()` 调用可能仍在运行。`completeWorkflow` 会立即：
 
 1. 中止内部 controller，让在途 Agent 收到 abort；
-2. 把队列中和运行中的 Agent 标为 `aborted`（运行中的错误文本为 `Workflow completed before this agent settled.`）；
+2. 把队列中和运行中的步骤标为 `aborted`（运行中的错误文本为 `Workflow completed before this step settled.`，队列中的为 `Workflow stopped before this agent started.` / `...before this tool call started.`）；
 3. 终止 worker，后续 `agent-result` 不再投递。
 
 因此孤儿步骤不会继续占用会话资源；终态快照不等待它们收尾，但 `details.agents` / `details.tools` 中会显示 `aborted` 而不是永远 `running`。脚本应 `await` 自己需要的所有 Agent/工具。
@@ -303,17 +318,18 @@ Agent record：
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | string | `agent-<index>` |
+| `seq` | number | 提交顺序，前端据此把 Agent 与工具交错展示 |
 | `label` / `profile` / `phase` | string | 展示名、Profile、阶段 |
 | `status` | `queued` \| `running` \| `done` \| `error` \| `aborted` | 单步状态 |
 | `startedAt` / `durationMs` | number | 起始时间与耗时 |
 | `toolCalls` | number | 该步已执行的工具调用数 |
 | `schemaValidated` | `true` | 仅 schema 校验通过时出现 |
-| `promptPreview` | string | `agent()` prompt 的任务预览，完整不截断 |
+| `promptPreview` | string | `agent()` 的 prompt 全文，不截断 |
 | `context` / `expectedOutput` | string | `agent()` 的上下文与输出要求，完整不截断；Inspector 任务说明与直接 `run_subagent` 同构 |
 | `resultPreview` | string | 最终文本或规范化 JSON，完整不截断 |
 | `error` | string | 失败原因，最多 2,000 字符 |
-| `subagentRun` | object | Inspector 用的 subagent trace，全量不裁剪：`messages`、`tools`、`allowedTools`、`model`、`thinkingLevel`、`toolCalls`、`pendingToolCalls`、`durationMs` 原样透传（与直接 `run_subagent` 一致） |
-| `subagentRunDeferred` | `true` | 运行中帧省略了该 Agent 的 trace（该帧只携带 running/queued 的 Agent trace）；前端复用上一次可见快照，不视为内容丢失；终态帧恢复全量 |
+| `subagentRun` | object | Inspector 用的 subagent trace，全量不裁剪：`subagent`、`label`、`sessionId`、`parentSessionId`、`toolCalls`、`allowedTools`、`model`、`thinkingLevel`、`source`、`lifecycle`、`profilePath`、`capabilityPolicy`、`durationMs`、`pendingToolCalls`、`messages`、`tools` 原样透传（与直接 `run_subagent` 一致） |
+| `subagentRunDeferred` | `true` | 运行中帧省略了该 Agent 的 trace（该帧只携带 running/queued 的 Agent trace，数量上限为 `concurrency`）；前端复用上一次可见快照，不视为内容丢失；终态帧恢复全量 |
 
 Tool record：
 
@@ -336,25 +352,28 @@ Tool record：
 - 阶段顺序：先按 `details.phases`，再补 Agent/工具/日志中出现但 phases 未列出的阶段；
 - 运行状态优先级：`aborted` / `status === 'aborted'` → `aborted`（先于 `result.isError`，避免用户停止被显示成失败）；`timedOut` / `details.status === 'error'` / `result.isError` → `error`；`done` → `done`；`running` → `running`；缺失时按 streaming / 是否有 result 推导；
 - 汇总字段：`agentCount`、`completedAgentCount`（done）、`failedAgentCount`（error/aborted）、`runningAgentCount`（running/queued）、`toolCount`、`failedToolCount`、`timedOut`、`aborted`；
-- 阶段内按 `seq` 交错 Agent 与工具，并可用 `workflowPhaseSteps(phase)` 把连续的工具调用折叠成一个 `tools` 步骤（渲染器的「阶段 → Agent → 工具区」三级层级来源）；
-- 辅助函数：`workflowStatusLabelKey`、`workflowCountParts`（Agent/工具计数片段，计数为 0 的片段整段省略）、`workflowSummaryText`（状态标签 + 计数片段，摘要卡与 Inspector 概览条共用）、`workflowAgentStatusKey`、`workflowActiveAgentLabels`、`workflowActiveStepLabels`（Agent + 工具）、`workflowCurrentPhase`（最后一个仍有 running 步骤的阶段，否则最后一个阶段）、`formatWorkflowDuration`。
+- 阶段内按 `seq` 交错 Agent 与工具，并可用 `workflowPhaseSteps(phase)` 把连续的工具调用折叠成一个 `tools` 步骤（详情页「阶段 → Agent → 工具区」三级层级来源）；
+- 辅助函数：`workflowStatusLabelKey`、`workflowCountParts`（Agent/工具计数片段，计数为 0 的片段整段省略）、`workflowSummaryText`（状态标签 + 计数片段，摘要卡与 Inspector 概览条共用）、`workflowAgentStatusKey`、`workflowActiveStepLabels`（Agent + 工具 running/queued label，按 `seq`；当前仅供视图模型测试消费）、`workflowCurrentPhase`（最后一个仍有 running 步骤的阶段，否则最后一个阶段）、`formatWorkflowDuration`；
+- `workflowTimeline(view)`：把每个 Agent / 工具调用摊平成 `WorkflowTimelineEntry`（`startOffsetMs`、`durationMs`、`parallel`、`parallelGroupStart`、`parallelGroupSize`），并返回 `totalMs`（恒 ≥ 1）、`peakConcurrency`（扫描线算法）、`savedMs`（并行收益）。重叠段用并查集聚类，`parallelGroupStart` 只标组内 `seq` 最小的一条。缺 `startedAt` 的旧帧按 `seq` 顺延到「已有最大终点」，保持串行语义而不伪造并行。**详情页不再画时间轴**，只消费 `peakConcurrency` / `savedMs` 两个统计量；
+- `workflowPhaseSpan(phase, timeline)`：阶段在时间轴上的事实跨度；无时间轴后保留给需要跨度的消费方与测试。
 
-### 7.3 渲染器与 i18n/样式契约
+### 7.3 聊天卡与运行详情
 
-`workflow-tool-renderer.tsx` 注册在 `local-tools.ts` 的 `registerToolRenderer('run_workflow', ...)`：
+`workflow-tool-renderer.tsx` 注册在 `local-tools.ts` 的 `registerToolRenderer('run_workflow', ...)`。**聊天区只有一行入口 `<button class="quickforge-workflow-card">`，没有展开体**：
 
-- 摘要行：状态 + 计数片段（`workflowSummaryText` = `workflowRunning/Completed/Failed/Aborted` + `workflowCountParts` 输出的 Agent/工具数；**没有 agent() 调用或没有 tool() 调用时对应片段整段省略，不再出现「0 个智能体 / 0 个工具」，两者都为 0 时只留状态**）+ 跑马灯（运行中优先显示 running/queued 步骤 label，无活跃步骤时显示当前阶段；固定单行、定高，只占标签与剩余宽度之间的弹性空间，溢出由 `ToolMarqueeController` 横向滚动，`prefers-reduced-motion` 下退化为省略号）+ 状态图标/耗时。**视觉上不再有「查看详情」入口文案与阶段刻度短条**：整行 `<button>` 本身即入口，动作提示只保留在 `aria-label`（`workflowDetailOpenRun` / `workflowDetailOpened`），运行态由标题 shimmer（复用 `.quickforge-tool-running-sweep`，与思考过程同一套流光）与阶段跑马灯表达；标题 `margin-right: auto` 把状态/耗时推到右侧；
-- 展开体：错误提示、按阶段分组的步骤行。阶段头是「阶段名 + 步数 + 渐隐细线」的小标题；阶段内先按 `seq` 排序，再由 `workflowPhaseSteps` 把连续的 `tool()` 调用折叠成一个工具区，因此渲染成「阶段 → Agent 行 → 工具行」三级：Agent 行直接调用 `subagent-tool-renderer.tsx` 的 `renderSubagentRunSummary`（与直接 `run_subagent` 共用同一份卡片标记/状态/跑马灯/打开事件，只通过 options 把主文案换成任务名并追加 workflow meta 与错误悬停文案，状态文案退到 `title`/`aria-label`）；工具行放在缩进的 `.quickforge-workflow-tool-zone` 里（工具图标、名称、`summarizeParams` 参数摘要、状态/耗时，字号与颜色比 Agent 行再降一档）。另有日志、完整的工作流结果预览（不截断）。工具行是独立的 `<details>`，默认收起，点击摘要行展开参数与结果；工作流卡本身也默认收起，形成「外层卡 → Agent 行 → 工具行 → 输入/输出」多级可点击结构。工具参数 JSON、工作流脚本与原始 details JSON 只在 `toolDisplayDetailed()`（详细模式）显示，对齐外层工具卡的 input 门控；
-- 工具行复用 QuickForge 工具摘要与输出交互：参数摘要单行横向滚动（隐藏滚动条、H5 touch）、结果使用代码块/控制台块（run_command）、状态点与耗时；运行中隐藏状态区并给摘要加 running sweep，`aria-busy` 同步；
-- `run_workflow` 与 `run_subagent` 一样**不进入 process-folding 的工具摘要组**，始终保持顶层可点击卡片；否则回合结束后它会被折进收起的「已执行 N 个工具调用」组，用户难以直接展开两级详情。
-- **步骤行复用普通对话的卡片**（`workflow-detail-chat-cards` + 2026-10-26 无时间轴调整）：运行详情面板里的工具行直接渲染聊天区同一颗 `ToolMessage`（注册表解析 local-workspace / MCP 卡，`args` 原样合成 toolCall、`resultPreview || error` 合成 toolResult、`startedAt/durationMs` 写进 `quickforgeTiming` 驱动同款耗时徽标），Agent 行改为**轻量入口**（图标 + 任务名 + profile + 状态 + 外链提示）——点击仍派发既有 `OPEN_SUBAGENT_RUN_EVENT`（store 最新快照优先），由 `src/lib/workflow-subagent-detail.ts` 把 `subagentRun` 转成 `SubagentRunPayload`，在 Workspace Inspector 打开与直接 `run_subagent` 相同的详情 Tab；任务说明取 `promptPreview`，并透传 `context` / `expectedOutput`。queued Agent 禁用，**不再渲染 `renderSubagentRunSummary` 的当前工具跑马灯/内部 trace**。工作流不再绘制右侧时间轴；并行只在组首保留「并行×N」文字标记，有前置 Agent 的工具组才缩进内容列/画连接线（阶段开头的 tool-only 组平铺），连接线落在 Agent 图标中心。
-- **实时详情通道**：`ServerAgent` 的 `tool_execution_start/update/end` 路径同时调用 `src/lib/workflow-agent-run-events.ts` 的 `WorkflowAgentRunEventPublisher`，把 `run_workflow` details 中每个 Agent 按 `${workflowRunId}:agent:${agent.id}` 发布到 `subagentRunStore`。Inspector 已打开的 Tab 通过 store 订阅持续刷新，不依赖聊天卡片是否渲染/是否被窗口化卸载；点击时优先打开 store 最新快照，store 尚无快照（历史恢复/首帧）才用当前渲染帧回填。Composer 的“运行中 subagent”指示器在 `run_workflow` 仍 pending 时也按同一前缀列出这些嵌套快照，可直接打开正在运行的 Agent。状态与错误正文复用 run_subagent 的推导（trace 终态 → output → details）；trace 不裁剪，运行中帧只省略已结束 Agent 的 trace（`subagentRunDeferred`）并复用上一次可见快照，详情页不会出现“过程记录被裁剪”提示。
-- 无视图时：尚无 result（仍在流式/准备）显示 `workflowPreparing`；已有终态 result 但没有 workflow details（审批被拒、参数校验失败、缺少 workspace/model）显示失败/完成状态与 `resultText` 错误正文，避免把失败永久显示成“正在准备”；
-- 有视图时状态映射：`error`/`aborted` 映射为错误态，`running` 映射为运行态，`done` 映射为完成态。
+- 摘要行 = 工具图标 + `workflowSummaryText`（状态标签 + 计数片段；**没有 `agent()` / `tool()` 时对应片段整段省略，两者都为 0 时只留状态**）+ 跑马灯 + 状态图标/耗时。跑马灯只在 `status === 'running'` 时渲染，内容是**最后一个阶段标题**（不是活跃步骤 label）：`marqueeText = view.phases.at(-1)?.title ?? ''`，renderToolMarquee 包 `.quickforge-workflow-marquee`，固定单行定高、溢出横向滚动、`prefers-reduced-motion` 退化为省略号；
+- 运行态视觉：标题加 `.quickforge-tool-running-sweep`（与思考过程同一套 shimmer），此时右侧状态区隐藏。**没有「查看详情」文案、没有阶段刻度条**：整行即入口，动作提示只写在 `aria-label`（`workflowDetailOpenRun` / `workflowDetailOpened`）；
+- 点击：先用 `buildWorkflowRunPayload` 回填 `workflowRunStore`（`shouldPublishWorkflowRunPayload` 拒绝终态回退），再派发 `OPEN_WORKFLOW_RUN_EVENT`；`App.tsx` 监听后 `requestWorkspaceInspector({ kind: 'workflow' })` 打开右侧 Tab。`activeWorkflowRunStore` 记录当前打开的 `runId`，卡片据此显示「已打开」（`data-open`）；
+- 卡片重渲染时也会回填 store（`useEffect`），因此历史会话首帧或 SSE 漏帧仍能打开完整详情；
+- 无视图时（尚无 result）显示 `workflowPreparing`；已有终态 result 但没有 workflow details（审批被拒、参数校验失败、缺 workspace/model）显示失败/完成状态 + `resultText` 错误正文，避免把失败永久显示成"正在准备"。
 
-i18n 键（中英成对，位于 `src/lib/i18n.ts`）：`runWorkflow`、`workflowPreparing`、`workflowRunning`、`workflowCompleted`、`workflowFailed`、`workflowAborted`、`workflowAgentCountOne`、`workflowAgentCountMany`、`workflowToolCountOne`、`workflowToolCountMany`、`workflowToolParams`、`workflowToolResult`、`workflowCurrentPhase`、`workflowNoAgents`、`workflowStepCount`、`workflowError`、`workflowAgentDone`、`workflowAgentToolCalls`、`workflowAgentSchema`、`workflowResult`、`workflowScript`、`workflowBadge`、`toolApprovalRiskWorkflow`。详情面板另有 `workflowDetail*` 系列：`StepCount`、`PhaseTotal`、`ParallelCount`（并行×N）、`PeakConcurrency`、`Saved`、`BudgetLine`（预算行，随脚本 sheet 头部展示）、`NoPhases`、`RunLogs`、`LocateFailure` / `Locate`（定位失败步骤）、`FailedStepsOne/Many`（概览失败入口）、`Pending`（待运行阶段）。时间轴相关键（`TimelineLegend*`、`TimelineHint`、`Now/NowTitle`、`LogsExpand/Collapse`、`OpenRun`、`Opened`、`CopyTrace`）当前无详情消费方，保留待清理。审批卡按 `run_workflow` 映射 `runWorkflow` 标签；`source.type === 'workflow'` 用本地化徽标与风险说明，workflow 内子 Agent 的审批在 `subagent` 徽标后追加 `workflowBadge`。
+明细全部在 Inspector 的 `WorkflowRunDetailContent.tsx`（详见 `docs/wiki/src/components/README.md` 同名小节）：概览（状态点 + 总耗时 + 规模 + `peakConcurrency`/`savedMs` 统计 + 失败定位）+ 吸顶阶段头 + `workflowPhaseSteps` 交错的轻量 Agent 行与 `ToolMessage` 工具行 + 折叠日志 + 底部脚本/结果抽屉。Agent 行只做入口（图标 + 任务名 + profile + 状态 + 外链），点击经 `subagentRunStore` + `OPEN_SUBAGENT_RUN_EVENT` 打开原子 Agent 详情，queued 禁用；工具行直接复用聊天区 `ToolMessage`（`args` 合成 toolCall、`resultPreview || error` 合成 toolResult、`startedAt/durationMs` 写成 `quickforgeTiming`）。
 
-样式在 `src/styles/chat/goal-workflow.css`（聊天摘要卡）与 `src/styles/workspace/workflow-detail.css`（运行详情单页）。2026-10-26 起 `workflow-detail.css` 已删除全部时间轴几何（`--wf-tl-*`、bar / track / axis / legend / now / grid / phase-track / parallel-group、日志 console 描边与 >6 行折叠）；当前结构 = 概览 + 吸顶阶段头 + 轻量 Agent 行 + `ToolMessage` 工具行 + 折叠日志，连接线落在 Agent 图标中心，失败入口在概览；脚本 sheet 在 payload 带 script 时默认展开，底部按钮带 `aria-expanded` / active 态、可手动收起。以下为历史（时间轴版）说明：单页结构（吸顶刻度条 `-axis` + 粘性阶段头 `-phase-head` + 步骤行 + 各阶段日志 console 块）；**步骤行 = 聊天卡 + 右侧轨道列的 grid**（卡片占 `minmax(0,1fr)` 弹性列、轨道列 `--wf-tl-track` 固定宽且钉在摘要行高度内；聊天卡展开体由 `details[open] > div` 补实底遮网格线）；读数效率层——共享竖向网格 `-grid-layer`（`z-index:-1` 垫底，行内不再逐行画刻度线）、运行游标 `-now-chip` / `-now-line`（运行中，elapsed = `max(start+dur)`）、阶段跨度条 `-phase-track` / `-phase-bar`（`workflowPhaseSpan`，运行中钳制到 elapsed）、并行组 `-parallel-group`（左缘 2px bracket + 组首一次「并行×N」）、错误横幅 `-error-jump` 定位按钮（整条步骤行 `is-flash` 描边闪烁 1.6s，reduced-motion 只滚动）、日志 >6 行折叠（`LOG_FOLD_LIMIT`）。**绝对定位层（网格层 / 游标层 / 跨度条 / 并行标注）的轨道列宽必须用 `--wf-tl-track-plot`**：clamp 百分比项在 grid-template-columns / flex-basis 与 absolute `left` 里的解析基准不同（行内容宽 W−1.75rem vs 包含块 W），百分比参与时（面板约 340–480px 宽）会错位数像素；`--wf-tl-track-plot` 用 `(100% - 1.75rem) * 0.34` 复刻行内容宽基准（窄媒体 0.30 同理）。渲染器 class 链是 CSS/DOM 装饰的契约，改名需同步样式与测试。
+**实时可达性**：`ServerAgent` 的 `tool_execution_start/update/end` 路径调用 `workflow-agent-run-events.ts` 的 `WorkflowAgentRunEventPublisher`，把 `details.agents[]` 按 `${workflowRunId}:agent:${agent.id}` 写进 `subagentRunStore`（保留 120 份上一载荷用于回填）。因此 Inspector 已打开的 Tab 持续刷新，**不依赖聊天卡片是否渲染 / 是否被窗口化卸载**；点击时优先取 store 最新快照，store 无快照（历史恢复/首帧）才用当前渲染帧回填。Composer 的「运行中 subagent」指示器在 `run_workflow` 仍 pending 时按同一前缀列出这些嵌套快照。
+
+i18n 键（中英成对，位于 `src/lib/i18n.ts`）：`runWorkflow`、`workflowPreparing`、`workflowRunning`、`workflowCompleted`、`workflowFailed`、`workflowAborted`、`workflowAgentCountOne`、`workflowAgentCountMany`、`workflowToolCountOne`、`workflowToolCountMany`、`workflowToolParams`、`workflowToolResult`、`workflowCurrentPhase`、`workflowNoAgents`、`workflowStepCount`、`workflowError`、`workflowAgentDone`、`workflowAgentToolCalls`、`workflowAgentSchema`、`workflowAgentTask`、`workflowResult`、`workflowScript`、`workflowBadge`、`workflowRunDetails`、`workflowTabTitle`、`workflowTabTitleNoPhases`、`workflowSummaryRunning/Done/Failed/Aborted`、`toolApprovalRiskWorkflow`。详情面板的 `workflowDetail*` 系列：`StepCount`、`PhaseTotal`、`ParallelCount`（并行×N）、`PeakConcurrency`、`Saved`、`BudgetLine`（预算行，随脚本 sheet 头部）、`NoPhases`、`RunLogs`、`LocateFailure` / `Locate`、`FailedStepsOne/Many`、`Pending`、`OpenRun`、`Opened`。**已无消费方的残留键**（时间轴时代遗留，保留待清理）：`TimelineLegend*`、`TimelineHint`、`Now`/`NowTitle`、`LogsExpand`/`LogsCollapse`、`CopyTrace`——只有 `src/lib/i18n.ts` 自身定义，仓库内没有引用点。审批卡按 `run_workflow` 映射 `runWorkflow` 标签；`source.type === 'workflow'` 用本地化徽标与风险说明，workflow 内子 Agent 的审批在 `subagent` 徽标后追加 `workflowBadge`。
+
+样式分两处：`src/styles/chat/goal-workflow.css` 只留聊天卡（`-card` / `-preparing` / `-title` / `-marquee*` / `-error*`，共 14 个类，已无 `-phase*` / `-tool-zone` / `-result-section` / `-script` / `-ticks`）；`src/styles/workspace/workflow-detail.css` 承担 Inspector 单页（`quickforge-workflow-detail-*`，含 overview / pill / phases / phase-head / phase-dot / step / agent / tool-line / logs* / failure / error-jump / sheet / script-sheet / result-sheet / foot）。渲染器 class 链是 CSS/DOM 装饰的契约，改名需同步样式与测试。
 
 ## 8. 路由与工具暴露
 
@@ -377,10 +396,10 @@ i18n 键（中英成对，位于 `src/lib/i18n.ts`）：`runWorkflow`、`workflo
 | `tests/server/approval-store.test.mjs` | `run_workflow` 的 `/plan` 白名单与 `allowSubagents:false` 拒绝语义 |
 | `tests/server/agent-approval-orchestrator.test.mjs` | workflow step signal 中止时 pending 审批立即 reject，不等到 5 分钟审批超时 |
 | `tests/server/tools/definitions.test.mjs` | `workflowTool` 元数据、参数与 `workspaceTools` 暴露 |
-| `tests/frontend/workflow-renderer.test.ts` | 视图模型分组/状态映射/计数、Agent+工具按 seq 交错、工具行渲染、渲染器摘要与展开体、preparing 回退、脚本与 detailed JSON、注册/图标/刷新/审批接线、i18n 成对、CSS 契约 |
+| `tests/frontend/workflow-renderer.test.ts` | 视图模型分组/状态映射/计数、阶段内 Agent+工具按 seq 交错、`workflowPhaseSteps` 折叠、`workflowTimeline` 并发/并行/跨度统计、`WorkflowRunStore` 指纹去重与终态不回退、打开请求归一化、聊天卡单行入口（无展开体、无刻度、shimmer、preparing 回退）、Inspector 详情页（概览/阶段头/步骤/日志/脚本 sheet/失败定位）、脚本只在 detailed 模式进 payload、注册/图标/刷新/审批接线、i18n 成对、CSS 契约 |
 | `tests/frontend/approval-card.test.ts` | `run_workflow` 标签、`workflow` / `workflow-tool` 来源徽标与风险说明 |
 | `tests/frontend/workflow-agent-run-events.test.ts` | `run_workflow` SSE → store 的实时发布、`subagentRunDeferred` 帧复用可见 trace、终止帧不被迟到 running 帧回退、非 workflow 事件忽略 |
-| `tests/frontend/workflow-step-interaction.test.ts` | 外层卡/步骤行两级展开互不干扰；Agent 行动作派发 `OPEN_SUBAGENT_RUN_EVENT`、优先打开 store 最新快照且不切换行内 details |
+| `tests/frontend/workflow-step-interaction.test.ts` | 聊天卡与 Inspector 详情互不干扰；Agent 行动作派发 `OPEN_SUBAGENT_RUN_EVENT`、优先打开 store 最新快照 |
 
 针对性命令：
 
@@ -392,18 +411,20 @@ npx vitest run tests/server/agent-workflow-runner.test.mjs tests/server/agent-ma
 
 ## 10. 相关文件
 
-- `server/agent-workflow-runner.mjs`
-- `server/agent-workflow-worker.mjs`
-- `server/agent-workflow-tools.mjs`
+- `server/agent-workflow-runner.mjs`（802 行）
+- `server/agent-workflow-worker.mjs`（423 行）
+- `server/agent-workflow-tools.mjs`（109 行）
 - `server/agent-subagent-runner.mjs`
 - `server/tools/definitions.mjs`
 - `server/agent-manager.mjs`
 - `server/approval-store.mjs`
 - `server/routes/tools.mjs`
-- `src/lib/workflow-run-detail.ts`
-- `src/lib/workflow-subagent-detail.ts`
-- `src/lib/workflow-agent-run-events.ts`
-- `src/lib/tool-renderers/workflow-tool-renderer.tsx`
+- `src/lib/workflow-run-detail.ts`（549 行）
+- `src/lib/workflow-run-payload.ts`（190 行）
+- `src/lib/workflow-subagent-detail.ts`（149 行）
+- `src/lib/workflow-agent-run-events.ts`（135 行）
+- `src/components/workspace/WorkflowRunDetailContent.tsx`（468 行）
+- `src/lib/tool-renderers/workflow-tool-renderer.tsx`（164 行）
 - `src/lib/local-tools.ts`
 - `src/lib/i18n.ts`
 - `src/styles/chat/goal-workflow.css`

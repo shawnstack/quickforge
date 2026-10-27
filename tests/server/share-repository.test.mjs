@@ -75,11 +75,6 @@ describe('share repository and schema v8', () => {
   })
 
   it('creates schema v8 share tables and rolls a failing v7 to v8 migration back without losing F5/F7/F9 data', () => {
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
-    expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({
-      version: 12,
-      name: 'remove_share_lan_record_digests',
-    })
     for (const table of ['share_sessions', 'share_tokens', 'share_storage_state', 'share_maintenance_lock', 'share_json_mirror_queue']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
     }

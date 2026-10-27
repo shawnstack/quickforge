@@ -85,21 +85,34 @@ export async function copyTextToClipboard(text: string) {
   textarea.remove()
 }
 
-export function generateTitle(messages: AgentMessage[]) {
+/**
+ * Marker prepended to the title of a forked session so the conversation list
+ * makes the origin obvious. Kept language-neutral on purpose: the same prefix
+ * in every UI language keeps forked sessions easy to spot and to search.
+ */
+export const FORK_TITLE_PREFIX = '[fork] '
+
+export function generateTitle(messages: AgentMessage[], prefix = '') {
   const firstUser = messages.find(
     (message) => message.role === 'user' || message.role === 'user-with-attachments',
   )
 
   if (!firstUser || (firstUser.role !== 'user' && firstUser.role !== 'user-with-attachments')) {
-    return 'New chat'
+    return `${prefix}New chat`
   }
 
   const content = firstUser.content
   const text = typeof content === 'string' ? content : textFromContentBlocks(content)
 
   const normalized = text.trim().replace(/\s+/g, ' ')
-  if (!normalized) return 'New chat'
-  return normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized
+  if (!normalized) return `${prefix}New chat`
+  // The prefix is a marker, not content: the 46-char budget still applies to the
+  // message text on its own so a fork never shows less of the real question.
+  return `${prefix}${normalized.length > 46 ? `${normalized.slice(0, 43)}...` : normalized}`
+}
+
+export function generateForkTitle(messages: AgentMessage[]) {
+  return generateTitle(messages, FORK_TITLE_PREFIX)
 }
 
 export function titleNeedsGeneration(title: string) {

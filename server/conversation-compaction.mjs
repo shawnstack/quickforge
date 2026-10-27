@@ -17,35 +17,35 @@ const LEGACY_COMPACT_SUMMARY_INTROS = [
 const LEGACY_COMPACTION_NOTICE_PREFIX = '已基于当前对话创建压缩后的新对话：'
 const LEGACY_COMPACTION_NOTICE_SUFFIX = '压缩前历史已保存到本地备份。'
 
-export const COMPACT_SYSTEM_PROMPT = `你是 QuickForge 的“历史对话压缩器”。你的任务是把一段较长的 AI 助手对话压缩成后续模型继续工作所需的最小充分上下文。
+export const COMPACT_SYSTEM_PROMPT = `You are QuickForge's "conversation compactor". Your job is to compress a long assistant conversation into the minimum sufficient context that a model needs to keep working afterwards.
 
-目标：
-- 显著减少 token 占用。
-- 保留后续继续完成任务必须知道的信息。
-- 不添加历史中没有出现过的新事实。
-- 不输出推理过程，不输出无关解释。
-- 不保留闲聊、重复确认、已被否定的方案，除非它们解释了当前决策。
-- 不泄露或复述密钥、Token、密码、个人隐私；如果历史中出现敏感信息，用 [REDACTED] 替代。
-- 如果存在不确定信息，明确标注“待确认”。
+Objectives:
+- Reduce token usage significantly.
+- Preserve every fact the continuation needs.
+- Never introduce facts that did not appear in the history.
+- Do not output reasoning or unrelated explanation.
+- Drop small talk, repeated confirmations and rejected proposals, unless they explain a current decision.
+- Never reveal, quote or paraphrase keys, tokens, passwords or personal data. Replace sensitive values found in the history with [REDACTED].
+- Mark anything uncertain explicitly as "Unconfirmed".
 
-必须保留的信息：
-1. 用户最终目标和当前任务状态。
-2. 已确认的需求、限制条件、偏好和不做范围。
-3. 重要决策、方案取舍和原因。
-4. 已检查过的仓库路径、文件、函数、配置项、命令和结果。
-5. 已完成的代码/文件改动、验证结果、失败尝试和当前问题。
-6. 尚未完成的 TODO、风险、阻塞点、待确认问题。
-7. 最近上下文中对下一步行动有直接影响的细节。
+Information that must be preserved:
+1. The user's final goal and the current task state.
+2. Confirmed requirements, constraints, preferences and explicit out-of-scope items.
+3. Important decisions, trade-offs and the reasons behind them.
+4. Repository paths, files, functions, configuration keys, commands and their results that were already inspected.
+5. Completed code/file changes, verification results, failed attempts and the current problem.
+6. Outstanding TODOs, risks, blockers and open questions.
+7. Details from the most recent context that directly affect the next action.
 
-输出要求：
-- 使用与原对话主要语言一致的语言。
-- 使用 Markdown。
-- 尽量简洁，但不要牺牲关键事实。
-- 不要说“这是摘要”之外的寒暄。
-- 不要包含完整原文，除非原文是关键命令、路径、错误信息或验收标准。
-- 如果没有足够历史可压缩，输出“无足够历史需要压缩”。
+Output requirements:
+- Write in the same language as the majority of the original conversation.
+- Use Markdown.
+- Be as concise as possible without dropping key facts.
+- No pleasantries beyond the summary itself.
+- Do not paste full source text, except for critical commands, paths, error messages or acceptance criteria.
+- If there is not enough history to compact, output "No sufficient history to compact".
 
-固定输出结构：
+Fixed output structure:
 
 # Compact Conversation Summary
 
@@ -138,17 +138,19 @@ function isUserMessage(message) {
     && !isCompactSummaryMessage(message)
 }
 
-function truncateMiddle(value, maxLength) {
-  const text = String(value ?? '')
-  if (text.length <= maxLength) return text
-  const headLength = Math.floor(maxLength * 0.45)
-  const tailLength = Math.max(0, maxLength - headLength)
-  return `${text.slice(0, headLength)}\n\n...[truncated ${text.length - maxLength} chars]...\n\n${text.slice(-tailLength)}`
-}
-
-function safeJson(value, maxLength = 3000) {
+/**
+ * Stringify without any length cap.
+ *
+ * The old version truncated to a default 3000 chars (2000 for tool-call
+ * arguments) with a head/tail cut, so a large argument object or attachment list
+ * reached the summarizer as a fragment with a `...[truncated N chars]...`
+ * marker. Nothing in the compaction transcript is truncated any more; the only
+ * replacements left are structural ones (images, attachments) where the content
+ * genuinely cannot be sent as text.
+ */
+function safeJson(value) {
   try {
-    return truncateMiddle(JSON.stringify(value, null, 2), maxLength)
+    return JSON.stringify(value, null, 2)
   } catch {
     return ''
   }
@@ -175,7 +177,7 @@ function contentToText(content) {
     } else if (block.type === 'image') {
       parts.push(`[image omitted: ${block.mimeType || 'unknown mime'}]`)
     } else if (block.type === 'toolCall') {
-      parts.push(`[tool call: ${block.name || 'unknown'} ${safeJson(block.arguments, 2000)}]`)
+      parts.push(`[tool call: ${block.name || 'unknown'} ${safeJson(block.arguments)}]`)
     }
   }
   return parts.join('\n')
@@ -187,11 +189,24 @@ function attachmentsSummary(message) {
   return `[attachments omitted: ${message.attachments.length}]`
 }
 
+/**
+ * Render one message into the compaction transcript.
+ *
+ * No length cap: the summary request must see the whole history, otherwise the
+ * summary silently loses whatever fell into the cut. The old
+ * `truncateMiddle(text, 10000)` kept head + tail and dropped the middle, which
+ * mattered most for the exact case compaction exists for — a conversation that
+ * already had a large file or log pasted into it.
+ *
+ * Secrets are still redacted per message (`redactSensitive`), and non-text
+ * blocks are replaced with placeholders: images cannot be re-sent as text and a
+ * tool call's arguments are already represented by its result.
+ */
 function formatMessageForTranscript(message, index) {
   const role = message?.role || 'unknown'
   const bodyParts = []
   const text = contentToText(message?.content)
-  if (text.trim()) bodyParts.push(truncateMiddle(text.trim(), 10000))
+  if (text.trim()) bodyParts.push(text.trim())
 
   const attachments = attachmentsSummary(message)
   if (attachments) bodyParts.push(attachments)
@@ -200,20 +215,24 @@ function formatMessageForTranscript(message, index) {
   return redactSensitive(`### Message ${index + 1}: ${role}\n${body}`)
 }
 
-function transcriptCharLimit(model) {
-  const contextWindow = Number(model?.contextWindow) || 128000
-  return Math.min(160000, Math.max(12000, Math.floor(contextWindow * 1.6)))
-}
-
-function buildTranscript(messages, model) {
-  const text = messages.map(formatMessageForTranscript).join('\n\n')
-  return truncateMiddle(text, transcriptCharLimit(model))
+/**
+ * Join the compaction source into one transcript.
+ *
+ * Deliberately unbounded: `transcriptCharLimit(model)` used to clamp this to
+ * `min(160000, max(12000, contextWindow * 1.6))` chars with the same
+ * head/tail cut. The summarizer is a separate request with its own budget, and
+ * losing the middle of the history is worse than letting the provider reject an
+ * oversized request — a rejection surfaces as a visible compaction failure
+ * instead of a quietly incomplete summary.
+ */
+function buildTranscript(messages) {
+  return messages.map(formatMessageForTranscript).join('\n\n')
 }
 
 function approximateMessageChars(message) {
   let total = String(message?.role || '').length
   total += contentToText(message?.content).length
-  if (message?.attachments) total += safeJson(message.attachments, 1000).length
+  if (message?.attachments) total += safeJson(message.attachments).length
   if (message?.toolName) total += String(message.toolName).length
   if (message?.toolCallId) total += String(message.toolCallId).length
   return total
@@ -304,7 +323,7 @@ export async function compactConversation({
   if (!model?.provider) throw new Error('No model configured for conversation compaction.')
 
   const split = splitMessagesForCompaction(messages, { keepTurns })
-  const transcript = buildTranscript(split.compactRange, model)
+  const transcript = buildTranscript(split.compactRange)
   const normalizedMinSourceChars = Number.isFinite(Number(minSourceChars))
     ? Math.max(0, Number(minSourceChars))
     : MIN_SUMMARY_SOURCE_CHARS
@@ -320,7 +339,7 @@ export async function compactConversation({
     }
   }
 
-  const userPrompt = `下面是即将被压缩替代的对话历史。只基于这段历史生成摘要。\n\n<conversation_to_compact>\n${transcript}\n</conversation_to_compact>`
+  const userPrompt = `Below is the conversation history that is about to be replaced by a summary. Generate the summary from this history only.\n\n<conversation_to_compact>\n${transcript}\n</conversation_to_compact>`
   const modelMaxTokens = Number(model.maxTokens) || 4096
   const maxTokens = Math.max(512, Math.min(modelMaxTokens, 4096))
   const apiKey = getApiKey ? await getApiKey(model.provider) : undefined

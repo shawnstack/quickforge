@@ -1,0 +1,346 @@
+/* ------------------------------------------------------------------ */
+/* Dreaming settings tab                                              */
+/*                                                                    */
+/* Layout goal: the page has three long-lived things (state, the       */
+/* memory store, the run log). Stacking them as three full-width       */
+/* sections forced a lot of scrolling for no hierarchy, so the state   */
+/* block is a compact header and the two lists share one segmented     */
+/* area. Styling stays within the settings design language: hairline   */
+/* borders, muted chips, no card shadows.                              */
+/* ------------------------------------------------------------------ */
+
+.quickforge-dreaming-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+  border-radius: 0.75rem;
+  padding: 1rem 1.25rem;
+}
+
+.quickforge-dreaming-header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.quickforge-dreaming-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 560;
+  line-height: 1.4;
+}
+
+.quickforge-dreaming-description {
+  margin-top: 0.125rem;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.quickforge-dreaming-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Status dot: the only always-visible signal of "is this thing on".
+   The dot never carries meaning by color alone — the status text next to
+   the title spells it out in the same tone. */
+.quickforge-dreaming-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+}
+
+.quickforge-dreaming-dot[data-state='on'] {
+  background: color-mix(in oklab, #10b981 78%, var(--foreground));
+}
+
+.quickforge-dreaming-dot[data-state='running'] {
+  background: color-mix(in oklab, var(--primary) 82%, var(--foreground));
+  animation: quickforge-dreaming-pulse 1.6s ease-in-out infinite;
+}
+
+.quickforge-dreaming-dot[data-state='error'] {
+  background: color-mix(in oklab, var(--destructive) 82%, var(--foreground));
+}
+
+.quickforge-dreaming-status-text {
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.quickforge-dreaming-status-text::before {
+  content: '·';
+  margin-right: 0.375rem;
+}
+
+.quickforge-dreaming-status-text[data-state='on'] {
+  color: color-mix(in oklab, #047857 82%, var(--foreground));
+}
+
+.quickforge-dreaming-status-text[data-state='running'] {
+  color: color-mix(in oklab, var(--primary) 82%, var(--foreground));
+}
+
+.quickforge-dreaming-status-text[data-state='error'] {
+  color: color-mix(in oklab, var(--destructive) 88%, var(--foreground));
+}
+
+@keyframes quickforge-dreaming-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-dreaming-dot[data-state='running'] {
+    animation: none;
+  }
+}
+
+/* One line of metadata instead of four separate settings rows. */
+.quickforge-dreaming-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.875rem;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.quickforge-dreaming-meta strong {
+  color: var(--foreground);
+  font-weight: 520;
+}
+
+/* Inline settings sit under a hairline so they read as one level below
+   the state line above them, not as a second paragraph of the same block. */
+.quickforge-dreaming-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  align-items: center;
+  border-top: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+  padding: 0.75rem 0.25rem 0;
+}
+
+.quickforge-dreaming-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+}
+
+.quickforge-dreaming-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+}
+
+/* The model selector shows "name (provider)"; it needs more room than the rest. */
+.quickforge-dreaming-field-model .quickforge-settings-select {
+  min-width: 13rem;
+  max-width: 18rem;
+}
+
+/* Inline settings must not inherit the full-width form input. */
+.quickforge-dreaming-field .quickforge-settings-input,
+.quickforge-dreaming-field .quickforge-settings-select {
+  width: auto;
+  min-width: 6.5rem;
+  min-height: 2rem;
+  border-radius: 0.625rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8125rem;
+}
+
+/* Run / memory list rows: whole row is the target, not a trailing button. */
+.quickforge-dreaming-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+  padding: 0.75rem 1.25rem;
+  text-align: left;
+  width: 100%;
+  background: transparent;
+  transition: background-color 160ms ease-out;
+  cursor: pointer;
+}
+
+.quickforge-dreaming-row:last-child {
+  border-bottom: 0;
+}
+
+.quickforge-dreaming-row:hover {
+  background: color-mix(in oklab, var(--muted) 18%, transparent);
+}
+
+.quickforge-dreaming-row:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 62%, transparent);
+  outline-offset: -2px;
+}
+
+/* A static row (no click target) keeps the same rhythm. */
+.quickforge-dreaming-row-static {
+  cursor: default;
+}
+
+.quickforge-dreaming-row-static:hover {
+  background: transparent;
+}
+
+.quickforge-dreaming-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.375rem 0.5rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.quickforge-dreaming-row-time {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Metric cluster keeps "3 sessions / +2 / ~1 / -1 / 2 rejected" on one line. */
+.quickforge-dreaming-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.75rem;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-dreaming-metrics span[data-tone='added'] { color: color-mix(in oklab, #047857 80%, var(--foreground)); }
+.quickforge-dreaming-metrics span[data-tone='changed'] { color: color-mix(in oklab, #b45309 78%, var(--foreground)); }
+.quickforge-dreaming-metrics span[data-tone='removed'] { color: color-mix(in oklab, #b91c1c 72%, var(--foreground)); }
+
+.quickforge-dreaming-summary {
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.quickforge-dreaming-error {
+  color: color-mix(in oklab, var(--destructive) 88%, var(--foreground));
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* Compact stat strip on the run detail page. */
+.quickforge-dreaming-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.75rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+  border-radius: 0.75rem;
+  padding: 0.875rem 1.25rem;
+}
+
+.quickforge-dreaming-stat-label {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.quickforge-dreaming-stat-value {
+  margin-top: 0.125rem;
+  font-size: 0.9375rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 540;
+  line-height: 1.3;
+}
+
+.quickforge-dreaming-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.5rem 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.quickforge-dreaming-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 520;
+}
+
+/* Chevron rotates between closed/open instead of swapping glyphs. */
+.quickforge-dreaming-chevron {
+  display: inline-flex;
+  color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
+  transition: transform var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-dreaming-chevron[data-open='false'] {
+  transform: rotate(-90deg);
+}
+
+.quickforge-dreaming-toggle-count {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Filter row: search grows, the two controls stay compact. */
+.quickforge-dreaming-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  padding: 0.75rem 1.25rem;
+}
+
+.quickforge-dreaming-filters .quickforge-settings-input {
+  flex: 1 1 12rem;
+  width: auto;
+  min-height: 2rem;
+  border-radius: 0.625rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.8125rem;
+}
+
+.quickforge-dreaming-pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+}
+
+.quickforge-dreaming-code {
+  margin: 0.5rem 0 0;
+  max-height: 22rem;
+  overflow: auto;
+  border-radius: 0.5rem;
+  background: color-mix(in oklab, var(--muted) 32%, transparent);
+  padding: 0.75rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

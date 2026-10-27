@@ -25,6 +25,8 @@ import { handleFilesystemApi, setActiveWorkspaceRootForFilesystem } from './rout
 import { handleToolApi, handleGetTools } from './routes/tools.mjs'
 import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleMemoryApi } from './routes/memory.mjs'
+import { handleDreamingApi } from './routes/dreaming.mjs'
+import { startDreamingRunner, stopDreamingRunner } from './dreaming/runner.mjs'
 import { handleSkillsApi } from './routes/skills.mjs'
 import { ensureDefaultGlobalSkills } from './skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
@@ -186,6 +188,7 @@ async function shutdownRuntime() {
   try {
     stopScheduledTaskRunner()
     stopAutoArchiveRunner()
+    stopDreamingRunner()
     stopHookEngine()
     stopRuntimeDiagnostics()
     stopVite()
@@ -423,6 +426,12 @@ async function handleApi(req, res, url, requestContext = {}) {
   // Global user memory
   if (pathname === '/api/memory') {
     await handleMemoryApi(req, res)
+    return
+  }
+
+  // Dreaming long-term memory (background consolidation + experience store)
+  if (pathname === '/api/dreaming' || pathname.startsWith('/api/dreaming/')) {
+    await handleDreamingApi(req, res, url)
     return
   }
 
@@ -926,6 +935,7 @@ async function runStartupInitialization() {
   setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
   startScheduledTaskRunner()
   startAutoArchiveRunner()
+  startDreamingRunner()
   await timedStartupStep('hook-engine', () => startHookEngine())
   startRuntimeDiagnostics()
 }

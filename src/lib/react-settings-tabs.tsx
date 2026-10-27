@@ -16,6 +16,7 @@ const McpServersPanel = lazy(() => import('@/components/mcp-servers-dialog').the
 const SkillsManagerPanel = lazy(() => import('@/components/skills-dialog').then((m) => ({ default: m.SkillsManagerPanel })))
 const PluginsPage = lazy(() => import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })))
 const ScheduledTasksPage = lazy(() => import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })))
+const DreamingSettingsTab = lazy(() => import('@/components/dreaming/DreamingSettingsTab').then((m) => ({ default: m.DreamingSettingsTab })))
 
 function SettingsPanel({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return <div className={cn('quickforge-settings-stack h-full min-h-[30rem]', wide && 'quickforge-settings-stack-wide')}>{children}</div>
@@ -39,6 +40,7 @@ const tabContent = {
   mcp: () => <SettingsPanel><McpServersPanel active /></SettingsPanel>,
   plugins: () => <SettingsPanel><PluginsPage /></SettingsPanel>,
   scheduledTasks: () => <SettingsPanel><ScheduledTasksPage onOpenSession={openScheduledTaskSession} /></SettingsPanel>,
+  dreaming: () => <DreamingSettingsTab />,
   projectCommands: () => <ProjectCommandsSettingsTab />,
   hooks: () => <HooksSettingsTab />,
   data: (_customProvider?: string, active?: boolean) => <DataSettingsTab active={active} />,

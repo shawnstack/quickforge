@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { readStore } from './storage.mjs'
 import {
   compactConversation,
@@ -49,6 +50,59 @@ export function normalizeAutoCompactSettings(value) {
 export async function readAutoCompactSettings() {
   const settings = await readStore('settings')
   return normalizeAutoCompactSettings(settings?.[AUTO_COMPACT_SETTINGS_KEY])
+}
+
+/**
+ * Compaction UI state machine (single source of truth for the chat surface).
+ *
+ * Before this existed the server only emitted fire-and-forget events
+ * (`auto_compact_threshold_reached`, `auto_compact_approval_required`,
+ * `auto_compact_completed`, `auto_compact_failed`) and kept `autoCompacting` as
+ * a private boolean. The three consequences were visible bugs:
+ *
+ * 1. Summarizing is an extra LLM round trip that can take tens of seconds. With
+ *    no phase exposed, the panel showed nothing at all and the run looked hung.
+ * 2. The approval promise resolved `false` both for "user declined" and for
+ *    "timed out", and the timeout path emitted no event, so the approval card
+ *    stayed on screen after the server had already dropped the approval — the
+ *    next click could only fail with a 404.
+ * 3. Every early return after the threshold was reached produced no UI state at
+ *    all, so "nothing happened" and "it silently gave up" looked identical.
+ *
+ * The notice is therefore a complete projection of the pipeline: every entry
+ * into a phase and every exit (including cancellation/timeout) publishes it, and
+ * `null` means "nothing in flight". Consumers never have to infer state from the
+ * absence of events.
+ */
+export const COMPACTION_NOTICE_PHASES = Object.freeze({
+  /** Threshold reached, waiting for the user's decision (requireConfirmation). */
+  AWAITING_CONFIRMATION: 'awaiting_confirmation',
+  /** Summary generation is in flight; the run is blocked until it finishes. */
+  SUMMARIZING: 'summarizing',
+})
+
+/**
+ * Publish the in-flight notice. `null` clears it.
+ *
+ * Failure is deliberately NOT a server-owned phase: it is transient and is
+ * already carried by `auto_compact_failed`, which the surface renders
+ * ephemerally. Keeping it out of the projection means the notice can never go
+ * stale on the server side.
+ */
+export function setCompactionNotice(session, notice, emitSessionEvent) {
+  const next = notice ?? null
+  const previous = session.compactionNotice ?? null
+  if (previous === next) return
+  session.compactionNotice = next
+  emitSessionEvent?.(session, {
+    type: 'auto_compact_state',
+    compactionNotice: next,
+  })
+}
+
+/** Clear the notice only when one is published (avoids empty events). */
+export function clearCompactionNotice(session, emitSessionEvent) {
+  setCompactionNotice(session, null, emitSessionEvent)
 }
 
 function safeJson(value) {
@@ -219,6 +273,39 @@ export function hasNewMessagesSinceCompaction(session, messages) {
   return Number.isFinite(compactedAt) && source.some((message) => messageTimestampMs(message) > compactedAt)
 }
 
+/**
+ * Minimum tail an automatic compaction must keep.
+ *
+ * `keepRecentTurns: 0` means "keep nothing", which is correct for the manual
+ * `/compact` command (the user explicitly asked to summarize everything so far)
+ * but wrong for the automatic path: it runs *inside* an active run, between two
+ * model calls, so "compact everything" puts the timeline divider inside the turn
+ * the user is currently watching. Two visible symptoms followed:
+ *
+ * - the divider was inserted between rows produced seconds earlier, directly
+ *   contradicting its own label ("earlier context is summarized");
+ * - right after compaction the boundary equalled the message count, so the
+ *   divider was the list's last child with nothing under it — an orphan line
+ *   above the composer until the next streamed row happened to appear.
+ *
+ * Keeping the current user turn gives the divider a real referent (history above,
+ * this turn below) at any `keepRecentTurns` setting, and costs nothing when the
+ * configured value is already ≥ 1.
+ */
+export const AUTO_COMPACT_MIN_TAIL_USER_TURNS = 1
+
+export function resolveAutoCompactTailStart(messages, keepRecentTurns) {
+  const source = Array.isArray(messages) ? messages : []
+  const configured = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
+  const effective = Math.max(AUTO_COMPACT_MIN_TAIL_USER_TURNS, configured)
+  const tailStart = tailStartForRecentTurns(source, effective)
+  // Degenerate histories (no user message at all) can make the aligned cut land
+  // before the array start; fall back to the configured behaviour so a run is
+  // never left uncompacted just because the tail could not be aligned.
+  if (tailStart <= 0) return tailStartForRecentTurns(source, configured)
+  return tailStart
+}
+
 export async function compactSessionInPlace({
   session,
   messages,
@@ -235,7 +322,12 @@ export async function compactSessionInPlace({
   const source = Array.isArray(messages) ? messages : []
   const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
   const normalizedMinSourceChars = clampNumber(minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000)
-  const tailStart = tailStartForRecentTurns(source, normalizedKeepRecentTurns)
+  // The manual command keeps its exact "summarize everything" semantics; the
+  // automatic path aligns the cut to the current user turn (see
+  // AUTO_COMPACT_MIN_TAIL_USER_TURNS).
+  const tailStart = reason === 'manual_compact'
+    ? tailStartForRecentTurns(source, normalizedKeepRecentTurns)
+    : resolveAutoCompactTailStart(source, normalizedKeepRecentTurns)
   const sourceMessages = buildCompactionSourceMessages(session, source, tailStart)
   if (sourceMessages.length < 2 || estimateMessagesChars(sourceMessages) < normalizedMinSourceChars) {
     return { compacted: false, usage, reason: 'not_enough_history' }
@@ -364,6 +456,29 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   return value
 }
 
+/**
+ * Outcome kinds for `confirmAutoCompact`.
+ *
+ * The old contract was `boolean`, which collapsed the three cases the UI must
+ * tell apart: the user declined (suppress for 10 minutes, hide the card),
+ * nobody answered in time (drop the card, do not punish the user), and no
+ * approval channel exists (a server-side problem, not a user decision).
+ */
+export const AUTO_COMPACT_DECISION = Object.freeze({
+  APPROVED: 'approved',
+  DECLINED: 'declined',
+  TIMED_OUT: 'timed_out',
+  UNAVAILABLE: 'unavailable',
+})
+
+function normalizeDecision(value) {
+  if (value === true) return AUTO_COMPACT_DECISION.APPROVED
+  if (value === AUTO_COMPACT_DECISION.APPROVED) return AUTO_COMPACT_DECISION.APPROVED
+  if (value === AUTO_COMPACT_DECISION.TIMED_OUT) return AUTO_COMPACT_DECISION.TIMED_OUT
+  if (value === AUTO_COMPACT_DECISION.UNAVAILABLE) return AUTO_COMPACT_DECISION.UNAVAILABLE
+  return AUTO_COMPACT_DECISION.DECLINED
+}
+
 export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {
   if (!session || session.autoCompacting) return { compacted: false }
   const settings = await readAutoCompactSettings()
@@ -390,28 +505,72 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     return { compacted: false, usage, reason: 'not_enough_new_messages' }
   }
 
-  const tailStart = tailStartForRecentTurns(messages, settings.keepRecentTurns)
+  const tailStart = resolveAutoCompactTailStart(messages, settings.keepRecentTurns)
   const sourceMessages = buildCompactionSourceMessages(session, messages, tailStart)
   if (sourceMessages.length < 2 || estimateMessagesChars(sourceMessages) < settings.minSourceChars) {
     return { compacted: false, usage, reason: 'not_enough_history' }
   }
 
-  emitSessionEvent?.(session, {
-    type: 'auto_compact_threshold_reached',
-    usage,
-    thresholdPercent: settings.thresholdPercent,
-    requireConfirmation: settings.requireConfirmation,
-  })
-
   if (settings.requireConfirmation) {
-    const approved = await confirmAutoCompact?.(session, { usage, settings })
-    if (!approved || signal?.aborted) {
-      if (approved === false) markAutoCompactRejected(session, messages, usage)
-      return { compacted: false, usage, reason: approved === false ? 'user_rejected' : 'confirmation_unavailable' }
+    // The approval id is minted here (not inside the approval promise) so the
+    // published notice is self-sufficient: the surface can render the decision
+    // row and call the approve/reject route from the notice alone, without a
+    // second source of truth racing the first one.
+    const approvalId = randomUUID()
+    setCompactionNotice(session, {
+      phase: COMPACTION_NOTICE_PHASES.AWAITING_CONFIRMATION,
+      approvalId,
+      usage,
+      thresholdPercent: settings.thresholdPercent,
+      keepRecentTurns: settings.keepRecentTurns,
+      requestedAt: new Date(now).toISOString(),
+    }, emitSessionEvent)
+
+    if (!confirmAutoCompact) {
+      // No approval channel: drop the notice immediately instead of leaving the
+      // user staring at a row whose buttons cannot resolve anything.
+      setCompactionNotice(session, null, emitSessionEvent)
+      return { compacted: false, usage, reason: 'confirmation_unavailable' }
+    }
+
+    let decision = AUTO_COMPACT_DECISION.UNAVAILABLE
+    try {
+      decision = normalizeDecision(await confirmAutoCompact(session, { usage, settings, approvalId }))
+    } catch (error) {
+      // Aborted runs reject the pending approval (see agent-manager's abort
+      // path). Cancellation is not a compaction failure: keep the notice
+      // cleared and let the outer run report its own abort status.
+      logger?.debug?.(`Auto compact confirmation cancelled for session ${session.sessionId}:`, error?.message || error)
+    }
+    // Any decision settles the pending phase; the accepted path immediately
+    // enters `summarizing` below, so the two publishes never both linger.
+    setCompactionNotice(session, null, emitSessionEvent)
+
+    if (decision !== AUTO_COMPACT_DECISION.APPROVED || signal?.aborted) {
+      if (decision === AUTO_COMPACT_DECISION.DECLINED) markAutoCompactRejected(session, messages, usage)
+      return {
+        compacted: false,
+        usage,
+        reason: decision === AUTO_COMPACT_DECISION.DECLINED
+          ? 'user_rejected'
+          : decision === AUTO_COMPACT_DECISION.TIMED_OUT
+            ? 'confirmation_timeout'
+            : signal?.aborted
+              ? 'aborted'
+              : 'confirmation_unavailable',
+      }
     }
   }
 
   session.autoCompacting = true
+  setCompactionNotice(session, {
+    phase: COMPACTION_NOTICE_PHASES.SUMMARIZING,
+    usage,
+    thresholdPercent: settings.thresholdPercent,
+    keepRecentTurns: settings.keepRecentTurns,
+    requestedAt: new Date(now).toISOString(),
+  }, emitSessionEvent)
+
   try {
     const result = await compactSessionInPlace({
       session,
@@ -442,5 +601,9 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     return { compacted: false, usage, reason: 'error', error }
   } finally {
     session.autoCompacting = false
+    // Terminal clear for every exit path (success, skip, throw). The surface
+    // keeps showing nothing once compaction settled; leaving the notice behind
+    // is what produced the "stuck on summarizing" state in the old design.
+    setCompactionNotice(session, null, emitSessionEvent)
   }
 }

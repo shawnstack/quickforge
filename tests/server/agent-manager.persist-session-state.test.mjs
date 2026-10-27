@@ -703,6 +703,83 @@ describe('agent persist in authoritative session state', () => {
     }
   })
 
+  it('persists a seeded session at create time so it reaches the session index immediately', async () => {
+    const sessionId = 'seeded-fork'
+    const sourceTimestamp = '2020-01-01T00:00:00.000Z'
+    const messages = [
+      { role: 'user', content: 'source question', timestamp: sourceTimestamp },
+      { role: 'assistant', content: 'source answer', timestamp: sourceTimestamp },
+    ]
+
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      messages,
+      title: '[fork] source question',
+    })
+
+    try {
+      // Written by createAgent itself — no follow-up message or explicit
+      // persistSessionState call. This is what makes the fork appear in the
+      // sidebar right away.
+      const record = repository.findBySessionId(sessionId)
+      expect(record).not.toBeNull()
+      expect(record.metadata).toMatchObject({ id: sessionId, title: '[fork] source question', messageCount: 2 })
+
+      // Seeded messages carry the source conversation's old timestamps; the
+      // session's own updated time must still be "now", otherwise the fork
+      // sorts below the conversation it branched from.
+      expect(new Date(record.metadata.lastModified).getTime()).toBeGreaterThan(Date.parse(sourceTimestamp))
+      expect(record.state.createdAt).toBe(session.createdAt)
+      // Creation must not consume a stateVersion: no event was emitted.
+      expect(record.metadata.stateVersion).toBe(0)
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('keeps the lazy-persist path for sessions created without messages', async () => {
+    const sessionId = 'empty-deferred'
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+    })
+
+    try {
+      expect(repository.findBySessionId(sessionId)).toBeNull()
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('does not rewrite storage when restoring a session that already exists', async () => {
+    const sessionId = 'restore-no-rewrite'
+    const session = await agentManager.createAgent(sessionId, {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+      systemPrompt: '',
+      messages: firstMessage(),
+      title: 'Restorable',
+    })
+    await agentManager.persistSessionState(session)
+    await agentManager.destroyAgent(sessionId)
+    const before = repository.findBySessionId(sessionId)
+
+    const restored = await agentManager.restoreAgent(sessionId)
+
+    try {
+      const after = repository.findBySessionId(sessionId)
+      // Same revision proves the restore path did not re-enter the create-time
+      // seed write (which would bump the row on every open).
+      expect(after.revision).toBe(before.revision)
+      expect(restored.sessionCreatedEmitted).toBe(true)
+    } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
   it('detects a concurrent split-message append as an agent-owned conflict', async () => {
     const sessionId = 'agent-split-conflict'
     const bigMessages = []

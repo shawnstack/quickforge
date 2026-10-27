@@ -53,6 +53,7 @@ quickforge/
 | [浏览器缓存策略](../architecture/browser-cache-strategy.zh-CN.md) | 应用层缓存分级与已实施范围 |
 | [会话打开快路径](../architecture/session-open-fast-path.zh-CN.md) | 打开历史会话的耗时构成、交互契约红线、内容寻址渲染缓存与后续里程碑 |
 | [对话轨迹](../architecture/conversation-trace.zh-CN.md) | 对话区的只读运行时视图（Turn→Step→Tool 投影、三轨时间总览、检查器、不虚构耗时） |
+| [Dreaming 记忆固化](../architecture/dreaming-memory.zh-CN.md) | 后台把已结束会话沉淀为长期记忆（结构化经验库 + FTS5 检索 + MEMORY.md 自动区 + `recall_experience`） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
 | [小版本发布 Runbook](../architecture/patch-release-runbook.zh-CN.md) | patch 版本发布流程 |
@@ -70,7 +71,7 @@ quickforge/
 - **ACP Agent**: `quickforge acp` 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 暴露 stdio ACP Agent，桥接现有 `server/agent-manager.mjs` 会话和工具事件。
 - **数据存储**: 本地 `~/.quickforge/` 目录 (config / storage / cache / logs)
 - **Agent 权限模式**: 默认权限允许读取/搜索当前 workspace，并对写入、命令、MCP/Plugin 等可能影响系统的工具请求审批；完全访问权限等同开发者授权，在既有 workspace 沙箱和敏感文件限制内自动执行工具
-- **工作流编排**: 主会话可按需调用 `run_workflow`，用一段短 JavaScript 编排多个 Subagent 与工作区工具（`agent` / `tool` / `parallel` / `pipeline` / `phase` / `log` / `args`）；脚本在独立 worker 线程的 vm 上下文中运行，不暴露 Node globals，最终结果必须 JSON 可序列化；Agent 步骤可点击进入 Subagent 运行详情面板。脚本上限 20KB；默认权限下启动前展示完整脚本并审批一次，步骤串行执行以保证审批卡可见，每个 Agent 与 `tool()` 的调用仍走既有审批；完全访问下才使用配置并发。默认 24 个 Agent、64 次工具调用、4 并发、1 小时，可在 `options` 中按 `maxAgents` 1–64 / `maxTools` 1–128 / `concurrency` 1–8 / `maxRuntimeMs` 1 秒–2 小时调整。不开放直接 REST 执行，Subagent 不能递归编排。详见 [工作流编排架构](../architecture/workflow-orchestration.zh-CN.md)
+- **工作流编排**: 主会话可按需调用 `run_workflow`，用一段短 JavaScript 编排多个 Subagent 与工作区工具（`agent` / `tool` / `parallel` / `pipeline` / `phase` / `log` / `args`）；脚本在独立 worker 线程的 vm 上下文中运行，不暴露 Node globals，最终结果必须 JSON 可序列化；Agent 步骤可点击进入 Subagent 运行详情面板。脚本上限 20KB；默认权限下启动前展示完整脚本并审批一次，**步骤强制串行（并发恒为 1）**以保证审批卡可见，每个 Agent 与 `tool()` 的调用仍走既有审批；只有完全访问模式才使用配置的 `concurrency`（默认 4，上限 8）。默认 24 个 Agent、64 次工具调用、1 小时总时长，可在 `options` 中按 `maxAgents` 1–64 / `maxTools` 1–128 / `concurrency` 1–8 / `maxRuntimeMs` 1 秒–2 小时调整。不开放直接 REST 执行，Subagent 不能递归编排。详见 [工作流编排架构](../architecture/workflow-orchestration.zh-CN.md)
 - **Goal 模式（v2 默认）**: 主聊天与定时任务可用 `/goal <目标>` 设定带可验收标准的目标；ACP 与 shared 请求仍拒绝 Goal。v2 使用 4 个持久 phase（active / paused / blocked / complete）+ 进程本地 armed/disarmed，goal 变更以 `goal/change` 事件日志持久化并支持 `{id, revision}` CAS；规划轮整轮只读，正常轮末持久化后自动执行，模型只能提交绑定真实工具结果的证据，`complete` 经证据检查、正常轮末与持久化屏障后自动完成。重启/fork 后 active 目标保持 active 但 disarmed，必须显式 `/goal resume`；`clear` 写 tombstone。旧会话继续走 legacy 13 状态引擎（设置·通用「Goal 引擎」可切换或 `QUICKFORGE_GOAL_ENGINE=legacy`）。详见 [服务端 Goal v2 契约](server/README.md#goal-v2默认servergoal)
 
 - **多模型供应商**: OpenAI 兼容 `/v1/chat/completions` 和 Anthropic Messages API

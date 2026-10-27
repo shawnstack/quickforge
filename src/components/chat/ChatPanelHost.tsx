@@ -1293,9 +1293,7 @@ export function ChatPanelHost({
         props,
         propsRef,
         pendingApprovalRef,
-        pendingAutoCompactApprovalRef,
         pendingAskRef,
-        getMessages: displayMessages,
       })
 
       if (props.capabilities.contextUsage) contextUsage.update()
@@ -1528,6 +1526,20 @@ export function ChatPanelHost({
         ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
         scheduleDecorateRef.current?.()
       }
+      if (eventType === 'auto_compact_approval_settled') {
+        // The server dropped its pending approval (declined / timed out /
+        // cancelled). Clearing the local ref keeps the decoration pass from
+        // re-rendering a card whose request no longer exists — the click would
+        // only return 404. The decision row itself is React-owned and clears via
+        // `state.compactionNotice`.
+        const settledEvent = event as unknown as { approvalId?: string }
+        const pending = pendingAutoCompactApprovalRef.current
+        if (!settledEvent.approvalId || pending?.approvalId === settledEvent.approvalId) {
+          pendingAutoCompactApprovalRef.current = null
+          ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
+          scheduleDecorateRef.current?.()
+        }
+      }
       if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced' || eventType === 'message_metadata_updated') {
         // 结构性释放由 React 表面内的 ProcessGroupReleaseBoundary 拥有：它先释放
         // 折叠组、再在同一提交（componentDidUpdate）内同步重折叠，不产生「已释放
@@ -1676,6 +1688,22 @@ export function ChatPanelHost({
           // Context-compaction timeline divider: same gate the decoration layer
           // used (`capabilities.compaction` and never in Side Chat).
           enableCompactionDivider={!sideChatMode && effectiveCapabilities.compaction}
+          // Compaction decision row: React renders it inside the message list and
+          // calls the same agent methods the decoration card used to call. It is
+          // never actionable in Side Chat or when the request lacks a handler
+          // (the row then explains why instead of showing dead buttons).
+          onApproveCompaction={
+            !sideChatMode && !approvalReadOnly && onApproveAutoCompact
+              ? (approvalId: string) => { void onApproveAutoCompact(approvalId) }
+              : undefined
+          }
+          onRejectCompaction={
+            !sideChatMode && !approvalReadOnly && onRejectAutoCompact
+              ? (approvalId: string) => { void onRejectAutoCompact(approvalId) }
+              : undefined
+          }
+          compactionDecisionReadOnly={approvalReadOnly || sideChatMode}
+          compactionDecisionDisabledReason={approvalReadOnly ? approvalReadOnlyMessage : undefined}
           readOnly={readOnly}
           // Host-driven snapshot refresh (model switch without agent events).
           chatPanelRevision={revision}

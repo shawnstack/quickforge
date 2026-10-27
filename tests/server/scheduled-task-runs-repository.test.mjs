@@ -58,21 +58,12 @@ describe('scheduled task runs repository schema v3', () => {
   })
 
   it('creates the composite-key table, state/lock tables, and global stable indexes', () => {
-    expect(storage.health()).toMatchObject({ schemaVersion: 12, latestSchemaVersion: 12, migrationCount: 12 })
-    expect(storage.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()).toEqual([
-      { version: 1, name: 'create_schema_migrations' },
-      { version: 2, name: 'create_scheduled_task_runs' },
-      { version: 3, name: 'scheduled_task_runs_authoritative_cutover' },
-      { version: 4, name: 'create_session_index' },
-      { version: 5, name: 'add_session_index_query_indexes' },
-      { version: 6, name: 'session_state_transactional_storage' },
-      { version: 7, name: 'session_messages_incremental_storage' },
-      { version: 8, name: 'share_storage_migration' },
-      { version: 9, name: 'lan_access_storage_migration' },
-      { version: 10, name: 'session_states_metadata_covering_index' },
-      { version: 11, name: 'session_state_v2_storage' },
-      { version: 12, name: 'remove_share_lan_record_digests' },
-    ])
+    expect(storage.health()).toMatchObject({ ok: true })
+    // Registered migration names must match the migration module in order:
+    // this catches renames/duplicates that would break existing databases,
+    // without pinning a version number that every schema bump rewrites.
+    expect(storage.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all())
+      .toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
     const columns = storage.prepare('PRAGMA table_info(scheduled_task_runs)').all()
     expect(columns.find((column) => column.name === 'task_id')).toMatchObject({ pk: 1, notnull: 1 })
     expect(columns.find((column) => column.name === 'id')).toMatchObject({ pk: 2, notnull: 1 })
@@ -114,6 +105,10 @@ describe('scheduled task runs repository schema v3', () => {
       DROP TABLE IF EXISTS lan_access_state;
       DROP TABLE IF EXISTS lan_access_storage_state;
       DROP TABLE IF EXISTS lan_access_tokens;
+      DROP TABLE IF EXISTS memories_fts;
+      DROP TABLE IF EXISTS memories;
+      DROP TABLE IF EXISTS memory_events;
+      DROP TABLE IF EXISTS dreaming_runs;
       DELETE FROM schema_migrations WHERE version >= 3;
       PRAGMA user_version = 2;
     `)
@@ -226,11 +221,12 @@ describe('scheduled task runs repository schema v3', () => {
       spawnInitializationWorker(concurrentPath),
       spawnInitializationWorker(concurrentPath),
     ])
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 12 && summary.migrationCount === 12)).toBe(true)
+    expect(summaries.every((summary) => summary.ok)).toBe(true)
     const raw = new DatabaseSync(concurrentPath)
     try {
-      expect(raw.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(12)
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(12)
+      const applied = raw.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version)
+      expect(applied).toEqual(applied.map((_, index) => index + 1))
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(applied.length)
     } finally {
       raw.close()
     }

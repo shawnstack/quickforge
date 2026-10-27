@@ -108,7 +108,13 @@ try {
   await writeFile(path.join(globalDir, 'sessions-metadata.json'), `${JSON.stringify({ seed: seedMetadata })}\n`, 'utf8')
 
   const storage = await initializeSqliteStorage({ dataDir: directory })
-  if (storage.health().schemaVersion !== 12) throw new Error(`unexpected schema version ${storage.health().schemaVersion}`)
+  // Guard on structural consistency (user_version agrees with the applied
+  // migration rows) rather than on a literal latest version, so appending a
+  // migration does not require editing this fixture.
+  const initialHealth = storage.health()
+  if (!initialHealth.ok || initialHealth.schemaVersion !== initialHealth.migrationCount) {
+    throw new Error(`inconsistent sqlite migration state: ${JSON.stringify(initialHealth)}`)
+  }
   const repository = createSessionStateRepository(storage)
   // Storage v2: SQLite is authoritative by construction; only the repository
   // override remains testable (mirror/phase are ignored).
@@ -393,7 +399,7 @@ try {
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
-    schemaVersion: 12,
+    schemaVersion: initialHealth.schemaVersion,
     phase: phaseBeforeDowngrade,
     count: exported.count,
     downgrade: { dryRunOk: true, materialized: 210 },

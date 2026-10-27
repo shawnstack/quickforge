@@ -39,6 +39,12 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       pendingToolCalls: runtimePendingToolCalls(session),
       backgroundCommands: listBackgroundCommands(session.sessionId),
       contextCompaction: session.contextCompaction,
+      /**
+       * In-flight compaction notice or null (see COMPACTION_NOTICE_PHASES in
+       * auto-compaction.mjs). Part of the state projection so a page reload or a
+       * late-joining client sees "summarizing" instead of an idle-looking panel.
+       */
+      compactionNotice: session.compactionNotice ?? null,
       contextUsage: getSessionContextUsage(session),
       pendingToolApproval: getPendingApprovalForSession(session.sessionId),
       pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),

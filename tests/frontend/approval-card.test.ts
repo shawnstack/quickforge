@@ -97,12 +97,19 @@ describe('approval card display model', () => {
     expect(toolStep.criticalParameters).toEqual([{ label: 'Path', value: 'a.txt' }])
   })
 
-  it('builds warning and info copy separately', () => {
-    const warning = buildApprovalCardDisplayModel({ toolName: 'run_command', args: {}, translate })
-    const info = buildApprovalCardDisplayModel({ toolName: 'contextManagement', args: { keepRecentTurns: 6 }, tone: 'info', translate })
+  it('builds the tool-approval copy from the shared translation table', () => {
+    const model = buildApprovalCardDisplayModel({ toolName: 'run_command', args: {}, translate })
 
-    expect(warning).toMatchObject({ tone: 'warning', status: 'Confirmation required', approveLabel: 'Allow once', rejectLabel: 'Reject', risk: 'command risk' })
-    expect(info).toMatchObject({ tone: 'info', status: 'Context near limit', title: 'Compact older conversation content', approveLabel: 'Compact now', rejectLabel: 'Not now', risk: 'compact risk 6' })
+    // The `info` tone (and its auto-compact copy overrides) is gone: the
+    // compaction decision is a React row now, so this card only ever renders a
+    // tool approval.
+    expect(model).toMatchObject({
+      status: 'Confirmation required',
+      approveLabel: 'Allow once',
+      rejectLabel: 'Reject',
+      risk: 'command risk',
+    })
+    expect('tone' in model).toBe(false)
   })
 
   it('keeps command summary visible in the display model', () => {
@@ -130,10 +137,10 @@ describe('approval card display model', () => {
     const enabled = buildApprovalCardDisplayModel(input)
     const enabledAgain = buildApprovalCardDisplayModel(input)
     const disabled = buildApprovalCardDisplayModel({ ...input, disabled: true, disabledReason: 'Read only' })
-    const customCopy = buildApprovalCardDisplayModel({ ...input, copy: { title: 'Custom title' } })
+    const otherTool = buildApprovalCardDisplayModel({ ...input, toolName: 'edit_file', args: { path: 'a.txt' } })
 
     expect(buildApprovalCardDisplaySignature(enabledAgain)).toBe(buildApprovalCardDisplaySignature(enabled))
     expect(buildApprovalCardDisplaySignature(disabled)).not.toBe(buildApprovalCardDisplaySignature(enabled))
-    expect(buildApprovalCardDisplaySignature(customCopy)).not.toBe(buildApprovalCardDisplaySignature(enabled))
+    expect(buildApprovalCardDisplaySignature(otherTool)).not.toBe(buildApprovalCardDisplaySignature(enabled))
   })
 })

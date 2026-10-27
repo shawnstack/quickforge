@@ -101,6 +101,28 @@ export type ServerAgentPendingAutoCompactApproval = {
   expiresAt?: number
 }
 
+/**
+ * In-flight compaction notice (`state.compactionNotice` on the server).
+ *
+ * The server projects the whole pipeline into this one field so the surface can
+ * render "summarizing" / "awaiting you" without inferring anything from event
+ * order. `null` means nothing is in flight.
+ */
+export type ServerAgentCompactionNotice = {
+  phase: 'awaiting_confirmation' | 'summarizing'
+  /**
+   * Pending approval this notice belongs to (only on `awaiting_confirmation`).
+   * Minted by the server before the approval promise exists, so the row and the
+   * pending entry share one id instead of racing two sources of truth.
+   */
+  approvalId?: string
+  usage?: { percent?: number; inputTokens?: number; contextWindow?: number }
+  thresholdPercent?: number
+  keepRecentTurns?: number
+  /** ISO timestamp of when the phase was entered. */
+  requestedAt?: string
+}
+
 export type ServerAgentPendingAsk = {
   askId: string
   toolCallId?: string
@@ -136,6 +158,7 @@ export type ServerAgentConfig = {
     errorMessage?: string
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
+    compactionNotice?: ServerAgentCompactionNotice | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
@@ -249,6 +272,8 @@ export type ServerAgentStateSnapshot = {
   tools?: unknown[]
   contextCompaction?: ServerAgentContextCompaction | null
   contextUsage?: ServerAgentContextUsage | null
+  /** In-flight compaction notice; null means nothing is running. */
+  compactionNotice?: ServerAgentCompactionNotice | null
   pendingToolApproval?: ServerAgentPendingToolApproval | null
   pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
   pendingAsk?: ServerAgentPendingAsk | null

@@ -4,7 +4,12 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 // Deterministic t stub: keys are echoed verbatim.
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
-import { turnEndedWithError } from '../../src/lib/message-utils'
+import {
+  FORK_TITLE_PREFIX,
+  generateForkTitle,
+  generateTitle,
+  turnEndedWithError,
+} from '../../src/lib/message-utils'
 
 function message(role: string, extra: Record<string, unknown> = {}) {
   return { role, content: '', ...extra } as unknown as AgentMessage
@@ -74,5 +79,28 @@ describe('turnEndedWithError', () => {
 
     expect(turnEndedWithError(messages, 0)).toBe(false)
     expect(turnEndedWithError(messages, 2)).toBe(false)
+  })
+})
+
+describe('fork title', () => {
+  it('prefixes the fork marker without eating the message budget', () => {
+    const longText = 'a'.repeat(80)
+    const title = generateForkTitle([message('user', { content: longText })])
+
+    expect(title.startsWith(FORK_TITLE_PREFIX)).toBe(true)
+    // The 46-char budget applies to the message text only.
+    expect(title.slice(FORK_TITLE_PREFIX.length)).toBe(`${'a'.repeat(43)}...`)
+  })
+
+  it('keeps short prompts intact behind the marker', () => {
+    expect(generateForkTitle([message('user', { content: '  帮我  看看这个  ' })])).toBe('[fork] 帮我 看看这个')
+  })
+
+  it('marks an empty fork as a new chat instead of dropping the marker', () => {
+    expect(generateForkTitle([message('assistant')])).toBe('[fork] New chat')
+  })
+
+  it('leaves non-fork titles unprefixed', () => {
+    expect(generateTitle([message('user', { content: '普通对话' })])).toBe('普通对话')
   })
 })

@@ -128,6 +128,17 @@ export interface ChatSurfaceProps {
    * chat and when the session could not compact).
    */
   enableCompactionDivider?: boolean
+  /**
+   * Approve / reject the pending automatic compaction. Provided by the host and
+   * routed to the agent's `approveAutoCompact` / `rejectAutoCompact`; the surface
+   * renders the decision row itself, so its buttons cannot outlive the approval
+   * (see `ContextCompactionDecisionRow`).
+   */
+  onApproveCompaction?: (approvalId: string) => void
+  onRejectCompaction?: (approvalId: string) => void
+  /** Read-only views show the notice without actionable buttons. */
+  compactionDecisionReadOnly?: boolean
+  compactionDecisionDisabledReason?: string
   /** Hide the composer dock entirely (read-only conversation views). */
   readOnly?: boolean
   /**

@@ -89,10 +89,11 @@ describe('definitions', () => {
       expect(names).toContain('present_files')
       expect(names).toContain('ask_user')
       expect(names).toContain('todo_write')
+      expect(names).toContain('recall_experience')
     })
 
-    it('has exactly 10 tools', () => {
-      expect(workspaceTools).toHaveLength(10)
+    it('has exactly 11 tools', () => {
+      expect(workspaceTools).toHaveLength(11)
     })
 
     it('todo_write uses a strict bounded snapshot schema and sequential execution', () => {

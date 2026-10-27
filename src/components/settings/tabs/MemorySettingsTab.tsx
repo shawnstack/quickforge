@@ -22,6 +22,9 @@ export function MemorySettingsTab() {
   const [memoryPath, setMemoryPath] = useState('~/.quickforge/MEMORY.md')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  // Lightweight Dreaming summary for the cross-link. Failure is not fatal: the
+  // link still works, it just loses the one-line status.
+  const [dreaming, setDreaming] = useState<{ enabled: boolean; entries: number; model: string | null } | null>(null)
 
   const loadDocument = async (showMessage = false) => {
     setLoadingDocument(true)
@@ -43,6 +46,17 @@ export function MemorySettingsTab() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
+      fetch('/api/dreaming', { cache: 'no-store' })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((payload) => {
+          if (cancelled || !payload) return
+          setDreaming({
+            enabled: payload.settings?.enabled === true,
+            entries: Number(payload.counts?.active ?? 0),
+            model: payload.model?.effective ?? null,
+          })
+        })
+        .catch(() => undefined)
       setLoading(true)
       setError('')
       try {
@@ -177,6 +191,31 @@ export function MemorySettingsTab() {
                 onClick={() => void saveDocument()}
               >{saving ? t('saving') : t('memorySave')}</button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="quickforge-settings-section" aria-label={t('dreamingTab')}>
+        <div className="quickforge-settings-row">
+          <div className="quickforge-settings-row-main">
+            <div className="quickforge-settings-row-title">{t('dreamingTab')}</div>
+            <div className="quickforge-settings-row-description">
+              {dreaming
+                ? t('memoryDreamingSummary')
+                  .replace('{state}', dreaming.enabled ? t('dreamingStateOn') : t('dreamingStateOff'))
+                  .replace('{entries}', String(dreaming.entries))
+                  .replace('{model}', dreaming.model || t('dreamingModelNone'))
+                : t('dreamingDescription')}
+            </div>
+          </div>
+          <div className="quickforge-settings-row-control">
+            <button
+              className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('quickforge:open-settings-tab', { detail: { tab: 'dreaming' } }))
+              }}
+            >{t('memoryDreamingOpen')}</button>
           </div>
         </div>
       </section>

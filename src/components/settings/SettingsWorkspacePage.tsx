@@ -15,6 +15,7 @@ import {
   Search,
   Server,
   SlidersHorizontal,
+  Sparkles,
   SquareTerminal,
   Webhook,
   X,
@@ -48,6 +49,7 @@ const SETTINGS_TAB_ICONS = {
   plugins: Puzzle,
   hooks: Webhook,
   scheduledTasks: CalendarClock,
+  dreaming: Sparkles,
   projectCommands: SquareTerminal,
   data: Archive,
   about: Info,
@@ -126,6 +128,22 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
     setSelectedTabIndex(index)
     setSearchQuery('')
   }
+
+  // Cross-tab jump. Dreaming lives under "Automation" while memory lives under
+  // "Basic"; without this the memory page can only *describe* Dreaming, never
+  // take you there.
+  useEffect(() => {
+    // Guarded for non-DOM renders (unit tests render this page without a window).
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+    const handler = (event: Event) => {
+      const key = (event as CustomEvent<{ tab?: SettingsInitialTab }>).detail?.tab
+      if (!key) return
+      const index = settings.indexOf(key)
+      if (index >= 0) selectTab(index)
+    }
+    window.addEventListener('quickforge:open-settings-tab', handler)
+    return () => window.removeEventListener('quickforge:open-settings-tab', handler)
+  }, [settings])
   const selectMobileTab = (index: number) => {
     setSelectedTabIndex(index)
     setSearchQuery('')

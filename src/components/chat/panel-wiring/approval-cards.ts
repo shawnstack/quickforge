@@ -1,19 +1,22 @@
 /**
- * Pending tool-approval / auto-compact / ask-user card subsystem for
- * `ChatPanelHost`.
+ * Pending tool-approval / ask-user card subsystem for `ChatPanelHost`.
  *
  * Cards render from pending state that arrives both through agent state and
  * through SSE events (the host stores event payloads in refs). This module
- * reconciles the three pending sources into the DOM on every decoration pass,
- * with the same session guards as before.
+ * reconciles those pending sources into the DOM on every decoration pass, with
+ * the same session guards as before.
+ *
+ * Auto-compaction used to live here too (an `info`-toned approval card). It is a
+ * React row inside the message list now — see
+ * `surface/ContextCompactionDecisionRow` — because a decoration-owned card could
+ * not be kept in sync with the server dropping the approval, and it scrolled the
+ * list on its own.
  *
  * Plain sync function (no React hooks): the host calls it from inside its
  * decorate pass.
  */
 
-import { t } from '@/lib/i18n'
 import type { ServerAgentAskAnswer, ServerAgentPendingAsk } from '@/lib/server-agent'
-import type { MessageWithUsage } from '../chat-utils'
 import { injectApprovalCard, removeApprovalCard, type ToolApprovalSource } from '../panel-decoration/approval-card'
 import { injectAskUserCard, removeAskUserCard } from '../panel-decoration/ask-user-card'
 
@@ -39,7 +42,6 @@ export type ApprovalCardsAgent = {
   sessionId: string
   state: {
     pendingToolApproval?: PendingToolApproval | null
-    pendingAutoCompactApproval?: PendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
   }
 }
@@ -49,16 +51,12 @@ export type ApprovalCardCallbacks = {
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean, remark?: string) => Promise<void> | void
-  onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
-  onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
 }
 
 /** The approval-related subset of the host's render-time props. */
 export type ApprovalCardsProps = {
   approvalReadOnly: boolean
   approvalReadOnlyMessage?: string
-  onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
-  onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
 }
 
 export type ApprovalCardsDeps = {
@@ -68,10 +66,7 @@ export type ApprovalCardsDeps = {
   props: ApprovalCardsProps
   propsRef: { current: ApprovalCardCallbacks }
   pendingApprovalRef: { current: PendingToolApproval | null }
-  pendingAutoCompactApprovalRef: { current: PendingAutoCompactApproval | null }
   pendingAskRef: { current: PendingAsk | null }
-  /** Committed message window, used for the auto-compact card preview. */
-  getMessages: () => MessageWithUsage[]
 }
 
 export function syncPendingApprovalCards({
@@ -81,9 +76,7 @@ export function syncPendingApprovalCards({
   props,
   propsRef,
   pendingApprovalRef,
-  pendingAutoCompactApprovalRef,
   pendingAskRef,
-  getMessages,
 }: ApprovalCardsDeps) {
   if (sideChatMode) {
     removeApprovalCard(panel)
@@ -104,7 +97,6 @@ export function syncPendingApprovalCards({
     injectApprovalCard(
       {
         panel,
-        tone: 'warning',
         disabled: props.approvalReadOnly,
         disabledReason: props.approvalReadOnlyMessage,
         onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; agent.state.pendingToolApproval = null; removeApprovalCard(panel) },
@@ -116,67 +108,7 @@ export function syncPendingApprovalCards({
       pending.source,
     )
   } else {
-    const pendingAutoCompact = pendingAutoCompactApprovalRef.current ?? (() => {
-      const statePending = agent.state.pendingAutoCompactApproval
-      return statePending ? { ...statePending, sessionId: agent.sessionId } : null
-    })()
-    if (pendingAutoCompact && pendingAutoCompact.sessionId === agent.sessionId) {
-      const capturedApprovalId = pendingAutoCompact.approvalId
-      const autoCompactCallbacksMissing = !props.onApproveAutoCompact || !props.onRejectAutoCompact
-      const autoCompactDisabled = props.approvalReadOnly || autoCompactCallbacksMissing
-      const autoCompactDisabledReason = props.approvalReadOnly
-        ? props.approvalReadOnlyMessage
-        : autoCompactCallbacksMissing
-          ? t('autoCompactApprovalUnavailable')
-          : undefined
-      injectApprovalCard(
-        {
-          panel,
-          tone: 'info',
-          copy: {
-            status: t('autoCompactApprovalStatus'),
-            title: t('autoCompactApprovalTitle'),
-            risk: t('autoCompactApprovalRisk', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0 }),
-            approve: t('autoCompactApprovalAccept'),
-            reject: t('autoCompactApprovalReject'),
-          },
-          disabled: autoCompactDisabled,
-          disabledReason: autoCompactDisabledReason,
-          getMessages,
-          keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0,
-          onApprove: async () => {
-            const callback = propsRef.current.onApproveAutoCompact
-            if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
-            await callback(capturedApprovalId)
-            pendingAutoCompactApprovalRef.current = null
-            agent.state.pendingAutoCompactApproval = null
-            removeApprovalCard(panel)
-          },
-          onReject: async () => {
-            const callback = propsRef.current.onRejectAutoCompact
-            if (!callback) throw new Error(t('autoCompactApprovalUnavailable'))
-            await callback(capturedApprovalId)
-            pendingAutoCompactApprovalRef.current = null
-            agent.state.pendingAutoCompactApproval = null
-            removeApprovalCard(panel)
-          },
-        },
-        t('contextManagement'),
-        capturedApprovalId,
-        {
-          percent: pendingAutoCompact.usage?.percent ?? 0,
-          threshold: pendingAutoCompact.thresholdPercent ?? 0,
-          keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0,
-          summary: t('autoCompactApprovalWaiting', {
-            percent: pendingAutoCompact.usage?.percent ?? 0,
-            threshold: pendingAutoCompact.thresholdPercent ?? 0,
-          }),
-          description: t('autoCompactApprovalPreview', { keepRecentTurns: pendingAutoCompact.keepRecentTurns ?? 0 }),
-        },
-      )
-    } else {
-      removeApprovalCard(panel)
-    }
+    removeApprovalCard(panel)
   }
 
   // Render or remove the ask-user card based on pending state. Same

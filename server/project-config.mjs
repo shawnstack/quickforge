@@ -507,8 +507,28 @@ export async function buildInstructionsPayload(projectId) {
     globalSources: globalInstructionSources,
     projectSources: projectInstructionSources,
     globalMemory,
+    experiences: await readExperiencePrompt(project?.id ?? null),
     globalSkills: globalSkills.map(stripRuntimeFields),
     projectSkills: projectSkills.map(stripRuntimeFields),
     skills: activeSkills.map(stripRuntimeFields),
+  }
+}
+
+/**
+ * Strongest distilled memories for the system prompt.
+ *
+ * Kept to a small top-N: the experience store can grow into the thousands, and
+ * injecting it wholesale is exactly the failure mode Dreaming exists to avoid.
+ * `recall_experience` covers the deep lookups.
+ *
+ * Failures are swallowed: an unavailable SQLite handle (early startup, tests
+ * without storage) must not break agent creation over an optional context block.
+ */
+async function readExperiencePrompt(projectId) {
+  try {
+    const { createDreamingRepository } = await import('./sqlite/dreaming-repository.mjs')
+    return createDreamingRepository().selectForPrompt({ projectId, projectLimit: 8, globalLimit: 3 })
+  } catch {
+    return []
   }
 }

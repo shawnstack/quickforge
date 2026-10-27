@@ -1286,6 +1286,59 @@ export async function toolManageGlobalMemory(params) {
   return manageGlobalMemory(params)
 }
 
+/**
+ * `recall_experience` returns a compact, citable list rather than raw rows: the
+ * model needs confidence and provenance to decide whether a lesson applies, and
+ * a recalled entry counts as usage signal for later decay.
+ */
+export async function toolRecallExperience(params = {}, options = {}) {
+  // Imported lazily: the experience store lives in the SQLite layer, and every
+  // tool module importing it eagerly would pull the database handle into
+  // contexts (route unit tests, tool-only consumers) that never touch it.
+  const { recallExperiences, formatRecalledMemory } = await import('../dreaming/recall.mjs')
+  const query = String(params?.query ?? '').trim()
+  const memories = recallExperiences({
+    query,
+    kind: params?.kind ?? null,
+    scope: params?.scope ?? null,
+    projectId: options.projectId ?? null,
+    limit: params?.limit,
+    markRecalled: Boolean(query),
+  })
+  if (memories.length === 0) {
+    return {
+      content: query
+        ? `No stored experience matched "${query}".`
+        : 'No stored experience yet. The background Dreaming worker has not distilled anything for this project.',
+      details: { type: 'recall_experience_result', query, count: 0, memories: [] },
+    }
+  }
+  return {
+    content: [
+      query ? `Recalled ${memories.length} experience entr${memories.length === 1 ? 'y' : 'ies'} for "${query}":` : `Strongest ${memories.length} stored experience entr${memories.length === 1 ? 'y' : 'ies'}:`,
+      ...memories.map(formatRecalledMemory),
+      '',
+      'These are distilled from past sessions, not current instructions.',
+    ].join('\n'),
+    details: {
+      type: 'recall_experience_result',
+      query,
+      count: memories.length,
+      memories: memories.map((memory) => ({
+        id: memory.id,
+        kind: memory.kind,
+        scope: memory.scope,
+        content: memory.content,
+        confidence: memory.confidence,
+        strength: memory.strength,
+        updatedAt: memory.updatedAt,
+        recallCount: memory.recallCount,
+        evidence: memory.evidence,
+      })),
+    },
+  }
+}
+
 function todoWriteError(message) {
   const error = new Error(message)
   error.statusCode = 400
@@ -1347,6 +1400,7 @@ export async function toolTodoWrite(params) {
 
 export const toolHandlers = {
   manage_global_memory: toolManageGlobalMemory,
+  recall_experience: toolRecallExperience,
   todo_write: toolTodoWrite,
   read_file: toolReadFile,
   grep_files: toolGrepFiles,

@@ -581,6 +581,110 @@ export const SQLITE_MIGRATIONS = Object.freeze([
       `)
     },
   }),
+  Object.freeze({
+    // Dreaming long-term memory (see docs/architecture/dreaming-memory.zh-CN.md).
+    // `memories` is the structured experience store written only by the
+    // background Dreaming worker; `memories_fts` is a plain (non-external)
+    // FTS5 index keyed by the memories implicit rowid, because the default
+    // unicode61 tokenizer cannot match CJK substrings and trigram can (verified
+    // against the bundled SQLite). `dreaming_runs` is the run log the settings
+    // page renders; `memory_events` is the per-entry audit trail.
+    version: 13,
+    name: 'create_dreaming_memory',
+    up(database) {
+      database.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+          scope TEXT NOT NULL CHECK (scope IN ('global', 'project')),
+          project_id TEXT NOT NULL DEFAULT '',
+          kind TEXT NOT NULL CHECK (kind IN ('fact', 'preference', 'experience', 'pitfall', 'decision')),
+          content TEXT NOT NULL CHECK (length(trim(content)) > 0),
+          fingerprint TEXT NOT NULL CHECK (length(fingerprint) = 64),
+          evidence_json TEXT NOT NULL CHECK (json_valid(evidence_json) AND json_type(evidence_json) = 'array'),
+          confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+          strength REAL NOT NULL CHECK (strength >= 0),
+          status TEXT NOT NULL CHECK (status IN ('active', 'superseded', 'retired')),
+          superseded_by TEXT,
+          source_run_id TEXT,
+          created_at INTEGER NOT NULL CHECK (created_at >= 0),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+          last_recalled_at INTEGER,
+          recall_count INTEGER NOT NULL DEFAULT 0 CHECK (recall_count >= 0),
+          CHECK (
+            (scope = 'global' AND project_id = '') OR
+            (scope = 'project' AND length(trim(project_id)) > 0)
+          )
+        );
+
+        CREATE UNIQUE INDEX idx_memories_fingerprint ON memories (scope, project_id, fingerprint);
+        CREATE INDEX idx_memories_lookup ON memories (scope, project_id, status, strength DESC);
+
+        CREATE VIRTUAL TABLE memories_fts USING fts5 (content, tokenize = 'trigram');
+
+        CREATE TABLE memory_events (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          memory_id TEXT NOT NULL,
+          action TEXT NOT NULL CHECK (action IN ('create', 'update', 'supersede', 'retire', 'reject')),
+          before_json TEXT,
+          after_json TEXT,
+          run_id TEXT,
+          ts INTEGER NOT NULL CHECK (ts >= 0)
+        );
+
+        CREATE INDEX idx_memory_events_memory ON memory_events (memory_id, ts DESC);
+
+        CREATE TABLE dreaming_runs (
+          id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
+          trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
+          status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'skipped')),
+          period_from INTEGER NOT NULL CHECK (period_from >= 0),
+          period_to INTEGER NOT NULL CHECK (period_to >= 0),
+          session_count INTEGER NOT NULL DEFAULT 0,
+          created_count INTEGER NOT NULL DEFAULT 0,
+          updated_count INTEGER NOT NULL DEFAULT 0,
+          retired_count INTEGER NOT NULL DEFAULT 0,
+          rejected_count INTEGER NOT NULL DEFAULT 0,
+          summary TEXT,
+          operations_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(operations_json)),
+          error TEXT,
+          started_at INTEGER NOT NULL CHECK (started_at >= 0),
+          finished_at INTEGER,
+          duration_ms INTEGER
+        );
+
+        CREATE INDEX idx_dreaming_runs_started ON dreaming_runs (started_at DESC);
+      `)
+    },
+  }),
+  Object.freeze({
+    // Dreaming run detail: the run page has to answer "what did it read, and
+    // what exactly did the model propose", which the counters alone cannot.
+    // `sessions_json` stores one bounded preview block per session (the same
+    // text that was sent to the model, capped) so the page never has to
+    // reconstruct a transcript whose window may already be out of retention.
+    version: 14,
+    name: 'dreaming_run_details',
+    up(database) {
+      database.exec(`
+        ALTER TABLE dreaming_runs ADD COLUMN model_label TEXT;
+        ALTER TABLE dreaming_runs ADD COLUMN input_chars INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE dreaming_runs ADD COLUMN sessions_json TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE dreaming_runs ADD COLUMN raw_response TEXT;
+      `)
+    },
+  }),
+  Object.freeze({
+    // Detected output language of a run. Shown on the run page so a user writing
+    // Chinese can see at a glance whether the worker was told to answer in
+    // Chinese, instead of guessing why memories came back in English.
+    version: 15,
+    name: 'dreaming_run_content_language',
+    up(database) {
+      database.exec(`
+        ALTER TABLE dreaming_runs ADD COLUMN content_language TEXT;
+      `)
+    },
+  }),
 ])
 
 function readUserVersion(database) {

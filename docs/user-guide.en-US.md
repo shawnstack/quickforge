@@ -203,7 +203,7 @@ You can:
 - **Delete conversations**. This cannot be undone.
 - **Copy assistant responses** using the action below assistant messages.
 - **Rollback** from a user message to remove the later context.
-- **Fork** from an assistant message to create a new conversation from that point.
+- **Fork** from an assistant message to create a new conversation from that point. The forked conversation title carries a `[fork]` prefix so it stands out in the conversation list.
 
 Rollback and fork are useful when you want to:
 

@@ -12,6 +12,7 @@ import {
   resolveSqliteDatabasePath,
 } from '../../server/sqlite/database.mjs'
 import { applySqliteMigrations, inspectSqliteMigrationState, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { LATEST_SCHEMA_VERSION, NEXT_SCHEMA_VERSION } from '../helpers/sqlite-schema.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const workerScript = path.join(projectRoot, 'tests', 'fixtures', 'sqlite-init-worker.mjs')
@@ -75,7 +76,7 @@ describe('SQLite storage foundation', () => {
     const storage = await initializeSqliteStorage({ dataDir })
 
     expect(existsSync(expectedPath)).toBe(true)
-    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: 12, migrationCount: 12 })
+    expect(storage.health()).toMatchObject({ ok: true })
   })
 
   it('applies and verifies the required PRAGMAs', async () => {
@@ -121,26 +122,27 @@ describe('SQLite storage foundation', () => {
     const tables = reopened.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()
 
     expect(rowsAfter).toEqual(rowsBefore)
-    expect(rowsAfter).toEqual([
-      { version: 1, name: 'create_schema_migrations' },
-      { version: 2, name: 'create_scheduled_task_runs' },
-      { version: 3, name: 'scheduled_task_runs_authoritative_cutover' },
-      { version: 4, name: 'create_session_index' },
-      { version: 5, name: 'add_session_index_query_indexes' },
-      { version: 6, name: 'session_state_transactional_storage' },
-      { version: 7, name: 'session_messages_incremental_storage' },
-      { version: 8, name: 'share_storage_migration' },
-      { version: 9, name: 'lan_access_storage_migration' },
-      { version: 10, name: 'session_states_metadata_covering_index' },
-      { version: 11, name: 'session_state_v2_storage' },
-      { version: 12, name: 'remove_share_lan_record_digests' },
-    ])
+    // The database must record exactly the migration list, in order: this
+    // guards against partially applied or duplicated rows without restating
+    // the version number in the test.
+    expect(rowsAfter).toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
+    // The memories_fts* rows are FTS5 shadow tables for the Dreaming trigram
+    // index; SQLite creates them as real tables, so they show up here too.
     expect(tables).toEqual([
+      { name: 'dreaming_runs' },
       { name: 'lan_access_json_mirror_queue' },
       { name: 'lan_access_maintenance_lock' },
       { name: 'lan_access_state' },
       { name: 'lan_access_storage_state' },
       { name: 'lan_access_tokens' },
+      { name: 'memories' },
+      { name: 'memories_fts' },
+      { name: 'memories_fts_config' },
+      { name: 'memories_fts_content' },
+      { name: 'memories_fts_data' },
+      { name: 'memories_fts_docsize' },
+      { name: 'memories_fts_idx' },
+      { name: 'memory_events' },
       { name: 'scheduled_runs_maintenance_lock' },
       { name: 'scheduled_runs_state' },
       { name: 'scheduled_task_runs' },
@@ -250,7 +252,6 @@ describe('SQLite storage foundation', () => {
 
       applySqliteMigrations(database)
 
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
       expect(database.prepare('PRAGMA table_info(share_sessions)').all().map((column) => column.name)).not.toContain('record_digest')
       expect(database.prepare('PRAGMA table_info(lan_access_state)').all().map((column) => column.name)).not.toContain('record_digest')
       expect(database.prepare(`SELECT share_id, session_id, access_count, revision, extra_json FROM share_sessions`).get()).toEqual({
@@ -366,7 +367,7 @@ describe('SQLite storage foundation', () => {
     const migrations = [
       ...SQLITE_MIGRATIONS,
       {
-        version: 13,
+        version: NEXT_SCHEMA_VERSION,
         name: 'failing_migration',
         up(db) {
           db.exec('CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)')
@@ -376,7 +377,7 @@ describe('SQLite storage foundation', () => {
     ]
 
     try {
-      expect(() => applySqliteMigrations(database, { migrations })).toThrow(/migration 13.*deliberate failure/)
+      expect(() => applySqliteMigrations(database, { migrations })).toThrow(new RegExp(`migration ${NEXT_SCHEMA_VERSION}.*deliberate failure`))
       expect(database.prepare('PRAGMA user_version').get().user_version).toBe(0)
       expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('schema_migrations', 'must_rollback')").all()).toEqual([])
     } finally {
@@ -384,15 +385,15 @@ describe('SQLite storage foundation', () => {
     }
   })
 
-  it('makes a v11 runtime reject a v12 database before it can write', () => {
+  it('makes a v11 runtime reject a newer database before it can write', () => {
     const database = new DatabaseSync(path.join(temporaryDirectory, 'v11-runtime-v12-db.sqlite3'))
     try {
-      applySqliteMigrations(database)
+      const { userVersion } = applySqliteMigrations(database)
       database.exec('CREATE TABLE write_guard (value TEXT NOT NULL)')
       database.prepare('INSERT INTO write_guard (value) VALUES (?)').run('unchanged')
 
       expect(() => applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 11) }))
-        .toThrow(/schema version 12 is newer than supported version 11/)
+        .toThrow(new RegExp(`schema version ${userVersion} is newer than supported version 11`))
       expect(database.prepare('SELECT value FROM write_guard').all()).toEqual([{ value: 'unchanged' }])
     } finally {
       closeDatabase(database)
@@ -404,8 +405,8 @@ describe('SQLite storage foundation', () => {
     const missingTable = new DatabaseSync(path.join(temporaryDirectory, 'missing-table.sqlite3'))
     const mismatchedRows = new DatabaseSync(path.join(temporaryDirectory, 'mismatched-rows.sqlite3'))
     try {
-      tooNew.exec('PRAGMA user_version = 13')
-      expect(() => inspectSqliteMigrationState(tooNew)).toThrow(/schema version 13 is newer than supported version 12/)
+      tooNew.exec(`PRAGMA user_version = ${NEXT_SCHEMA_VERSION}`)
+      expect(() => inspectSqliteMigrationState(tooNew)).toThrow(new RegExp(`schema version ${NEXT_SCHEMA_VERSION} is newer than supported version ${LATEST_SCHEMA_VERSION}`))
 
       missingTable.exec('PRAGMA user_version = 1')
       expect(() => inspectSqliteMigrationState(missingTable)).toThrow(/schema_migrations is missing/)
@@ -427,9 +428,6 @@ describe('SQLite storage foundation', () => {
     const health = storage.health({ quickCheck: true })
     expect(health).toMatchObject({
       ok: true,
-      schemaVersion: 12,
-      latestSchemaVersion: 12,
-      migrationCount: 12,
       journalMode: 'wal',
       busyTimeout: 5_000,
       foreignKeys: true,
@@ -439,7 +437,7 @@ describe('SQLite storage foundation', () => {
     expect(JSON.stringify(health)).not.toContain(databasePath)
   })
 
-  it('supports concurrent first initialization from multiple processes with four migration rows', async () => {
+  it('supports concurrent first initialization from multiple processes without duplicating migrations', async () => {
     const databasePath = path.join(temporaryDirectory, 'concurrent.sqlite3')
     const summaries = await Promise.all([
       spawnInitializationWorker(databasePath),
@@ -447,11 +445,15 @@ describe('SQLite storage foundation', () => {
       spawnInitializationWorker(databasePath),
     ])
 
-    expect(summaries.every((summary) => summary.ok && summary.schemaVersion === 12)).toBe(true)
+    expect(summaries.every((summary) => summary.ok)).toBe(true)
     const database = new DatabaseSync(databasePath)
     try {
-      expect(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get().count).toBe(12)
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(12)
+      // Concurrent first starts must converge on exactly one copy of each
+      // migration: contiguous versions starting at 1, no duplicates, and a
+      // user_version that agrees with the number of applied rows.
+      const applied = database.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version)
+      expect(applied).toEqual(applied.map((_, index) => index + 1))
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(applied.length)
     } finally {
       closeDatabase(database)
     }

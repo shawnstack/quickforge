@@ -199,18 +199,68 @@ export function createAskUserPromise(session, toolCallId, params) {
   })
 }
 
+/**
+ * Auto-compact confirmation promise.
+ *
+ * Resolves an `AUTO_COMPACT_DECISION` instead of a boolean so the caller can
+ * distinguish "user said no" (suppress for 10 minutes) from "nobody answered"
+ * (drop the card, do not suppress) and "no channel" (server misconfiguration).
+ *
+ * Every terminal path emits `auto_compact_approval_settled`. The timeout path
+ * previously removed the server-side entry silently, which is what left a dead
+ * approval card on screen: the client kept rendering it because nothing told it
+ * the request was gone, and the next click could only return 404. With a settled
+ * event the client drops the notice in the same frame the server drops the entry.
+ */
 export function createAutoCompactApprovalPromise(session, details = {}) {
-  if (!session) return Promise.resolve(false)
-  const approvalId = randomUUID()
+  if (!session) return Promise.resolve('unavailable')
+  // The caller publishes the notice (and therefore the approval id) before the
+  // promise is created, so the row the user sees and the entry this promise
+  // registers are keyed by the same id. Defaulting keeps the standalone use
+  // (tests, future callers) working unchanged.
+  const approvalId = typeof details.approvalId === 'string' && details.approvalId
+    ? details.approvalId
+    : randomUUID()
   return new Promise((resolve, reject) => {
     let settled = false
+    // Whether the client was ever told about this approval. A run that aborts
+    // before `auto_compact_approval_required` was emitted has nothing to retract,
+    // so no settled event is emitted for it (an unmatched "settled" frame would
+    // just be noise on the SSE stream).
+    let announced = false
     const requestedAt = Date.now()
     const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
-    const timeout = setTimeout(() => {
+
+    const publishSettled = (outcome) => {
+      if (!announced) return
+      emitSessionEvent(session, {
+        type: 'auto_compact_approval_settled',
+        approvalId,
+        outcome,
+      })
+    }
+
+    const settle = (outcome, decision) => {
+      // `settled` guards double-settlement (timeout racing a click, abort racing
+      // a timeout). The event is emitted exactly once, before the promise
+      // resolves, so listeners observe the state change before the run resumes.
       if (settled) return
       settled = true
       pendingAutoCompactApprovals.delete(approvalId)
-      resolve(false)
+      publishSettled(outcome)
+      resolve(decision)
+    }
+
+    const fail = (error, outcome = 'cancelled') => {
+      if (settled) return
+      settled = true
+      pendingAutoCompactApprovals.delete(approvalId)
+      publishSettled(outcome)
+      reject(error)
+    }
+
+    const timeout = setTimeout(() => {
+      settle('timed_out', 'timed_out')
     }, APPROVAL_TIMEOUT_MS)
 
     let onAbort = null
@@ -221,21 +271,18 @@ export function createAutoCompactApprovalPromise(session, details = {}) {
         session.agent.signal?.removeEventListener('abort', onAbort)
         onAbort = null
       }
-      if (settled) return
-      settled = true
-      pendingAutoCompactApprovals.delete(approvalId)
     }
 
     const signal = session.agent.signal
     if (signal) {
       if (signal.aborted) {
         cleanup()
-        reject(new Error('Run aborted'))
+        fail(new Error('Run aborted'))
         return
       }
       onAbort = () => {
         cleanup()
-        reject(new Error('Run aborted'))
+        fail(new Error('Run aborted'))
       }
       signal.addEventListener('abort', onAbort, { once: true })
     }
@@ -243,11 +290,11 @@ export function createAutoCompactApprovalPromise(session, details = {}) {
     pendingAutoCompactApprovals.set(approvalId, {
       resolve: (approved) => {
         cleanup()
-        resolve(approved === true)
+        settle('decided', approved === true ? 'approved' : 'declined')
       },
       reject: (err) => {
         cleanup()
-        reject(err)
+        fail(err)
       },
       sessionId: session.sessionId,
       usage: details.usage,
@@ -257,6 +304,7 @@ export function createAutoCompactApprovalPromise(session, details = {}) {
       expiresAt,
     })
 
+    announced = true
     emitSessionEvent(session, {
       type: 'auto_compact_approval_required',
       approvalId,

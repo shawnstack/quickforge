@@ -2,6 +2,282 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## dreaming-model-selection（done，2026-10-27）
+
+- Goal：Dreaming 要能自由选模型；先搞清楚为什么它一直在用 智谱/GLM-4.6V。
+- 根因：未指定模型时 `resolveDreamingModel()` 直接调 `resolveImplicitModelPreference(null)`，它返回**模型目录第一条**；用户第一个配置的自定义模型就是 智谱/GLM-4.6V。同时设置页根本没有模型入口，所以既不可见也不可改。
+- 结论（一句话）：改成三级解析——指定 `dreaming-settings.modelRef` → 最近对话模型（`settings['active-model']`）→ 目录第一条；设置页加可搜索模型下拉（首项「跟随对话模型」），并用 `overview.model` 把**实际生效的模型与原因**显示在 meta 行。
+- 关键细节：
+  1. 指定的模型被删/隐藏时，`resolveModelBinding` 抛错后不中断 run，降级到下一优先级（避免凌晨定时任务直接失败）。
+  2. 只有在 `active-model` 真的存在时才走第二级；否则 `resolveImplicitModelPreference(undefined)` 会返回目录第一条，被误标成“跟随对话”。
+  3. 保存设置时先校验 `modelRef` 可解析，不可解析直接 400，不把坏配置留到定时触发才暴露。
+  4. 模型下拉展示 `name (provider)`，宽度单组控制（`quickforge-dreaming-field-model`），不挤压其他内联设置。
+- 改动文件：`server/dreaming/runner.mjs`（三级解析 + `modelLabelOf`）、`server/routes/dreaming.mjs`（overview.model + PUT 校验）、`src/components/dreaming/{DreamingSettingsTab.tsx,dreaming-data.ts}`、`src/styles/settings/dreaming.css`、`src/lib/i18n.ts`（中英文案 14 条）、`tests/server/dreaming-runner.test.mjs`（+4 例回归）、`tests/server/routes/dreaming.test.mjs`（+2 例）、设计稿 §6.1 与 §10、wiki。
+- 验证：dreaming-runner 14 passed；routes/dreaming 11 passed；`npm run test` → 442 files / 5172 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+- Notes：
+  - 「跟随对话」用的是 `active-model`，即用户最近一次在对话里选中的模型；它不会随每个会话的临时切换变动。
+  - 视觉模型（如 GLM-4.6V）用于文本摘要不是错误但浪费；现在用户可以在下拉里直接换成纯文本模型，代码不做能力判断。
+
+
+## dreaming-ui-polish（done，2026-10-28）
+
+- Goal：在 dreaming-ui-and-language 的结构上做第二轮 UI 精修——更美观、简洁、易用，不动后端。
+- 结论（一句话）：状态不再只靠点的颜色表达（点旁永远拼同色调状态词）；徽章去碎（作用域下沉到 meta 行、名词挂 `title` 数字裸排）；内联设置与 meta 行之间加 hairline 分层；折叠箭头换 lucide chevron 旋转；搜索去掉按钮改为 300ms 防抖自动查询。
+- 具体改动：
+  1. 头部：标题从「开启 Dreaming」（开关的 label 兼标题，语义重复）改为功能名「梦境记忆」+ 状态文字（已开启/已关闭/进行中/上次运行失败，与状态点同色）；开关补 `aria-label`；meta 行去掉与 subtab 重复的「已淘汰」计数、自动区段两句长文案换短句（`dreamingAutoSectionOnShort/OffShort`）；保留并行会话新增的「生效模型」行。
+  2. 记忆行：`ScopeBadge` 降为 meta 行文字（`全局 · 0.86 · 4.2 · 时间`），落地既有设计决策「数字裸排 + 名词挂 title」；行内徽章从 3 个收敛到 2 个（类型 + 召回次数），召回徽章带 `title`（`在对话中被召回 N 次`）。
+  3. 运行行/详情：`+N/~N/-N/✕N/耗时` 每格补 `title` 全称；变更/衰减区的 `0.86 / 4.2` 裸数字徽章、读取内容区的消息数/字符数徽章同样补 `title`；折叠箭头由字符 `▸/▾` 换为 lucide `ChevronDown` + `--quickforge-dur-fast` 旋转（`data-open` 驱动，符合设计语言“动效挂 data 不挂 class”）。
+  4. 筛选：删掉「搜索」按钮与回车触发，输入 300ms 防抖自动查询，状态下拉切换即查询（两者行为统一；首帧由初始加载覆盖，`useRef` 跳过首次）。
+  5. CSS：`dreaming.css` 新增 `.quickforge-dreaming-status-text`（含 data-state 着色与 `·` 分隔）、`.quickforge-dreaming-chevron`（旋转过渡）、`.quickforge-dreaming-settings` 顶部 hairline。
+- 改动文件：`src/components/dreaming/DreamingSettingsTab.tsx`、`src/styles/settings/dreaming.css`、`src/lib/i18n.ts`（新增 8 条双语）、`docs/architecture/dreaming-memory.zh-CN.md`（§10 页面结构描述同步）。
+- 验证 / Evidence：`npx tsc -b` → 0 错误；`npx eslint` 改动 ts 文件 → 0 问题；`npx vitest run tests/frontend/{i18n-language-snapshot,settings-workspace-react,quickforge-settings-select,recall-experience-renderer}.test.ts` → 4 files / 45 passed；`npm run build` → ✓ built in 4.66s。
+- 追加修复（同轮，2026-10-28）：真机出现 `Cannot read properties of undefined (reading 'available')` 崩溃（DreamingSettingsTab modelOptions）——崩溃行来自并行「模型选择」改动（`overview?.model.available` 只保护了 `overview` 没保护 `.model`），触发环境是**旧 server 进程**返回的 overview 无 `model` 字段（磁盘上 `server/routes/dreaming.mjs` 已总是返回该字段，5176 端口上有一个更早启动的实例在应答）。处理：`DreamingOverview.model` 改为可选类型 + 前端三处访问全部设防（`overview?.model?.available`、meta 行经局部 `effectiveModel` 收窄），旧 server 下页面降级显示「无模型」而不是整页崩。验证：tsc 0 错误、eslint 0 问题、settings-workspace-react + i18n 快照 23 passed。用户侧需重启旧的 dev server 进程才能看到完整的模型信息。
+- Notes：
+  - 开发态偶发崩溃：首次打开 Dreaming 页曾出现 `SettingsSelect` → `visibleSelectIndexes` 的 `option.label.toLowerCase()` TypeError（疑似 Vite 首载陈旧模块 + HMR websocket 失败的缓存现象，整页刷新后不可复现；相关 key 在 en/zh 双语均已确认存在）。`t()` 对缺失 key 会静默返回 undefined，缺 en 回填时任何消费 `label` 的组件都会整页崩——建议后续给 `t()` 加开发态缺 key 警告或给 `visibleSelectIndexes` 加防御，属共享组件改动，未在本次范围处理。
+  - `dreamingMemorySearch`（搜索按钮文案）与 `dreamingAutoSectionOn/Off`（长文案）在本次改动后无生产消费方，保留未删（repo 有留档先例）。
+  - 并行会话在 DreamingSettingsTab 里新增了「模型」选择（`modelRef` / `overview.model`），本轮改动已与其合流：meta 行保留生效模型、内联设置含模型下拉；其数据层细节见对应 feature 记录。
+
+## dreaming-ui-and-language（done，2026-10-27）
+
+- Goal：`Dreaming` 设置页要更简洁易用；同时修掉“用户中文对话、沉淀出的记忆却全是英文”的语言对齐问题。
+- 结论（一句话）：语言不能靠提示词自觉——“write in the user's language” 被英文系统提示词淹没；改为代码从 **user 消息**里判定（CJK 字权重 ≈ 4 个拉丁字母，样本不足 12 个字母返回 null），再以 `## Output language` 硬要求写进 user message，设置项 `contentLanguage` 可覆盖，判定结果入库并在详情页显示。
+- UI 改动：
+  1. 原来的四组 settings-row（开关/定时/时间/敏感/运行/计数/自动区）压成一个「头部状态块」：状态点 + 开关 + 立即处理按钮；第二行单行 meta（下次/上次/生效/淘汰/自动区）；第三行内联设置（执行时间、记忆语言、敏感内容、定时开关）。
+  2. 记忆列表与运行历史合并为一块，用 subtab 切换并带计数，避免两个长列表垂直堆叠。
+  3. 运行历史改为整行可点的按钮式行：状态徽章 + 时间 + 单行指标（会话/+新增/~更新/-淘汰/✕拒绝/耗时）+ 结论，指标用语义色区分不加重底色。
+  4. 详情页改为「状态条 + 统计条 + 元信息一行 + 可折叠分区」，读取内容/变更/拒绝/衰减/原始响应默认收起，减少滚动。
+  5. 新增 `src/styles/settings/dreaming.css`（状态点含 running pulse 与 `prefers-reduced-motion` 降级），其余仍用既有 settings 令牌。
+- 改动文件：`server/dreaming/{collect,prompt,runner,settings}.mjs`、`server/sqlite/{migrations,dreaming-repository}.mjs`（v15 `content_language`）、`src/components/dreaming/{DreamingSettingsTab.tsx,dreaming-data.ts}`、`src/styles/settings/dreaming.css`（新）、`src/styles/index.css`、`src/lib/i18n.ts`（语言文案 14 条）、`tests/server/{dreaming,dreaming-memory,dreaming-runner}.test.mjs`、`docs/architecture/dreaming-memory.zh-CN.md`、`docs/wiki/server/README.md`。
+- 验证 / Evidence：五个 dreaming 测试文件 → 58 passed；`npm run test` → 442 files / 5166 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功（DreamingSettingsTab 21.46 kB / gzip 4.79 kB）；`npx tsc -b` → 0 错误。
+- Notes：
+  - 已经存下的英文记忆不会自动重写——它们会在后续 run 里被 `update`/`supersede` 逐步替换为中文；想立刻重置只能在记忆列表里手工淘汰。
+  - 判定只在“样本足够”时生效；纯代码会话会得到 `null`，此时提示词退回“跟随 transcript 语言”而不是瞎猜。
+  - 记忆列表的置信度/强度仍显示在 meta 行，没有做成图表：这两个值目前只用于排序与淘汰阈值，做成可视化会夸大其精度。
+- 补充（同轮）：真实 `~/.quickforge/MEMORY.md` 里已经有一批旧版写出的英文条目。为了不产生中英重复，提示词在 `## Existing memories` 后新增一句：已有条目若仍是另一种语言，应使用 `action="update"` 就地改写为目标语言，而不是为同一事实新建一条。这样历史条目会在后续 run 里逐步转成中文。
+
+
+## workflow-docs-sync-to-code（done，2026-10-27）
+
+- Goal：以**最终代码**为准同步 run_workflow 的文档，**不改任何代码**；并回答「当前并发是多少」。
+- 结论（一句话）：默认权限下并发**恒为 1**（`effectiveConcurrency = hasFullAccess ? options.concurrency : 1`），只有完全访问模式才用 `options.concurrency`（默认 4、上限 8）；文档里「4 并发」的表述会让人误以为是常态，已改为「默认权限串行 1 / 完全访问默认 4」。另外修掉 6 处文档与实现不符的点。
+- 关键对照（每条都落到行号）：
+  1. **并发**：`agent-workflow-runner.mjs:236`。附带发现 `details.concurrency` 上报的是**生效值**（默认权限下恒 1），不是调用方传入值 —— UI 上看不出「配了 4 被降级」。
+  2. **hooks 失败语义**：只有空/非字符串 prompt（`worker.mjs:250`）、空 tool name（`:260`）、`args` 非 plain object（`:263`）在 guest bridge 内抛 `TypeError`；其余参数错误（prompt 超长 `:165`、未知 option `:102`、schema 不可序列化/超限 `:106-113`、未知 tool option `:132`）由 `hostCall` 捕获后以 `ok:false` 回投 → `agent()`/`tool()` 返回 `null`。原文档说「参数非法会 throw」，与实现不符。
+  3. **`phase()` 超 120 字符**：`phase` 是 notify 型消息（无 `requestId`），父进程 `normalizePhaseTitle` 校验失败后走 `if (!id) return`（`worker.mjs:191`）**静默丢弃**。脚本内 `currentPhase` 已更新，但该阶段不进 `details.phases`，后续 `log()` 归到上一阶段。原文档写「超 120 字符 throw」，是错的。
+  4. **`schema` 未透传**：`runner.mjs:548-558` 调 `runAgent` 时只传 `prompt/profile/label/context/expectedOutput/workflowLabel/maxRuntimeMs/maxToolCalls/model`；`subagent-runner.mjs:347-351` 的 `schemaHint` 依赖 `params.schema`，工作流路径不会传 → 分支永不生效。所以 workflow 里的 `schema` 是**纯后置断言**，模型看不到契约，写散文时更容易返回 `null`。
+  5. **中止/孤儿错误文本**按步骤位置区分：队列 Agent `Workflow stopped before this agent started.`、队列工具 `...before this tool call started.`、运行中 `Workflow stopped while this step was running.`（超时/父中止）或 `Workflow completed before this step settled.`（脚本已 return）。`markRunningStepsStopped` 是**同步**标记，因为 abort 后在途步骤是异步 settle 的。
+  6. **details / 前端**：Agent record 漏了 `seq`；`subagentRun` 实际透传 16 个字段（补全 `subagent`/`sessionId`/`parentSource`…）；聊天卡跑马灯内容是**最后一个阶段标题**（`workflow-tool-renderer.tsx:108`），不是活跃步骤 label；`MaxWorkflowRunSnapshots` 是 50 不是 100（原文写「100→50」）；`workflowActiveStepLabels` 已无生产消费方（仅测试引用）。
+- 改动文件（纯文档）：
+  1. `docs/architecture/workflow-orchestration.zh-CN.md` — §2.1 模块表（补 `workflow-run-payload.ts` / `WorkflowRunDetailContent.tsx`）、§2.4 toolset 懒构建、§3.1 hooks 失败语义、§3.3 schema 边界、§4 并发与预算补充、§5.2/5.4 中止文本、§7.1 Agent record `seq` 与 `subagentRun` 字段、§7.2/7.3 前端契约合并重写（跑马灯、单行卡、实时通道、i18n 残留键、样式类清单）、§9 测试覆盖、§10 相关文件带行数。
+  2. `docs/wiki/README.md` — 项目概览的并发表述（默认串行 1 / 完全访问默认 4）。
+  3. `docs/wiki/server/README.md` — run_workflow 段：有界队列并发（生效值）、worker 协议补 phase/log 无 requestId、孤儿文本、schema 后置校验、toolset 懒构建缓存、限制表补 parallel/pipeline 256 与 bridge 5s、details 形状。
+  4. `docs/wiki/src/lib/README.md` — 4 个 workflow 文件的行数与描述（549/190/149/135），渲染器契约（跑马灯取最后阶段、`activeWorkflowRunStore` 驱动 `data-open`、展开体已删的类清单）、残留 i18n 键。
+  5. `docs/wiki/src/components/README.md` — 详情页条目补「样式已无 `--wf-tl-*`」与概览派生统计的显隐条件；历史段落加已移除提示。
+  6. `feature_list.json` / `progress.md` / `session-handoff.md` — 本轮记录。
+- 验证 / Evidence：
+  - `node -e "JSON.parse(...)"` → `feature_list.json` 语法 OK。
+  - `git status --porcelain` → 本 feature 只涉及 5 个 md + 3 个记录文件；未触碰 `server/`、`src/`、`tests/`、`dist/` 等生成产物。
+  - 逐条取证行号见「关键对照」。
+- Notes：
+  - **没有跑 `npm run test` / `lint` / `build`**：本轮零代码改动，这些门禁不会因文档变更而受影响。若需要门禁记录可单独跑一次。
+  - 发现 3 处「代码 vs 文档」的实质问题（schema 未透传、参数校验错误类型不统一、`phase()` 静默丢弃），按「不要改代码」的要求**只写进文档**，未修。
+  - 建议后续单独决策是否修 `schema` 透传（1 行改动，能显著降低 workflow 里 `agent({schema})` 的失败率）。
+
+
+## recall-experience-tool-card（done，2026-10-27）
+
+- Goal：`recall_experience` 在聊天里没有专属样式，只有兜底卡（工具名 + 整段 JSON），且 `count: 0` 会被渲染成绿色对勾，读起来像“成功查到了什么”。
+- 结论（一句话）：新增专属渲染器 —— 折叠态一行读完（灯泡图标 + 回忆经验 + `· query` + 命中计数 + 状态），展开态是结构化经验列表（kind/scope/×recallCount + 正文 + 质量指标），并把「0 命中」重新定义为**正常结果**而非成功对勾 + JSON。
+- 关键取舍：
+  1. **计数分两种可见性**：命中时 `meta-hover`（默认隐形，避免每个工具行都挂一个数字）；0 命中时 `meta-important` 常显——因为「没查到」本身就是这次调用的结论。
+  2. **0 命中与失败互斥**：`count === 0 && status === 'done'` 才渲染 `.quickforge-recall-empty` 中性说明；`isError` 走 `renderConsoleBlock(..., 'error')` + destructive 图标。旧兜底卡两者都不区分，是这次的主要体感问题。
+  3. **正文不截断**：用户展开卡片就是为了读全文，`line-clamp` 只省一次点击但会藏掉关键限定条件。
+  4. **质量指标不带标签**：行内 `0.86 · 4.2 · 2 个会话 · 3 天前` 已够读，完整名词挂在各段 `title` 上（`dreamingMemoryConfidence` / `dreamingMemoryStrength`），避免辅助信息抢正文层级。
+  5. **复用而非新建视觉语言**：行配方复刻 `.quickforge-todo-history-item`（无分隔线、hover 仅 `muted 55%` 轻背景、无位移/边框/阴影）；颜色全走语义 token，暗色零覆盖；不自造 keyframes，运行态借用 `quickforge-tool-running-sweep`。
+  6. **视图模型独立成纯函数**（`recall-experience-history.ts`）：只认 `details.type === 'recall_experience_result'`，其余返回 `available:false` 不伪造列表；空正文行整条丢弃；`confidence` 夹 0–1、`sessionCount` 按 evidence sessionId 去重（与设置页 `MemoryRow` 同口径）。
+  7. **顺手补齐三处遗漏**：`renderToolIcon` 的 if 链（否则回落扳手图标）、`summarizeParams` 分支（subagent 跑马灯复用同一套摘要规则）、`approval-card` 的 `BUILTIN_TOOL_LABELS`（审批卡原本会显示原始工具名）。
+- 改动文件：
+  1. `src/lib/recall-experience-history.ts`（新，101 行）— 视图模型 + `recallRecencyDays`。
+  2. `src/lib/tool-renderers/recall-experience-tool-renderer.tsx`（新，151 行）— 渲染器。
+  3. `src/lib/tool-renderers/shared.tsx` — `renderToolIcon` 加 `recall_experience`（灯泡）分支。
+  4. `src/lib/tool-renderers/index.ts` / `src/lib/local-tools.ts` — 导出 + `registerToolRenderer`。
+  5. `src/lib/tool-param-summary.ts` — `recall_experience` 取 `query`（修剪空白）。
+  6. `src/components/chat/panel-decoration/approval-card.ts` — `recall_experience: 'recallExperience'`。
+  7. `src/lib/i18n.ts` — 9 个键 × 2 语言（标题/最强记忆/命中计数/无匹配/两条空态说明/会话数/今天/N 天前）。
+  8. `src/styles/chat/tool-output.css` — `.quickforge-recall-{list,item,meta,kind,content,metrics,sep,count,empty}` + `.quickforge-recall-tool > div .text-xs`。
+  9. `tests/frontend/recall-experience-renderer.test.ts`（新，16 例）、`tests/frontend/tool-param-summary.test.ts`（+2 例）。
+  10. `docs/wiki/src/lib/README.md` — 渲染器条目 + 视图模型小节 + 文件表行。
+- 验证 / Evidence：
+  - `npx vitest run tests/frontend/recall-experience-renderer.test.ts tests/frontend/tool-param-summary.test.ts tests/frontend/tool-renderer-registry.test.ts tests/frontend/chat-surface-tool-message.test.ts` → 4 files / 41 passed。
+  - `npm run test` → 442 files / 5160 passed / 2 skipped（退出码 0）。
+  - `npm run lint` → 0 问题；`npx tsc -b` → 0 错误；`npm run build` → ✓ built in 9.89s（仅既有 chunk 体积 warning）。
+- Notes：
+  - 未跑「发布」流程，未创建 Git commit（用户未要求）。
+  - 折叠态**不做** kind/scope 药丸：`DESIGN_LANGUAGE.md` 已否掉「折叠态堆状态短条」，这些信息只在展开态出现。
+  - `renderToolIcon` 仍是 if 链而非映射表，每次新增工具都要改两处（`shared.tsx` + `local-tools.ts`）；本次未重构，留作后续独立 feature。
+  - 未验证真机视觉：建议实际跑一次 `recall_experience`（有命中 / 无命中各一次）确认 hover 计数与列表行距在暗色下符合预期。
+
+## schema-version-test-hygiene（done，2026-10-27）
+
+- Goal：结束“每次升 schema 都要在 7 个测试文件里改同一个版本号”的 churn，同时不引入恒真断言。
+- 结论（一句话）：**不是**把数值断言都换成 `SQLITE_MIGRATIONS.length` 推导，而是直接删掉“等于最新版本”这类断言（它对迁移写坏完全没有分辨力），把价值留在能真正抓 bug 的地方——历史迁移边界的显式字面量、迁移行与迁移表逐项对齐、版本号连续性与 `user_version === 已应用行数`、以及表/列/索引/数据内容。
+- 关键取舍：
+  1. `const LATEST_SCHEMA_VERSION = SQLITE_MIGRATIONS.length` 只是把 churn 从 7 处收敛到 1 处，测试依然在重述实现；`expect(health().schemaVersion).toBe(SQLITE_MIGRATIONS.length)` 永远为真，迁移少写一列、漏建索引它都抓不到。故直接删除。
+  2. 历史边界必须写死：`slice(0, 11)` 后验“v11 runtime 拒绝新库”、`migration 12` 故意失败验回滚、v7→v8 / v8→v9 / v2→v3 回滚——这些是“某个历史版本之前的库”这种事实。改成从当前列表推导会静默从“测那一条迁移”漂移到“测最新两条”。
+  3. 迁移行断言改为与 `SQLITE_MIGRATIONS` 逐项比对（`version/name` 全等）：既能抓改名/重排/重复，又不写死版本号。
+  4. 并发初始化断言改为“版本号连续 + `user_version` 等于已应用行数”，语义是“没重复、没漏”，与原 `COUNT === 版本号` 等价但不依赖具体数字。
+  5. electron smoke fixture 里的裸 `schemaVersion: 14` 改成读实际 `health()` 输出，并校验 `schemaVersion === migrationCount`。
+  6. helper 收窄为“构造用”而非“断言用”：保留 `LATEST_SCHEMA_VERSION`（构造“列表之后一条”的失败迁移）与新增 `NEXT_SCHEMA_VERSION`，并在注释里写明它不该用于版本断言。
+- 改动文件：`tests/helpers/sqlite-schema.mjs`、`tests/server/sqlite-storage-foundation.test.mjs`、`tests/server/scheduled-task-runs-repository.test.mjs`、`tests/server/session-state-repository.test.mjs`、`tests/server/share-repository.test.mjs`、`tests/server/lan-access-repository.test.mjs`、`tests/fixtures/session-state-full-chain-electron-smoke.mjs`、`tests/server/session-state-full-chain-electron-smoke.test.mjs`。
+- 验证 / Evidence：
+  - `npx vitest run` 5 个 schema 相关仓库测试 → 5 files / 61 passed。
+  - `npx vitest run tests/server/session-state-full-chain-electron-smoke.test.mjs` → 1 passed。
+  - `npx eslint` 上述 8 个改动文件 → 0 problems。
+- Notes：
+  - 本次未跑全量 `npm run test` / `npm run build`（非发布改动，改动集中在测试与 fixture）；如需发版仍须完整跑三项。
+  - `scheduled-task-runs-repository.test.mjs` 里 `DELETE FROM schema_migrations WHERE version >= 3` 与 `PRAGMA user_version = 2` 也是历史边界字面量，刻意保留。
+  - `package-dist/`、`package-offline/` 内的同名 `migrations.mjs` 未触碰（生成产物）。
+
+## dreaming-run-detail（done，2026-10-27）
+
+- Goal：Dreaming 只取会话的「user 消息 + assistant 最终回答」（含压缩摘要），总预算 100k 字符；并为运行详情页补齐可追溯的数据与 UI。
+- 结论（一句话）：采集层从「全消息投影 + 工具结果首尾截断」改为「只投影 user 与最终回答」——工具调用与工具输出根本不进 prompt，因此不需要任何截断启发式；「最终回答」用 `no toolCall && stopReason ∉ {toolUse,error,aborted}` 判定，顺带把过程式中间消息与被中断回复排除掉。
+- 关键取舍：
+  1. 压缩摘要保留且单独标记为 `history(compacted)`：它以 user 角色存储，是那段被压缩历史的唯一可见形式，丢了等于丢掉历史；提示词里明确它证据强度更弱（置信度上限 0.7）。
+  2. evidence 从 `sessionId+seq` 改为 `sessionId+note`：transcript 已无行号，保留 seq 是假精度。
+  3. 运行详情新增 v14 四列（`model_label/input_chars/sessions_json/raw_response`）：窗口内会话可能超出保留期，事后再也复现不出“当时送了什么”，所以采集时就把每会话投影文本裁到 1200 字符存库。
+  4. rejected 保留模型原提案（kind/scope/content/targetId）：只存 reason 无法区分“规则太严”和“模型跑偏”。
+  5. 详情页额外返回 `memories`（本次触及条目当前状态），前端一次请求即可渲染“提案 vs 库中结果”的 diff。
+  6. schema 版本断言改为从 `SQLITE_MIGRATIONS.length` 推导（新增 `tests/helpers/sqlite-schema.mjs`）：此前每次升 schema 都要手改 7 个测试文件的同一个字面量，已连续踩两轮。
+- 改动文件：
+  1. `server/dreaming/collect.mjs` — 重写 `projectMessages()`（user + 最终回答 + history(compacted)），新增 `isFinalAnswer()`、`SESSION_PREVIEW_CHARS`，预算改为单会话 30k / 整体 100k，返回带 preview 的 `sessions`。
+  2. `server/dreaming/prompt.mjs` — 系统提示改为说明 transcript 只含 user 与最终回答；新增 Transcript format 段；`history(compacted)` 置信度约束。
+  3. `server/dreaming/apply.mjs` — evidence 去掉 seq。
+  4. `server/dreaming/runner.mjs` — createRun 写 modelLabel/inputChars/sessions；finishRun 写 rawResponse；rejected 保留原提案。
+  5. `server/sqlite/migrations.mjs` — v14 `dreaming_run_details`（4 个 ADD COLUMN）。
+  6. `server/sqlite/dreaming-repository.mjs` — toRun/createRun/finishRun 支持新列。
+  7. `server/routes/dreaming.mjs` — detail 返回 `memories`，事件收集覆盖 replacementId。
+  8. `src/components/dreaming/dreaming-data.ts` / `DreamingSettingsTab.tsx` — 详情页六段式（概览 / 读取内容 / 变更 / 拒绝 / 衰减 / 原始响应），`OperationRow` 同时显示提案与库中结果。
+  9. `src/lib/i18n.ts` — 14 个新文案（中英）。
+ 10. `tests/server/dreaming.test.mjs`（采集用例外重写 + 压缩摘要/中断回复两例）、`tests/server/routes/dreaming-detail.test.mjs`（新，3 例）、`tests/helpers/sqlite-schema.mjs`（新）、5 个 schema 版本测试改为推导、fixture 升到 14。
+ 11. `docs/architecture/dreaming-memory.zh-CN.md`（采集/提示词/数据模型/前端详情三节）、`docs/wiki/server/README.md`。
+- 验证 / Evidence：
+  - `npx vitest run tests/server/dreaming.test.mjs tests/server/dreaming-memory.test.mjs tests/server/dreaming-runner.test.mjs tests/server/routes/dreaming.test.mjs tests/server/routes/dreaming-detail.test.mjs` → 52 passed。
+  - 5 个 schema 版本测试 → 61 passed。
+  - `npm run test` → 441 files / 5144 passed / 2 skipped（退出码 0）。
+  - `npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+- Notes：
+  - 100k 是**字符**不是 token。按 3 字符/token 粗算约 33k token；若只想按 token 计，改 `MAX_TOTAL_CHARS` 即可（单处常量）。
+  - 不含工具输出后，模型只能依据“用户说了什么 + 助手最后答了什么”判断。这意味着**它看不到具体命令与报错文本**，所以 pitfall 类记忆会偏向“现象 + 结论”而不是精确命令；这是用 100k 预算换覆盖面的直接代价。
+  - `sessions_json` 每会话存 1200 字符预览，40 会话上限时单行最大约 48KB，仍在 SQLite 常规行大小内，无需拆分。
+
+
+## dreaming-memory（done，2026-10-27）
+
+- Goal：新增全自动 Dreaming 后台记忆固化——回看已结束会话，沉淀结构化长期记忆，并在后续任务中自动检索使用。
+- 结论（一句话）：四个动作（提取事实/总结经验/识别错误/更新认知）全部交给一份提示词，代码只做硬校验后单事务落库，因此既保持“全自动”又不会让模型幻觉直接污染记忆库；检索用 SQLite 自带 FTS5 trigram，不引入新依赖。
+- 关键设计取舍：
+  1. 不做独立进程 worker，改做 server 内子系统 `server/dreaming/`：desktop/Android 共用同一 server，多进程会带来打包与退出成本；要的是逻辑隔离（独立设置、独立 run 记录、独立单飞锁）。
+  2. MEMORY.md 分人工区与 `<!-- dreaming:auto:begin/end -->` 自动区，自动区整体重写、人工字节逐字保留——全自动写入若沿用“全量替换”必然覆盖人工内容。
+  3. 记忆不只存 MEMORY.md，还落 SQLite 结构化经验库（kind/confidence/strength/evidence），才可能做“更新认知”与“淘汰”而不靠模型自觉。
+  4. 淘汰判据只用可观测量（strength<1 且 confidence<0.5 且 30 天未召回，三者同时满足），不用“模型决定忘掉”；淘汰是软删，可追溯。
+  5. 中文检索：默认 unicode61 分词器无法匹配中文子串，实测 trigram 可以；不足 3 字符的查询回退 `LIKE`（表规模小，代价可忽略）。
+- 改动文件：见 `feature_list.json` 的 `dreaming-memory` 条目（设计稿、migration v13、server 模块、前端设置页、4 个新增测试、6 个受 schema 版本升级影响的既有测试、3 个 wiki 页）。
+- 验证 / Evidence：
+  - 四个新增测试文件 → 48 passed。
+  - `npm run test` → 441 files / 5127 passed / 2 skipped（退出码 0）。
+  - `npm run lint` → 0 error / 0 warning；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+- Notes：
+  - schema 从 v12 升到 v13，6 个既有测试硬编码了“最新版本=12”，已同步；其中 `sqlite-storage-foundation` 的表清单断言额外包含 FTS5 的 5 张影子表（`memories_fts_*`），这是 SQLite 正常行为，不是新增业务表。
+  - 测试隔离教训：`global-memory.mjs` 与 `storage.mjs` 在 import 时就从环境变量解析数据目录，route/runner 测试必须 mock 这两个模块，否则会写真实 `~/.quickforge/MEMORY.md` 与 `config/settings.json`（本轮已发生并已清理）。
+  - 已知边界：单次 run 只做一次模型调用（不做 tool-calling 多轮），成本可预测但模型无法回看 transcript 细节；采集预算（单会话 6000 字符 / 总量 60000 字符 / 最多 40 会话）在代码里封顶，不靠模型自觉。
+  - 尚未做：跨设备记忆同步、向量检索、per-session 记忆；`recall_experience` 目前只按 FTS5 + strength/新鲜度排序，没有真正的语义相似度。
+
+
+## fork-session-visible-immediately（done，2026-10-27）
+
+- Goal：fork 出的新对话必须马上出现在左侧会话列表，而不是等用户再发一条消息。
+- 结论（一句话）：根因是服务端 `createAgent` 从不持久化——创建期唯一那次持久化依赖「首条 user 消息 message_end」，而 fork 预置了 messages 时 `sessionCreatedEmitted` 直接为 true、该分支永久跳过，会话索引里查不到；修法是在 `createAgent` 返回前对 `messages.length > 0` 且非 restore 的会话 `await persistSession(session)`。
+- 改动文件：
+  1. `server/agent-manager.mjs` — `createAgent` 末尾新增创建期持久化（`messages.length > 0 && typeof config.persistedStateJson !== 'string'`），失败只记日志不阻断创建；不调用 `emitSessionEvent`。
+  2. `server/agent-persistence.mjs` — `sessionLastModifiedFromMessages` 改为 `max(末尾消息时间, createdAt)`，避免继承旧历史时间戳的 fork 被排到列表底部。
+  3. `src/hooks/useChatActions.ts` — `forkFromMessage` 传 `refreshSessions: false`（由 createAgent 内部那次负责），并去掉 `if (storage)` 门禁；同时移除已无用的 `storage` 局部变量。
+  4. `tests/server/agent-manager.persist-session-state.test.mjs` — 新增 3 例：seeded 会话创建即落库且 `lastModified` 为 now、无消息创建仍不落库、restore 不重写（revision 不变）。
+  5. `tests/frontend/fork-session-visibility.test.ts`（新） — 4 例源码契约：创建期持久化存在且排除 restore、创建期不发事件、fork 刷新不被 storage 门禁、`refreshSessions:false` 去重。
+  6. `docs/wiki/server/README.md` / `docs/wiki/src/hooks/README.md` — 记录 createAgent 持久化时机与 `lastModified` 语义。
+- 验证 / Evidence：
+  - `npm run test` → 437 files / 5119 passed / 2 skipped，退出码 0。
+  - `npm run lint` → 0 error / 0 warning。
+  - `npm run build` → ✓ built in 7.06s。
+  - `npx tsc -b` → 0 错误。
+  - 定向：`agent-manager.persist-session-state` 37 passed；agent-manager 相关 9 文件 72 passed；`fork-session-visibility` 4 passed。
+- Notes：
+  - 早期尝试在该处发 `session_created` 并置 `sessionCreatedEmitted`，会额外消耗一次 `stateVersion`（既有断言 3→4 被抓到），已改为只写库不发事件：创建端自己会 `refreshSessions`，其他端通过索引读到即可。
+  - `/summary` 的 fork 路径本来就显式 `persistSession`，不受此缺陷影响；本轮修复让普通 fork 与之对齐。
+  - 创建期持久化是同步 await，会让 `POST /api/agents/:id` 多一次 SQLite 写；仅限带 messages 的创建（fork/seeded），空会话创建不受影响。
+
+## fork-title-prefix（done，2026-10-27）
+
+- Goal：fork 出来的新对话在会话列表里要能一眼看出是分叉，先用标题 `[fork]` 前缀解决（不做溯源字段）。
+- 结论（一句话）：fork 路径改用 `generateForkTitle()`，新会话标题为 `[fork] + 首条用户消息`；前缀独立于既有 46 字符预算，正文截断规则不变，普通会话标题零影响。
+- 改动文件：
+  1. `src/lib/message-utils.ts` — 新增 `FORK_TITLE_PREFIX = '[fork] '`、`generateForkTitle(messages)`；`generateTitle(messages, prefix = '')` 增加可选前缀参数（前缀在多语言下统一，不本地化）。
+  2. `src/hooks/useChatActions.ts` — `forkFromMessage` 由 `generateTitle(messages)` 改为 `generateForkTitle(messages)`。
+  3. `tests/frontend/message-utils.test.ts` — 新增 `describe('fork title')` 四例：前缀不吃字符预算、短提示词保留空格归一化、无 user 消息时为 `[fork] New chat`、普通标题不带前缀。
+  4. `docs/user-guide.zh-CN.md` / `docs/user-guide.en-US.md` — 分支/Fork 段落补充前缀说明。
+  5. `docs/wiki/src/lib/README.md` / `docs/wiki/src/hooks/README.md` — 同步生成函数与 fork 行为说明。
+- 验证 / Evidence：
+  - `npx vitest run tests/frontend/message-utils.test.ts` → 10 tests passed。
+  - fork/标题相关 6 个前端测试（message-utils / message-actions / side-chat-workspace-tab / project-new-chat-reuse-guard / session-title / chat-capabilities）→ 6 files / 77 tests passed。
+  - `npx eslint` 三个改动 TS 文件 → 0 error。
+  - `npx tsc -b` → 0 错误。
+- Notes：
+  - 服务端 `titleSource` 逻辑未动：客户端传入非 `New chat` 标题即 `titleSource='manual'`，因此 fork 会话不会被 AI 标题覆盖——这正是前缀能稳定保留的原因，但也意味着 fork 会话标题不会自动精修；若以后要允许精修，需按“前缀 + 可识别”判断放行，而不是改 `canApplyGeneratedTitle()` 的全局语义。
+  - 未做 `forkedFromSessionId` 溯源：后端 `createAgent` 无该字段、持久化与列表渲染也都没有，属独立 feature（可支持“分叉自 X”与分支树）。
+  - `sessionTitle()` 只对完全等于 `New chat` 的标题做本地化，`[fork] New chat` 会原样显示；该场景只在 fork 出无语义首条消息时出现，未额外处理。
+
+## compaction-prompt-english-untruncated（done，2026-10-27）
+
+- Goal：把压缩用的提示词全部改成英文；并去掉 transcript 构造中的所有截断。
+- 结论（一句话）：`COMPACT_SYSTEM_PROMPT` 与用户消息模板改为全英文（输出语言仍跟随会话语言），同时删除三层长度上限（单条 10000 字符、transcript `min(160000, max(12000, contextWindow×1.6))`、工具参数 2000 字符）——摘要现在能看到完整历史，代价是请求过大时由 provider 报错并经 `auto_compact_failed` 显式暴露，而不是静默产出不完整的摘要。
+- 改动文件：
+  1. `server/conversation-compaction.mjs` — `COMPACT_SYSTEM_PROMPT` 英文重写（九段结构不变）；用户消息模板改英文；删除 `truncateMiddle()` 与 `transcriptCharLimit()`；`buildTranscript(messages)` 不再接收/使用 model；`safeJson(value)` 去掉 `maxLength`；`formatMessageForTranscript()` 不再对消息正文做 10000 字符截断；`approximateMessageChars()` 的 attachments 调用同步去掉长度参数。保留 `redactSensitive()`（定点替换，非截断）与 `[image omitted]` / `[attachments omitted]` 结构性占位。
+  2. `tests/server/conversation-compaction.test.mjs` — 新增 `describe('conversation compaction prompt')` 五个用例：提示词全英文且不含 CJK、transcript 指令为英文；40k 字符正文完整上送且不含 `[truncated`；5000 字符工具参数完整上送；裸 `sk-*` 仍被脱敏且 20k 正文不丢；`token = sk-*` 赋值形式被折叠为 `[REDACTED]`。
+  3. `docs/wiki/server/README.md` — `conversation-compaction.mjs` 段新增「提示词（全英文）」与「不再做任何截断」两段，写明取舍与保留项。
+  4. `feature_list.json` / `progress.md` / `session-handoff.md` — 本轮记录。
+- 验证 / Evidence：
+  - `npx vitest run tests/server/conversation-compaction.test.mjs` → 11 tests passed。
+  - 压缩相关四文件（conversation-compaction / agent-compaction / auto-compaction / auto-compaction-notice）→ 4 files / 46 tests passed。
+  - `npx eslint` 改动文件 0 error；`npx tsc -b` 0 错误。
+- Notes：
+  - 语义边界：`minSourceChars` 门槛用的是**未截断**的 transcript 长度，因此判断更贴近真实历史量（旧行为下超长历史被截断到 160k 后仍高于门槛，实际结论不变）。
+  - 已知残留：`LEGACY_COMPACTION_NOTICE_PREFIX/SUFFIX` 仍是中文常量，那是**历史识别**用的（旧版本写入的 notice 文案），不是提示词，不能翻译，否则旧会话的压缩消息将无法被识别与过滤。
+  - 若后续发现某些小窗口模型频繁因输入过大而压缩失败，正确做法是提高 `<conversation_to_compact>` 的收敛策略（例如按 token 分块递进摘要），而不是恢复「掐头留尾」式截断。
+
+## compaction-ux-timing（done，2026-10-27）
+
+- Goal：分析自动上下文压缩的显示时机是否合理，并把「必须做」的缺口一次性补齐——架构最优、设计最优、保证产品体验，允许重构该部分代码。
+- 结论（一句话）：压缩 UI 由「服务端零散事件 → 装饰层注入式卡片」改为「服务端 `state.compactionNotice` 单向状态投影 → React 在消息列表尾部渲染」，五个缺陷一并消失：进行中不再静默、审批不再留下死卡片、自动压缩不再切掉当前回合、阈值信号不再被丢弃、卡片不再强制滚动。
+- 改动文件：
+  1. `server/auto-compaction.mjs` — 新增 `COMPACTION_NOTICE_PHASES`（`awaiting_confirmation` / `summarizing`）、`setCompactionNotice()` / `clearCompactionNotice()`、`AUTO_COMPACT_DECISION` 四种结果、`resolveAutoCompactTailStart()` + `AUTO_COMPACT_MIN_TAIL_USER_TURNS`；`maybeAutoCompactSession()` 在每个进入/退出路径发布或清空 notice，审批结果区分拒绝/超时/取消/不可用；`approvalId` 前置生成并写入 notice；catch 住 abort 拒绝不再伪装成压缩失败。删除 `auto_compact_threshold_reached`。
+  2. `server/agent-approval-orchestrator.mjs` — `createAutoCompactApprovalPromise()` 返回 `AUTO_COMPACT_DECISION`、采纳调用方传入的 `approvalId`、每条终止路径发 `auto_compact_approval_settled`（`decided` / `timed_out` / `cancelled`），并区分「已通告」与未通告的失败。
+  3. `server/agent-compaction.mjs` / `server/agent-manager.mjs` / `server/agent-session-queries.mjs` — 初始化、`resetSessionCompaction()` 清空 notice；`getSessionState()` 投影 `compactionNotice`。
+  4. `src/lib/server-agent-types.ts` / `src/lib/server-agent.ts` — 新增 `ServerAgentCompactionNotice` 与 `state.compactionNotice`；`auto_compact_state` / `auto_compact_approval_settled` 两个 case；`state` 帧与 `/state` 刷新都按「整体快照」语义覆盖（缺失即空闲）。
+  5. `src/lib/global-agent-sse-client.ts` / `src/lib/shared-server-agent.ts` — SSE 事件白名单更新。
+  6. `src/components/chat/surface/ContextCompactionStatusRow.tsx`（新）/ `ContextCompactionDecisionRow.tsx`（新）/ `MessageList.tsx` / `ChatSurface.tsx` / `ChatTypes.ts` — 两个行组件作为消息列表尾部子节点渲染；`ChatSurface` 订阅两个新事件；snapshot 增加 `compactionNotice`。
+  7. `src/components/chat/panel-wiring/approval-cards.ts` / `panel-decoration/approval-card.ts` / `ChatPanelHost.tsx` — 删除 auto-compact 注入卡与其 tone/copy/keepBoundary/scrollIntoView 链路（`findKeepBoundaryTarget`、`statusIcon(tone)`、`ApprovalCardCopy`、`getMessages`/`keepRecentTurns` 依赖），`ChatPanelHost` 把批准/拒绝回调接进 `ChatSurface`。
+  8. `src/lib/i18n.ts` + `src/styles/chat/context-compaction.css` — 新增 `compactionSummarizing*` 文案（en/zh）；新增状态行/决策行样式（shimmer 复用 `shimmer` keyframes + `prefers-reduced-motion` 降级、决策行复用邻近卡片强度、按钮只做 scale 按压反馈）。
+- 验证 / Evidence：
+  - `npx tsc -b` → 0 错误。
+  - `npx eslint`（22 个改动文件）→ 0 error；`npm run lint` → 0 error / 0 warning。
+  - 压缩相关 22 个测试文件 → 22 files / 299 tests passed。
+  - `npm run test` → 435 files / 5076 passed / 2 skipped，退出码 0。
+  - `npm run build` → 成功（`✓ built in 5.82s`）。
+- Notes：
+  - 新增测试：`tests/server/auto-compaction-notice.test.mjs`（notice 相位序列、四种审批结果、抛错/取消清理）、`tests/frontend/context-compaction-rows.test.ts`（两个行组件的渲染/隐藏/只读/不滚动）；`tests/server/auto-compaction.test.mjs` 增加 `resolveAutoCompactTailStart` 三例；`tests/server/agent-approval-orchestrator.test.mjs` 与 `tests/frontend/approval-card.test.ts` 更新为废弃旧契约后的断言。
+  - 未做的（与本轮边界无关，已记录）：失败态仍走 `auto_compact_failed` 的临时日志提醒，没有常驻错误行；`keepRecentTurns` 设置项仍写“0 = 不保留”，文案与实际自动路径行为（至少保留 1 个当前回合）存在轻微不一致，属设置页文案后续跟进。
+  - 首次全量跑出现 1 个失败（`semantic-color-class-parity`），原因是 CSS 注释里字面写了旧文档的语义色类名示例；改为文字描述后通过，说明该测试会扫描注释，新增样式注释时不要在注释里写带透明度的语义色类名。
+
 ## baseline-verification（done，2026-10-27）
 
 - Goal：跑一次完整基线验证（test / lint / build），确认仓库当前无真实失败；只记录结论，不做功能改动。

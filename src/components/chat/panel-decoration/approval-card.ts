@@ -1,36 +1,12 @@
 import { t } from '@/lib/i18n'
-import type { MessageWithUsage } from '../chat-utils'
 import { buildInlineDiff, buildInlinePreview, escapeHtml } from './html'
-import { readMessageRows } from './message-rows'
-
-type ApprovalCardTone = 'warning' | 'info'
-
-type ApprovalCardCopy = {
-  status?: string
-  title?: string
-  risk?: string
-  approve?: string
-  reject?: string
-}
 
 export type ApprovalCardDeps = {
   panel: HTMLElement
   onApprove: () => Promise<void> | void
   onReject: () => Promise<void> | void
-  tone?: ApprovalCardTone
-  copy?: ApprovalCardCopy
   disabled?: boolean
   disabledReason?: string
-  /**
-   * Messages aligned with the rendered DOM (the windowed view when windowing
-   * is active). Only needed for auto-compact approvals.
-   */
-  getMessages?: () => MessageWithUsage[]
-  /**
-   * Number of recent turns the compaction would keep. When set, the card is
-   * inserted at the boundary of the kept turns instead of the list bottom.
-   */
-  keepRecentTurns?: number
 }
 
 export type ToolApprovalSource = {
@@ -47,15 +23,12 @@ type ApprovalCardModelInput = {
   toolName: string
   args: Record<string, unknown>
   source?: ToolApprovalSource
-  tone?: ApprovalCardTone
-  copy?: ApprovalCardCopy
   disabled?: boolean
   disabledReason?: string
   translate?: Translate
 }
 
 type ApprovalCardDisplayModel = {
-  tone: ApprovalCardTone
   status: string
   title: string
   risk: string
@@ -73,7 +46,6 @@ type ApprovalCardDisplayModel = {
 
 export function buildApprovalCardDisplaySignature(model: ApprovalCardDisplayModel) {
   return JSON.stringify({
-    tone: model.tone,
     disabled: model.disabled,
     disabledReason: model.disabledReason,
     copy: {
@@ -104,6 +76,7 @@ const BUILTIN_TOOL_LABELS = {
   present_files: 'presentFiles',
   activate_skill: 'activateSkill',
   read_skill_resource: 'readSkillResource',
+  recall_experience: 'recallExperience',
   run_subagent: 'runSubagent',
   run_workflow: 'runWorkflow',
 } as const satisfies Record<string, Parameters<Translate>[0]>
@@ -167,8 +140,6 @@ export function buildApprovalCardDisplayModel({
   toolName,
   args,
   source,
-  tone = 'warning',
-  copy,
   disabled = false,
   disabledReason = '',
   translate = t,
@@ -214,26 +185,22 @@ export function buildApprovalCardDisplayModel({
     ...(pluginTool ? ['Plugin'] : []),
     ...sourceBadges,
   ]
-  const keepRecentTurns = typeof args.keepRecentTurns === 'number' ? args.keepRecentTurns : 0
-  const risk = tone === 'info'
-    ? translate('autoCompactApprovalRisk', { keepRecentTurns })
-    : toolName === 'run_command'
-      ? translate('toolApprovalRiskCommand')
-      : toolName === 'run_workflow'
-        ? translate('toolApprovalRiskWorkflow')
-        : toolName === 'write_file' || toolName === 'edit_file'
-          ? translate('toolApprovalRiskFileChange')
+  const risk = toolName === 'run_command'
+    ? translate('toolApprovalRiskCommand')
+    : toolName === 'run_workflow'
+      ? translate('toolApprovalRiskWorkflow')
+      : toolName === 'write_file' || toolName === 'edit_file'
+        ? translate('toolApprovalRiskFileChange')
         : mcpTool || pluginTool
           ? translate('toolApprovalRiskExternal')
           : translate('toolApprovalRiskGeneric')
 
   return {
-    tone,
-    status: copy?.status ?? (tone === 'info' ? translate('autoCompactApprovalStatus') : translate('toolApprovalNeedsConfirmation')),
-    title: copy?.title ?? (tone === 'info' ? translate('autoCompactApprovalTitle') : toolDisplayName),
-    risk: copy?.risk ?? risk,
-    approveLabel: copy?.approve ?? (tone === 'info' ? translate('autoCompactApprovalAccept') : translate('toolApprovalAccept')),
-    rejectLabel: copy?.reject ?? (tone === 'info' ? translate('autoCompactApprovalReject') : translate('toolApprovalReject')),
+    status: translate('toolApprovalNeedsConfirmation'),
+    title: toolDisplayName,
+    risk,
+    approveLabel: translate('toolApprovalAccept'),
+    rejectLabel: translate('toolApprovalReject'),
     toolDisplayName,
     badges,
     criticalParameters,
@@ -245,49 +212,8 @@ export function buildApprovalCardDisplayModel({
   }
 }
 
-function isDisplayMessage(message: MessageWithUsage) {
-  return message.role === 'user' || message.role === 'user-with-attachments' || message.role === 'assistant'
-}
 
-function isUserMessage(message: MessageWithUsage) {
-  return message.role === 'user' || message.role === 'user-with-attachments'
-}
-
-/**
- * Locate the DOM element before which the auto-compact approval card should
- * be inserted: the first message of the last `keepRecentTurns` user turns —
- * the boundary between context that would be compacted away and the recent
- * turns that are kept. `messages` must be aligned with the rendered DOM
- * (i.e. the windowed view when windowing is active). Returns null when no
- * sensible boundary exists.
- */
-function findKeepBoundaryTarget(panel: HTMLElement, messages: MessageWithUsage[], keepRecentTurns: number) {
-  if (keepRecentTurns <= 0 || messages.length === 0) return null
-
-  const userTurnStarts: number[] = []
-  for (let i = 0; i < messages.length; i++) {
-    if (isUserMessage(messages[i])) userTurnStarts.push(i)
-  }
-  if (userTurnStarts.length === 0) return null
-
-  const keep = Math.min(keepRecentTurns, userTurnStarts.length)
-  const boundaryIndex = userTurnStarts[userTurnStarts.length - keep]
-
-  const elements = readMessageRows(panel)
-
-  let displayIndex = 0
-  for (let i = 0; i <= boundaryIndex; i++) {
-    if (!isDisplayMessage(messages[i])) continue
-    if (i === boundaryIndex) return elements[displayIndex] ?? null
-    displayIndex += 1
-  }
-  return null
-}
-
-function statusIcon(tone: ApprovalCardTone) {
-  if (tone === 'info') {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/></svg>'
-  }
+function statusIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
 }
 
@@ -325,8 +251,6 @@ export function injectApprovalCard(
     toolName,
     args,
     source,
-    tone: deps.tone,
-    copy: deps.copy,
     disabled: deps.disabled,
     disabledReason: deps.disabledReason,
   })
@@ -339,7 +263,7 @@ export function injectApprovalCard(
   removeApprovalCard(panel)
 
   const card = document.createElement('section')
-  card.className = `quickforge-approval-card quickforge-approval-card--${model.tone}`
+  card.className = 'quickforge-approval-card quickforge-approval-card--warning'
   card.dataset.toolCallId = toolCallId
   card.dataset.displaySignature = displaySignature
 
@@ -347,7 +271,7 @@ export function injectApprovalCard(
   body.className = 'quickforge-approval-body'
   body.innerHTML = `
     <div class="quickforge-approval-status-row">
-      <div class="quickforge-approval-status">${statusIcon(model.tone)}<span>${escapeHtml(model.status)}</span></div>
+      <div class="quickforge-approval-status">${statusIcon()}<span>${escapeHtml(model.status)}</span></div>
       ${model.badges.length ? `<div class="quickforge-approval-badges">${model.badges.map((badge) => `<span class="quickforge-approval-badge">${escapeHtml(badge)}</span>`).join('')}</div>` : ''}
     </div>
     <h3 class="quickforge-approval-title">${escapeHtml(model.title)}</h3>
@@ -443,20 +367,18 @@ export function injectApprovalCard(
   actions.append(rejectBtn, acceptBtn)
   body.append(actions)
 
-  // Auto-compact approvals remain at the boundary of the kept recent turns.
-  const keepBoundaryTarget = deps.keepRecentTurns
-    ? findKeepBoundaryTarget(panel, deps.getMessages?.() ?? [], deps.keepRecentTurns)
-    : null
+  // Tool approval cards anchor to the message list. (The auto-compact card used
+  // to land here too, with a kept-turn boundary lookup and a forced
+  // `scrollIntoView`; both are gone — that decision is a React row inside the
+  // list now, see `surface/ContextCompactionDecisionRow`.)
   const messageList = panel.querySelector('.qf-message-list')
-  if (keepBoundaryTarget) {
-    keepBoundaryTarget.before(card)
-  } else if (messageList) {
+  if (messageList) {
     messageList.append(card)
   } else {
     panel.querySelector('.qf-chat-panel')?.append(card)
   }
 
-  if (!keepBoundaryTarget) card.scrollIntoView({ behavior: 'smooth', block: 'end' })
+  card.scrollIntoView({ behavior: 'smooth', block: 'end' })
 }
 
 export function removeApprovalCard(panel: HTMLElement) {

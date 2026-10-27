@@ -198,3 +198,93 @@ html.dark .quickforge-diff-row-del .quickforge-diff-code {
   color: rgb(252 165 165);
 }
 
+/* recall_experience 工具卡展开体的经验列表。
+   结构 = 元信息行（kind · scope · ×recallCount）+ 正文 + 质量指标行。
+   行结构与交互复刻 todo_write 历史列表（.quickforge-todo-history-item）：无分隔线、
+   hover 仅轻背景（muted 55% 配方）、无位移无边框无阴影；字号跟随消息字号基准，
+   不引入新字号体系。正文不做行数截断——用户展开卡片就是为了读全文。 */
+.quickforge-recall-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.quickforge-recall-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 0;
+  padding: 0.375rem;
+  border-radius: 0.375rem;
+  line-height: 1.45;
+  transition: background-color 140ms ease;
+}
+
+.quickforge-recall-item:hover {
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
+/* 元信息行：技术摘要保持弱化色，kind 略提亮一档以承担「这是什么类型的经验」。 */
+.quickforge-recall-meta,
+.quickforge-recall-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-recall-meta {
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+}
+
+.quickforge-recall-kind {
+  color: color-mix(in oklab, var(--muted-foreground) 62%, var(--foreground));
+  font-weight: 500;
+}
+
+.quickforge-recall-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.875);
+}
+
+/* 质量指标（置信度 · 强度 · 会话数 · 更新时间）是辅助信息：默认更弱，hover 提到
+   正文可读级别，避免与正文抢层级。 */
+.quickforge-recall-metrics {
+  color: color-mix(in oklab, var(--muted-foreground) 78%, transparent);
+  transition: color 140ms ease;
+}
+
+.quickforge-recall-item:hover .quickforge-recall-metrics {
+  color: color-mix(in oklab, var(--muted-foreground) 96%, transparent);
+}
+
+.quickforge-recall-sep {
+  opacity: 0.55;
+}
+
+/* 摘要行右侧的命中计数：数字等宽，不随内容宽度抖动。 */
+.quickforge-recall-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 0 命中是正常结果，不是错误：中性灰字说明，不用 destructive。 */
+.quickforge-recall-empty {
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8);
+  line-height: 1.5;
+}
+
+/* input/details 的 .text-xs 标签跟随消息字号（与 todo_write 卡同一契约）。 */
+.quickforge-recall-tool > div .text-xs {
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.8);
+}
+

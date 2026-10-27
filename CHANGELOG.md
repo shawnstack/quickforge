@@ -12,6 +12,42 @@ All notable changes to QuickForge will be documented in this file.
 - Todo summary motion now uses the shared `--quickforge-dur-*` / `--quickforge-ease-out` tokens, and the per-item `nth-child` fade stagger is gone (the design language forbids per-item waterfalls; only opacity fades are allowed).
 - The "in progress" glyph is now a quarter arc spinning on a dimmed track ring instead of a static half-filled circle that breathed. The half-filled circle read as a fixed 50% progress, and the breathing scaled the whole glyph so the row's text pulsed with it. Only the arc rotates; the `todo_write` history card keeps the static shape because an in-progress row in a past snapshot is history, not work in flight. Under `prefers-reduced-motion` the spin stops and the track lightens to a 3/4 ring, so the state never collapses into the hollow "pending" circle.
 
+## [2.3.4] - 2026-10-27
+
+### Added
+
+- Background commands get their own inspector panel: a `background-tasks` tab with an all/running/finished filter, search, task rows, detail metadata, a log preview with follow-output, stop, and open-full-log. Running tasks come from the `backgroundCommands` snapshot while terminal state is derived from the session's `toolResult` details, so no new server endpoint was needed. The panel is opened from exactly two places — the pinned summary "background commands" block (`view all` plus the row body) and the composer's command icon.
+- The model/provider settings page is now three layers: provider list (presets, draft rows), connection (protocol select, key saved on its own, collapsible headers), and model rows (inline save, visibility written immediately, per-model test, fetch from server). Storage shape is unchanged, and `POST /api/models/provider-discover` lists ids from the server's `/models` endpoint without requiring any configured model.
+- The skills page is a filterable full-width list (keyword, source and status filters, source grouping, bulk enable/disable with undo) with a centred detail dialog that loads `SKILL.md` on demand.
+- The project picker can create a workspace project inline (`POST /api/project/create`, with folder-name validation plus 409/403 mapping).
+- The default context window is raised to 1M tokens.
+- `run_command` terminal details now carry `startedAt` / `finishedAt` / `pid`, so the panel can show durations and process ids without extra requests.
+
+### Changed
+
+- Background command entry points were reduced to the two described above: the conversation header icon and the composer popover entry are gone, and the open request travels over a `quickforge:open-background-tasks` event bridge that the app only accepts for the current session.
+- The provider connection layer no longer has a provider-level "test connection" button or section heading — per-model tests already cover this — and the whole provider-test path (route, `testState`/`IDLE_TEST` machine, list and detail ✓/✗ badges, dead i18n keys) was removed with it. A saved API key is now read on demand and revealed in place instead of staying an empty password field, and the reveal does not mark the connection dirty.
+- The expanded tool list inside a running process stage is height-capped at `min(50vh, 18rem)` and scrolls inside its own region; while running it sticks to the newest row (with hysteresis so a manual scroll-up is respected) and reverts when collapsed.
+- The background-tasks log output area is sized by its content with an 18rem cap instead of stretching to fill the detail pane, so long logs no longer push the task list down to two rows.
+- The provider master/detail card follows the viewport (`max(34rem, min(52rem, 100vh - 13rem))`), and the per-model visibility switch was scaled to the row's action metrics so it no longer gets squeezed or overflows in narrow columns.
+- Sidebar timeline rows share one time slot: running sessions show a spinner, finished-unread ones an emerald dot.
+
+### Fixed
+
+- `ask_user` receipts render the chosen options and the free-form remark as two segments, so a remark-only answer is no longer shown as bare text.
+- Background command frames merge in place by `toolCallId` when the snapshot shrinks, instead of dropping locally appended messages.
+- Hovering a background task row fades its meta text out from under the row actions instead of letting the two overlap.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.4` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.4.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.4.tgz
+  ```
+
 ## [2.3.3] - 2026-10-26
 
 ### Added

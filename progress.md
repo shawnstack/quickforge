@@ -2,6 +2,19 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## baseline-verification（done，2026-10-27）
+
+- Goal：跑一次完整基线验证（test / lint / build），确认仓库当前无真实失败；只记录结论，不做功能改动。
+- 结论（一句话）：三项全绿——`npm run test` 433 files / 5057 passed（2 skipped，退出码 0），`npm run lint` 0 error / 0 warning，`npm run build` 成功；此前多轮记录的「31 个 `Cannot find package 'jsdom'` 环境错误」已消失（`jsdom` 现已可解析）。
+- 改动文件：仅 `progress.md` / `session-handoff.md` / `feature_list.json` 记录，无源码改动。
+- 验证 / Evidence：
+  - `npm run test` → `Test Files 433 passed (433)`、`Tests 5057 passed | 2 skipped (5059)`、Duration 82.47s、退出码 0。
+  - `npm run lint` → `eslint .` 无任何输出（0 error / 0 warning）。
+  - `npm run build` → `✓ built in 6.17s`（仅有既有的 >500kB chunk size 提示 warning）。
+- Notes：
+  - 本轮为 goal 模式长跑验证，未新增 feature、未改业务代码、未创建 Git commit、未触碰 `dist/` 等生成产物（build 输出按既有脚本生成，未手工修改）。
+  - 工作区存在他人遗留的未跟踪临时文件 `.tmp-cdp-probe4.cjs` / `.tmp-cdp-probe5.cjs` / `.tmp-cdp-result.json`，与本轮无关，未清理。
+
 ## background-tasks-output-height（done，2026-10-27）
 
 - Goal：后台任务面板的日志输出区（终端明细）太高——长日志时被拉成半屏，把任务列表挤到只剩两行；希望改矮到约 14~16 行。

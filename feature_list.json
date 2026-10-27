@@ -1,6 +1,18 @@
 {
   "features": [
     {
+      "id": "baseline-verification",
+      "title": "完整基线验证（test / lint / build）一次收敛",
+      "status": "done",
+      "summary": "只做验证不做功能改动：npm run test / npm run lint / npm run build 三项全绿，确认仓库当前无真实失败；此前多轮记录的 31 个 jsdom 缺包环境错误已消失（jsdom 现在可解析）。",
+      "files": [
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → Test Files 433 passed (433) / Tests 5057 passed | 2 skipped (5059)，退出码 0（82.47s）；npm run lint → eslint . 无输出（0 error / 0 warning）；npm run build → ✓ built in 6.17s。",
+      "updatedAt": "2026-10-27"
+    },
+    {
       "id": "background-tasks-output-height",
       "title": "后台任务面板输出区（终端明细）限高，不再拉成半屏",
       "status": "done",

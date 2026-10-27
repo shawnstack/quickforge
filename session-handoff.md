@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## baseline-verification（done，2026-10-27）
+
+- Current Objective（当前目标）：完整跑一次基线验证（`npm run test` / `npm run lint` / `npm run build`），确认无真实失败并留档。
+- 结论（一句话）：三项全绿，无源码改动；多轮文档里遗留的「31 个 jsdom 缺包环境错误」已不存在（`node_modules/jsdom` 现在可解析）。
+- 改动文件：`progress.md`、`session-handoff.md`、`feature_list.json`（均只加本轮验证记录）。
+- Evidence（验证）：`npm run test` → 433 files / 5057 passed / 2 skipped，退出码 0（82.47s）；`npm run lint` → 无输出（0 error / 0 warning）；`npm run build` → `✓ built in 6.17s`。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：`feature_list.json` 里 7 个 feature 全部 done，暂无待办；工作区有三个他人遗留未跟踪临时文件（`.tmp-cdp-probe4.cjs`、`.tmp-cdp-probe5.cjs`、`.tmp-cdp-result.json`），如需清理请先确认归属。未创建 Git commit，未手工修改生成产物。
+
 ## background-tasks-output-height（done，2026-10-27）
 
 - Current Objective（当前目标）：后台任务面板的终端输出区（终端明细）太高，长日志时被拉成半屏、把任务列表挤到只剩两行；改矮到约 14~16 行。

@@ -1,5 +1,17 @@
 # Current Session Handoff
 
+## workflow-error-collapse（done，2026-10-28）
+
+- Current Objective（当前目标）：工作流失败时把报错折叠起来，不要一上来就铺满整屏。
+- 结论（一句话）：错误统一改成「先给结论、按需展开」——Inspector 的 `run.error` 与聊天区无 details 的失败帧都默认只露两行（`isWorkflowErrorCollapsible`：>140 字符或含换行才给开关），展开后 40vh 内滚动；阶段日志不再因为存在 error 级记录就自动展开，改为头部标记点。
+- 改动文件：`src/lib/workflow-run-detail.ts`（`isWorkflowErrorCollapsible` / `WORKFLOW_ERROR_COLLAPSE_THRESHOLD`）、`src/components/workspace/WorkflowRunDetailContent.tsx`（`WorkflowErrorBanner` + `PhaseLogs` 默认收起）、`src/lib/tool-renderers/workflow-tool-renderer.tsx`（`WorkflowFallbackError`）、`src/styles/workspace/workflow-detail.css`、`src/styles/chat/goal-workflow.css`、`src/lib/i18n.ts`（`workflowErrorExpand` / `workflowErrorCollapse`）、`tests/frontend/workflow-renderer.test.ts`、`docs/architecture/workflow-orchestration.zh-CN.md`、三份 wiki、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npm run test` → 443 files / 5178 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。未创建 Git commit，未手工改生成产物（`dist/` 由 build 产出）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机复现一次长错误（例如给 `run_workflow` 传 `options` 为字符串触发参数校验失败）：聊天卡应只露两行 + 「展开详情」，点开后才看到完整原文，且不会把后续消息顶出屏幕。
+  2. 打开同一运行的 Inspector 详情：错误横幅两行、阶段日志默认收起（error 阶段头有标记点）；点「展开详情」后错误区最高 40vh、内部滚动。
+  3. 阈值 140 字符是经验值（对应两行左右的中英混排）；若真机上短错误也被截断或长错误仍嫌占位，只调 `WORKFLOW_ERROR_COLLAPSE_THRESHOLD`，不要在两处分别写判断。
+
 ## sidebar-show-more-indent（done，2026-10-28）
 
 - Current Objective（当前目标）：项目分区会话列表底部的「显示更多」与会话标题左对齐。

@@ -392,6 +392,11 @@
 .quickforge-settings-button {
   display: inline-flex;
   min-height: 2.5rem;
+  /* A squeezed button used to wrap CJK labels one character per line, so a
+     two-character button flipped between horizontal and vertical depending on
+     how long the neighbouring text was. */
+  flex: 0 0 auto;
+  white-space: nowrap;
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;

@@ -179,6 +179,22 @@ export function retireDreamingMemory(id: string): Promise<{ memory: DreamingMemo
   return requestDreamingJson(`/api/dreaming/memories/${encodeURIComponent(id)}/retire`, { method: 'POST' })
 }
 
+/**
+ * Label for a model in the selector.
+ *
+ * Custom models are commonly *named* "GLM-4.6V (智谱)", i.e. the provider is
+ * already part of the name. Appending it unconditionally produced
+ * "GLM-4.6V (智谱) (智谱)", so only add the suffix when it is not already there.
+ */
+export function formatModelOptionLabel(name: string | null | undefined, provider: string | null | undefined): string {
+  const modelName = String(name ?? '').trim()
+  const providerName = String(provider ?? '').trim()
+  if (!modelName) return providerName
+  if (!providerName) return modelName
+  if (modelName.toLowerCase().includes(providerName.toLowerCase())) return modelName
+  return `${modelName} (${providerName})`
+}
+
 /** Stable select value for a model reference ("follow chat" is the empty string). */
 export function modelRefKey(ref: DreamingSettings['modelRef'] | null | undefined): string {
   if (!ref) return ''

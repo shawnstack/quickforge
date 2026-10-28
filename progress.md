@@ -2,6 +2,68 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## dreaming-model-label-dedupe（done，2026-10-28）
+
+- 现象：梦境页模型下拉里供应商名字重复，如 “GLM-4.6V (智谱) (智谱)”。
+- 根因：自定义模型在 providers.json 里的 `name` 本身常写成 “GLM-4.6V (智谱)”，前端又无条件拼 `${name} (${provider})`。
+- 修法：新增 `formatModelOptionLabel(name, provider)`（dreaming-data.ts）——provider 已出现在 name 里（忽略大小写）则不追加；空值单边兵底。同时过滤掉 `ref` 为 null 的模型（其 select value 会是空串，与“跟随对话模型”撞键）。
+- 验证：新增 `tests/frontend/dreaming-model-label.test.ts`（4 例）；`npm run test` → 444 files / 5182 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+
+
+## workflow-error-collapse（done，2026-10-28）
+
+- 现象：`run_workflow` 失败时错误原文（服务端不截断，多段 + 「已完成步骤」清单）直接铺满聊天消息流 / 详情页，阶段与步骤被挤出可视区。
+- 修法（一律「先给结论、按需展开」）：
+  1. `src/lib/workflow-run-detail.ts` 新增 `isWorkflowErrorCollapsible(text)`（>140 字符或含换行）与 `WORKFLOW_ERROR_COLLAPSE_THRESHOLD`，纯 UI 判定，不动数据。
+  2. Inspector 详情 `run.error` 抽成 `WorkflowErrorBanner`：原文默认 `-webkit-line-clamp: 2`，长错误给「展开详情 / 收起详情」（`aria-expanded` + `data-open`），展开后 `max-height: 40vh` 内部滚动；短错误不加按钮，渲染与之前一致。
+  3. `PhaseLogs` 不再「阶段有 error 级日志就默认展开」——日志一律默认收起，error 只在头部保留 `-logs-flag` 标记点（原行为会让一屏全是日志）。
+  4. 聊天区无 details 的失败帧（审批拒绝、参数校验失败、worker 启动失败）抽出 `WorkflowFallbackError`，套用同一折叠规则。
+  5. i18n 新增 `workflowErrorExpand` / `workflowErrorCollapse`（中英成对）；样式改动落在 `workflow-detail.css` 与 `goal-workflow.css`，没有新增样式文件或依赖。
+- 测试：`workflow-renderer.test.ts` 新增「长错误折叠 + 短错误不折叠 + 详情页折叠与日志默认收起」断言；同步修正两条原先依赖「error 日志默认展开」的旧断言。
+- 文档：`docs/architecture/workflow-orchestration.zh-CN.md`（错误展示与 i18n 键）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`（两处）、`docs/wiki/src/styles/README.md`。
+- 验证：`npm run test` → 443 files / 5178 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+- Notes（本次不动）：`src/components/workspace/SubagentRunDetailContent.tsx` 的 subagent 错误块（`border-destructive/50` 那段）仍是无 clamp 的全量文本，属同类问题，等有反馈再统一。
+
+
+## dream-page-shadcn-layout（done，2026-10-28）
+
+- 更正：上一轮误改了设置页**左侧导航**（并动了全局 `.quickforge-settings-subtab`，影响数据管理页）。用户明确只要改 Dreaming 页内部，已全部回滚：`git diff` 对 `SettingsWorkspacePage.tsx` 与 `shell.css` 均为空；`quickforge:open-settings-tab` 监听保留（属上一个 feature）。
+- 本轮只改 `src/components/dreaming/*` 与 `src/styles/settings/dreaming.css`：
+  1. **一张 Card 一块事**：状态卡（标题 + 状态点/文字 + 立即处理 + 开关）→ 4 列 stats 条（下次/上次/生效/模型）→ 2 列字段网格（模型、执行时间、记忆语言、敏感、定时），全部用 `border-t` 发丝线分隔，不再堆 5 个 settings-row。
+  2. **页内 tabs 用本页自己的 segmented**：`.quickforge-dreaming-tabs`（muted 轨道 + 选中项浮起），筛选器移到同一行右侧，省掉单独一行 toolbar。
+  3. **列表改成 divide-y 行**：去掉 `min-height: 5rem` 与逐行 border（会与 divide-y 双线），行 padding 统一 0.875/1.25rem，空态改为居中弱化文字而非 `settings-empty-row`。
+  4. **按钮改用 shadcn Button**：`@/components/ui/button` 的 `variant=ghost|outline size=sm`（立即处理、分页、淘汰、查看、返回）。
+  5. 字段布局抽出本地 `Field`（label 在上、控件在下）+ 两个常量 `CARD`/`HAIRLINE`，避免同类 class 散落。
+- DESIGN_LANGUAGE 里上一轮加的「分组导航（shadcn 惯例）」收窄为「页内切换（segmented）」，并注明侧栏菜单沿用既有实现、本轮不动。
+- 验证：`npm run test` → 443 files / 5176 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功（DreamingSettingsTab 24.19 kB / gzip 5.70 kB）；`npx tsc -b` → 0 错误。
+
+
+## settings-nav-shadcn（done，2026-10-28）
+
+- Goal：设置页这部分菜单按 shadcn 风格重排布局。
+- 结论（一句话）：左侧导航从“大圆角 + 自选阴影 + 11px 分组标题”改为 shadcn 惯例——菜单项 `h-8 rounded-md px-2 text-sm`、选中 `bg-[var(--sidebar-accent)]` 且去阴影、分组标题 `text-xs`、组间 `space-y-4` 组内 `space-y-0.5`；页内切换（记忆/运行历史）从下划线 tab 改为 segmented 轨道。
+- 关键判断：
+  1. 去掉 `shadow-[0_8px_22px_-20px_...]`：阴影属于浮层，不该出现在导航选中态（DESIGN_LANGUAGE 也禁止“每项都有明显阴影”）。
+  2. 选中态改用 shadcn 语义 token `--sidebar-accent`/`--sidebar-accent-foreground`，不再用项目自建的 `--quickforge-sidebar-active-bg`（保留变量本身，侧栏其它地方仍在用）。
+  3. 分组标题 `text-[11px]` → `text-xs`：去掉任意值，与 shadcn 的 `text-xs` 一致。
+  4. 页内 tab 去下划线：设置面板里已有一层左侧导航，再来一条下划线会被读成第二层导航；segmented 轨道更贴近 shadcn Tabs。
+  5. 同步修正间距：原 `pb-4`（分组内 padding-bottom）改到 nav 层的 `space-y-4`，避免“组内最后一项也带 16px”导致密度不均。
+- 改动文件：`src/components/settings/SettingsWorkspacePage.tsx`（菜单项/分组/返回按钮/搜索框）、`src/styles/settings/shell.css`（subtab → segmented + section 内 gutter）、`DESIGN_LANGUAGE.md`（新增「分组导航（shadcn 惯例）」一节，固定 h-8/rounded-md/text-xs/组间距/选中态禁阴影）。
+- 影响面：subtab 样式由 Dreaming 与 DataSettingsTab 共用，两处同步变为 segmented（纯视觉，交互与 aria 不变）。
+- 验证：`npm run test` → 443 files / 5176 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+
+
+## dreaming-button-layout-fix（done，2026-10-28）
+
+- 现象：设置页记忆列表里的「淘汰」按钮一会儿横排一会儿竖排。
+- 根因：按钮直接作为 `.quickforge-settings-list-item`（`display:flex; justify-content:space-between`）的子元素，没有包进 `.quickforge-settings-list-item-actions`（该类才有 `flex: 0 0 auto`），按钮自身也没有 `flex-shrink: 0` / `white-space: nowrap`。内容一长就挤压按钮宽度，两个中文字被折成两行 → 看起来是“竖着”。内容短时又正常 → “一会儿横一会儿竖”。
+- 修法：
+  1. `.quickforge-settings-button` 全局补 `flex: 0 0 auto` + `white-space: nowrap`（按钮标签永远不该竖排）。
+  2. 记忆行的「淘汰」与运行详情的「查看/收起」按钮包进 `.quickforge-settings-list-item-actions`。
+  3. 新增 `.quickforge-dreaming-list` 作用域：`align-items: flex-start`（按钮钉在首行，不随内容行数上下漂移）+ actions 区 `flex-wrap: nowrap`。
+- 验证：`npm run test` → 443 files / 5176 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+
+
 ## sidebar-show-more-indent（done，2026-10-28）
 
 - 问题：项目分区的会话列表底部「显示更多」左边缘与会话标题对不齐——会话行展开态是 `px-2 + pl-8`（32px），按钮只有 `w-full px-2`（8px）。

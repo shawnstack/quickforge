@@ -720,7 +720,8 @@ html.dark .quickforge-todo-history-item--completed .quickforge-todo-history-stat
   50% { opacity: 0.35; }
 }
 
-/* 错误块：无 details 的失败帧（审批拒绝、参数校验失败）仍要在聊天里透出原因。 */
+/* 错误块：无 details 的失败帧（审批拒绝、参数校验失败）仍要在聊天里透出原因。
+   错误原文可能很长（含「已完成步骤」清单），默认只露两行，长文本给展开按钮。 */
 .quickforge-workflow-error {
   display: flex;
   flex-direction: column;
@@ -729,13 +730,49 @@ html.dark .quickforge-todo-history-item--completed .quickforge-todo-history-stat
   border-radius: 0 0.375rem 0.375rem 0;
   background: color-mix(in oklab, var(--destructive) 6%, transparent);
   padding: 0.25rem 0.625rem;
+}
+
+.quickforge-workflow-error-text {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* 展开后不截断，但限制高度并在内部滚动，避免又铺满整个消息流。 */
+.quickforge-workflow-error[data-open='true'] .quickforge-workflow-error-text {
+  display: block;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .quickforge-workflow-error-label {
   font-weight: 600;
   color: var(--destructive);
+}
+
+.quickforge-workflow-error-toggle {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  cursor: pointer;
+  transition: color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-error-toggle:hover {
+  color: var(--foreground);
+}
+
+.quickforge-workflow-error-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {

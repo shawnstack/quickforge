@@ -13,6 +13,7 @@ vi.mock('@/lib/tool-display-settings', () => ({
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 import {
   buildWorkflowRunView,
+  isWorkflowErrorCollapsible,
   workflowActiveStepLabels,
   workflowCurrentPhase,
   workflowPhaseSpan,
@@ -435,6 +436,35 @@ describe('workflow tool renderer', () => {
     expect(preparingMarkup).not.toContain('quickforge-workflow-card')
   })
 
+  it('collapses long workflow errors behind an explicit toggle', () => {
+    const short = new WorkflowToolRenderer().render(undefined, {
+      isError: true,
+      content: [{ type: 'text', text: 'User rejected run_workflow' }],
+    }, false)
+    const shortMarkup = renderToStaticMarkup(short.content as ReactElement)
+    // 短错误保持原样：不加按钮，也不额外占高。
+    expect(shortMarkup).toContain('quickforge-workflow-error-text')
+    expect(shortMarkup).not.toContain('quickforge-workflow-error-toggle')
+
+    const longText = `Workflow failed\n${'at step read_file '.repeat(12)}`
+    const long = new WorkflowToolRenderer().render(undefined, {
+      isError: true,
+      content: [{ type: 'text', text: longText }],
+    }, false)
+    const longMarkup = renderToStaticMarkup(long.content as ReactElement)
+    // 长错误默认折叠：文本仍在 DOM 里（CSS clamp 两行），但开关必须是收起态。
+    expect(longMarkup).toContain('quickforge-workflow-error-toggle')
+    expect(longMarkup).toContain('aria-expanded="false"')
+    expect(longMarkup).toContain('Show details')
+    expect(longMarkup).toContain('Workflow failed')
+    expect(longMarkup).not.toContain('data-open="true"')
+    // 折叠靠 clamp 实现，样式必须真的落在聊天样式表里。
+    expect(css).toContain('.quickforge-workflow-error-text')
+    expect(css).toContain('.quickforge-workflow-error[data-open=\'true\'] .quickforge-workflow-error-text')
+    expect(css).toContain('-webkit-line-clamp: 2')
+    expect(source).toContain('isWorkflowErrorCollapsible')
+  })
+
   it('carries the script into the opened payload only in detailed mode', () => {
     toolDisplay.mode = 'default'
     const compact = new WorkflowToolRenderer().render({ script: 'return 1' }, { details: runningDetails } as Parameters<WorkflowToolRenderer['render']>[1], true)
@@ -492,11 +522,12 @@ describe('workflow run detail content', () => {
     expect(markup).toContain('quickforge-workflow-detail-scroll')
     expect(markup).toContain('quickforge-workflow-detail-phase-logs')
     expect(markup).not.toContain('quickforge-workflow-detail-axis')
-    // 两个阶段（Scan / Fix）都渲染出来；Fix 有错误日志所以默认展开，Scan 的 info 日志默认收起。
+    // 两个阶段（Scan / Fix）都渲染出来；日志一律默认收起，错误日志只留头部标记点。
     expect(markup.indexOf('Scan')).toBeLessThan(markup.indexOf('Fix'))
     expect(markup).not.toContain('scanning files')
-    expect(markup).toContain('first attempt failed')
-    expect(markup.indexOf('fix the bug')).toBeLessThan(markup.indexOf('first attempt failed'))
+    expect(markup).not.toContain('first attempt failed')
+    expect(markup).toContain('quickforge-workflow-detail-logs-flag')
+    expect(markup.indexOf('Write File')).toBeGreaterThan(markup.indexOf('Fix'))
     // 不再渲染三视图分段按钮。
     expect(markup).not.toContain('quickforge-workflow-detail-seg')
   })
@@ -573,17 +604,19 @@ describe('workflow run detail content', () => {
     expect(css).toContain(".quickforge-workflow-detail-tools[data-owned='true']")
   })
 
-  it('collapses info logs by default and opens error logs', () => {
+  it('collapses all phase logs by default, including error logs', () => {
     const view = buildWorkflowRunView({ details: runningDetails }, true)!
     const markup = renderToStaticMarkup(
       createElement(WorkflowRunDetailContent, {
         payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
       }),
     )
-    // Scan 阶段只有 info 日志 → 默认收起；Fix 有 error → 默认展开。
+    // 日志一律默认收起：error 级日志只在头部留标记点，不自动铺开正文。
     expect(markup).not.toContain('scanning files')
-    expect(markup).toContain('first attempt failed')
-    expect(detailSource).toContain("logs.some((log) => log.level === 'error')")
+    expect(markup).not.toContain('first attempt failed')
+    expect(markup).toContain('quickforge-workflow-detail-logs-flag')
+    expect(detailSource).toContain('const [open, setOpen] = useState(false)')
+    expect(detailSource).toContain('const hasError = logs.some((log) => log.level === \'error\')')
     expect(detailSource).not.toContain('LOG_FOLD_LIMIT')
     // 长 info 日志也默认收起，不渲染具体行。
     const logs = Array.from({ length: 9 }, (_, index) => ({
@@ -622,6 +655,36 @@ describe('workflow run detail content', () => {
     expect(detailSource).toContain('quickforge-workflow-detail-sheet-meta')
     // 派生统计行只在真实存在时渲染（并发峰值/节省，无则整行隐藏）。
     expect(detailSource).toContain('timeline.peakConcurrency > 1 || timeline.savedMs > 0')
+  })
+
+  it('collapses a long run error and keeps error-level logs folded', () => {
+    const longError = `Workflow failed\n${'at step read_file '.repeat(12)}`
+    const view = buildWorkflowRunView({ isError: true, details: { ...runningDetails, status: 'error', error: longError } }, false)!
+    expect(isWorkflowErrorCollapsible(view.error)).toBe(true)
+    const markup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: view.runId, view, detailed: true }),
+      }),
+    )
+    // 长错误默认两行 + 收起态开关，不再让堆栈把阶段列表挤出可视区。
+    expect(markup).toContain('quickforge-workflow-detail-error-toggle')
+    expect(markup).toContain('aria-expanded="false"')
+    expect(markup).not.toContain('data-open="true"')
+    expect(css).toContain('.quickforge-workflow-detail-error-text')
+    expect(css).toContain(".quickforge-workflow-detail-error[data-open='true'] .quickforge-workflow-detail-error-text")
+    expect(css).toContain('max-height: 40vh')
+    expect(detailSource).toContain('isWorkflowErrorCollapsible')
+    // 阶段里有 error 级日志也默认收起：头部仍显示「Run log」，正文不在首屏。
+    expect(markup).toContain('Run log')
+    expect(markup).not.toContain('first attempt failed')
+
+    const shortView = buildWorkflowRunView({ isError: true, details: { ...runningDetails, status: 'error', error: 'boom' } }, false)!
+    const shortMarkup = renderToStaticMarkup(
+      createElement(WorkflowRunDetailContent, {
+        payload: buildWorkflowRunPayload({ runId: shortView.runId, view: shortView, detailed: true }),
+      }),
+    )
+    expect(shortMarkup).not.toContain('quickforge-workflow-detail-error-toggle')
   })
 
   it('shows the overview failure entry when steps failed without a run error', () => {

@@ -19,6 +19,7 @@ import {
   renderToolIcon,
 } from '@/lib/tool-renderers/shared'
 import {
+  isWorkflowErrorCollapsible,
   workflowCountParts,
   workflowPhaseSteps,
   workflowStatusLabelKey,
@@ -173,9 +174,9 @@ function ToolStep({ tool, parallelCount }: StepProps & { tool: WorkflowToolView 
   )
 }
 
-/** 阶段日志：默认收起；阶段里有错误时默认展开，错误只染消息文本。 */
+/** 阶段日志：默认收起（错误日志也不再自动展开，否则一屏全是日志）；错误只留头部标记。 */
 function PhaseLogs({ logs, logOrigin }: { logs: WorkflowPhaseView['logs']; logOrigin: number }) {
-  const [open, setOpen] = useState(() => logs.some((log) => log.level === 'error'))
+  const [open, setOpen] = useState(false)
   if (logs.length === 0) return null
   const hasError = logs.some((log) => log.level === 'error')
   return (
@@ -295,6 +296,37 @@ function PhaseSection({
 // 外壳
 // ---------------------------------------------------------------------------
 
+/**
+ * 运行级错误横幅：服务端不截断 run.error，多段堆栈会把阶段列表整体挤出可视区，
+ * 所以默认只露两行，长错误给「展开详情」；展开后限制高度并内部滚动。
+ */
+function WorkflowErrorBanner({ error, onLocate }: { error: string; onLocate: () => void }) {
+  const [open, setOpen] = useState(false)
+  const collapsible = isWorkflowErrorCollapsible(error)
+  const expanded = collapsible && open
+  return (
+    <div className="quickforge-workflow-detail-error" role="alert" data-open={expanded ? 'true' : undefined}>
+      <span className="quickforge-workflow-detail-error-label">{t('workflowError')}</span>
+      <span className="quickforge-workflow-detail-error-text">{error}</span>
+      <div className="quickforge-workflow-detail-error-actions">
+        {collapsible ? (
+          <button
+            type="button"
+            className="quickforge-workflow-detail-error-toggle"
+            aria-expanded={expanded}
+            onClick={() => setOpen((current) => !current)}
+          >
+            {t(expanded ? 'workflowErrorCollapse' : 'workflowErrorExpand')}
+          </button>
+        ) : null}
+        <button type="button" className="quickforge-workflow-detail-error-jump" onClick={onLocate}>
+          {t('workflowDetailLocateFailure')}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function WorkflowRunDetailContent({ payload }: WorkflowRunDetailContentProps) {
   // 脚本是运行详情的主要阅读内容之一：payload 带 script 时默认展开脚本 sheet；
   // 用户点击底部按钮自行切换。
@@ -376,13 +408,7 @@ export function WorkflowRunDetailContent({ payload }: WorkflowRunDetailContentPr
 
       <div className="quickforge-workflow-detail-scroll" ref={scrollRef}>
         {run.error ? (
-          <div className="quickforge-workflow-detail-error" role="alert">
-            <span className="quickforge-workflow-detail-error-label">{t('workflowError')}</span>
-            <span>{run.error}</span>
-            <button type="button" className="quickforge-workflow-detail-error-jump" onClick={jumpToFailure}>
-              {t('workflowDetailLocateFailure')}
-            </button>
-          </div>
+          <WorkflowErrorBanner error={run.error} onLocate={jumpToFailure} />
         ) : null}
         {run.phases.length === 0 ? (
           <p className="quickforge-workflow-detail-empty">{t('workflowDetailNoPhases')}</p>

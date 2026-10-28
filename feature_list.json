@@ -1,6 +1,79 @@
 {
   "features": [
     {
+      "id": "dreaming-model-label-dedupe",
+      "title": "梦境页模型选项供应商重复显示修复",
+      "status": "done",
+      "summary": "自定义模型 name 常包含供应商（如 GLM-4.6V (智谱)），前端又无条件拼接 provider，导致显示成 GLM-4.6V (智谱) (智谱)。新增 formatModelOptionLabel(name, provider)：provider 已出现在 name 中（忽略大小写、容忍首尾空格）则不追加，空值单边兜底；同时过滤 ref 为 null 的模型，避免其空 value 与“跟随对话模型”选项撞键。",
+      "files": [
+        "src/components/dreaming/dreaming-data.ts",
+        "src/components/dreaming/DreamingSettingsTab.tsx",
+        "tests/frontend/dreaming-model-label.test.ts"
+      ],
+      "verification": "npm run test -> 444 files / 5182 passed; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-28"
+    },
+    {
+      "id": "workflow-error-collapse",
+      "title": "工作流报错默认折叠，不再一屏铺满错误原文",
+      "status": "done",
+      "summary": "错误展示收紧为「先给结论、按需展开」：新增 isWorkflowErrorCollapsible(text)（>140 字符或含换行）与 WORKFLOW_ERROR_COLLAPSE_THRESHOLD（src/lib/workflow-run-detail.ts）。Inspector 详情的 run.error 横幅拆出 WorkflowErrorBanner：错误原文默认 clamp 两行，长错误给「展开详情 / 收起详情」（aria-expanded + data-open），展开后 max-height 40vh 内部滚动；短错误不加按钮、渲染不变。阶段日志 PhaseLogs 不再「有 error 级日志就默认展开」，一律默认收起，error 只在头部保留 flag 标记点。聊天区无 details 的失败帧（审批拒绝、参数校验失败、worker 启动失败）抽出 WorkflowFallbackError，套用同一折叠规则。新增 i18n 键 workflowErrorExpand / workflowErrorCollapse（中英），样式落在 workflow-detail.css 与 goal-workflow.css。",
+      "files": [
+        "src/lib/workflow-run-detail.ts",
+        "src/components/workspace/WorkflowRunDetailContent.tsx",
+        "src/lib/tool-renderers/workflow-tool-renderer.tsx",
+        "src/styles/workspace/workflow-detail.css",
+        "src/styles/chat/goal-workflow.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/workflow-renderer.test.ts",
+        "docs/architecture/workflow-orchestration.zh-CN.md",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/lib/README.md",
+        "docs/wiki/src/styles/README.md"
+      ],
+      "verification": "npm run test -> 443 files / 5178 passed / 2 skipped; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-28"
+    },
+    {
+      "id": "dream-page-shadcn-layout",
+      "title": "Dreaming 页按 shadcn 布局重排（仅页内）",
+      "status": "done",
+      "summary": "回滚上一轮误改的设置页左侧导航与全局 subtab 样式（SettingsWorkspacePage.tsx、shell.css 已与 HEAD 一致，quickforge:open-settings-tab 监听保留）。仅重排 Dreaming 页内部：状态卡（标题+状态点/文字+立即处理+开关）→ 4 列 stats 条 → 2 列字段网格，用 border-t 发丝线分隔替代堆叠 settings-row；页内 tabs 改为本页专属 segmented（.quickforge-dreaming-tabs，不影响其他面板），筛选器并入同一行；列表改 divide-y 行（去掉 min-height 5rem 与逐行 border 避免双线），空态改居中弱化文字；按钮改用 @/components/ui/button 的 ghost/outline size=sm；抽取本地 Field 组件与 CARD/HAIRLINE 常量。DESIGN_LANGUAGE 的「分组导航（shadcn 惯例）」收窄为「页内切换（segmented）」。",
+      "files": [
+        "src/components/dreaming/DreamingSettingsTab.tsx",
+        "src/styles/settings/dreaming.css",
+        "DESIGN_LANGUAGE.md"
+      ],
+      "verification": "npm run test -> 443 files / 5176 passed; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-28"
+    },
+    {
+      "id": "settings-nav-shadcn",
+      "title": "设置页菜单按 shadcn 风格重排",
+      "status": "done",
+      "summary": "左侧导航改为 shadcn 惯例：菜单项 h-8 rounded-md px-2 text-sm，选中用 var(--sidebar-accent) 并去掉自选阴影，未选中项文字 muted；分组标题从 text-[11px] 改为 text-xs；组间 space-y-4、组内 space-y-0.5（原先靠每组 pb-4 导致密度不均）；返回按钮与搜索框统一 h-8 rounded-md。页内切换（记忆/运行历史，DataSettingsTab 共用）从下划线 tab 改为 segmented 轨道（muted 底 + 选中项浮到页面背景 + 细边框），并在 section 内补 1.25rem gutter。DESIGN_LANGUAGE 新增「分组导航（shadcn 惯例）」一节固定尺寸与选中态规则。",
+      "files": [
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "src/styles/settings/shell.css",
+        "DESIGN_LANGUAGE.md"
+      ],
+      "verification": "npm run test -> 443 files / 5176 passed; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-28"
+    },
+    {
+      "id": "dreaming-button-layout-fix",
+      "title": "记忆列表淘汰按钮方向抖动修复",
+      "status": "done",
+      "summary": "记忆行的「淘汰」按钮直接作为 flex list-item 的子元素，未包进 settings-list-item-actions，且按钮自身缺少 flex-shrink:0 与 white-space:nowrap，内容变长时按钮宽度被压缩导致中文标签折成两行（竖排），内容短时又横排。修复：.quickforge-settings-button 全局补 flex:0 0 auto + white-space:nowrap；淘汰与查看/收起按钮包入 actions 容器；新增 .quickforge-dreaming-list 作用域设置 align-items:flex-start 与 actions flex-wrap:nowrap，使按钮位置不随内容行数漂移。",
+      "files": [
+        "src/styles/settings/controls.css",
+        "src/styles/settings/dreaming.css",
+        "src/components/dreaming/DreamingSettingsTab.tsx"
+      ],
+      "verification": "npm run test -> 443 files / 5176 passed; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-28"
+    },
+    {
       "id": "rollback-inline-edit",
       "title": "回滚改为就地编辑（去掉二次确认）",
       "status": "done",

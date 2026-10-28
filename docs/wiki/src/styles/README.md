@@ -61,7 +61,7 @@ src/styles/
 │   ├── pinned-summary.css       # 桌面置顶摘要浮窗
 │   └── file-rollback.css        # 会话文件回滚弹窗
 └── workspace/
-    ├── workflow-detail.css      # run_workflow 运行详情无时间轴单页：概览 + 吸顶阶段头 + 轻量 Agent 行 / ToolMessage 工具行 + 折叠日志；已删除 --wf-tl-* 与 bar/track/axis/legend/now/grid/phase-track/parallel-group；工具连接线落在 Agent 图标中心，失败入口 / foot 低强调；脚本 sheet 默认展开、底部按钮带 active 态
+    ├── workflow-detail.css      # run_workflow 运行详情无时间轴单页：概览 + 吸顶阶段头 + 轻量 Agent 行 / ToolMessage 工具行 + 折叠日志；已删除 --wf-tl-* 与 bar/track/axis/legend/now/grid/phase-track/parallel-group；工具连接线落在 Agent 图标中心，失败入口 / foot 低强调；脚本 sheet 默认展开、底部按钮带 active 态；错误横幅长原文默认两行折叠（`-error-text` clamp 2 + `-error-toggle`），展开后 40vh 内滚动；阶段日志一律默认收起（error 只留 `-logs-flag` 标记）
     ├── inspector-tabs.css       # Workspace Inspector 顶部 Tab 条
     └── background-tasks.css     # 「后台任务」Inspector 面板：筛选/搜索工具条、任务列表行与状态点、详情元信息、日志预览与跟随输出开关、停止按钮；class 前缀 `.quickforge-background-tasks-*`（含 `-pulse` keyframes）。对齐基准：水平 0.875rem 与 `workflow-detail.css` 同轴（header / toolbar / detail-header / meta / output 外框都直接落在基准线上，切 tab 时正文不横跳；列表用 list 0.5rem + item 0.375rem 叠出基准线），输出区内部三级（标题条 / 滚动区 / 底部提示）统一横向 0.5rem，控件同高 1.625rem（分段控件 1.375rem + 容器 0.125rem 内距），字号 4 档（0.6875 徽标 / 0.75 正文 / 0.8125 列表标题 / 0.875 面板标题），元信息与行内操作区共用网格第三列（预留 3.5rem），悬停只做透明度交换、不绝对定位覆盖。竖向高度：`-detail` 与 `-output` 都是 `flex: 0 1 auto`（按内容占位、不吃满剩余空间），输出区 `min-height: 4rem` + `max-height: 18rem`（≈14~16 行）内滚，剩余竖向空间归 `-list`（`flex: 1 1 auto`，唯一滚动容器）
 ```

@@ -1,9 +1,10 @@
 /* eslint-disable react-refresh/only-export-components -- the class renderer and its private helpers are intentionally colocated; they carry no HMR state contract. */
-import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { t } from '@/lib/i18n'
 import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   buildWorkflowRunView,
+  isWorkflowErrorCollapsible,
   workflowStatusLabelKey,
   workflowSummaryText,
   type WorkflowRunView,
@@ -33,6 +34,32 @@ function workflowRenderStatus(view: ReturnType<typeof buildWorkflowRunView>): To
 }
 
 const subscribeActiveWorkflowRun = (onChange: () => void) => activeWorkflowRunStore.subscribe(onChange)
+
+/**
+ * 无 details 失败帧的错误块（审批拒绝、参数校验失败、worker 启动失败等）：
+ * 错误原文可能很长（含「已完成步骤」清单），默认只露两行，长文本给展开按钮。
+ */
+function WorkflowFallbackError({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const collapsible = isWorkflowErrorCollapsible(text)
+  const expanded = collapsible && open
+  return (
+    <div className="quickforge-workflow-error" role="alert" data-open={expanded ? 'true' : undefined}>
+      <span className="quickforge-workflow-error-label">{t('workflowError')}</span>
+      <span className="quickforge-workflow-error-text">{text}</span>
+      {collapsible ? (
+        <button
+          type="button"
+          className="quickforge-workflow-error-toggle"
+          aria-expanded={expanded}
+          onClick={() => setOpen((current) => !current)}
+        >
+          {t(expanded ? 'workflowErrorCollapse' : 'workflowErrorExpand')}
+        </button>
+      ) : null}
+    </div>
+  )
+}
 
 /**
  * 订阅「当前激活的工作流详情 Tab」，让卡片显示「已打开」。
@@ -80,12 +107,7 @@ export class WorkflowToolRenderer {
               <span>{t(result ? (result.isError ? 'workflowFailed' : 'workflowCompleted') : 'workflowPreparing')}</span>
               {result ? renderStatus(fallbackStatus, timing) : null}
             </div>
-            {fallbackError ? (
-              <div className="quickforge-workflow-error" role="alert">
-                <span className="quickforge-workflow-error-label">{t('workflowError')}</span>
-                <span>{fallbackError}</span>
-              </div>
-            ) : null}
+            {fallbackError ? <WorkflowFallbackError text={fallbackError} /> : null}
           </div>
         ),
       }

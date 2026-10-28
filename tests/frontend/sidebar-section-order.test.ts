@@ -223,9 +223,14 @@ describe('ChatSidebar section reorder wiring', () => {
 
     expect(sidebarModule.classes).toContain("export const sidebarSessionRowBaseClass = 'group relative flex items-center gap-2 overflow-hidden rounded-lg py-1.5 text-left")
     expect(sidebarModule.classes).toContain("export const sidebarSessionTitleClass = 'quickforge-sidebar-label-in truncate text-sm font-[350] leading-5'")
-    expect(controlsSource).toContain('sidebarSessionRowBaseClass')
+    expect(controlsSource).toContain('sidebarRowClass(sidebarOpen)')
     expect(controlsSource).toContain('sidebarSessionTitleClass')
-    expect(controlsSource).toContain("'w-full px-2 text-muted-foreground/50")
+    expect(controlsSource).toContain("'w-full text-muted-foreground/50")
+    // 项目分区会话行带 pl-8 缩进，「显示更多」必须跟随，否则左边缘比会话标题更靠左。
+    expect(controlsSource).toContain("indent && sidebarOpen && 'pl-8'")
+    const projectShowMoreSource = sidebarSource.match(/<SessionDisplayControls\s+visibleCount=\{projectVisibleCounts[\s\S]*?\/>/)?.[0] ?? ''
+    expect(projectShowMoreSource).toContain('sidebarOpen={sidebarOpen}')
+    expect(projectShowMoreSource).toContain('indent')
     expect(controlsSource).not.toContain("hover:text-muted-foreground/80")
     expect(controlsSource).not.toContain('text-xs')
     expect(controlsSource).not.toContain('onCollapse')

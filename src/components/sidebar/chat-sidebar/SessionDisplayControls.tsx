@@ -3,7 +3,7 @@ import { useSentinel } from '@/hooks/useSentinel'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
-  sidebarSessionRowBaseClass,
+  sidebarRowClass,
   sidebarSessionTitleClass,
 } from './sidebar-classes'
 
@@ -23,12 +23,18 @@ export function SessionDisplayControls({
   hasMore,
   loading,
   onShowMore,
+  sidebarOpen = true,
+  indent = false,
 }: {
   visibleCount: number
   loadedCount: number
   hasMore: boolean
   loading: boolean
   onShowMore: () => void
+  /** 与会话行一致：收起态居中、展开态 px-2。 */
+  sidebarOpen?: boolean
+  /** 项目分区的会话行有 pl-8 缩进，按钮需跟随，否则左边缘比会话标题更靠左。 */
+  indent?: boolean
 }) {
   const canShowMore = visibleCount < loadedCount || hasMore
   if (!canShowMore) return null
@@ -37,8 +43,9 @@ export function SessionDisplayControls({
     <button
       type="button"
       className={cn(
-        sidebarSessionRowBaseClass,
-        'w-full px-2 text-muted-foreground/50 hover:bg-[var(--quickforge-sidebar-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
+        sidebarRowClass(sidebarOpen),
+        'w-full text-muted-foreground/50 hover:bg-[var(--quickforge-sidebar-hover-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-45',
+        indent && sidebarOpen && 'pl-8',
       )}
       onClick={onShowMore}
       disabled={loading}

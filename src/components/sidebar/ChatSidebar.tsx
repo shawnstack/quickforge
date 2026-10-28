@@ -861,6 +861,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                             hasMore={projectTimelineHasMore}
                                             loading={projectTimelineAppending}
                                             onShowMore={showMoreTimelineSessions}
+                                            sidebarOpen={sidebarOpen}
                                           />
                                         </>
                                       )
@@ -995,6 +996,8 @@ export const ChatSidebar = memo(function ChatSidebar({
                                                                   hasMore={projectHasMore(item.id)}
                                                                   loading={projectAppending(item.id)}
                                                                   onShowMore={() => showMoreProjectSessions(item.id, projectSessions.length)}
+                                                                  sidebarOpen={sidebarOpen}
+                                                                  indent
                                                                 />
                                                               </>
                                                             )}
@@ -1078,6 +1081,7 @@ export const ChatSidebar = memo(function ChatSidebar({
                                       hasMore={globalHasMore}
                                       loading={globalAppending}
                                       onShowMore={showMoreGlobalSessions}
+                                      sidebarOpen={sidebarOpen}
                                     />
                                   </div>
                                 )}

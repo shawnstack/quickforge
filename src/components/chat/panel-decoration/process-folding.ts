@@ -712,102 +712,6 @@ export function processStageStateKey(processKey: string, index: number) {
   return `${processKey}:stage:${index}`
 }
 
-/**
- * stage 展开区的限高滚动（CSS 见 `.quickforge-process-stage[data-expanded="true"] >
- * .quickforge-process-stage-body > .quickforge-process-body-inner`）：工具行超过
- * min(50vh, 18rem) 后只在区域内滚动。区域滚动容器是动画壳层 inner，这里负责
- * 「执行中新增工具行 → 贴底跟随」，用户上翻即停止跟随（阅读意图），滚回底部附近
- * 再重新挂上。
- *
- * 阈值双向滞回：release 24px（上滑超过即停止跟随）、repin 8px（回到 8px 内才重挂），
- * 单阈值会在临界点附近来回翻转——用户在 20px 处停下时跟随被下一次内容增长立刻拉回
- * 底部，等于抢走阅读位置。
- */
-const PROCESS_STAGE_FOLLOW_RELEASE_PX = 24
-const PROCESS_STAGE_FOLLOW_REPIN_PX = 8
-const PROCESS_STAGE_FOLLOW_ATTR = 'quickforgeStageFollow'
-const PROCESS_STAGE_FOLLOW_BOUND_ATTR = 'quickforgeStageScrollBound'
-
-type ScrollableStageInner = HTMLElement & {
-  scrollTop?: number
-  scrollHeight?: number
-  clientHeight?: number
-}
-
-/** 新的跟随状态；`distanceFromBottom` 非有限值（fake DOM / 未布局）时保持原状态。 */
-export function resolveProcessStageScrollFollow(following: boolean, distanceFromBottom: number) {
-  if (!Number.isFinite(distanceFromBottom)) return following
-  return distanceFromBottom <= (following ? PROCESS_STAGE_FOLLOW_RELEASE_PX : PROCESS_STAGE_FOLLOW_REPIN_PX)
-}
-
-function processStageFollowsTail(inner: ScrollableStageInner) {
-  return inner.dataset[PROCESS_STAGE_FOLLOW_ATTR] !== 'false'
-}
-
-/** 绑定一次 scroll 监听（幂等）：只有真实 DOM 有 addEventListener，fake DOM 直接跳过。 */
-function bindProcessStageScrollFollow(inner: ScrollableStageInner) {
-  if (inner.dataset[PROCESS_STAGE_FOLLOW_BOUND_ATTR] === 'true') return
-  const addEventListener = inner.addEventListener
-  if (typeof addEventListener !== 'function') return
-  inner.dataset[PROCESS_STAGE_FOLLOW_BOUND_ATTR] = 'true'
-  addEventListener.call(inner, 'scroll', () => {
-    const distance = (inner.scrollHeight ?? 0) - (inner.scrollTop ?? 0) - (inner.clientHeight ?? 0)
-    const following = resolveProcessStageScrollFollow(processStageFollowsTail(inner), distance)
-    if (following === processStageFollowsTail(inner)) return
-    if (following) delete inner.dataset[PROCESS_STAGE_FOLLOW_ATTR]
-    else inner.dataset[PROCESS_STAGE_FOLLOW_ATTR] = 'false'
-  }, { passive: true })
-}
-
-/**
- * 贴底跟随：仅「阶段仍在执行中且已展开」时把滚动位置写到内容底部（新工具行到达后
- * 最新一行保持可见）。已在底部附近时跳过写入，避免每帧无意义写 scrollTop 触发滚动
- * 事件与重排。
- */
-function applyProcessStageStick(inner: ScrollableStageInner) {
-  // 组在 rAF 排队期间可能被释放重建（所有权租约），旧 inner 已脱离文档：跳过写入，
-  // 新 inner 由下一次装饰 pass 重新排队。
-  if (inner.isConnected === false) return
-  if (!processStageFollowsTail(inner)) return
-  const contentHeight = inner.scrollHeight
-  const viewportHeight = inner.clientHeight
-  if (typeof contentHeight !== 'number' || typeof viewportHeight !== 'number') return
-  if (contentHeight <= viewportHeight) return
-  const target = contentHeight - viewportHeight
-  const current = inner.scrollTop
-  if (typeof current === 'number' && Math.abs(current - target) < 1) return
-  inner.scrollTop = target
-}
-
-const processStageStickPending = new WeakSet<ScrollableStageInner>()
-
-/**
- * 排队一次贴底（同一 inner 在同一帧内只排一次）。
- *
- * 走 rAF 而不是在装饰 pass 里同步读写：`scrollHeight` / `clientHeight` 是布局查询，
- * 装饰 pass 里刚发生大量 DOM 写入（新增工具行、label 文本），同步读这两项会立刻
- * 触发一次全文档强制重排；放到 rAF 里，布局已被浏览器自然计算一次，读取代价归零。
- * 无 rAF 环境（node 测试的 fake DOM）退化为同步执行。
- */
-function scheduleProcessStageStick(inner: ScrollableStageInner) {
-  if (processStageStickPending.has(inner)) return
-  if (typeof requestAnimationFrame !== 'function') {
-    applyProcessStageStick(inner)
-    return
-  }
-  processStageStickPending.add(inner)
-  requestAnimationFrame(() => {
-    processStageStickPending.delete(inner)
-    applyProcessStageStick(inner)
-  })
-}
-
-/** 收起阶段 = 阅读位置不再有意义，重开时从最新一行开始（仅在有写入时清标记）。 */
-function resetProcessStageScrollFollow(inner: ScrollableStageInner) {
-  if (inner.dataset[PROCESS_STAGE_FOLLOW_ATTR] === undefined) return
-  delete inner.dataset[PROCESS_STAGE_FOLLOW_ATTR]
-}
-
 function updateProcessStageGroups(
   panel: HTMLElement,
   processKey: string,
@@ -849,14 +753,6 @@ function updateProcessStageGroups(
     stageSummary.setAttribute('aria-controls', stageBodyId)
     stageSummary.setAttribute('aria-expanded', String(expanded))
     stageSummary.setAttribute('aria-label', `${stageLabel.textContent} · ${expanded ? t('collapseProcess') : t('expandProcess')}`)
-    // 限高滚动区的贴底跟随：新工具行到达（流式增量追加）后把区域内滚动位置
-    // 写到最新一行；用户手动上翻后 dataset 跟随标记为 false，停止抢回阅读位置。
-    const stageInner = stageBody.querySelector<HTMLElement>(`:scope > .${PROCESS_BODY_INNER_CLASS}`)
-    if (stageInner) {
-      bindProcessStageScrollFollow(stageInner)
-      if (!expanded) resetProcessStageScrollFollow(stageInner)
-      else if (stageStreaming) scheduleProcessStageStick(stageInner)
-    }
     stageSummary.onclick = (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -868,10 +764,6 @@ function updateProcessStageGroups(
       // 手动开合 stage = 阅读意图：通知滚动层解除贴底跟随（READING_INTENT_EVENT，
       // 见 scroll-sync），否则展开内容在下一帧就被跟随滚动拉出视口。
       emitReadingIntent(stageSummary)
-      // 手动收起后跟随标记复位：重新展开时（若仍在执行中）由下一帧的
-      // scheduleProcessStageStick 直接回到最新一行，而不是沿用收起前的上翻位置。
-      if (!nextExpanded && stageInner) resetProcessStageScrollFollow(stageInner)
-      else if (stageInner) scheduleProcessStageStick(stageInner)
     }
   })
 }

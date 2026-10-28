@@ -142,23 +142,6 @@
   transition: opacity var(--quickforge-dur-base) var(--quickforge-ease-out);
 }
 
-/* 内层阶段展开区的限高滚动（process-stage-scroll）：工具调用多时（「执行中 ·
-   N 个工具调用」）不再把整条对话无限拉长，工具行只在 min(50vh, 18rem) 的区域内
-   滚动。滚动容器只能是动画壳层 inner：它已经有 min-height:0 + 宽度约束，直接承担
-   滚动即可，不用再插一层包装（会破坏 stage-body > inner > step 的结构契约）。
-   限高在展开/收起两态都保留——收起瞬间若放开上限，内容会先弹回全高再塌陷，观感
-   是一次跳变；滚动能力则只在展开态挂上，收起态的 inner 仍是纯钳高裁切层。
-   overscroll-behavior: contain 避免滚到底后连锁滚动消息主滚动区（整段对话跟着跳）。 */
-.quickforge-process-stage-body > .quickforge-process-body-inner {
-  max-height: min(50vh, 18rem);
-}
-
-.quickforge-process-stage[data-expanded="true"] > .quickforge-process-stage-body > .quickforge-process-body-inner {
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
 .quickforge-process-body {
   gap: 0;
   margin-top: 0.5rem;

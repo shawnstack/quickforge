@@ -473,35 +473,6 @@ describe('process folding incremental suffix fold (full path, surviving group)',
     expect(tool3.parentNode).toBe(step)
   })
 
-  it('sticks the capped stage scroller to the newest row while the stage is streaming', () => {
-    const tree = turnTree()
-    decorateProcessBlocks(tree.panel, [tree.assistant], true)
-    const group = groupOf(tree)
-    const inner = group?.querySelector('.quickforge-process-stage-body > .quickforge-process-body-inner') as FakeNode & {
-      scrollTop?: number
-      scrollHeight?: number
-      clientHeight?: number
-    }
-    expect(inner).toBeTruthy()
-    // 内容高于限高（真实浏览器里 max-height 生效后即可滚动）：装饰 pass 会把
-    // 区域滚动位置写到最新一行（node 环境无 rAF，同步执行）。
-    Object.assign(inner, { scrollTop: 0, scrollHeight: 500, clientHeight: 120 })
-
-    const assistant2 = tree.list.append(el('div', 'qf-assistant-message'))
-    const content2 = assistant2.append(el('div', 'px-4 flex flex-col'))
-    const tool3 = content2.append(toolRow('cmd-3'))
-    decorateProcessBlocks(tree.panel, [tree.assistant, assistant2], true)
-
-    expect(rowsStepOf(groupOf(tree)).children).toEqual([tree.tool1, tree.tool2, tool3])
-    expect(inner.scrollTop).toBe(380)
-
-    // 用户上翻（滚动事件把跟随标记置 false）后，新行到达不再抢回阅读位置。
-    inner.dataset.quickforgeStageFollow = 'false'
-    inner.scrollTop = 40
-    decorateProcessBlocks(tree.panel, [tree.assistant, assistant2], true)
-    expect(inner.scrollTop).toBe(40)
-  })
-
   it('falls back to the full rebuild when the change is not a tool suffix append', () => {
     const tree = turnTree()
     decorateProcessBlocks(tree.panel, [tree.assistant], true)

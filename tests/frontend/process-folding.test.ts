@@ -19,7 +19,6 @@ import {
   processTurnFingerprint,
   processTurnUpdateMode,
   resolveProcessExpandedState,
-  resolveProcessStageScrollFollow,
   selectFoldableProcessItems,
   shouldDiscardGroupedProcessNode,
   shouldPreserveProcessGroupDuringHandoff,
@@ -135,20 +134,6 @@ describe('process streaming updates', () => {
     // 旧语义：只有正在流式的回合默认展开，历史回合默认收起。
     expect(processGroupDefaultExpanded(true)).toBe(true)
     expect(processGroupDefaultExpanded(false)).toBe(false)
-  })
-
-  it('follows the tail inside the capped stage scroller with hysteresis', () => {
-    // 限高滚动区的贴底跟随：跟随中上滑超过 24px 才停止跟随；停止后必须回到
-    // 8px 以内才重新挂上（单阈值会在临界点来回翻转，把阅读位置抢回去）。
-    expect(resolveProcessStageScrollFollow(true, 0)).toBe(true)
-    expect(resolveProcessStageScrollFollow(true, 24)).toBe(true)
-    expect(resolveProcessStageScrollFollow(true, 25)).toBe(false)
-    // 未跟随状态：8px 之外一律不重挂。
-    expect(resolveProcessStageScrollFollow(false, 8)).toBe(true)
-    expect(resolveProcessStageScrollFollow(false, 9)).toBe(false)
-    // 未布局 / fake DOM（NaN、Infinity）保持原状态，不做任何写入判定。
-    expect(resolveProcessStageScrollFollow(true, Number.NaN)).toBe(true)
-    expect(resolveProcessStageScrollFollow(false, Number.POSITIVE_INFINITY)).toBe(false)
   })
 
   it('uses resolve defaults while preserving explicit state within the same key', () => {

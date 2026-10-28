@@ -112,7 +112,7 @@ describe('React default options notification persistence', () => {
     settingsSwitch('showContextUsage').props.onChange!(true)
     expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: true })
     settingsSwitch('autoCompactEnabled').props.onChange!(false)
-    expect(settings.saveAutoCompact).toHaveBeenCalledWith({}, { enabled: false, requireConfirmation: false, thresholdPercent: 90, keepRecentTurns: 3, minSourceChars: 1600 })
+    expect(settings.saveAutoCompact).toHaveBeenCalledWith({}, { enabled: false, requireConfirmation: false, thresholdPercent: 90, keepRecentTurns: 3 })
   })
 
   it('no longer renders the retired expand-process-stage-default switch', async () => {

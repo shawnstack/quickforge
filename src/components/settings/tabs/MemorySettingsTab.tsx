@@ -8,7 +8,10 @@ import { SettingsSwitch } from './shared'
 type MemoryDocument = {
   enabled: boolean
   markdown: string
+  /** Machine-owned Dreaming notes; read-only here, edited by the worker. */
+  dreaming?: string
   path: string
+  dreamingPath?: string
   count?: number
 }
 
@@ -25,6 +28,9 @@ export function MemorySettingsTab() {
   // Lightweight Dreaming summary for the cross-link. Failure is not fatal: the
   // link still works, it just loses the one-line status.
   const [dreaming, setDreaming] = useState<{ enabled: boolean; entries: number; model: string | null } | null>(null)
+  // The Dreaming notes live in their own file; this only decides whether to show
+  // the "that is not edited here" hint.
+  const [hasDreamingNotes, setHasDreamingNotes] = useState(false)
 
   const loadDocument = async (showMessage = false) => {
     setLoadingDocument(true)
@@ -34,8 +40,10 @@ export function MemorySettingsTab() {
       const response = await fetch('/api/memory', { cache: 'no-store' })
       const payload = await response.json().catch(() => null) as MemoryDocument & { error?: string } | null
       if (!response.ok || !payload) throw new Error(payload?.error || t('requestFailed'))
-      setMarkdown(payload.markdown)
-      setSavedMarkdown(payload.markdown)
+      const editable = payload.markdown
+      setMarkdown(editable)
+      setSavedMarkdown(editable)
+      setHasDreamingNotes(Boolean(payload.dreaming?.trim()))
       setMemoryPath(payload.path || '~/.quickforge/MEMORY.md')
       if (showMessage) setMessage(t('memoryReloaded'))
     } finally {
@@ -52,7 +60,7 @@ export function MemorySettingsTab() {
           if (cancelled || !payload) return
           setDreaming({
             enabled: payload.settings?.enabled === true,
-            entries: Number(payload.counts?.active ?? 0),
+            entries: Number(payload.counts?.notes ?? 0),
             model: payload.model?.effective ?? null,
           })
         })
@@ -115,8 +123,10 @@ export function MemorySettingsTab() {
       })
       const payload = await response.json().catch(() => null) as MemoryDocument & { error?: string } | null
       if (!response.ok || !payload) throw new Error(payload?.error || t('requestFailed'))
-      setMarkdown(payload.markdown)
-      setSavedMarkdown(payload.markdown)
+      const editable = payload.markdown
+      setMarkdown(editable)
+      setSavedMarkdown(editable)
+      setHasDreamingNotes(Boolean(payload.dreaming?.trim()))
       setMemoryPath(payload.path || '~/.quickforge/MEMORY.md')
       setMessage(t('memoryContentSaved'))
     } catch (err) {
@@ -165,6 +175,9 @@ export function MemorySettingsTab() {
             <div className="quickforge-settings-row-description">
               {enabled ? t('memoryContentDescription') : t('memoryContentDisabledDescription')}
             </div>
+            {hasDreamingNotes ? (
+              <div className="quickforge-settings-row-description">{t('memoryDreamingNotesNote')}</div>
+            ) : null}
           </div>
           <div className="quickforge-memory-editor-control">
             <textarea

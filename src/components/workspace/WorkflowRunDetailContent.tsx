@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Braces, ExternalLink, FileOutput, List } from 'lucide-react'
+import { AlertTriangle, Braces, ExternalLink, FileOutput, List } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { ToolMessage } from '@/components/chat/surface/ToolMessage'
 import type { ToolCall, ToolResultMessage } from '@/components/chat/surface/ChatTypes'
@@ -19,7 +19,6 @@ import {
   renderToolIcon,
 } from '@/lib/tool-renderers/shared'
 import {
-  isWorkflowErrorCollapsible,
   workflowCountParts,
   workflowPhaseSteps,
   workflowStatusLabelKey,
@@ -297,32 +296,34 @@ function PhaseSection({
 // ---------------------------------------------------------------------------
 
 /**
- * 运行级错误横幅：服务端不截断 run.error，多段堆栈会把阶段列表整体挤出可视区，
- * 所以默认只露两行，长错误给「展开详情」；展开后限制高度并内部滚动。
+ * 运行级错误横幅：折叠态只保留一个错误图标（点击就地展开原文），
+ * 避免服务端不截断的长堆栈把阶段列表挤出可视区；展开后 40vh 内滚动。
  */
 function WorkflowErrorBanner({ error, onLocate }: { error: string; onLocate: () => void }) {
   const [open, setOpen] = useState(false)
-  const collapsible = isWorkflowErrorCollapsible(error)
-  const expanded = collapsible && open
+  const label = t(open ? 'workflowErrorCollapse' : 'workflowErrorExpand')
   return (
-    <div className="quickforge-workflow-detail-error" role="alert" data-open={expanded ? 'true' : undefined}>
-      <span className="quickforge-workflow-detail-error-label">{t('workflowError')}</span>
-      <span className="quickforge-workflow-detail-error-text">{error}</span>
-      <div className="quickforge-workflow-detail-error-actions">
-        {collapsible ? (
-          <button
-            type="button"
-            className="quickforge-workflow-detail-error-toggle"
-            aria-expanded={expanded}
-            onClick={() => setOpen((current) => !current)}
-          >
-            {t(expanded ? 'workflowErrorCollapse' : 'workflowErrorExpand')}
-          </button>
-        ) : null}
-        <button type="button" className="quickforge-workflow-detail-error-jump" onClick={onLocate}>
-          {t('workflowDetailLocateFailure')}
-        </button>
-      </div>
+    <div className="quickforge-workflow-detail-error" data-open={open ? 'true' : undefined}>
+      <button
+        type="button"
+        className="quickforge-workflow-detail-error-toggle"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <AlertTriangle size={13} strokeWidth={2} aria-hidden="true" />
+      </button>
+      {open ? (
+        <>
+          <span className="quickforge-workflow-detail-error-text">{error}</span>
+          <div className="quickforge-workflow-detail-error-actions">
+            <button type="button" className="quickforge-workflow-detail-error-jump" onClick={onLocate}>
+              {t('workflowDetailLocateFailure')}
+            </button>
+          </div>
+        </>
+      ) : null}
     </div>
   )
 }

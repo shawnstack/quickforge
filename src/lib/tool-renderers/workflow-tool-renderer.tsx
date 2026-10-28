@@ -1,10 +1,10 @@
 /* eslint-disable react-refresh/only-export-components -- the class renderer and its private helpers are intentionally colocated; they carry no HMR state contract. */
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   buildWorkflowRunView,
-  isWorkflowErrorCollapsible,
   workflowStatusLabelKey,
   workflowSummaryText,
   type WorkflowRunView,
@@ -37,26 +37,24 @@ const subscribeActiveWorkflowRun = (onChange: () => void) => activeWorkflowRunSt
 
 /**
  * 无 details 失败帧的错误块（审批拒绝、参数校验失败、worker 启动失败等）：
- * 错误原文可能很长（含「已完成步骤」清单），默认只露两行，长文本给展开按钮。
+ * 折叠态只留一个错误图标，点击就地展开原文，避免长错误铺满消息流。
  */
 function WorkflowFallbackError({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
-  const collapsible = isWorkflowErrorCollapsible(text)
-  const expanded = collapsible && open
+  const label = t(open ? 'workflowErrorCollapse' : 'workflowErrorExpand')
   return (
-    <div className="quickforge-workflow-error" role="alert" data-open={expanded ? 'true' : undefined}>
-      <span className="quickforge-workflow-error-label">{t('workflowError')}</span>
-      <span className="quickforge-workflow-error-text">{text}</span>
-      {collapsible ? (
-        <button
-          type="button"
-          className="quickforge-workflow-error-toggle"
-          aria-expanded={expanded}
-          onClick={() => setOpen((current) => !current)}
-        >
-          {t(expanded ? 'workflowErrorCollapse' : 'workflowErrorExpand')}
-        </button>
-      ) : null}
+    <div className="quickforge-workflow-error" data-open={open ? 'true' : undefined}>
+      <button
+        type="button"
+        className="quickforge-workflow-error-toggle"
+        aria-expanded={open}
+        aria-label={label}
+        title={label}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <AlertTriangle size={13} strokeWidth={2} aria-hidden="true" />
+      </button>
+      {open ? <span className="quickforge-workflow-error-text">{text}</span> : null}
     </div>
   )
 }

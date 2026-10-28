@@ -67,7 +67,7 @@ server/
 ├── goal-settings.mjs         # Goal 默认预算与引擎设置（settings 键 goal-settings；maxIterations clamp 1–100，engine legacy/v2）
 ├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚 / 轮级回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
-├── dreaming/                 # Dreaming 记忆固化：采集 / 提示词 / 硬校验 / runner / 召回
+├── dreaming/                 # Dreaming 记忆固化：采集 / 提示词 / 笔记校验与写回 / runner / 召回过滤
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
@@ -364,21 +364,27 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `manage_global_memory` 工具支持读取或覆盖完整记忆文档；写入前必须读取完整文档、去重并更新冲突信息，同时保留无关内容和原有格式。写入不弹审批，并拒绝密码、Token、API Key、Cookie、私钥等敏感信息。
 - 关闭后不注入记忆内容或主动记忆规则，并停止工具读取和写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
 - Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
-- 文件内可存在一段由 Dreaming 独占维护的自动区（`<!-- dreaming:auto:begin/end -->`）。`writeDreamingMemorySection()` 只重写两个标记之间的字节，人工区原样保留；标记缺省时自动区视为不存在，Dreaming 不会写入。
+- 记忆分两份文件，各管各的：`MEMORY.md` 是用户写的（`GET`/`PUT /api/memory`、`manage_global_memory` 都在这里读写），`DREAMING.md` 是 Dreaming 写的（`readDreamingNotes()` / `writeDreamingNotes()`）。保存任一份都不会碰另一份，因此不需要标记、不需要保存时重拼。
+- 两份都注入：`readGlobalMemoryPrompt()` → `<global_user_memory>`，`readDreamingNotesPrompt()` → `<dreaming_memory>`。分开成两个段，是为了让模型能区分"用户告诉我的"和"过去会话总结出来的"。
 
 ### dreaming/ — Dreaming 记忆固化
 
-**用途**: 后台回看已结束的会话，把稳定事实、可复用经验、踩过的坑沉淀为结构化长期记忆；设计见 [Dreaming 记忆固化](../../architecture/dreaming-memory.zh-CN.md)。
+**用途**: 后台回看已结束的会话，把稳定事实、可复用经验、踩过的坑维护成 **`~/.quickforge/DREAMING.md` 里的一份笔记列表**（与用户手写的 `MEMORY.md` 是两个文件）；设计见 [Dreaming 记忆固化](../../architecture/dreaming-memory.zh-CN.md)。
 
-- 数据：`memories`（结构化条目 + `fingerprint` 唯一去重）、`memories_fts`（FTS5 trigram，支持中文子串；不足 3 字符的查询回退 `LIKE`）、`memory_events`（逐条审计）、`dreaming_runs`（运行记录），来自 migration v13。
-- 流程：先 `collectTranscript()` 投影窗口内会话（**只取 user 消息与 assistant 最终回答**，工具调用与工具输出完全不进 prompt；单会话 30k / 整体 100k 字符封顶），再一次模型调用输出 JSON 操作清单，`applyDreamingOperations()` 逐条硬校验后单事务落库；非法操作连同原提案与原因写入 run 明细。
-- 四个动作（提取事实 / 总结经验 / 识别错误 / 更新认知）全部由 `prompt.mjs` 的提示词驱动，代码不做语义判断，只做枚举、长度、证据、targetId 存在性与敏感信息校验。
-- 淘汰只依赖可观测量：`strength < 1` 且 `confidence < 0.5` 且 30 天未被召回，三者同时满足才软删（`status='retired'`）。
-- 触发：`startDreamingRunner()`（interval + unref + 首跑延迟，形态同 auto-archive）按 `nextRunAt` 每日执行；窗口 `[上次成功 period_to, now]`，首次为本地零点到当前。手动走 `POST /api/dreaming/run`。进程内单飞，重入返回 skipped。
-- 使用侧：`buildInstructionsPayload()` 注入当前项目 top-8 + 全局 top-3 到 `<experience_memory>`；`recall_experience` 工具提供检索式深查，召回记一次 `recall_count` 与 `strength +0.2` 作为质量反馈。
+- 数据：只有 `dreaming_runs`（运行记录 + 行 diff + 模型原始回复）。v17 `drop_structured_memory_store` 删掉了 v13 建的 `memories` / `memories_fts` / `memory_events` 与 v16 的 `memory_embeddings`，旧数据不迁移。
+- 流程：`collectTranscript()` 投影窗口内会话（**只取 user 消息与 assistant 最终回答**，工具调用与工具输出完全不进 prompt；单会话 30k / 整体 100k 字符封顶）→ 读取当前笔记 → **一次**模型调用（当前笔记 + 新会话 → 新的完整 bullet 列表）→ `normalizeNoteLines()` 校验 → `writeDreamingNotes()` 整份覆盖 `DREAMING.md`。
+- **采集加权**：预算不够时优先保留「用户纠正过 / assistant 报错或中断」的会话（`correctionSignals()` 计数），其次才按时间从新到旧，避免老的纠正会话被先丢掉。代价是候选会话的尾部消息会被全部读出（最多 40 个）。
+- **漂移告警**：`added + removed` 占改前/改后较大者 ≥ 80% 且改前 ≥ 5 条时，run 仍是 `succeeded`，但 `error` 写「本次改动了 N/M 条笔记，可能发生了记忆漂移」。
+- **来源与回滚**：`operations.notesAfter` 存本次结束后的完整列表；`GET /api/dreaming/notes` 扫最近 50 个 run 反推每条笔记的 `firstSeen`；`POST /api/dreaming/runs/:id/restore` 把快照写回 `DREAMING.md`（无快照 409）。
+- 笔记契约（`notes.mjs`）：一行一条 `- `，可选 `[fact|preference|experience|pitfall|decision]` 前缀，单行 ≤ 300 字符、最多 60 条、整份 ≤ 3800 字节（落盘上限 8KB）；超限从尾部截断。`parseNoteLines()` 会跳过标题/空行/代码围栏。
+- 掉线保护：回复非空但抽不出任何 bullet（模型跑题说了段散文）→ run 标记 `failed` 且不写盘；真正空回复是合法的「今天没有值得记的」，会清空文件。
+- 触发：开启即定时（无独立开关）；`startDreamingRunner()`（interval + unref + 首跑延迟，形态同 auto-archive）按 `nextRunAt` 每日执行；窗口 `[上次成功 period_to, now]`，首次为本地零点到当前。手动走 `POST /api/dreaming/run`。进程内单飞，重入返回 skipped。
+- 使用侧：`DREAMING.md` 以 `<dreaming_memory>` 段注入系统提示（与 `<global_user_memory>` 并列）；`recall_experience` 工具读同一份笔记做子串过滤（多词查询要求每词命中），无索引、无打分；命中时给 `dreaming_note_stats` 记一次计数。
+- **反馈闭环**：`dreaming_note_stats`（v18，6 列：`note_id/note_text/recall_count/last_recalled_at/created_at/updated_at`，`note_id = noteIdOf(text)`）。每轮 dreaming 用 `listNoteStats()` 找出「存在 ≥ 60 天且从未被召回」的笔记，以 `## Never recalled (deletion candidates)` 段交给模型，并明确「在这里是因为没人搜过它，不是因为它错了」——删不删仍由模型判断，代码不强制淘汰。**门槛**：笔记数 ≥ 40 条才启用筛选（短列表上「从没被召回」是普遍现象，不是信号）。写回后 `syncNoteStats()` 让表与文件严格对齐；它失败只 warn，不会被误报成「笔记没保存」。
+- **来源 / 回滚 / 删除**：`notesAfter` 存每轮结束的完整列表；notes 接口扫最近 50 个 run 反推每条 `firstSeen`；`POST /runs/:id/restore` 写回快照（无快照 409）；`DELETE /notes/:id` 直接改文件删单条（下一轮不会复活）。
 - 默认关闭（`dreaming-settings.enabled=false`）；`allowSensitive` 默认 true，设置页给一次性风险提示而非每轮确认。
-- **模型选择**：`resolveDreamingModel()` 的优先级是 指定的 `dreaming-settings.modelRef` → 最近对话模型（`settings['active-model']`） → 目录第一条；不再默认跳到目录第一个模型。指定的模型失效时降级到下一优先级而不中断 run，设置页用 `overview.model`（含 `effective`/`source`/`available`）显示实际生效的模型与原因，保存时先校验 `modelRef` 可解析（不可解析 400）。
-- **输出语言由代码判定**：`detectContentLanguage()` 只采样 user 消息文本（CJK 权重 1:4），给出 `zh/en/null`，提示词里以 `## Output language` 硬要求下发（否则英文系统提示词会把中文会话的记忆压成英文）；`dreaming-settings.contentLanguage`（默认 `auto`）可手动固定，判定结果记在 `dreaming_runs.content_language`。
+- **模型选择**：`resolveDreamingModel()` 的优先级是 指定的 `dreaming-settings.modelRef` → 最近对话模型（`settings['active-model']`） → 目录第一条。指定的模型失效时降级到下一优先级而不中断 run，设置页用 `overview.model`（含 `effective`/`source`/`available`）显示实际生效的模型与原因，保存时先校验 `modelRef` 可解析（不可解析 400）。
+- **输出语言由代码判定**：`detectContentLanguage()` 只采样 user 消息文本（CJK 权重 1:4），给出 `zh/en/null`，提示词里以 `## Output language` 硬要求下发（否则英文系统提示词会把中文会话的笔记压成英文）；`dreaming-settings.contentLanguage`（默认 `auto`）可手动固定，判定结果记在 `dreaming_runs.content_language`。
 
 ### agent-profiles.mjs
 
@@ -445,6 +451,13 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `plugins/loader.mjs` — 动态加载插件入口 `index.mjs` / `main` 并调用 `createPlugin(context)`；入口内容哈希作为 ESM reload token，插件可选实现 `dispose()` 参与实例替换清理。
 - `plugins/registry.mjs` — 插件搜索、启用状态、配置、缓存、事务式实例替换、工具定义和工具调用转发；普通状态查询复用缓存，显式 reload 或配置/启停变更才刷新，刷新失败时保留上一健康实例。内置插件规范名称为 `documents`、`presentations`、`spreadsheets`，旧 `openai-*` 配置会一次性迁移，且新名称配置优先。
 - `routes/plugins.mjs` — `/api/plugins`、启用/禁用、配置和 reload API。
+- `plugins/ui-schema.mjs` — 声明式 UI 的节点 DSL 校验与限额（13 种白名单 type、剥离 `style`/`className`/`html`、单 slot 20 顶层/200 总节点/深度 6/64KB），并维护 slot → `ui:*` 权限映射；`plugins/manifest.mjs` 在 apiVersion 2 归一化 `contributes.ui` 并计算不含绝对路径的 `uiDigest`。
+- `plugins/audit.mjs` — `plugin-audit` root-array store（滚动 300 条），记录每次 UI action 的 slot/action/结果/耗时/拒绝原因。
+- registry 增加 `getUiSnapshot()`（`getSlots` 产出的节点按 2s TTL 缓存，`refreshPlugins` 与成功动作都会失效；元信息与 KV 每次现算）、`dispatchUiAction()`（action 白名单 400、缺权限 403、单插件并发 4 返回 429、返回节点二次校验失败则丢弃）与 `getPluginKv`/`setPluginKv`（每插件 64KB、单值 8KB，存在 `plugins.json` 的 `kv` 段，不新增文件也不迁移）；UI hook 的超时由 `loader.mjs` 在调用边界上包（`handle` 5s → 504、`getSlots` 2s → 回退静态节点），registry 不重复计时；只有声明了工具或 UI 的插件才会被实例化。
+- `routes/plugins.mjs` 增加 `GET /api/plugins/ui`（冷加载快照）、`POST /api/plugins/:name/ui`（动作，需 app client 鉴权）、`GET|PUT /api/plugins/:name/kv`、`GET /api/plugins/audit`、`GET /api/plugins/:name/assets/*`（仅声明 panels 的插件、仅插件目录内、仅白名单静态类型）。
+- 前端 `src/lib/plugin-ui-client.ts` 维护单一快照 store + 独立 toast 队列；`src/components/plugins/PluginSlot.tsx` 是白名单渲染器（未知 type 渲染 null、`ErrorBoundary` 兜底、空贡献不渲染外壳），`PluginFrame.tsx` 用 `sandbox="allow-scripts"`（**不加** `allow-same-origin`）承载 L2 面板，postMessage 只放行 `kv.get`/`kv.set`/`notify`/`callTool` 并校验 `event.source`（`callTool` 由 `src/lib/plugin-ui-bridge.ts` 限制为本插件自有工具，再交给 `/api/tools/:name` 的既有门禁）。
+- 插件只能插入固定 slot（`composer.actions` / `session.header` / `sidebar.footer`），不能改写宿主界面；行为类扩展走服务端 hooks，不做 CSS 注入与选择器 patch。
+- 内置技能 `skills/plugin-creator/`（SKILL.md + manifest/ui-slots/examples 参考 + `scaffold-plugin.mjs` / `validate-plugin.mjs`）用于创建与本地校验插件。
 
 **行为约束**:
 - 当前 V1 支持 `<quickforge>/plugins`、`~/.quickforge/plugins`、`~/.agents/plugins` 和 `<project>/.quickforge/plugins` 本地目录发现；同名插件优先级为 `project > user > shared-user > builtin`。
@@ -512,9 +525,11 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ### auto-compaction.mjs
 
-**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前按压缩后的有效上下文估算占当前模型 `contextWindow` 的比例；token 统计复用 `@earendil-works/pi-agent-core.estimateContextTokens()` / `estimateTokens()`，模型 `contextWindow` 和 assistant `usage` 来自 `@earendil-works/pi-ai`，占用按纯输入口径（`inputTokens / contextWindow`）计算，真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，统计不再预留输出 token；阈值判断通过 QuickForge 百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；压缩完成后立即丢弃摘要前旧请求留下的 provider usage 基线，待压缩后新 assistant usage 到达再恢复 provider 统计，因此百分比会马上下降并保持后续准确。自动压缩触发只发生在下一次模型请求前，并会受最小历史长度、最近拒绝、压缩间隔等保护条件限制；已有压缩后只要出现新消息即可再次检查，不再固定等待三条新增消息。手动 `/compact` 不看 80% 阈值，也不使用自动压缩的 1600 字符门槛：固定 `keepRecentTurns=0`，压缩全部当前可压缩历史，不保留最近 n 轮；单轮短历史也会压缩。完整 `messages` 仍持久化并展示在 UI 中，Agent loop 只使用最新 compact summary 与压缩点之后的新消息。自动压缩支持保留 `0-20` 个最近用户回合，默认值为 `0`；**自动路径下 `0` 仍至少保留当前正在进行的这一个完整用户回合**（`AUTO_COMPACT_MIN_TAIL_USER_TURNS`），只有手动 `/compact` 保留“压缩全部”的语义——自动压缩发生在 run 内部，把当前回合也压掉会让时间线分割线切在用户刚看到的内容里，并且压缩刚完成时分割线两侧都没有内容。
+**用途**: 自动上下文压缩。读取 `settings['auto-compact-settings']`，在 Agent 每次请求模型前按压缩后的有效上下文估算占当前模型 `contextWindow` 的比例；token 统计复用 `@earendil-works/pi-agent-core.estimateContextTokens()` / `estimateTokens()`，模型 `contextWindow` 和 assistant `usage` 来自 `@earendil-works/pi-ai`，占用按纯输入口径（`inputTokens / contextWindow`）计算，真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，统计不再预留输出 token；阈值判断通过 QuickForge 百分比配置转换为 reserve tokens 后复用 `pi-agent-core.shouldCompact()`；超过阈值时生成滚动摘要。后端同时在 session state 中返回同一口径的权威 `contextUsage`，聊天底部上下文百分比优先展示该值；压缩完成后立即丢弃摘要前旧请求留下的 provider usage 基线，待压缩后新 assistant usage 到达再恢复 provider 统计，因此百分比会马上下降并保持后续准确。自动压缩触发只发生在下一次模型请求前，除「确实存在可压缩的消息序列」这类结构性前置外**没有其他保护性门槛**：不再有最小源字符数（旧 `minSourceChars=1600`；`conversation-compaction.mjs` 内部的 `MIN_SUMMARY_SOURCE_CHARS` 地板也已整段删除，`compactConversation` 唯一跳过条件是没有可压缩消息序列，手动 `/summary` 同样没有字符数下限）、30 秒压缩间隔、拒绝后 10 分钟抑制——只要占用过阈值且自上次压缩后有新消息就会再次压缩（`not_enough_new_messages` 是结构性检查：没有新内容就没有可滚动并入摘要的增量）。用户拒绝（`declined`）只跳过当前这一次尝试，下一次过阈值请求会重新询问；`lastAutoCompactRejected` 字段仅作旧数据兼容保留，不再写入。手动 `/compact` 不看 80% 阈值：固定 `keepRecentTurns=0`，压缩全部当前可压缩历史，不保留最近 n 轮；单轮短历史也会压缩。完整 `messages` 仍持久化并展示在 UI 中，Agent loop 只使用最新 compact summary 与压缩点之后的新消息。自动压缩支持保留 `0-20` 个最近用户回合，默认值为 `0`；**自动路径下 `0` 仍至少保留当前正在进行的这一个完整用户回合**（`AUTO_COMPACT_MIN_TAIL_USER_TURNS`），只有手动 `/compact` 保留“压缩全部”的语义——自动压缩发生在 run 内部，把当前回合也压掉会让时间线分割线切在用户刚看到的内容里，并且压缩刚完成时分割线两侧都没有内容。这个保留是**偏好而不是前置条件**：`resolveAutoCompactTailStart()` 在切点落到 index 0（保留回合数 ≥ 会话实际回合数，或单用户回合会话）时会逐步降低保留回合（n → n-1 → … → 1），仍无法留出可压缩段时**压缩全部历史**，绝不因为“凑不齐要保留的回合”而返回 `not_enough_history` 静默失效。
 
-**压缩流水线状态投影（`compactionNotice`）**: 该模块是压缩 UI 状态的唯一来源。`COMPACTION_NOTICE_PHASES` 只有 `awaiting_confirmation` 与 `summarizing` 两个可渲染阶段；`setCompactionNotice()` / `clearCompactionNotice()` 在**每一次进入与退出**（成功、跳过、抛错、取消、超时）都发布完整状态帧 `auto_compact_state`，`null` 表示流水线空闲，因此前端不需要从事件的有无推断状态。审批结果契约是 `AUTO_COMPACT_DECISION`（`approved` / `declined` / `timed_out` / `unavailable`）而非布尔值：用户拒绝会记入 `lastAutoCompactRejected` 抑制 10 分钟，超时只丢弃请求、不惩罚用户，取消（abort）不再伪装成压缩失败。`approvalId` 由本模块先于审批 Promise 生成并写入 notice，保证前端看到的决策行与服务端 `pendingAutoCompactApprovals` 里的条目是同一个 id。`server/agent-approval-orchestrator.mjs` 的 `createAutoCompactApprovalPromise()` 每条终止路径都会发 `auto_compact_approval_settled`（`decided` / `timed_out` / `cancelled`），修掉了旧实现“超时删条目不通知、卡片残留、点击必 404”的问题。`getSessionState()` 投影 `compactionNotice`，因此刷新页面或后加入的客户端也能看到“正在整理上下文”。
+**压缩流水线状态投影（`compactionNotice`）**: 该模块是压缩 UI 状态的唯一来源。`COMPACTION_NOTICE_PHASES` 只有 `awaiting_confirmation` 与 `summarizing` 两个可渲染阶段；`setCompactionNotice()` / `clearCompactionNotice()` 在**每一次进入与退出**（成功、跳过、抛错、取消、超时）都发布完整状态帧 `auto_compact_state`，`null` 表示流水线空闲，因此前端不需要从事件的有无推断状态。审批结果契约是 `AUTO_COMPACT_DECISION`（`approved` / `declined` / `timed_out` / `unavailable`）而非布尔值：拒绝与超时都只影响当前这一次尝试（不抑制、不惩罚后续请求），取消（abort）不再伪装成压缩失败。`approvalId` 由本模块先于审批 Promise 生成并写入 notice，保证前端看到的决策行与服务端 `pendingAutoCompactApprovals` 里的条目是同一个 id。`server/agent-approval-orchestrator.mjs` 的 `createAutoCompactApprovalPromise()` 每条终止路径都会发 `auto_compact_approval_settled`（`decided` / `timed_out` / `cancelled`），修掉了旧实现“超时删条目不通知、卡片残留、点击必 404”的问题。`getSessionState()` 投影 `compactionNotice`，因此刷新页面或后加入的客户端也能看到“正在整理上下文”。
+
+**压缩历史（`contextCompaction.history`）**: 滚动压缩每次只把「上一版摘要 + 上次切点之后的增量」交给模型，所以一次长会话会压缩多次。`compactSessionInPlace()` 因此**追加**一条历史记录而不是覆盖单值——`session.contextCompaction` 的顶层字段仍是**最新一次**（`summaryMessage` / `compactedUpToIndex` / `compactedAt` 供上下文口径与旧客户端使用），同时 `history[]` 保留每一次的 `{ compactedAt, occurredAtIndex, boundaryIndex, summaryMessage, keepRecentTurns, sourceMessageCount, usageBefore, thresholdPercent }`，最多 `MAX_CONTEXT_COMPACTION_HISTORY`（=20）条，超出丢弃最旧。两个位置坐标故意分开：`occurredAtIndex` 是**压缩那一刻的 messages 长度**（时间线物理位置，界面分割线锚定它，写入后不再移动）；`boundaryIndex` 是本次摘要覆盖范围的右边界（`tailStart`），保留最近 n 轮时它会比 `occurredAtIndex` 早若干条。`body_json` 保存完整对象，因此该字段不需要表结构迁移；`server/session-state-service.mjs` 的 `applyMetadataToState()` 在元数据投影（扁平子集，无摘要与历史）覆盖 state 时会保留 body 侧的 `summaryMessage` / `history`，避免改标题、置顶这类元数据写入把历史降级掉；分享页 `sanitizeContextCompaction()` 对每条历史摘要同样执行消息脱敏。
 
 
 ### context-references.mjs

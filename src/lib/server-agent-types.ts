@@ -41,6 +41,27 @@ export type ActiveAgentStatus = {
   scope?: string
 }
 
+/**
+ * One entry per compaction, in chronological order (see
+ * `MAX_CONTEXT_COMPACTION_HISTORY` on the server).
+ *
+ * `occurredAtIndex` and `boundaryIndex` are deliberately separate:
+ * - `occurredAtIndex` is the messages length at the instant compaction ran → the
+ *   physical timeline position the divider is anchored to;
+ * - `boundaryIndex` is the tail start, i.e. the right edge of the summarized
+ *   range, which rolling compaction can put several messages earlier.
+ */
+export type ServerAgentContextCompactionEntry = {
+  compactedAt?: string
+  occurredAtIndex?: number
+  boundaryIndex?: number
+  summaryMessage?: AgentMessage
+  keepRecentTurns?: number
+  sourceMessageCount?: number
+  usageBefore?: unknown
+  thresholdPercent?: number
+}
+
 export type ServerAgentContextCompaction = {
   summaryMessage?: AgentMessage
   compactedUpToIndex?: number
@@ -48,6 +69,8 @@ export type ServerAgentContextCompaction = {
   compactedAt?: string
   usageBefore?: unknown
   thresholdPercent?: number
+  /** Every compaction this session went through, oldest first. */
+  history?: ServerAgentContextCompactionEntry[]
 }
 
 export type ServerAgentContextUsageBreakdown = {

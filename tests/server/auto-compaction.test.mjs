@@ -352,4 +352,24 @@ describe('resolveAutoCompactTailStart', () => {
     // configured semantics (keep everything) is kept instead.
     expect(resolveAutoCompactTailStart(messages, 0)).toBe(tailStartForRecentTurns(messages, 0))
   })
+
+  it('degrades the kept-turn count instead of compacting nothing', () => {
+    // 5 turns requested, only 2 exist. A cut at index 0 keeps the whole history,
+    // so the setting must degrade (5 → 4 → 3 → 2 → 1) rather than skip forever.
+    const messages = conversation(2, 2)
+
+    const tailStart = resolveAutoCompactTailStart(messages, 5)
+    expect(tailStart).toBeGreaterThan(0)
+    expect(tailStart).toBe(tailStartForRecentTurns(messages, 1))
+    expect(messages[tailStart].role).toBe('user')
+  })
+
+  it('compacts the whole history when the only user turn starts at index 0', () => {
+    // A single-user-turn agentic session: keeping "one turn" would keep
+    // everything, so the tail is empty and the whole history is summarized.
+    const messages = conversation(1, 2)
+
+    expect(resolveAutoCompactTailStart(messages, 1)).toBe(messages.length)
+    expect(resolveAutoCompactTailStart(messages, 0)).toBe(messages.length)
+  })
 })

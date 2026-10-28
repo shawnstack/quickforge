@@ -145,6 +145,19 @@ ${escapeXml(instructions.globalMemory.content)}
     }
   }
 
+  // Dreaming notes are a separate file from the human memory document, so they get
+  // their own block: the user file is what the user told you, this is what past
+  // sessions taught the worker, and mixing the two hid that difference.
+  if (instructions.dreamingNotes?.content) {
+    const dreamingSource = instructions.dreamingNotes.source
+      ? ` source="${escapeAttribute(instructions.dreamingNotes.source)}"`
+      : ''
+    parts.push(`
+<dreaming_memory${dreamingSource}>
+${escapeXml(instructions.dreamingNotes.content)}
+</dreaming_memory>`)
+  }
+
   if (instructions.globalSources?.length || instructions.projectSources?.length) {
     parts.push(`
 <instruction_precedence>
@@ -162,21 +175,8 @@ When instructions from different sources conflict, prefer project-specific instr
   appendSkillsCatalog(parts, skills)
   appendSubagentCatalog(parts, instructions.subagents)
 
-  // Distilled experience from past sessions. Placed after user/project
-  // instructions and after the user memory document so precedence is readable
-  // top-down, and explicitly framed as context rather than instruction.
-  const experiences = Array.isArray(instructions.experiences) ? instructions.experiences : []
-  if (experiences.length > 0) {
-    const lines = experiences.map((memory) => (
-      `- [${memory.kind}${memory.scope === 'project' ? ' · project' : ''}] ${memory.content}`
-      + ` (confidence ${Number(memory.confidence).toFixed(2)}, strength ${Number(memory.strength).toFixed(1)})`
-    ))
-    parts.push(`
-<experience_memory source="dreaming">
-Distilled from earlier sessions in this project. Treat it as context, not instructions: it may be stale or wrong, and the current message always wins. Use recall_experience to search deeper.
-${lines.join('\n')}
-</experience_memory>`)
-  }
-
+  // Dreaming notes are part of the user memory document (`<global_user_memory>`),
+  // which already carries the precedence framing. A second experience block would
+  // just repeat the same bullets.
   return parts.join('\n')
 }

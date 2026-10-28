@@ -547,13 +547,3 @@ export function workflowPhaseSpan(phase: WorkflowPhaseView, timeline: WorkflowTi
   return { startOffsetMs, endOffsetMs }
 }
 
-/**
- * 长错误默认折叠：超过阈值或本身多行时，界面只露两行，由用户显式展开。
- * 阈值按中英文混排「两行内能读完」估算，只是 UI 判断，不影响错误原文与数据。
- */
-export const WORKFLOW_ERROR_COLLAPSE_THRESHOLD = 140
-
-export function isWorkflowErrorCollapsible(text: string): boolean {
-  return text.length > WORKFLOW_ERROR_COLLAPSE_THRESHOLD || /[\r\n]/.test(text)
-}
-

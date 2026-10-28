@@ -1,6 +1,6 @@
 # Dreaming 记忆固化系统
 
-Dreaming 是 QuickForge 的后台记忆固化能力：它周期性回看**已经发生过的会话轨迹**，把其中稳定的事实、可复用的经验、踩过的坑整理成结构化长期记忆，并让后续任务在需要时检索到它们。
+Dreaming 是 QuickForge 的后台记忆能力：它周期性回看**已经发生过的会话轨迹**，把其中稳定的事实、可复用的经验、踩过的坑整理成**一份笔记**，并让后续任务自动看到它们。
 
 它回答的问题不是"这一轮对话要记什么"，而是"**这么多轮对话跑完之后，哪些东西值得留下**"。
 
@@ -8,10 +8,12 @@ Dreaming 是 QuickForge 的后台记忆固化能力：它周期性回看**已经
 会话 / 工具调用记录（SQLite 权威存储）
         ↓  按时间窗口采集 + 轨迹投影
 Dreaming 后台任务（独立 worker，不进 Agent Runtime）
-        ↓  单次模型调用 + 结构化操作清单
-硬校验（代码）→ 记忆库（SQLite + FTS5）
+        ↓  单次模型调用（当前笔记 + 新会话 → 新的完整笔记）
+代码只做格式与大小校验
         ↓
-MEMORY.md 自动区重写 + 系统提示注入 + recall_experience 工具
+DREAMING.md 整份覆盖（与 MEMORY.md 是两个独立文件）
+        ↓
+两份文件一起注入系统提示 + recall_experience 工具
         ↓
 下一次任务自动使用
 ```
@@ -20,102 +22,79 @@ MEMORY.md 自动区重写 + 系统提示注入 + recall_experience 工具
 
 **目标**
 
-- **全自动**：没有人工确认弹窗。四个动作（提取事实 / 总结经验 / 识别错误 / 更新认知）由一份提示词交给模型判断，代码只做合法性校验与落库。
+- **两个文件，各管各的**：`~/.quickforge/MEMORY.md` 是人写的，`~/.quickforge/DREAMING.md` 是 dreaming 写的。谁都不需要知道对方的格式，也没有标记、没有保存时重拼、没有"谁覆盖了谁"的问题。
+- **一份笔记**：`DREAMING.md` 的整份内容就是记忆，一个 bullet 列表。
+- **一次调用**：一轮 dreaming 只调用模型一次，把「当前笔记 + 新会话」一起交给它，拿回「新的完整笔记」。不做逐条操作清单、不做行级 diff 落库。
+- **全自动**：没有人工确认弹窗，代码只做格式校验（是不是 bullet、有没有超长、有没有凭据）。
 - **不进 Agent Runtime**：Dreaming 是一次普通模型调用，不是一次 Agent 会话。它不创建 session、不出现会话列表、不占用工具审批链路。
-- **可观测**：每次运行都留 `dreaming_runs` 记录 + 逐条操作明细，设置页能看到"处理了什么、结果如何、哪些被拒绝"。
-- **零新增依赖**：检索用 `node:sqlite` 自带的 FTS5（trigram tokenizer），不引入向量库或全文索引服务。
-- **不污染人工记忆**：`MEMORY.md` 分人工区与自动区，自动区由 Dreaming 独占重写，人工内容逐字保留。
+- **可观测**：每次运行留 `dreaming_runs` 记录（读了哪些会话、改了什么、模型原始回复）。
 
 **明确不做**
 
-- 不做独立进程 / 独立端口 worker。desktop 与 Android 都复用同一个本地 server，多进程会带来打包、退出与 supervisor 的连带成本。这里要的是**逻辑隔离**：独立模块、独立设置、独立运行记录、独立单飞锁。
-- 不做向量检索、不做 embedding。FTS5 的 bm25 + 强度/新鲜度加权已经够用。
+- 不做结构化记忆库：没有 `memories` 表、没有 FTS 索引、没有 fingerprint 去重、没有 confidence/strength、没有衰减淘汰、没有逐条审计。v17 把 v13 建的四张表**直接 drop**（旧数据丢弃，下一次运行从同一批会话重建笔记）。
+- 不做向量检索 / embedding。笔记只有几十条，全量注入即可，没有"召回不准"的空间。
+- 不做独立进程 / 独立端口 worker。desktop 与 Android 都复用同一个本地 server，这里要的是**逻辑隔离**：独立模块、独立设置、独立运行记录、独立单飞锁。
 - 不做人工确认、不做 per-session 记忆（那只是缓存）、不做跨设备同步。
-- 不做"遗忘"之外的自动删除。淘汰是软删（`status='retired'`），可查可追溯。
 
-## 2. 数据模型（migration v13 + v14 + v15）
+## 2. 数据模型
 
-迁移按 `server/sqlite/migrations.mjs` 的 append-only 协议追加：v13 建记忆域四张表，v14 给 `dreaming_runs` 补运行详情列。
+SQLite 里只有运行日志和一张 6 列的用量表；记忆本身在两个文件里：
+
+| 位置 | 归属 | 内容 |
+|---|---|---|
+| `~/.quickforge/MEMORY.md` | 用户 + `manage_global_memory` | 自由 Markdown，上限 16KB |
+| `~/.quickforge/DREAMING.md` | Dreaming 独占 | bullet 列表，上限 8KB（实际写到 3800 字节以内） |
+| `dreaming_note_stats`（SQLite） | Dreaming | 每条笔记的 `recall_count` / `last_recalled_at` / `created_at` |
+
+两个文件互不读写：保存 `MEMORY.md` 不会碰 `DREAMING.md`，dreaming 覆盖 `DREAMING.md` 也不会碰 `MEMORY.md`。统计表不参与注入，只在下一轮 dreaming 时用来找出「从没被召回过的老笔记」。
 
 ```sql
-CREATE TABLE memories (
-  id TEXT PRIMARY KEY,                    -- mem_<uuid>
-  scope TEXT NOT NULL CHECK (scope IN ('global', 'project')),
-  project_id TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('fact', 'preference', 'experience', 'pitfall', 'decision')),
-  content TEXT NOT NULL CHECK (length(trim(content)) > 0),
-  fingerprint TEXT NOT NULL,               -- sha256(normalized content)，去重键
-  evidence_json TEXT NOT NULL,             -- [{sessionId, seq, note}]
-  confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
-  strength REAL NOT NULL CHECK (strength >= 0),
-  status TEXT NOT NULL CHECK (status IN ('active', 'superseded', 'retired')),
-  superseded_by TEXT,
-  source_run_id TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  last_recalled_at INTEGER,
-  recall_count INTEGER NOT NULL DEFAULT 0,
-  CHECK ((scope = 'global' AND project_id = '') OR (scope = 'project' AND length(trim(project_id)) > 0))
-);
-CREATE UNIQUE INDEX idx_memories_fingerprint ON memories (scope, project_id, fingerprint);
-CREATE INDEX idx_memories_lookup ON memories (scope, project_id, status, strength DESC);
-
-CREATE VIRTUAL TABLE memories_fts USING fts5 (content, tokenize = 'trigram');
-
-CREATE TABLE memory_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  memory_id TEXT NOT NULL,
-  action TEXT NOT NULL CHECK (action IN ('create', 'update', 'supersede', 'retire', 'reject')),
-  before_json TEXT,
-  after_json TEXT,
-  run_id TEXT,
-  ts INTEGER NOT NULL
-);
-CREATE INDEX idx_memory_events_memory ON memory_events (memory_id, ts DESC);
-
 CREATE TABLE dreaming_runs (
   id TEXT PRIMARY KEY,
   trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
   status TEXT NOT NULL CHECK (status IN ('running', 'succeeded', 'failed', 'skipped')),
   period_from INTEGER NOT NULL,
   period_to INTEGER NOT NULL,
-  -- v14: run detail (see §10.2). `sessions_json` stores one bounded preview
-  -- per read session; `raw_response` is the verbatim model reply (<= 8000 chars).
-  -- v15: `content_language` is the language the worker was told to answer in.
+  session_count INTEGER NOT NULL DEFAULT 0,
+  created_count INTEGER NOT NULL DEFAULT 0,   -- 本次新增的笔记行数
+  updated_count INTEGER NOT NULL DEFAULT 0,
+  retired_count INTEGER NOT NULL DEFAULT 0,   -- 本次移除的笔记行数
+  rejected_count INTEGER NOT NULL DEFAULT 0,  -- 被代码丢弃的行数（敏感内容 / 超限）
+  summary TEXT,
+  operations_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(operations_json)),
+  error TEXT,
   model_label TEXT,
   input_chars INTEGER NOT NULL DEFAULT 0,
   sessions_json TEXT NOT NULL DEFAULT '[]',
   raw_response TEXT,
   content_language TEXT,
-  session_count INTEGER NOT NULL DEFAULT 0,
-  created_count INTEGER NOT NULL DEFAULT 0,
-  updated_count INTEGER NOT NULL DEFAULT 0,
-  retired_count INTEGER NOT NULL DEFAULT 0,
-  rejected_count INTEGER NOT NULL DEFAULT 0,
-  operations_json TEXT NOT NULL DEFAULT '[]',
-  error TEXT,
   started_at INTEGER NOT NULL,
   finished_at INTEGER,
   duration_ms INTEGER
 );
-CREATE INDEX idx_dreaming_runs_started ON dreaming_runs (started_at DESC);
 ```
 
-**为什么用 trigram**：中文没有空格分词，默认 `unicode61` 对中文只能整段匹配。trigram 让任意 3 字符以上的中文子串都能命中（已在 Node 24 / 内置 SQLite 上验证），因此不需要引入分词器。代价是索引更大，但记忆条目规模在千级以内，可接受。
+`operations_json` 现在存 `{ added: string[], removed: string[], dropped: [{reason, content}] }`——就是本次改动前后的行 diff。旧 run 里是操作数组，读取时会被归一成空 diff（`server/sqlite/dreaming-repository.mjs` 的 `toRun`），页面不需要按 run 的年代分支。
 
-**为什么 `fingerprint` 唯一索引**：这是全自动写入不去重的唯一硬保障。相同 scope + 相同归一化内容只能存在一条，重复提取自动变成 `update`。
+**迁移**：append-only。v13 建记忆域四张表，v14 补运行详情列，v15 记输出语言，v16 加过向量表（v17 一并删除），**v17 `drop_structured_memory_store` 删掉 `memories` / `memories_fts` / `memory_events` / `memory_embeddings`**。
 
-## 3. 记忆分层
+## 3. 笔记格式契约
 
-| 层 | 载体 | 写入者 | 注入方式 |
-|---|---|---|---|
-| L1 人工层 | `MEMORY.md` 人工区 | 用户（含 `manage_global_memory`） | 全文注入 system prompt |
-| L2 自动摘要 | `MEMORY.md` 自动区（`<!-- dreaming:auto:begin/end -->` 之间） | Dreaming | 全文注入，≤ 4KB |
-| L3 经验库 | SQLite `memories` | Dreaming | 项目相关 top-N 注入 + `recall_experience` 深查 |
+`~/.quickforge/DREAMING.md` 全文就是下面这样，没有标记、没有第二段：
 
-- 自动区每次运行**整体重写**（幂等），内容由当前 active 记忆中最强的一批生成。
-- 自动区写入用现有 `saveGlobalMemoryDocument` 的原子替换 + 串行锁，但**先读人工区再拼回**：自动区之外的字节从磁盘原样保留，绝不覆盖。
-- 自动区限 4KB（`MEMORY.md` 全局上限仍是 16KB）。超出时按 `strength` 截断条目，而不是截断文字。
+```markdown
+## 记忆笔记（Dreaming 维护，请勿手工编辑本文件）
+
+- 用户偏好中文交互，代码注释用英文。
+- [pitfall] 回滚 commit 前先用 git log 确认后续没有改动。
+- 发布前必须跑完整 npm run test / lint / build。
+```
+
+- 一行一条，`- ` 开头。可选的 kind 前缀：`[fact]` / `[preference]` / `[experience]` / `[pitfall]` / `[decision]`。
+- 单行 ≤ 300 字符，最多 60 条，整份 ≤ 3800 字节（落盘上限 8KB）。
+- 超出上限时**从尾部截断**，被截掉的行计入 `dropped`；不是截断文字。
+
+代码侧的实现是 `server/dreaming/notes.mjs`：`parseNoteLines()` 从任意 markdown 抽 bullet（跳过标题、空行、代码围栏），`normalizeNoteLines()` 去重 + 截断 + 敏感内容过滤，`composeAutoSection()` 渲染成带标题的整份文件。
 
 ## 4. 处理流程
 
@@ -123,270 +102,157 @@ CREATE INDEX idx_dreaming_runs_started ON dreaming_runs (started_at DESC);
 
 数据源只有一处：SQLite 权威会话存储。
 
-- `sessions` 表筛出 `updated_at_ms` 落在时间窗口内的会话（`scope/project_id/session_id/message_count/title`），按时间倒序，最多 40 个。
+- `sessions` 表筛出 `updated_at_ms` 落在时间窗口内的会话，按时间倒序，最多 40 个。
 - 对每个会话取 `session_messages` 的尾部窗口（`ORDER BY seq DESC LIMIT 300` 后反转），不做整会话物化——项目历史上有过整会话读取导致 OOM 的教训。
-- **只投影两类消息**：`user` 消息，和 assistant 的**最终回答**。
-
-```txt
-[session:abc | 项目 quickforge | 2026-10-26 | 实现 dreaming 功能]
-user: 想实现一个 dreaming 功能…
-assistant: 测试全部通过，接下来改 schema。
-history(compacted): 之前已经做完存储层，结论是走 SQLite。
-user: 继续
-assistant: 已按方案改完。
-```
-
-“最终回答”的判定是**没有 toolCall 且 stopReason 不是 toolUse / error / aborted** 的 assistant 消息。这条规则一次解决三个问题：
-
-1. 工具调用与其输出**完全不进 prompt**——不需要任何截断启发式，也不会有工具 payload 泄漏；
-2. 中间步骤（“我先看一下文件”）不进 prompt，它们是过程而不是结论；
-3. 被中断或失败的回复不算答案，不会被当成结论沉淀。
-
-`history(compacted)` 是上下文压缩摘要：它以 `user` 角色存储，但携带 `quickforgeCompaction.kind = 'summary'`，被单独识别后解包 `<compact_summary>` 标签输出。它代表已压缩掉的历史，是那段工作唯一可见的形式，因此必须保留；提示词里明确标注它比直接消息的证据强度弱。
-
-**预算**：单会话 30 000 字符、单条 user 1 500 字符、单条 assistant 3 000 字符、整体 100 000 字符。超总预算时按会话时间从旧到新丢弃——降级为“少处理几个会话”，而不是发出超限请求。因为不含工具输出，100k 字符能覆盖的会话数远多于旧方案。
-
-**不用的内容**：toolCall 与 toolResult、thinking/reasoning 块、附件与图片、tool 的 `details` 与耗时、`body_json`/`meta_json`。
+- **只投影两类消息**：`user` 消息，和 assistant 的**最终回答**（没有 toolCall 且 stopReason 不是 toolUse / error / aborted）。
+- 预算：单会话 30 000 字符、单条 user 1 500 字符、单条 assistant 3 000 字符、整体 100 000 字符。超总预算时按**纠正优先、其次按时间从旧到新**丢弃——一次纠正过的会话比一次顺利的会话每字符更值钱，所以不能单纯按时间砍。
+  - 信号由 `correctionSignals()` 给出：user 消息里出现「不对 / 错了 / 应该 / 改成 / 实际上 / actually / instead / revert…」或 assistant 的 `stopReason` 是 `error`/`aborted`，各计 1。
+- 不用的内容：toolCall 与 toolResult、thinking/reasoning 块、附件与图片、tool 的 `details` 与耗时。
 
 ### 4.2 提示词（prompt）
 
-四个动作写进系统提示词，输出是一份 JSON 操作清单：
+系统提示告诉模型「你在维护一份会被注入到每次会话的笔记列表」，并给出合并规则：仍然成立的保留、被修正的就地改写、被证伪的删掉、重复的合并；输出只有 bullet 列表，没有前言、没有标题、没有代码围栏。
 
-```json
-{
-  "summary": "本次处理的一句话结论",
-  "operations": [
-    { "action": "create", "kind": "pitfall", "scope": "project", "projectId": "…",
-      "content": "…", "evidence": [{ "sessionId": "…", "note": "哪句支持它" }], "confidence": 0.8 },
-    { "action": "update", "targetId": "mem_x", "content": "…", "confidence": 0.9 },
-    { "action": "supersede", "targetId": "mem_old", "replacementId": "mem_new" },
-    { "action": "retire", "targetId": "mem_x", "reason": "已被多次纠正" }
-  ]
-}
-```
+user 消息包含：时间窗口、输出语言硬要求、**当前笔记列表**（`- ...` 逐行）、敏感内容策略、transcript。
 
-提示词里同时给出**当前记忆库快照**（active 条目：id / kind / scope / content 一行摘要），这样模型能做"更新认知"而不是重复创建。快照最多 120 条，每条 content 裁到 200 字符。
+### 4.3 写回
 
-evidence 只按 `sessionId + note` 引用：transcript 里没有 `seq`，因为只有 user 文本与最终回答被投影，行号对模型没有意义。
+1. `normalizeNoteLines(reply)` 抽行、去重、截断、按 `allowSensitive` 丢弃疑似凭据。
+2. **掉线保护**：如果回复非空但一条 bullet 都抽不出来（模型跑题说了段散文），本次 run 标记 `failed` 且**不写盘**——一次不合契约的回复不该清空已有笔记。真正空回复（`''`）是合法的「今天没有值得记的」，会把文件清空。
+3. `diffNoteLines(before, after)` 算出 added / removed，写进 `operations_json`。
+4. `writeDreamingNotes(composeAutoSection(lines))` 整份覆盖 `DREAMING.md`。`MEMORY.md` 完全不参与——它甚至不会被打开。
+5. `syncNoteStats()` 让 `dreaming_note_stats` 与文件严格对齐：新笔记载入（记录 `created_at`），消失的笔记删行（同样措辞以后重新加回来时从 0 开始，不继承旧计数）。
+6. **漂移告警**：`added + removed` 占「改前/改后较大者」的比例 ≥ 80%，且改前至少 5 条时，run 仍记 `succeeded`，但在 `error` 里写「本次改动了 N/M 条笔记，可能发生了记忆漂移」。不阻断——笔记是模型的判断，代码只负责让它显形。
+7. `operations.notesAfter` 保存本次结束后的完整列表，供回滚使用。
 
-### 4.2.1 输出语言（必须显式指定）
+### 4.4 失败与边界
 
-「让模型用用户的语言输出」这类软提示在英文系统提示词里会被淹没：实测中文会话沉淀出的记忆全是英文。因此语言改由代码判定，并在 user message 里以硬要求的形式给出：
+- 全局记忆关闭 → run 记 `skipped`，不动文件。
+- 窗口内没有会话 → `skipped`，推进 `lastRunAt`。
+- 没配任何模型 → `failed`，错误文案写进 run。
+- 写盘失败 → run 仍是 `succeeded`，失败原因写进 `error`（笔记没更新，下次再来）。
+- 进程内单飞：重入返回 `{ skipped: true, reason: 'already_running' }`，不排队。
 
-1. `detectContentLanguage()`（`collect.mjs`）只采样 **user 消息**的文本（assistant 正文与代码注释在本仓库天然偏英文，会把判断拉偏），比较加权字符数：1 个 CJK 字 ≈ 4 个拉丁字母；样本字母数 < 12 时返回 `null`（“ok”、“1+1” 这种不足以代表用户）。
-2. 结果为 `zh` / `en` / `null`；`buildDreamingUserPrompt()` 据此生成 `## Output language` 段，写明具体语言、`summary` 同样适用、且不得因为 transcript 里是英文代码就切成英文。
-3. 设置项 `contentLanguage`（`auto|zh|en`，默认 `auto`）显式指定的优先级高于自动判定，用于历史混合语言被判错时兜底。
-4. 判定结果写入 `dreaming_runs.content_language`，详情页“语言”一栏直接可见——不然用户只能猜为什么输出是英文。
+## 5. 使用侧
 
-### 4.3 硬校验（apply）
+### 5.1 系统提示注入（两个独立段）
 
-模型输出后，代码逐条校验，不合格的进 `rejected`（写入 run 明细，前端可见），不会静默丢弃：
+- `readGlobalMemoryPrompt()` → `<global_user_memory source="~/.quickforge/MEMORY.md">`：用户自己写的那份。
+- `readDreamingNotesPrompt()` → `<dreaming_memory source="~/.quickforge/DREAMING.md">`：dreaming 写的那份。
 
-- `action` / `kind` / `scope` 必须在枚举内；`project` 必须带合法 `projectId`。
-- `content` 非空且 ≤ 500 字符（经验条目要能一行读完）。
-- `create` 的 `evidence` 非空。
-- `update` / `supersede` / `retire` 的 `targetId` / `replacementId` 必须存在且为 `active`。
-- `confidence` 裁剪到 `[0, 1]`，默认 0.5。
-- `create` 命中已有 `fingerprint` → 降级为 `update`（提高 strength）。
-- 敏感内容：`allowSensitive = false` 时复用 `containsSensitiveMemory()` 丢弃条目。
+两个段分开而不是拼成一坨，是为了让模型（和人读 prompt 时）能区分"用户告诉我的"和"过去会话总结出来的"。记忆总开关关闭时两段都不注入。
 
-全部操作在**单个 SQLite 事务**里应用，任一非法操作只影响自己，不影响其余条目。
+`recall_experience` 工具读的也是 `DREAMING.md`。
 
-### 4.4 质量评估与淘汰
-
-不用"模型决定忘掉"。用可观测量：
-
-- **strength 累积**：同一条全新提取 `+1`，被 `recall_experience` 召回 `+0.2`，被 `update` 覆盖 `+0.5`。
-- **confidence 修正**：模型给的分与 evidence 条数取较小值，避免单条证据的高置信条目。
-- **淘汰规则**：`status='active'` 且 `strength < 1` 且 `confidence < 0.5` 且 `last_recalled_at` 早于 30 天 → `retired`。只有三条同时满足才淘汰，单一信号不足以删除。
-- 被 `supersede` 的旧条目直接 `status='superseded'`，保留可追溯。
-
-淘汰在每次 run 结束时执行一次，条数写入 run 记录。
-
-## 5. Worker 与调度
-
-`server/dreaming/runner.mjs` 提供与 `server/auto-archive.mjs` 同构的形态：
-
-- `setInterval` + `unref()`，间隔 60s 检查一次 `nextRunAt`；首次检查延迟到启动 2 分钟后。
-- **单飞**：进程内 `dreamingRunning` 布尔，重入直接返回 `{ skipped: true }`。
-- "处理当天"语义 = 每日 `executeTime` 触发，窗口 `[上次成功运行的 period_to, now]`；从未跑过时窗口为「今天 00:00 → now」。窗口靠 `dreaming_runs` 的最大 `period_to` 推进，不需要额外 watermark 表。
-- **立即处理**：`POST /api/dreaming/run`，窗口同上；运行中返回 409。
-- 跳过条件：`dreaming-settings.enabled === false`，或窗口内没有会话，或全局记忆被关闭。
-
-不做跨进程锁。server 是单进程（desktop 与 CLI 都是），`sessions`/`memories` 写入本身有 SQLite 事务保证；引入 fencing 锁在这里只增加复杂度。
-
-## 6. 模型调用
-
-### 6.1 模型来源与优先级
-
-Dreaming 是一次独立于对话的模型调用，因此它有自己的模型设置。解析顺序（`resolveDreamingModel()`）：
-
-| 优先级 | 来源 | `source` |
-|---|---|---|
-| 1 | `dreaming-settings.modelRef`（设置页里指定） | `explicit` |
-| 2 | 用户最近一次对话使用的模型（`settings['active-model']`） | `active` |
-| 3 | 模型目录第一条（仅当以上都没选过） | `catalog` |
-| — | 都没有 | `none`（run 记为 failed，error 写“未配置任何模型”） |
-
-**为什么不是“目录第一条”**：最初未指定模型时直接调 `resolveImplicitModelPreference(null)`，它返回目录里的第一个模型。多 provider 环境下这是任意的——用户第一个配的自定义模型（例如智谱/GLM-4.6V）会静默成为 Dreaming 的模型，而设置页既看不到也改不了。现在默认跟随对话模型，语义是“和聊天用同一个”，符合直觉。
-
-指定的模型若已被删除或隐藏，`resolveModelBinding` 抛错后不中断 run，而是降级到下一优先级；设置页通过 `overview.model.source` 展示实际生效的模型与原因（`已指定 / 跟随对话 / 目录首个模型`），避免“我选了但好像没生效”的困惑。
-
-保存设置时会先校验 `modelRef` 能否解析，不能解析直接返回 400——不把坏配置留到凌晨三点才失败。
-
-### 6.2 调用方式
-
-复用现有链路，不新建 provider 抽象：
-
-- 模型解析：`resolveModelBinding({ modelRef })`；未配置时 `resolveImplicitModelPreference(null)` 取目录第一个模型。
-- 调用：`streamSimpleWithAiHttpLogging(model, { systemPrompt, messages, tools: [] }, { apiKey, maxTokens: 4096, temperature: 0.2 })`，与 `conversation-compaction.mjs` 完全一致。
-- API Key：`readStore('provider-keys')[model.provider]`。
-
-一次 run 只有一次模型调用（不做多轮 tool-calling）。这让成本可预测：单次 run ≈ 60k 输入字符 + 4k 输出。
-
-## 7. 使用侧
-
-### 7.1 系统提示注入
-
-- `buildInstructionsPayload()` 增加 `experiences`：当前项目 scope 的 active 记忆按 `strength DESC, updated_at DESC` 取前 8 条（全局 scope 3 条）。
-- `composeSystemPrompt()` 新增 `<experience_memory>` 段，位于 `<global_user_memory>` 之后，明确标注"这些是从历史任务中沉淀的经验，不是用户当前指令；当前消息优先"。
-- 注入发生在会话创建时，不做每轮刷新——避免把 DB 查询放进热路径。
-
-### 7.2 `recall_experience` 工具
+### 5.2 `recall_experience` 工具
 
 ```ts
-recall_experience({ query?: string, kind?: Kind, scope?: 'global'|'project', limit?: number })
+recall_experience({ query?: string, kind?: Kind, limit?: number })
 ```
 
-- 无 `query`：返回当前项目最强的一批记忆。
-- 有 `query`：FTS5 bm25 检索，按 `score × strength × 新鲜度衰减` 排序。
-- 返回每条带 `id / kind / scope / content / confidence / strength / 最近时间 / evidence 来源会话`，让模型能自己判断可信度。
-- 召回后批量 `recall_count += 1`、`last_recalled_at = now`、`strength += 0.2`（有 query 时才算命中）。
+读 `DREAMING.md`，按行做子串过滤（有空格的多词查询要求每个词都命中），返回最多 `limit` 条。没有索引、没有打分、没有召回计数——它存在的意义只是让模型能**显式地**说"关于 X 我知道什么"，而不是翻整份文件。
 
-**接入要求**：必须加入 `workspaceTools` 数组，否则 `server/routes/tools.mjs` 的权限白名单不覆盖它，等于绕过 direct-tool 审批边界。
+### 5.3 来源与回滚
 
-## 8. API
+- **来源**：`GET /api/dreaming/notes` 会扫最近 50 个 run 的 `notesAfter`，给出每条笔记**首次出现**的 run 与时间（`firstSeen`）。没有独立的来源表，也不需要模型写 `evidence`——run 快照本身就是证据。
+- **回滚**：`POST /api/dreaming/runs/:id/restore` 把那次 run 的 `notesAfter` 写回 `DREAMING.md`。旧 run 没有快照时返回 409，而不是用半个 diff 猜一个列表。
+- **删除**：`DELETE /api/dreaming/notes/:id`（id = 笔记文本的哈希）。它直接改文件，所以下一轮 dreaming 看到的已经是删过的列表，不可能把这条写回来。
 
-按 `/api/scheduled-tasks` 的挂载惯例，在 `server/index.mjs` 的 `handleApi` 里加前缀分发：
+### 5.4 反馈闭环（召回计数）
+
+笔记是文件，文件本身不可能知道「这条有没有被用过」。所以反馈存在一张只有 6 列的表里：
+
+```sql
+CREATE TABLE dreaming_note_stats (
+  note_id TEXT PRIMARY KEY,      -- noteIdOf(text)，不是数据库 id
+  note_text TEXT NOT NULL,
+  recall_count INTEGER NOT NULL DEFAULT 0,
+  last_recalled_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+```
+
+- **写入**：`recall_experience` 每次真正返回某条笔记，`recordNoteRecall()` 给那几条 `recall_count + 1` 并更新 `last_recalled_at`。用不上存储时（工具在 server 外被调用）静默跳过。
+- **读取**：`listNoteStats()` 在下一轮 dreaming 里算出「存在 ≥ 60 天且从未被召回」的笔记。
+- **两个门槛，缺一不可**：笔记数 ≥ 40 条才启用筛选，且单条要 ≥ 60 天没被召回。原因很直接——笔记本来就全量注入 prompt，`recall_experience` 很少被调用，短列表上「从没被召回」是普遍现象而不是信号；在这个前提下提出删除建议只是噪声。
+- **怎么用**：这批冷笔记**不直接删**，而是作为 `## Never recalled (deletion candidates)` 段交给模型，并明确「进入这个列表是因为没人搜过它，不是因为它错了」。这正是「强度衰减」在这里的形态——**信息，而不是规则**：删不删仍然由模型结合本轮会话判断，避免代码把一条少用但关键的安全红线淘汰掉。
+- **清理**：每轮写回后 `syncNoteStats()` 对齐文件，消失的笔记连同统计一起删除。
+
+注：没有「按 strength 排序召回」这一步，因为召回是全量注入 + 子串过滤，本来就没有排序空间。
+
+## 6. API
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/dreaming` | 设置 + 最近一次 run 摘要 + 记忆计数 |
+| GET | `/api/dreaming` | 设置 + 生效模型 + 最近一次 run + 笔记条数 |
 | PUT | `/api/dreaming/settings` | 更新开关 / 定时 / 模型 / 敏感信息策略 |
 | POST | `/api/dreaming/run` | 立即处理；运行中 409 |
 | GET | `/api/dreaming/runs?page&pageSize` | 运行历史（分页） |
-| GET | `/api/dreaming/runs/:id` | 运行详情（含逐条操作与拒绝原因） |
-| GET | `/api/dreaming/memories?query&kind&status&page` | 记忆浏览 / 检索 |
-| POST | `/api/dreaming/memories/:id/retire` | 手工淘汰 |
+| GET | `/api/dreaming/runs/:id` | 运行详情（含行 diff、完整快照与模型原始回复） |
+| POST | `/api/dreaming/runs/:id/restore` | 把该次运行的笔记快照写回 `DREAMING.md`（无快照 409） |
+| GET | `/api/dreaming/notes?query&kind&page&pageSize` | 笔记浏览（只读，含 `firstSeen` / `recallCount`） |
+| DELETE | `/api/dreaming/notes/:id` | 删除单条笔记（直接改文件，下一轮不会复活） |
 
-进度用轮询，不用 SSE（仓库里 SSE 只服务对话流）。
+已删除：`/api/dreaming/memories`（含 `:id/retire`）、`/api/dreaming/embeddings/backfill`。
 
-## 9. 设置项
+## 7. 设置项
 
 `settings` store，key `dreaming-settings`：
 
 ```json
 {
   "enabled": false,
-  "scheduleEnabled": true,
   "executeTime": "03:00",
   "modelRef": null,
   "allowSensitive": true,
   "contentLanguage": "auto",
-  "modelRef": null,
   "nextRunAt": null,
   "lastRunAt": null
 }
 ```
 
-默认 `enabled: false`——后台任务默认关闭，由用户在设置页显式打开。
+默认 `enabled: false`——后台任务默认关闭，由用户在设置页显式打开。**开启即定时**：没有独立的“定时处理”开关，每天 `executeTime` 自动跑一次；「立即处理」只是手动提前触发。
 
-敏感信息：默认允许（`allowSensitive: true`）。设置页只给一行提示：Dreaming 会把项目代码与路径发送给已配置的模型；若使用远程 provider，内容会离开本机。这是唯一需要的"人工决策点"，一次性配置，不打断流程。
+`modelRef` 的解析优先级：指定的模型 → 最近对话模型 → 目录第一条。指定的模型失效时降级到下一优先级而不中断 run。
 
-## 10. 前端
+`contentLanguage` 默认 `auto`：`detectContentLanguage()`（`collect.mjs`）只采样 **user 消息**文本（assistant 正文与代码注释天然偏英文，会把判断拉偏），比较加权字符数（1 个 CJK 字 ≈ 4 个拉丁字母），样本字母数 < 12 时返回 `null`。结果写进 `dreaming_runs.content_language`，详情页可见。
 
-设置页新增 `dreaming` 页签（`automation` 分组），需同步三处：`src/lib/settings-tabs.ts` 定义、`src/lib/react-settings-tabs.tsx` 的 lazy import 与 `tabContent` 映射。
+## 8. 前端
 
-页面结构（`src/styles/settings/dreaming.css` 承载专属样式，其余复用既有 settings 令牌）：
+设置 → 自动化 → Dreaming：
 
-1. **头部状态块**：一个圆角容器里放「状态点 + 状态文字 + 开关 + 立即处理」，状态不用颜色单独表达——点旁永远拼着同色调的状态词（已开启/已关闭/进行中/上次运行失败）；下一行是单行 meta（下次/上次/生效数/生效模型/自动区状态，淘汰数不再占位，筛选下拉里可见），再隔一条 hairline 是内联设置（执行时间、模型、记忆语言、敏感内容、定时开关）。之所以压成一块：这几组信息是同一件事的不同侧面，拆成多个 `settings-row` 会把首屏全部占满。
-2. **记忆与运行历史共用一块，用 subtab 切换**：两个列表都是长列表，同时铺开只能靠滚动区分层级；subtab 标题带计数（`记忆 N` / `运行历史 N`）。
-3. **运行历史整行可点**：状态徽章 + 时间 + 一行指标（会话/+新增/~更新/-淘汰/✕拒绝/耗时）+ 结论，点击进入详情。指标用颜色区分增/改/删，符号是速记，每格带 `title` 全称，不使用重底色。
-4. **记忆列表**：内容为主行，类型用 muted 徽章、召回次数用 info 徽章；作用域下沉到弱化 meta 行（`全局 · 0.86 · 4.2 · 时间`），数字裸排、名词挂 `title`，避免一行的徽章超过两个。淘汰按钮按需出现。
-5. **筛选即时生效**：搜索输入 300ms 防抖自动查询，状态下拉切换即查询，不再需要「搜索」按钮或回车。
+- 状态点 + 「立即处理」+ 开关；
+- 统计：下次运行 / 上次运行 / 笔记条数 / 运行次数；
+- 设置：模型（可搜索下拉）、执行时间、输出语言、敏感内容；
+- 「笔记」页签：`DREAMING.md` 的只读列表（kind 徽标 + 正文 + 召回次数 + 首次记录时间）、关键词搜索、kind 筛选、分页、单条删除；明确标注「这个文件由 dreaming 整份重写，要自己加内容请写在 MEMORY.md」；
+- 「运行历史」页签：每次运行的会话数 / 新增 / 移除 / 丢弃 / 耗时，点开看行 diff 与模型原始回复，并有「恢复到此版本」按钮。
 
-视觉细则：状态点用颜色表达 idle/on/running/error，running 有 pulse 动画并对 `prefers-reduced-motion` 降级；折叠箭头用 lucide chevron 旋转（`--quickforge-dur-fast`）而非字符切换；分页与筛选各自独立一行，不与列表争宽度。
+设置 → 记忆：只编辑 `MEMORY.md`；当 `DREAMING.md` 有内容时多一行说明（它的笔记在另一个文件里，不在此处编辑）。
 
-### 10.1 运行详情（设计）
+## 9. 与旧方案的区别
 
-详情页要能回答四个问题，因此按“输入 → 变更 → 被拒 → 模型原文”四段垂直堆叠，段内可折叠，不用 tab（避免多一层点击）：
+| 维度 | v13–v16（结构化经验库） | v17（一份笔记） |
+|---|---|---|
+| 记忆载体 | `memories` 表 + `MEMORY.md` 自动区 | 独立的 `DREAMING.md` |
+| 写入 | 模型输出 JSON 操作清单 → 逐条硬校验 → 单事务落库 | 模型输出新列表 → 格式校验 → 整份覆盖 |
+| 与用户文件的关系 | 同一文件里靠标记划界，保存时要重拼 | 两个文件，互不读写 |
+| 去重 | `fingerprint` 唯一索引 | 模型自己合并（提示词里要求） |
+| 质量信号 | `confidence` / `strength` / 衰减 / 召回计数 | 只保留召回计数（一张 6 列表），作为删除候选提示 |
+| 召回 | FTS5 bm25（曾加向量 + RRF） | 全量注入 + 子串过滤 |
+| 审计 | `memory_events` 逐条 | 每次运行的 added / removed / notesAfter |
+| 来源 | `evidence_json` 每条 | 每条笔记首次出现的 run（扫 run 快照得出） |
+| 回滚 | 手改数据库 | `POST /runs/:id/restore` 写回快照 |
+| 漂移防护 | 无 | 改动率 ≥ 80% 且笔记 ≥ 5 条时告警 |
+| 代码量 | 4 张表 + 3 个模块 + 5 个 repository 方法族 | 1 张表 + `notes.mjs` + 1 次调用 |
 
-```txt
-┌ 返回历史
-├ ① 概览
-│   状态 / 触发方式 / 模型 / 处理区间 / 耗时
-│   读取会话 3 · 新增 2 · 更新 1 · 淘汰 1 · 拒绝 2
-│   结论：<summary>
-│   ⚠ error（若有：MEMORY.md 重写失败等）
-├ ② 读取内容（What it read）    ← 回答“用对话的什么部分处理”
-│   每行一个会话：sessionId · 时间 · 消息数 · 字符数 · 标题
-│   [查看] → 展开送给模型的原文（= 存进 sessions_json 的 preview）
-│   底部：共 3 个会话、12 400 字符
-├ ③ 变更明细
-│   [create] [pitfall] [project] 发布前必须跑 test/lint/build
-│     置信度 0.70 · 强度 1.0 · 证据 s1, s2
-│   [update] …（若模型提案与库中内容不同，额外一行“提案：…”）
-│   [supersede] old → 显示 replacement 的当前内容
-├ ④ 被拒绝（计数 >0 才展开）
-│   [create] [fact] 「模型原话…」
-│     原因：content 超过 500 字符
-├ ⑤ 衰减淘汰（计数 >0 才展开）
-│   显示被淘汰条目的内容与 置信度/强度（不显示裸 id）
-└ ⑥ 模型原始响应（可折叠，仅调试）
-```
+**为什么删**：结构化那套的价值来自"条目多到需要检索"。实际笔记只有几十条，全量注入已经够用；为此维护去重、评分、衰减、审计、向量索引，换来的是三者不一致的风险（笔记与库不同步、向量与模型不匹配、衰减把有用条目淘汰掉）。最终选择让模型成为唯一决策者，代码只保证文件不被写坏。
 
-三条数据约束决定了这个设计：
+## 10. 已知取舍
 
-- **② 段必须是实际发送的字符串**，不是二次渲染。`collectTranscript()` 在采集时就把每会话的投影文本存进 `dreaming_runs.sessions_json`（每会话裁到 1 200 字符），因为窗口内会话可能已超出保留期，事后无法复现。
-- **④ 段必须保留模型原提案**（`kind / scope / content / targetId`）。只存 `reason` 无法区分“规则太严”与“模型跑偏”。
-- **③ 段同时显示提案与库中结果**。`/api/dreaming/runs/:id` 额外返回 `memories`（本次触及条目的当前状态），避免前端逐条发请求；内容不一致时才渲染 diff，正好覆盖「重复内容降级为 update」和「update 改写句子」两种情形。
-
-不做实时进度条：一次 run 是一次模型调用（通常 5–30 秒），按钮置灰 + 完成后刷新即可。
-
-## 11. 失败与边界
-
-| 情况 | 行为 |
-|---|---|
-| 未配置任何模型 | run 直接 `skipped`，error 写"未配置模型" |
-| 模型返回非法 JSON | run `failed`，error 写解析错误原因，原文同时进 `raw_response`（详情页可查） |
-| 模型返回空 operations | run `succeeded`，计数全 0（正常：当天没有新东西） |
-| 窗口内无会话 | run `skipped`，不产生运行记录之外的开销 |
-| `MEMORY.md` 超 16KB | 自动区压缩到 4KB；仍超限则本次跳过自动区重写，warning 写入 run 的 `error`（状态仍为 succeeded） |
-| 全局记忆被关闭 | 跳过自动区重写，记忆库照常更新 |
-
-## 12. 与现有模块的关系
-
-| 模块 | 关系 |
-|---|---|
-| `server/global-memory.mjs` | 复用原子写 + `withMemoryWriteLock`；新增自动区拼接函数，不改既有读写语义 |
-| `server/sqlite/*` | 追加 v13 迁移 + `dreaming-repository.mjs`，沿用 `getSqliteStorage()` 与仓储模式 |
-| `server/session-state-service.mjs` | 只读取（`readMessagesPage` / `metadata`），不写会话 |
-| `server/model-catalog.mjs` / `ai-http-logger.mjs` | 复用模型解析与流式调用 |
-| `server/auto-archive.mjs` | 复用 runner 形态（timer + unref + 单飞） |
-| `server/tools/*` | 新增 `recall_experience` 定义与 handler，纳入 `workspaceTools` |
-| `server/system-prompt.mjs` | 新增 `<experience_memory>` 段 |
-
-## 13. 里程碑
-
-| 阶段 | 内容 |
-|---|---|
-| M1 | v13/v14 迁移 + `dreaming-repository` + 采集/提示词/校验/runner + `/api/dreaming/*`（含运行详情） |
-| M2 | `MEMORY.md` 自动区重写 + 系统提示注入 + `recall_experience` 工具 |
-| M3 | 设置页 Dreaming 页签（开关 / 定时 / 立即处理 / 历史 / 详情 / 记忆浏览） |
-
-## 14. 成本与风险
-
-- **Token**：单次 run 输入上限 100k 字符（不含工具输出，所以能覆盖更多会话）+ 快照约 24k 字符，输出 ≤ 4k token。每日一次的成本可忽略；「立即处理」是用户主动动作。
-- **误伤人工记忆**：靠"只重写自动区 + 字节级保留人工区"避免，不用提示词约束。
-- **记忆漂移**：靠 `fingerprint` 唯一 + `supersede` 不删除 + 使用反馈（recall 计数）抑制。
-- **敏感信息外发**：靠设置页显式提示；`allowSensitive` 关闭时用现有正则丢弃。
+- **没有语义召回**：笔记几十条全量注入，不需要。真需要时再加"查询改写 + LLM 挑选候选"，而不是引入向量库。
+- **反馈闭环是"提示式"的**：召回计数只用来生成冷笔记候选，删不删仍由模型决定，没有代码强制的强度衰减/自动淘汰。用一张 6 列表存计数，不是恢复旧的 `strength` 评分体系。
+- **来源只到 run 粒度**：能看到「这条笔记首次出现在哪次运行」，看不到「它由哪几句对话支撑」。要更细就得让模型写 `evidence`，那会把 300 字符预算吃掉。
+- **模型可以一次重写全部笔记**：提示词要求保守修改 + 排序，代码只在改动率 ≥ 80% 时告警，不阻断。掉线保护（非空但无 bullet → failed）是硬兜底。
+- **旧记忆不迁移**：v17 直接 drop 表，下一次运行从会话历史重建。
+- **全局单份笔记**：项目 A 的坑会注入到项目 B。要按项目分，只需再加一个文件路径，不要回到带 scope 字段的表。

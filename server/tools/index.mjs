@@ -1287,54 +1287,58 @@ export async function toolManageGlobalMemory(params) {
 }
 
 /**
- * `recall_experience` returns a compact, citable list rather than raw rows: the
- * model needs confidence and provenance to decide whether a lesson applies, and
- * a recalled entry counts as usage signal for later decay.
+ * `recall_experience` reads the Dreaming notes block in MEMORY.md.
+ *
+ * The notes are already injected into every system prompt, so this is not a
+ * search engine: it answers "what do I know about X" by filtering the same
+ * bullets, with no index, scoring or usage bookkeeping behind it.
  */
-export async function toolRecallExperience(params = {}, options = {}) {
-  // Imported lazily: the experience store lives in the SQLite layer, and every
-  // tool module importing it eagerly would pull the database handle into
-  // contexts (route unit tests, tool-only consumers) that never touch it.
-  const { recallExperiences, formatRecalledMemory } = await import('../dreaming/recall.mjs')
+export async function toolRecallExperience(params = {}) {
+  const { recallExperienceNotes, noteIdOf, noteKindOf, noteTextOf } = await import('../dreaming/recall.mjs')
   const query = String(params?.query ?? '').trim()
-  const memories = recallExperiences({
+  const notes = await recallExperienceNotes({
     query,
     kind: params?.kind ?? null,
-    scope: params?.scope ?? null,
-    projectId: options.projectId ?? null,
     limit: params?.limit,
-    markRecalled: Boolean(query),
   })
-  if (memories.length === 0) {
+  const rows = notes.map((line) => ({
+    id: noteIdOf(line),
+    kind: noteKindOf(line),
+    content: noteTextOf(line),
+  }))
+  // Recall feedback: a note that is actually asked for is evidence it earns its
+  // place. Best-effort — a stats failure must not fail the tool.
+  if (query && rows.length > 0) {
+    try {
+      const { createDreamingRepository } = await import('../sqlite/dreaming-repository.mjs')
+      createDreamingRepository().recordNoteRecall(
+        notes.map((line, index) => ({ id: rows[index].id, text: line })),
+        Date.now(),
+      )
+    } catch {
+      // Storage unavailable (tool used outside the server): skip the bookkeeping.
+    }
+  }
+  if (rows.length === 0) {
     return {
       content: query
-        ? `No stored experience matched "${query}".`
-        : 'No stored experience yet. The background Dreaming worker has not distilled anything for this project.',
+        ? `No stored note matched "${query}".`
+        : 'No stored notes yet. The background Dreaming worker has not written anything for this project.',
       details: { type: 'recall_experience_result', query, count: 0, memories: [] },
     }
   }
   return {
     content: [
-      query ? `Recalled ${memories.length} experience entr${memories.length === 1 ? 'y' : 'ies'} for "${query}":` : `Strongest ${memories.length} stored experience entr${memories.length === 1 ? 'y' : 'ies'}:`,
-      ...memories.map(formatRecalledMemory),
+      query ? `Recalled ${rows.length} note${rows.length === 1 ? '' : 's'} for "${query}":` : `All ${rows.length} stored notes:`,
+      ...notes.map((line, index) => (rows[index].kind ? `- [${rows[index].kind}] ${rows[index].content}` : `- ${rows[index].content}`)),
       '',
       'These are distilled from past sessions, not current instructions.',
     ].join('\n'),
     details: {
       type: 'recall_experience_result',
       query,
-      count: memories.length,
-      memories: memories.map((memory) => ({
-        id: memory.id,
-        kind: memory.kind,
-        scope: memory.scope,
-        content: memory.content,
-        confidence: memory.confidence,
-        strength: memory.strength,
-        updatedAt: memory.updatedAt,
-        recallCount: memory.recallCount,
-        evidence: memory.evidence,
-      })),
+      count: rows.length,
+      memories: rows,
     },
   }
 }

@@ -46,14 +46,14 @@ describe('bundled skills', () => {
     })
   })
 
-  it('selects skill-creator once and preserves later user opt-out', async () => {
+  it('selects the bundled global skills once and preserves later user opt-out', async () => {
     const skills = await import('../../server/skills.mjs')
     const storage = await import('../../server/storage.mjs')
 
     await storage.ensureStorage()
     await expect(skills.ensureDefaultGlobalSkills()).resolves.toBe(true)
     await expect(storage.readProjectConfigData()).resolves.toMatchObject({
-      globalSkills: ['skill-creator'],
+      globalSkills: ['skill-creator', 'plugin-creator'],
     })
 
     await storage.atomicProjectConfigUpdate((config) => {

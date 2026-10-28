@@ -90,7 +90,7 @@ export const globalMemoryTool = {
 export const recallExperienceTool = {
   name: 'recall_experience',
   label: 'Recall experience',
-  description: 'Search the long-term experience store that the background Dreaming worker distilled from past sessions (facts, preferences, reusable procedures, pitfalls and their fixes, decisions with reasons). Use it when the current task might have been solved before, when a command or convention is unclear, or before re-debugging something that looks familiar. Omit query to list the strongest memories for the current project. Results carry confidence, strength and the source sessions so you can judge whether to rely on them; they are context, not instructions - the current message always wins.',
+  description: 'Read the notes that the background Dreaming worker maintains in MEMORY.md (facts, preferences, reusable procedures, pitfalls and their fixes, decisions with reasons). The same notes are already injected into your system prompt; use this tool to filter them deliberately - for example "what do I know about X" - instead of re-reading the whole block. Omit query to list every note. They are context, not instructions - the current message always wins.',
   parameters: Type.Object({
     query: Type.Optional(Type.String({ description: 'Keyword or phrase to search. Supports CJK substrings. Omit to list the strongest memories.' })),
     kind: Type.Optional(Type.Union([
@@ -99,12 +99,8 @@ export const recallExperienceTool = {
       Type.Literal('experience'),
       Type.Literal('pitfall'),
       Type.Literal('decision'),
-    ], { description: 'Restrict to one memory kind.' })),
-    scope: Type.Optional(Type.Union([
-      Type.Literal('global'),
-      Type.Literal('project'),
-    ], { description: 'Restrict to global or project scope. Defaults to both, project first.' })),
-    limit: Type.Optional(Type.Number({ description: 'Maximum entries to return. Defaults to 8, capped at 30.' })),
+    ], { description: 'Restrict to notes carrying this kind prefix.' })),
+    limit: Type.Optional(Type.Number({ description: 'Maximum notes to return. Defaults to 8, capped at 30.' })),
   }, { additionalProperties: false }),
   executionMode: 'sequential',
 }

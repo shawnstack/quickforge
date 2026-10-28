@@ -71,10 +71,22 @@ function sanitizeMessage(message) {
 
 function sanitizeContextCompaction(compaction) {
   if (!compaction || typeof compaction !== 'object') return null
-  return {
+  const sanitized = {
     ...compaction,
     summaryMessage: sanitizeMessage(compaction.summaryMessage),
   }
+  // One entry per compaction (see MAX_CONTEXT_COMPACTION_HISTORY). Each entry
+  // carries its own summary, so the shared view must redact them the same way —
+  // otherwise a public share leaks the `contextReferences` that
+  // `sanitizeMessage` strips from the live summary.
+  if (Array.isArray(compaction.history)) {
+    sanitized.history = compaction.history.map((entry) => (
+      entry && typeof entry === 'object' && entry.summaryMessage
+        ? { ...entry, summaryMessage: sanitizeMessage(entry.summaryMessage) }
+        : entry
+    ))
+  }
+  return sanitized
 }
 
 function sanitizeSession(session, record) {
@@ -119,7 +131,7 @@ function sanitizeEvent(event) {
   const next = { ...event }
   if (next.message) next.message = sanitizeMessage(next.message)
   if (Array.isArray(next.messages)) next.messages = next.messages.map(sanitizeMessage).filter(Boolean)
-  if (next.contextCompaction?.summaryMessage) {
+  if (next.contextCompaction) {
     next.contextCompaction = sanitizeContextCompaction(next.contextCompaction)
   }
   delete next.contextUsage

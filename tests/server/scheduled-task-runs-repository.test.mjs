@@ -106,7 +106,9 @@ describe('scheduled task runs repository schema v3', () => {
       DROP TABLE IF EXISTS lan_access_storage_state;
       DROP TABLE IF EXISTS lan_access_tokens;
       DROP TABLE IF EXISTS memories_fts;
+      DROP TABLE IF EXISTS memory_embeddings;
       DROP TABLE IF EXISTS memories;
+      DROP TABLE IF EXISTS dreaming_note_stats;
       DROP TABLE IF EXISTS memory_events;
       DROP TABLE IF EXISTS dreaming_runs;
       DELETE FROM schema_migrations WHERE version >= 3;

@@ -2,18 +2,34 @@ import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { logger } from '../utils/logger.mjs'
 import { readStore } from '../storage.mjs'
 import { resolveImplicitModelPreference, resolveModelBinding } from '../model-catalog.mjs'
-import { isGlobalMemoryEnabled, readGlobalMemory, writeDreamingMemorySection } from '../global-memory.mjs'
+import { isGlobalMemoryEnabled, readDreamingNotes, writeDreamingNotes } from '../global-memory.mjs'
 import { createDreamingRepository } from '../sqlite/dreaming-repository.mjs'
-import { collectTranscript, summarizeMemory } from './collect.mjs'
+import { collectTranscript } from './collect.mjs'
 import { DREAMING_SYSTEM_PROMPT, buildDreamingUserPrompt } from './prompt.mjs'
-import { applyDreamingOperations, parseDreamingOutput } from './apply.mjs'
+import { composeAutoSection, diffNoteLines, normalizeNoteLines, noteIdOf } from './notes.mjs'
+import { readAutoNotes } from './recall.mjs'
 import { readDreamingSettings, saveDreamingSettings } from './settings.mjs'
 
 export const DREAMING_TICK_INTERVAL_MS = 60_000
 export const DREAMING_INITIAL_DELAY_MS = 2 * 60_000
 export const DREAMING_MAX_TOKENS = 4096
-export const DREAMING_SNAPSHOT_LIMIT = 120
-const DREAMING_STALE_DAYS = 30
+/**
+ * A run that replaces most of the list is suspicious: the model either learned a
+ * lot or drifted. It still succeeds (the notes are the model's call), but the run
+ * is flagged so a human can look.
+ */
+export const NOTE_CHURN_WARN_RATIO = 0.8
+/** Below this, every run would look like churn just because the list is tiny. */
+export const NOTE_CHURN_MIN_NOTES = 5
+/** A note nobody ever recalled after this many days is a deletion candidate. */
+export const NOTE_UNUSED_DAYS = 60
+/**
+ * Only ask the model to prune once the list is actually long. Memory notes are
+ * injected into every prompt and `recall_experience` is rarely called at all, so
+ * on a short list every note looks "never recalled" — proposing deletion there
+ * would be noise, not signal.
+ */
+export const NOTE_PRUNE_MIN_NOTES = 40
 const DAY_MS = 24 * 60 * 60 * 1000
 
 let runnerTimer = null
@@ -100,7 +116,10 @@ async function getApiKey(provider) {
   return keys?.[provider] || undefined
 }
 
-async function callDreamingModel({ model, settings, transcript, existingMemories, periodFrom, periodTo, contentLanguage }) {
+/** Current bullets from DREAMING.md — the model's own previous output. */
+export { readAutoNotes }
+
+async function callDreamingModel({ model, settings, transcript, existingNotes = [], unusedNotes = [], periodFrom, periodTo, contentLanguage }) {
   const apiKey = await getApiKey(model.provider)
   const stream = streamSimpleWithAiHttpLogging(
     model,
@@ -110,7 +129,8 @@ async function callDreamingModel({ model, settings, transcript, existingMemories
         role: 'user',
         content: buildDreamingUserPrompt({
           transcript,
-          existingMemories,
+          existingNotes,
+          unusedNotes,
           periodFrom,
           periodTo,
           allowSensitive: settings.allowSensitive,
@@ -136,37 +156,17 @@ async function callDreamingModel({ model, settings, transcript, existingMemories
 }
 
 /**
- * Render the auto section of MEMORY.md from the current strongest memories.
- * Rewritten wholesale every run; the manual section is preserved by
- * `writeDreamingMemorySection`, so this function only decides what the auto
- * block says.
- */
-function renderAutoSection(repository) {
-  // One document, many projects: the auto section lists the strongest entries
-  // regardless of project, tagging project ones so the origin stays visible.
-  const memories = repository.listStrongestAcrossProjects({ limit: 36 })
-  if (memories.length === 0) return ''
-  const lines = ['## 自动记忆（Dreaming 维护，请勿手工编辑本段）', '']
-  let bytes = Buffer.byteLength(lines.join('\n'), 'utf8')
-  for (const memory of memories) {
-    const scopeTag = memory.scope === 'project' ? ` · ${memory.projectId.slice(0, 8)}` : ''
-    const line = `- [${memory.kind}${scopeTag}] ${memory.content}`
-    const cost = Buffer.byteLength(`${line}\n`, 'utf8')
-    if (bytes + cost > 3900) break
-    lines.push(line)
-    bytes += cost
-  }
-  if (lines.length === 2) return ''
-  return lines.join('\n')
-}
-
-/**
  * One Dreaming pass.
  *
+ * Single call, single write: read the notes block, hand it to the model together
+ * with the new transcripts, and overwrite the block with the bullet list it
+ * returns. No diffing into rows, no dedupe table, no decay — the model is the
+ * only thing that decides what is remembered.
+ *
  * Single-flight by design: two concurrent passes would both read the same
- * watermark and write overlapping memory rows. Callers get `{ skipped: true }`
- * instead of queuing, because a queued pass would immediately re-scan a window
- * the running pass is already covering.
+ * watermark and both rewrite the block. Callers get `{ skipped: true }` instead
+ * of queuing, because a queued pass would immediately re-scan a window the
+ * running pass is already covering.
  */
 export async function runDreaming({ trigger = 'schedule', now = Date.now(), repository = null } = {}) {
   if (running) return { skipped: true, reason: 'already_running' }
@@ -223,57 +223,82 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
       sessions: collected.sessions,
       contentLanguage,
     })
-    const existingMemories = repo.listMemories({ limit: DREAMING_SNAPSHOT_LIMIT })
-      .map(summarizeMemory)
+
+    const existingNotes = await readAutoNotes()
+    // Recall feedback: notes that were never recalled and are old enough are
+    // handed to the model as deletion candidates. This is the whole "strength
+    // decay" mechanism — it informs the decision instead of overriding it.
+    let unusedNotes = []
+    try {
+      if (existingNotes.length >= NOTE_PRUNE_MIN_NOTES) {
+        const stats = repo.listNoteStats()
+        unusedNotes = existingNotes.flatMap((line) => {
+          const stat = stats.get(noteIdOf(line))
+          if (!stat || stat.recallCount > 0) return []
+          const ageDays = Math.floor((now - stat.createdAt) / DAY_MS)
+          return ageDays >= NOTE_UNUSED_DAYS ? [{ text: line, ageDays }] : []
+        })
+      }
+    } catch (error) {
+      logger.warn('Dreaming could not read note usage stats:', error instanceof Error ? error.message : String(error))
+    }
     const reply = await callDreamingModel({
       model,
       settings,
       contentLanguage,
       transcript: collected.transcript,
-      existingMemories,
+      existingNotes,
+      unusedNotes,
       periodFrom,
       periodTo,
     })
 
-    let parsed
-    try {
-      parsed = parseDreamingOutput(reply)
-    } catch (error) {
+    const normalized = normalizeNoteLines(reply, { allowSensitive: settings.allowSensitive })
+    // A prose reply that contains no bullets is not an answer: treating it as
+    // "clear everything" would let one off-contract response wipe the notes.
+    // A genuinely empty reply is still a valid "nothing durable today".
+    if (String(reply ?? '').trim() && normalized.lines.length === 0) {
       run = repo.finishRun(run.id, {
         status: 'failed',
         sessionCount: collected.sessionCount,
         inputChars: collected.chars,
         sessions: collected.sessions,
         rawResponse: String(reply).slice(0, 8000),
-        error: error.message,
+        error: '模型回复里没有任何笔记条目',
         finishedAt: Date.now(),
         durationMs: Date.now() - now,
       })
-      return { skipped: false, reason: 'invalid_output', run }
+      return { skipped: false, reason: 'no_notes_in_reply', run }
     }
-
-    const applied = applyDreamingOperations(parsed.operations, {
-      repository: repo,
-      runId: run.id,
-      now,
-      allowSensitive: settings.allowSensitive,
-    })
-
-    const autoRetired = repo.retireWeakMemories({
-      now,
-      staleBefore: now - DREAMING_STALE_DAYS * DAY_MS,
-    })
-    for (const id of autoRetired) {
-      repo.logEvent({ memoryId: id, action: 'retire', after: { reason: 'weak_signal_decay' }, runId: run.id, now })
-    }
+    const diff = diffNoteLines(existingNotes, normalized.lines)
+    const changedCount = diff.added.length + diff.removed.length
+    // Churn is measured against the larger of "what was there" and "what is there
+    // now", so both a wholesale rewrite and a sudden shrink trip it.
+    const churnRatio = existingNotes.length === 0
+      ? 0
+      : changedCount / Math.max(existingNotes.length, normalized.lines.length)
+    const churnWarning = existingNotes.length >= NOTE_CHURN_MIN_NOTES && churnRatio >= NOTE_CHURN_WARN_RATIO
+      ? `本次改动了 ${changedCount}/${existingNotes.length} 条笔记，可能发生了记忆漂移`
+      : null
+    const autoSection = composeAutoSection(normalized.lines)
 
     let memoryWarning = null
     try {
-      await writeDreamingMemorySection(renderAutoSection(repo), { allowSensitive: settings.allowSensitive })
+      await writeDreamingNotes(autoSection, { allowSensitive: settings.allowSensitive })
     } catch (error) {
       memoryWarning = error instanceof Error ? error.message : String(error)
-      logger.warn('Dreaming could not rewrite the MEMORY.md auto section:', memoryWarning)
+      logger.warn('Dreaming could not rewrite DREAMING.md:', memoryWarning)
     }
+    // Separate from the write: a stats failure must not be reported as "the notes
+    // were not saved", which would send the user looking at the wrong problem.
+    if (!memoryWarning) {
+      try {
+        repo.syncNoteStats(normalized.lines.map((line) => ({ id: noteIdOf(line), text: line })), now)
+      } catch (error) {
+        logger.warn('Dreaming could not sync note usage stats:', error instanceof Error ? error.message : String(error))
+      }
+    }
+    const warning = [memoryWarning, churnWarning].filter(Boolean).join('; ') || null
 
     const finishedAt = Date.now()
     run = repo.finishRun(run.id, {
@@ -282,25 +307,15 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
       sessions: collected.sessions,
       rawResponse: String(reply).slice(0, 8000),
       sessionCount: collected.sessionCount,
-      createdCount: applied.created,
-      updatedCount: applied.updated,
-      retiredCount: applied.retired + autoRetired.length,
-      rejectedCount: applied.rejected.length,
-      summary: parsed.summary || null,
-      operations: applied.applied.map((entry) => ({ ...entry, phase: 'applied' }))
-        .concat(applied.rejected.map((entry) => ({
-          action: entry.action,
-          phase: 'rejected',
-          reason: entry.reason,
-          // Keep what the model actually proposed: without it the run page cannot
-          // tell "the code was too strict" from "the model drifted".
-          kind: entry.operation?.kind ?? null,
-          scope: entry.operation?.scope ?? null,
-          content: typeof entry.operation?.content === 'string' ? entry.operation.content.slice(0, 500) : null,
-          targetId: entry.operation?.targetId ?? null,
-        })))
-        .concat(autoRetired.map((id) => ({ action: 'retire', phase: 'decayed', id }))),
-      error: memoryWarning,
+      createdCount: diff.added.length,
+      updatedCount: 0,
+      retiredCount: diff.removed.length,
+      rejectedCount: normalized.dropped.length,
+      summary: `${normalized.lines.length} 条笔记（+${diff.added.length} / -${diff.removed.length}）`,
+      // The run detail page shows "what it learned / what it forgot"; `notesAfter`
+      // is the full list at that point, which is what makes restore possible.
+      operations: { added: diff.added, removed: diff.removed, dropped: normalized.dropped, notesAfter: normalized.lines },
+      error: warning,
       finishedAt,
       durationMs: finishedAt - now,
     })
@@ -324,7 +339,7 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
 
 async function tick() {
   const settings = await readDreamingSettings()
-  if (!settings.enabled || !settings.scheduleEnabled) return
+  if (!settings.enabled) return
   const now = Date.now()
   const due = settings.nextRunAt ? settings.nextRunAt <= now : false
   if (!due) {
@@ -361,6 +376,5 @@ export function stopDreamingRunner() {
 }
 
 export async function readDreamingMemoryDocument() {
-  const memory = await readGlobalMemory()
-  return memory.markdown
+  return readDreamingNotes()
 }

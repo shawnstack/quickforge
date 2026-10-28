@@ -106,31 +106,59 @@ function readTail(handle, row, limit) {
  * dropped once the total budget is spent, so a burst of huge sessions degrades
  * into "fewer sessions processed" instead of an unbounded request.
  */
+/**
+ * Signals that a session contains a correction or a failure: the user pushed back
+ * ("不对", "actually", "instead") or the assistant errored out. Those sessions teach
+ * more per character than a session that just went well, so they are preferred
+ * when the transcript budget cannot fit everything.
+ */
+const CORRECTION_PATTERN = /(不对|错了|不是这|别这样|应该|重新|还是不行|又错|改成|不要|注意|回滚|实际上|说错)|\b(?:actually|instead|that's wrong|not what|revert|wrong|oops)\b/i
+
+export function correctionSignals(messages) {
+  let signals = 0
+  for (const message of messages) {
+    if (message?.role === 'user' && CORRECTION_PATTERN.test(textOf(message.content))) signals += 1
+    if (message?.stopReason === 'error' || message?.stopReason === 'aborted') signals += 1
+  }
+  return signals
+}
+
 export function collectTranscript({ from, to, maxSessions = MAX_SESSIONS_PER_RUN, maxTotalChars = MAX_TOTAL_CHARS, handle = null } = {}) {
   const db = handle || storage()
   const rows = selectSessions(db, { from, to, limit: maxSessions })
-  const blocks = []
-  const sessions = []
+  const candidates = []
   const userTexts = []
-  let spent = 0
 
   for (const row of rows) {
     const tail = readTail(db, row, MAX_MESSAGES_PER_SESSION)
     if (tail.length === 0) continue
+    const messages = tail.map((entry) => entry.message)
     for (const entry of tail) {
       if (entry.message?.role === 'user' && !isCompactSummaryMessage(entry.message)) {
         userTexts.push(textOf(entry.message.content))
       }
     }
-    const block = projectMessages(
-      tail.map((entry) => entry.message),
-      {
+    candidates.push({
+      row,
+      signal: correctionSignals(messages),
+      block: projectMessages(messages, {
         sessionId: row.session_id,
         title: row.title,
         projectId: row.project_id,
         updatedAt: Number(row.updated_at_ms),
-      },
-    )
+      }),
+    })
+  }
+
+  // Corrections first, then newest. Without this the budget cut would drop the
+  // session where the user corrected the assistant just because it was older.
+  candidates.sort((left, right) => (right.signal - left.signal)
+    || (Number(right.row.updated_at_ms) - Number(left.row.updated_at_ms)))
+
+  const blocks = []
+  const sessions = []
+  let spent = 0
+  for (const { row, block, signal } of candidates) {
     if (spent + block.length > maxTotalChars && blocks.length > 0) break
     blocks.push(block)
     sessions.push({
@@ -140,6 +168,7 @@ export function collectTranscript({ from, to, maxSessions = MAX_SESSIONS_PER_RUN
       updatedAt: Number(row.updated_at_ms),
       messageCount: Number(row.message_count),
       chars: block.length,
+      correctionSignals: signal,
       // Bounded copy of the exact text sent to the model. The window can fall out
       // of retention, so the run page cannot re-derive it later.
       preview: block.length <= SESSION_PREVIEW_CHARS ? block : `${block.slice(0, SESSION_PREVIEW_CHARS)}\n…(preview truncated)`,
@@ -188,8 +217,4 @@ export function detectContentLanguage(userTexts) {
   if (cjkWeight >= latinWeight * 1.2) return 'zh'
   if (latinWeight >= cjkWeight * 1.2) return 'en'
   return null
-}
-
-export function summarizeMemory(memory) {
-  return `- ${memory.id} [${memory.kind}/${memory.scope}] ${clip(memory.content, 200)} (conf ${memory.confidence.toFixed(2)}, str ${memory.strength.toFixed(1)})`
 }

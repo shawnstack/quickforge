@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Hello panel</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      padding: 16px;
+      font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: transparent;
+      color: #111;
+    }
+    @media (prefers-color-scheme: dark) { body { color: #eee; } }
+    h1 { font-size: 14px; margin: 0 0 4px; }
+    p { margin: 0 0 12px; opacity: .7; }
+    button {
+      font: inherit;
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(127, 127, 127, .35);
+      background: rgba(127, 127, 127, .12);
+      color: inherit;
+      cursor: pointer;
+    }
+    button:hover { background: rgba(127, 127, 127, .2); }
+    .row { display: flex; align-items: center; gap: 12px; }
+    .count { font-variant-numeric: tabular-nums; font-size: 20px; }
+    .hint { margin-top: 12px; font-size: 12px; opacity: .6; }
+  </style>
+</head>
+<body>
+  <h1>Hello panel</h1>
+  <p>Sandboxed iframe, opaque origin. Everything below goes through the host bridge.</p>
+  <div class="row">
+    <button id="bump" type="button">Bump (persisted)</button>
+    <span class="count" id="count">0</span>
+  </div>
+  <p class="hint">The counter is stored with <code>kv.set</code> and reloaded with <code>kv.get</code>.</p>
+
+  <script>
+    let seq = 0
+    const pending = new Map()
+
+    function call(method, ...args) {
+      const id = String(++seq)
+      return new Promise((resolve, reject) => {
+        pending.set(id, { resolve, reject })
+        // targetOrigin must be '*' from an opaque origin; the host verifies
+        // event.source instead of origin.
+        parent.postMessage({ type: 'qf:call', id, method, args }, '*')
+        setTimeout(() => {
+          if (pending.delete(id)) reject(new Error('bridge timeout'))
+        }, 5000)
+      })
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data
+      if (!data || data.type !== 'qf:result') return
+      const entry = pending.get(data.id)
+      if (!entry) return
+      pending.delete(data.id)
+      if (data.ok) entry.resolve(data.data)
+      else entry.reject(new Error(data.error || 'bridge error'))
+    })
+
+    const countEl = document.getElementById('count')
+    const render = (value) => { countEl.textContent = String(value || 0) }
+
+    call('kv.get', 'count')
+      .then((value) => render(value))
+      .catch(() => render(0))
+
+    document.getElementById('bump').addEventListener('click', async () => {
+      const next = Number(countEl.textContent || 0) + 1
+      render(next)
+      try {
+        await call('kv.set', 'count', next)
+        await call('notify', 'info', `Count is now ${next}`)
+      } catch (error) {
+        await call('notify', 'error', String(error.message || error))
+      }
+    })
+  </script>
+</body>
+</html>

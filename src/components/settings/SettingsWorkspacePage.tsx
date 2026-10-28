@@ -171,6 +171,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
           <Icon className="size-4" aria-hidden="true" />
         </span>
         <span className="truncate">{item.getTabName()}</span>
+        {item.beta ? <span className="quickforge-settings-beta">{t('dreamingBeta')}</span> : null}
       </button>
     )
   }
@@ -188,6 +189,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
           <Icon className="size-4 shrink-0" aria-hidden="true" />
         </span>
         <span className="quickforge-settings-mobile-list-label">{item.getTabName()}</span>
+        {item.beta ? <span className="quickforge-settings-beta">{t('dreamingBeta')}</span> : null}
         <ChevronRight className="quickforge-settings-mobile-list-chevron size-4 shrink-0" aria-hidden="true" />
       </button>
     )
@@ -282,6 +284,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
             <div className={cn('flex min-w-0 items-center gap-2', mobileDetail === null && 'hidden md:flex')}>
               {ActiveIcon ? <ActiveIcon className="size-4 shrink-0" aria-hidden="true" /> : null}
               <div className="min-w-0 truncate text-sm font-medium">{activeItem?.getTabName()}</div>
+              {activeItem?.beta ? <span className="quickforge-settings-beta">{t('dreamingBeta')}</span> : null}
               {activeDescription ? <InfoTip label={activeDescription} /> : null}
             </div>
           </div>

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2, Puzzle, RefreshCw } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { loadPlugins, reloadPlugins, setPluginEnabled, type PluginsResponse, type QuickForgePlugin } from './plugin-api'
+import { refreshPluginUi } from '@/lib/plugin-ui-client'
+import { PluginPanelDialog } from './PluginFrame'
 
 type PluginsPageProps = {
   onChanged?: () => void
@@ -36,16 +38,25 @@ function displayPluginDescription(plugin: QuickForgePlugin) {
   return builtinPluginCopy(plugin.name)?.description || plugin.description || t('noDescription')
 }
 
+type PluginPanelTarget = { id: string; title: string; width: number; url: string }
+
 type PluginListItemProps = {
   plugin: QuickForgePlugin
   busy: boolean
   onToggle: (name: string, enabled: boolean) => void
+  onOpenPanel?: (panel: PluginPanelTarget) => void
 }
 
-export function PluginListItem({ plugin, busy, onToggle }: PluginListItemProps) {
+// No hooks on purpose: besides being rendered by React, this component is called
+// directly by tests that walk the element tree (tests/frontend/plugins-page.test.ts).
+export function PluginListItem({ plugin, busy, onToggle, onOpenPanel }: PluginListItemProps) {
   const visibleTools = plugin.tools?.slice(0, VISIBLE_PLUGIN_TOOLS) ?? []
   const hiddenToolCount = Math.max(0, (plugin.tools?.length ?? 0) - visibleTools.length)
   const displayName = displayPluginName(plugin)
+
+  const panelUrl = (entry: string) => `/api/plugins/${encodeURIComponent(plugin.name)}/assets/${
+    entry.split('/').map((segment) => encodeURIComponent(segment)).join('/')
+  }`
 
   return (
     <article
@@ -74,6 +85,57 @@ export function PluginListItem({ plugin, busy, onToggle }: PluginListItemProps) 
             ) : null}
           </div>
         ) : null}
+        {plugin.ui && (
+          plugin.ui.slots.length > 0
+          || plugin.ui.actions.length > 0
+          || plugin.ui.panels.length > 0
+          || (plugin.ui.warnings?.length ?? 0) > 0
+        ) ? (
+          <div className="quickforge-settings-meta">
+            {plugin.ui.slots.map((slot) => (
+              <code
+                key={slot}
+                className="quickforge-settings-command-name"
+                title={t('pluginUiSlotLabel')}
+              >
+                {slot}
+              </code>
+            ))}
+            {plugin.ui.actions.length > 0 ? (
+              <span className="quickforge-settings-badge quickforge-settings-badge-muted">
+                {t('pluginUiActionLabel')} {plugin.ui.actions.length}
+              </span>
+            ) : null}
+            {plugin.ui.panels.length > 0 ? (
+              plugin.ui.panels.map((panel) => (
+                <button
+                  key={panel.id}
+                  type="button"
+                  className="quickforge-settings-badge quickforge-settings-badge-muted"
+                  onClick={() => onOpenPanel?.({ id: panel.id, title: panel.title, width: panel.width, url: panelUrl(panel.entry) })}
+                >
+                  {t('pluginUiPanelLabel')} {panel.title}
+                </button>
+              ))
+            ) : null}
+            {plugin.ui.permissions.map((permission) => (
+              <code key={permission} className="quickforge-settings-badge quickforge-settings-badge-muted">
+                {permission}
+              </code>
+            ))}
+            {plugin.ui.warnings && plugin.ui.warnings.length > 0 ? (
+              // The normaliser strips `style`/`className`/unknown types instead
+              // of failing the slot. Without surfacing them a plugin author only
+              // sees "my button looks wrong" with no explanation.
+              <span
+                className="quickforge-settings-badge quickforge-settings-badge-muted"
+                title={plugin.ui.warnings.join('\n')}
+              >
+                {t('pluginUiWarnings', { count: plugin.ui.warnings.length })}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
       <div className="quickforge-settings-list-item-actions">
         <label className="quickforge-settings-switch" aria-disabled={busy ? 'true' : 'false'}>
@@ -95,6 +157,7 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
   const [data, setData] = useState<PluginsResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [busyPlugin, setBusyPlugin] = useState<string | null>(null)
+  const [openPanel, setOpenPanel] = useState<(PluginPanelTarget & { plugin: string }) | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async (mode: 'load' | 'reload' = 'load') => {
@@ -103,6 +166,11 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
     try {
       const next = mode === 'reload' ? await reloadPlugins() : await loadPlugins()
       setData(next)
+      // The server has already rebuilt its catalog (tools + UI contributions)
+      // when it answers, so pull a fresh snapshot: otherwise a slot added or
+      // removed by this reload keeps rendering the old nodes until the page is
+      // refreshed. `refreshPluginUi` swallows transport errors on purpose.
+      await refreshPluginUi()
       if (mode === 'reload') onChanged?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pluginsLoadFailed'))
@@ -144,6 +212,9 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
     try {
       const next = await setPluginEnabled(name, enabled)
       setData(next)
+      // Enabling/disabling changes which plugins contribute UI; refresh the slot
+      // snapshot in place instead of asking the user to reload the app.
+      await refreshPluginUi()
       onChanged?.()
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pluginsSaveFailed'))
@@ -219,9 +290,17 @@ export function PluginsPage({ onChanged }: PluginsPageProps) {
             plugin={plugin}
             busy={busyPlugin === plugin.name}
             onToggle={(name, enabled) => void togglePlugin(name, enabled)}
+            onOpenPanel={(panel) => setOpenPanel({ plugin: plugin.name, ...panel })}
           />
         ))}
       </section>
+      {openPanel ? (
+        <PluginPanelDialog
+          plugin={openPanel.plugin}
+          panel={openPanel}
+          onClose={() => setOpenPanel(null)}
+        />
+      ) : null}
     </div>
   )
 }

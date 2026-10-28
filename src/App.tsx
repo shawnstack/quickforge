@@ -13,6 +13,7 @@ import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills-dialog'
 import { MigrationProgressView } from '@/components/migration-progress-view'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
+import { PluginUiToasts } from '@/components/plugins/PluginSlot'
 import { ConversationHeader } from '@/components/app/ConversationHeader'
 import { StartupSplash, ConversationLoadingScreen } from '@/components/app/StartupScreens'
 import {
@@ -1521,6 +1522,7 @@ function MainApp() {
       )}
       aria-hidden={ui.settingsDialogOpen || undefined}
     >
+      <PluginUiToasts />
       <ChatSidebar
         sidebarOpen={ui.sidebarOpen}
         projectsCollapsed={ui.projectsCollapsed}

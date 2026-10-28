@@ -1,27 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { InfoTip } from '@/components/ui/info-tip'
 import { SettingsSelect, SettingsSwitch } from '../settings/tabs/shared'
 import {
-  fetchDreamingMemories,
+  deleteDreamingNote,
+  fetchDreamingNotes,
   fetchDreamingOverview,
   fetchDreamingRun,
   fetchDreamingRuns,
   formatDreamingDuration,
   formatDreamingTimestamp,
   formatModelOptionLabel,
-  retireDreamingMemory,
+  restoreDreamingRun,
   saveDreamingSettings,
   triggerDreamingRun,
   modelRefKey,
-  type DreamingMemory,
+  type DreamingNote,
   type DreamingOverview,
-  type DreamingSettings,
   type DreamingRun,
   type DreamingRunDetail,
-  type DreamingRunOperation,
+  type DreamingSettings,
 } from './dreaming-data'
 
 const STATUS_KEY = {
@@ -37,6 +37,13 @@ const KIND_KEY = {
   experience: 'dreamingKindExperience',
   pitfall: 'dreamingKindPitfall',
   decision: 'dreamingKindDecision',
+} as const
+
+const BADGE_TONE = {
+  succeeded: 'quickforge-settings-badge-success',
+  failed: 'quickforge-settings-badge-danger',
+  running: 'quickforge-settings-badge-info',
+  skipped: 'quickforge-settings-badge-muted',
 } as const
 
 const CARD = 'rounded-xl border border-[color-mix(in_oklab,var(--border)_72%,transparent)] bg-background'
@@ -55,13 +62,6 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
-const BADGE_TONE = {
-  succeeded: 'quickforge-settings-badge-success',
-  failed: 'quickforge-settings-badge-danger',
-  running: 'quickforge-settings-badge-info',
-  skipped: 'quickforge-settings-badge-muted',
-} as const
-
 /** Status dot: the single always-visible "is it working" signal. */
 function statusDotState(overview: DreamingOverview | null): 'on' | 'off' | 'running' | 'error' {
   if (!overview) return 'off'
@@ -79,17 +79,6 @@ const STATE_TEXT_KEY = {
   error: 'dreamingStateFailed',
 } as const
 
-const MODEL_SOURCE_KEY = {
-  explicit: 'dreamingModelSourcePinned',
-  active: 'dreamingModelSourceChat',
-  catalog: 'dreamingModelSourceDefault',
-  none: 'dreamingModelNone',
-} as const
-
-function modelSourceKey(source: keyof typeof MODEL_SOURCE_KEY): typeof MODEL_SOURCE_KEY[keyof typeof MODEL_SOURCE_KEY] {
-  return MODEL_SOURCE_KEY[source]
-}
-
 function StatusBadge({ status }: { status: DreamingRun['status'] }) {
   return <span className={`quickforge-settings-badge ${BADGE_TONE[status]}`}>{t(STATUS_KEY[status])}</span>
 }
@@ -99,75 +88,32 @@ function KindBadge({ kind }: { kind: string | null | undefined }) {
   return <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t(KIND_KEY[kind as keyof typeof KIND_KEY] ?? 'dreamingKindFact')}</span>
 }
 
-function ScopeBadge({ scope }: { scope: string | null | undefined }) {
-  if (!scope) return null
-  return (
-    <span className="quickforge-settings-badge quickforge-settings-badge-muted">
-      {scope === 'project' ? t('dreamingScopeProject') : t('dreamingScopeGlobal')}
-    </span>
-  )
-}
-
-/** Inline metric cluster, so a run's shape is readable without opening it.
- *  The +/-/~/✕ glyphs are shorthand; each span carries a title with the full word. */
+/** Inline metric cluster, so a run's shape is readable without opening it. */
 function RunMetrics({ run }: { run: DreamingRun }) {
   return (
     <div className="quickforge-dreaming-metrics">
       <span>{t('dreamingRunSessions')} {run.sessionCount}</span>
-      <span data-tone="added" title={`${t('dreamingRunCreated')} +${run.createdCount}`}>+{run.createdCount}</span>
-      <span data-tone="changed" title={`${t('dreamingRunUpdated')} ~${run.updatedCount}`}>~{run.updatedCount}</span>
-      <span data-tone="removed" title={`${t('dreamingRunRetired')} -${run.retiredCount}`}>-{run.retiredCount}</span>
-      {run.rejectedCount > 0 ? <span title={`${t('dreamingRunRejected')} ✕${run.rejectedCount}`}>✕{run.rejectedCount}</span> : null}
+      <span data-tone="added" title={`${t('dreamingRunAdded')} +${run.createdCount}`}>+{run.createdCount}</span>
+      <span data-tone="removed" title={`${t('dreamingRunRemoved')} -${run.retiredCount}`}>-{run.retiredCount}</span>
+      {run.rejectedCount > 0 ? <span title={`${t('dreamingRunDropped')} ✕${run.rejectedCount}`}>✕{run.rejectedCount}</span> : null}
       <span title={t('dreamingRunDuration')}>{formatDreamingDuration(run.durationMs)}</span>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Run detail
-// ---------------------------------------------------------------------------
-
-function OperationRow({ operation, memories }: { operation: DreamingRunOperation; memories: DreamingRunDetail['memories'] }) {
-  const memory = operation.id ? memories[operation.id] : undefined
-  const replacement = operation.replacementId ? memories[operation.replacementId] : undefined
-  const proposed = operation.content ?? null
-  const stored = memory?.content ?? null
-  const changed = Boolean(proposed && stored && proposed !== stored)
-  const sessions = [...new Set((memory?.evidence ?? []).map((entry) => entry.sessionId))].slice(0, 4)
-
+function NoteList({ title, lines, tone }: { title: string; lines: string[]; tone?: string }) {
+  if (lines.length === 0) return null
   return (
-    <li className="quickforge-settings-list-item">
-      <div className="flex min-w-0 flex-col gap-1.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="quickforge-settings-badge">{operation.action}</span>
-          <KindBadge kind={operation.kind} />
-          <ScopeBadge scope={operation.scope} />
-          {memory ? (
-            <span
-              className="quickforge-settings-badge quickforge-settings-badge-muted"
-              title={`${t('dreamingMemoryConfidence')} ${memory.confidence.toFixed(2)} · ${t('dreamingMemoryStrength')} ${memory.strength.toFixed(1)}`}
-            >
-              {memory.confidence.toFixed(2)} / {memory.strength.toFixed(1)}
-            </span>
-          ) : null}
-          {memory?.status && memory.status !== 'active' ? (
-            <span className="quickforge-settings-badge quickforge-settings-badge-muted">{memory.status}</span>
-          ) : null}
-        </div>
-        <span className="quickforge-dreaming-summary">{stored ?? proposed ?? operation.id ?? '—'}</span>
-        {changed ? (
-          <span className="text-xs text-muted-foreground">
-            {t('dreamingRunBefore')} {proposed}
-          </span>
-        ) : null}
-        {replacement ? (
-          <span className="text-xs text-muted-foreground">→ {replacement.content}</span>
-        ) : null}
-        {sessions.length > 0 ? (
-          <span className="text-xs text-muted-foreground">{t('dreamingMemoryEvidence')}: {sessions.join(', ')}</span>
-        ) : null}
-      </div>
-    </li>
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-muted-foreground" data-tone={tone}>{title} · {lines.length}</span>
+      <ul className="quickforge-recall-list">
+        {lines.map((line) => (
+          <li className="quickforge-recall-item" key={line}>
+            <div className="quickforge-recall-content">{line}</div>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -211,239 +157,91 @@ function SectionToggle({
   )
 }
 
-function RunInputList({ run }: { run: DreamingRun }) {
-  const [expanded, setExpanded] = useState<string | null>(null)
-  if (run.sessions.length === 0) return <div className="px-5 py-10 text-center text-sm text-muted-foreground">{t('dreamingRunNoInput')}</div>
-  return (
-    <>
-      <ul className="quickforge-dreaming-list divide-y divide-[color-mix(in_oklab,var(--border)_60%,transparent)]">
-        {run.sessions.map((session) => (
-          <li className="quickforge-settings-list-item" key={session.sessionId}>
-            <div className="flex min-w-0 flex-col gap-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <code className="text-xs text-muted-foreground">{session.sessionId}</code>
-                <span className="text-xs text-muted-foreground">{formatDreamingTimestamp(session.updatedAt)}</span>
-                <span className="quickforge-settings-badge quickforge-settings-badge-muted" title={t('dreamingInputMessages')}>{session.messageCount}</span>
-                <span className="quickforge-settings-badge quickforge-settings-badge-muted" title={t('dreamingInputChars')}>{session.chars}</span>
-              </div>
-              <span className="quickforge-dreaming-summary">{session.title || '—'}</span>
-              {expanded === session.sessionId ? <pre className="quickforge-dreaming-code">{session.preview}</pre> : null}
-            </div>
-            <div className="quickforge-settings-list-item-actions">
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                onClick={() => setExpanded(expanded === session.sessionId ? null : session.sessionId)}
-              >
-                {expanded === session.sessionId ? t('dreamingRunCollapse') : t('dreamingRunPreview')}
-              </Button>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-muted-foreground">
-        {t('dreamingRunBudget').replace('{used}', String(run.inputChars)).replace('{sessions}', String(run.sessions.length))}
-      </p>
-    </>
-  )
-}
+// ---------------------------------------------------------------------------
+// Run detail
+// ---------------------------------------------------------------------------
 
 function RunDetail({ runId, onBack }: { runId: string; onBack: () => void }) {
   const [detail, setDetail] = useState<DreamingRunDetail | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [restoring, setRestoring] = useState(false)
+  const [restoreMessage, setRestoreMessage] = useState('')
 
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        const next = await fetchDreamingRun(runId)
-        if (!cancelled) setDetail(next)
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
+    fetchDreamingRun(runId)
+      .then((next) => { if (!cancelled) setDetail(next) })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed')) })
+    return () => { cancelled = true }
   }, [runId])
 
-  if (loading) return <div className="quickforge-settings-note">{t('loading')}</div>
-  if (error) return <div className="quickforge-settings-alert">{error}</div>
-  if (!detail) return <div className="px-5 py-10 text-center text-sm text-muted-foreground">{t('dreamingNoRuns')}</div>
-
-  const { run, memories } = detail
-  const applied = run.operations.filter((operation) => operation.phase === 'applied')
-  const rejected = run.operations.filter((operation) => operation.phase === 'rejected')
-  const decayed = run.operations.filter((operation) => operation.phase === 'decayed')
-
-  return (
-    <div className="quickforge-settings-stack">
-      <div className="flex items-center justify-between gap-3">
-        <Button variant="ghost" size="sm" type="button" onClick={onBack}>
-          ← {t('dreamingRunBack')}
-        </Button>
-        <StatusBadge status={run.status} />
-      </div>
-
-      <div className={`quickforge-dreaming-stats overflow-hidden rounded-xl border ${HAIRLINE} bg-background`}>
-        {[
-          { label: t('dreamingTriggerSchedule'), value: run.trigger === 'manual' ? t('dreamingTriggerManual') : t('dreamingTriggerSchedule') },
-          { label: t('dreamingRunSessions'), value: String(run.sessionCount) },
-          { label: t('dreamingRunCreated'), value: `+${run.createdCount}` },
-          { label: t('dreamingRunUpdated'), value: `~${run.updatedCount}` },
-          { label: t('dreamingRunRetired'), value: `-${run.retiredCount}` },
-          { label: t('dreamingRunRejected'), value: `✕${run.rejectedCount}` },
-          { label: t('dreamingRunDuration'), value: formatDreamingDuration(run.durationMs) },
-        ].map(({ label, value }) => (
-          <div className="quickforge-dreaming-stat" key={label}>
-            <span className="quickforge-dreaming-stat-label">{label}</span>
-            <span className="quickforge-dreaming-stat-value">{value}</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <span>{t('dreamingRunPeriod')} <strong className="font-medium text-foreground">{formatDreamingTimestamp(run.periodFrom)} → {formatDreamingTimestamp(run.periodTo)}</strong></span>
-        <span>{t('dreamingRunModel')} <strong className="font-medium text-foreground">{run.modelLabel ?? '—'}</strong></span>
-        <span>{t('dreamingRunLanguage')} <strong className="font-medium text-foreground">{run.contentLanguage === 'zh' ? t('dreamingLanguageZh') : run.contentLanguage === 'en' ? t('dreamingLanguageEn') : t('dreamingLanguageAuto')}</strong></span>
-      </div>
-
-      {run.summary || run.error ? (
-        <p className={run.error ? 'quickforge-dreaming-error' : 'quickforge-dreaming-summary'}>{run.summary ?? run.error}</p>
-      ) : null}
-      {run.summary && run.error ? <p className="quickforge-dreaming-error">{run.error}</p> : null}
-
-      <SectionToggle title={t('dreamingRunInput')} count={run.sessions.length} description={t('dreamingRunInputDescription')}>
-        <RunInputList run={run} />
-      </SectionToggle>
-
-      <SectionToggle title={t('dreamingRunOperations')} count={applied.length} description={t('dreamingRunOperationsDescription')} defaultOpen>
-        {applied.length === 0 ? (
-          <div className="px-5 py-10 text-center text-sm text-muted-foreground">{t('dreamingRunNoOperations')}</div>
-        ) : (
-          <ul className="quickforge-dreaming-list divide-y divide-[color-mix(in_oklab,var(--border)_60%,transparent)]">
-            {applied.map((operation, index) => (
-              <OperationRow key={`applied-${operation.id ?? index}-${index}`} operation={operation} memories={memories} />
-            ))}
-          </ul>
-        )}
-      </SectionToggle>
-
-      {rejected.length > 0 ? (
-        <SectionToggle title={t('dreamingRunRejections')} count={rejected.length} description={t('dreamingRunRejectionsDescription')}>
-          <ul className="quickforge-dreaming-list divide-y divide-[color-mix(in_oklab,var(--border)_60%,transparent)]">
-            {rejected.map((operation, index) => (
-              <li className="quickforge-settings-list-item" key={`rejected-${index}`}>
-                <div className="flex min-w-0 flex-col gap-1">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="quickforge-settings-badge">{operation.action ?? '?'}</span>
-                    <KindBadge kind={operation.kind} />
-                    <span className="quickforge-dreaming-error">{operation.reason}</span>
-                  </div>
-                  {operation.content ? <span className="quickforge-dreaming-summary">{operation.content}</span> : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </SectionToggle>
-      ) : null}
-
-      {decayed.length > 0 ? (
-        <SectionToggle title={t('dreamingRunDecayed')} count={decayed.length} description={t('dreamingRunDecayedDescription')}>
-          <ul className="quickforge-dreaming-list divide-y divide-[color-mix(in_oklab,var(--border)_60%,transparent)]">
-            {decayed.map((operation, index) => {
-              const memory = operation.id ? memories[operation.id] : undefined
-              return (
-                <li className="quickforge-settings-list-item" key={`decayed-${index}`}>
-                  <div className="flex min-w-0 flex-col gap-1">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="quickforge-settings-badge">{operation.action}</span>
-                      {memory ? (
-                        <span
-                          className="quickforge-settings-badge quickforge-settings-badge-muted"
-                          title={`${t('dreamingMemoryConfidence')} ${memory.confidence.toFixed(2)} · ${t('dreamingMemoryStrength')} ${memory.strength.toFixed(1)}`}
-                        >
-                          {memory.confidence.toFixed(2)} / {memory.strength.toFixed(1)}
-                        </span>
-                      ) : null}
-                    </div>
-                    <span className="quickforge-dreaming-summary">{memory?.content ?? operation.id}</span>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </SectionToggle>
-      ) : null}
-
-      {run.rawResponse ? (
-        <SectionToggle title={t('dreamingRunRawResponse')} description={t('dreamingRunRawResponseDescription')}>
-          <pre className="quickforge-dreaming-code">{run.rawResponse}</pre>
-        </SectionToggle>
-      ) : null}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Memory list
-// ---------------------------------------------------------------------------
-
-function MemoryRow({ memory, onRetired }: { memory: DreamingMemory; onRetired: () => void }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const retire = async () => {
-    setBusy(true)
+  const restore = async () => {
+    setRestoring(true)
+    setRestoreMessage('')
     setError('')
     try {
-      await retireDreamingMemory(memory.id)
-      onRetired()
+      const result = await restoreDreamingRun(runId)
+      setRestoreMessage(t('dreamingRunRestored', { count: result.restored }))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
-      setBusy(false)
+      setRestoring(false)
     }
   }
 
+  if (error) return <div className="quickforge-dreaming-error">{error}</div>
+  if (!detail) return <div className="text-sm text-muted-foreground">{t('loading')}</div>
+
+  const run = detail.run
+  const diff = run.operations ?? { added: [], removed: [], notesAfter: null }
+  const canRestore = Array.isArray(diff.notesAfter)
   return (
-    <li className="quickforge-settings-list-item">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <KindBadge kind={memory.kind} />
-          {memory.recallCount > 0 ? (
-            <span
-              className="quickforge-settings-badge quickforge-settings-badge-info"
-              title={t('dreamingMemoryRecallTitle', { count: memory.recallCount })}
-            >
-              ×{memory.recallCount}
-            </span>
+    <div className="quickforge-settings-stack">
+      <Button variant="ghost" size="sm" type="button" onClick={onBack}>{t('back')}</Button>
+      <section className={`${CARD} flex flex-col gap-3 p-5`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge status={run.status} />
+          <span className="quickforge-settings-badge quickforge-settings-badge-muted">
+            {t(run.trigger === 'manual' ? 'dreamingTriggerManual' : 'dreamingTriggerSchedule')}
+          </span>
+          {run.modelLabel ? <span className="quickforge-settings-badge quickforge-settings-badge-muted">{run.modelLabel}</span> : null}
+          {run.contentLanguage ? (
+            <span className="quickforge-settings-badge quickforge-settings-badge-muted">{t('dreamingRunLanguage')}: {run.contentLanguage}</span>
           ) : null}
         </div>
-        <span className="quickforge-dreaming-summary">{memory.content}</span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {memory.scope === 'project' ? t('dreamingScopeProject') : t('dreamingScopeGlobal')}
-          {' · '}
-          <span title={t('dreamingMemoryConfidence')}>{memory.confidence.toFixed(2)}</span>
-          {' · '}
-          <span title={t('dreamingMemoryStrength')}>{memory.strength.toFixed(1)}</span>
-          {' · '}
-          {formatDreamingTimestamp(memory.updatedAt)}
-        </span>
-        {error ? <span className="quickforge-dreaming-error">{error}</span> : null}
-      </div>
-      {memory.status === 'active' ? (
-        <div className="quickforge-settings-list-item-actions">
-          <Button variant="ghost" size="sm" type="button" disabled={busy} onClick={() => void retire()}>
-            {t('dreamingMemoryRetire')}
-          </Button>
+        <RunMetrics run={run} />
+        <div className="text-xs text-muted-foreground">
+          {formatDreamingTimestamp(run.startedAt)} · {t('dreamingInputChars')} {run.inputChars}
         </div>
-      ) : null}
-    </li>
+        {run.error ? <div className="quickforge-dreaming-error">{run.error}</div> : null}
+
+        <NoteList title={t('dreamingRunAdded')} lines={diff.added} tone="added" />
+        <NoteList title={t('dreamingRunRemoved')} lines={diff.removed} tone="removed" />
+        {(diff.dropped ?? []).length > 0 ? (
+          <NoteList title={t('dreamingRunDropped')} lines={(diff.dropped ?? []).map((entry) => `${entry.content}（${entry.reason}）`)} />
+        ) : null}
+
+        {run.rawResponse ? (
+          <SectionToggle title={t('dreamingRunRawResponse')} defaultOpen={false}>
+            <pre className="quickforge-dreaming-raw">{run.rawResponse}</pre>
+          </SectionToggle>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            type="button"
+            disabled={!canRestore || restoring}
+            onClick={() => void restore()}
+          >
+            {restoring ? t('loading') : t('dreamingRunRestore')}
+          </Button>
+          {!canRestore ? <span className="text-xs text-muted-foreground">{t('dreamingRunRestoreUnavailable')}</span> : null}
+          {restoreMessage ? <span className="text-xs text-muted-foreground">{restoreMessage}</span> : null}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -451,7 +249,7 @@ function MemoryRow({ memory, onRetired }: { memory: DreamingMemory; onRetired: (
 // Tab
 // ---------------------------------------------------------------------------
 
-type TabView = 'memories' | 'runs'
+type TabView = 'notes' | 'runs'
 
 export function DreamingSettingsTab() {
   const [overview, setOverview] = useState<DreamingOverview | null>(null)
@@ -460,20 +258,20 @@ export function DreamingSettingsTab() {
   const [running, setRunning] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [view, setView] = useState<TabView>('memories')
+  const [view, setView] = useState<TabView>('notes')
 
   const [runs, setRuns] = useState<DreamingRun[]>([])
   const [runPage, setRunPage] = useState(1)
   const [runTotal, setRunTotal] = useState(0)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
 
-  const [memories, setMemories] = useState<DreamingMemory[]>([])
-  const [memoryPage, setMemoryPage] = useState(1)
-  const [memoryTotal, setMemoryTotal] = useState(0)
-  const [memoryQuery, setMemoryQuery] = useState('')
-  const [memoryStatus, setMemoryStatus] = useState('active')
+  const [notes, setNotes] = useState<DreamingNote[]>([])
+  const [notePage, setNotePage] = useState(1)
+  const [noteTotal, setNoteTotal] = useState(0)
+  const [noteQuery, setNoteQuery] = useState('')
+  const [noteKind, setNoteKind] = useState('')
 
-  const pageSize = 10
+  const pageSize = 20
   const settings = overview?.settings
   const busy = saving || running
 
@@ -491,60 +289,61 @@ export function DreamingSettingsTab() {
     setRunPage(payload.page)
   }, [])
 
-  const loadMemories = useCallback(async (page: number, query: string, status: string) => {
-    const payload = await fetchDreamingMemories({ page, pageSize, query, status })
-    setMemories(payload.memories)
-    setMemoryTotal(payload.total)
-    setMemoryPage(payload.page)
+  const loadNotes = useCallback(async (page: number, query: string, kind: string) => {
+    const payload = await fetchDreamingNotes({ page, pageSize, query, kind: kind || undefined })
+    setNotes(payload.notes)
+    setNoteTotal(payload.total)
+    setNotePage(payload.page)
   }, [])
 
   useEffect(() => {
-    let cancelled = false
     void (async () => {
       try {
-        await loadOverview()
-        if (cancelled) return
-        await Promise.all([loadRuns(1), loadMemories(1, '', 'active')])
+        await Promise.all([loadOverview(), loadRuns(1), loadNotes(1, '', '')])
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
+        setError(err instanceof Error ? err.message : t('requestFailed'))
       } finally {
-        if (!cancelled) setLoading(false)
+        setLoading(false)
       }
     })()
-    return () => {
-      cancelled = true
-    }
-  }, [loadOverview, loadRuns, loadMemories])
+  }, [loadNotes, loadOverview, loadRuns])
 
-  // Typing or switching the status filter re-searches after a short settle,
-  // so neither a Search button nor Enter is needed. The initial load above
-  // already covers the default query, hence the first-run skip.
-  const skipFirstFilterRun = useRef(true)
   useEffect(() => {
-    if (skipFirstFilterRun.current) {
-      skipFirstFilterRun.current = false
-      return
-    }
-    const timer = setTimeout(() => {
-      void loadMemories(1, memoryQuery, memoryStatus)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [memoryQuery, memoryStatus, loadMemories])
+    if (loading) return
+    const handle = setTimeout(() => {
+      void loadNotes(1, noteQuery, noteKind).catch(() => undefined)
+    }, 250)
+    return () => clearTimeout(handle)
+  }, [loadNotes, loading, noteKind, noteQuery])
 
-  const updateSettings = async (patch: Parameters<typeof saveDreamingSettings>[0]) => {
-    const previous = settings
+  const updateSettings = async (patch: Partial<DreamingSettings>) => {
     setSaving(true)
     setMessage('')
     setError('')
     try {
-      const saved = await saveDreamingSettings(patch)
-      setOverview((current) => (current ? { ...current, settings: saved, nextRunAt: saved.nextRunAt } : current))
+      await saveDreamingSettings(patch)
+      await loadOverview()
       setMessage(t('dreamingSaved'))
     } catch (err) {
-      if (previous) setOverview((current) => (current ? { ...current, settings: previous } : current))
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const removeNote = async (id: string) => {
+    setMessage('')
+    setError('')
+    try {
+      await deleteDreamingNote(id)
+      setMessage(t('dreamingNoteDeleted'))
+      // Deleting the last row of the last page would otherwise leave the user on
+      // an empty page.
+      const remaining = Math.max(0, noteTotal - 1)
+      const targetPage = Math.min(notePage, Math.max(1, Math.ceil(remaining / pageSize)))
+      await Promise.all([loadOverview(), loadNotes(targetPage, noteQuery, noteKind)])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('requestFailed'))
     }
   }
 
@@ -556,7 +355,7 @@ export function DreamingSettingsTab() {
       const result = await triggerDreamingRun()
       setMessage(result.skipped ? t('dreamingRunSkipped') : t('dreamingRunQueued'))
       await loadOverview()
-      await Promise.all([loadRuns(1), loadMemories(1, memoryQuery, memoryStatus)])
+      await Promise.all([loadRuns(1), loadNotes(1, noteQuery, noteKind)])
       if (!result.skipped) setView('runs')
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
@@ -565,11 +364,9 @@ export function DreamingSettingsTab() {
     }
   }
 
-  const memoryStatusOptions = useMemo(() => [
-    { value: 'active', label: t('dreamingCountActive') },
-    { value: 'retired', label: t('dreamingCountRetired') },
-    { value: 'superseded', label: t('dreamingCountSuperseded') },
-    { value: 'any', label: t('dreamingCountAll') },
+  const kindOptions = useMemo(() => [
+    { value: '', label: t('dreamingCountAll') },
+    ...Object.entries(KIND_KEY).map(([value, key]) => ({ value, label: t(key) })),
   ], [])
 
   const modelOptions = useMemo(() => {
@@ -577,7 +374,15 @@ export function DreamingSettingsTab() {
     // would collide with "follow chat"), so they are not listed.
     const options = (overview?.model?.available ?? []).filter((model) => model.ref)
     return [
-      { value: '', label: t('dreamingModelFollowChat'), ref: null as DreamingSettings['modelRef'] },
+      {
+        value: '',
+        // Naming the resolved model in the option keeps "follow chat" meaningful
+        // without a separate status row.
+        label: overview?.model?.effective
+          ? `${t('dreamingModelFollowChat')} · ${overview.model.effective}`
+          : t('dreamingModelFollowChat'),
+        ref: null as DreamingSettings['modelRef'],
+      },
       ...options.map((model) => ({
         value: modelRefKey(model.ref),
         label: formatModelOptionLabel(model.name, model.provider),
@@ -601,9 +406,8 @@ export function DreamingSettingsTab() {
   }
 
   const dotState = statusDotState(overview)
-  const effectiveModel = overview?.model
   const totalRunPages = Math.max(1, Math.ceil(runTotal / pageSize))
-  const totalMemoryPages = Math.max(1, Math.ceil(memoryTotal / pageSize))
+  const totalNotePages = Math.max(1, Math.ceil(noteTotal / pageSize))
 
   return (
     <div className="quickforge-settings-stack">
@@ -613,8 +417,10 @@ export function DreamingSettingsTab() {
             <div className="flex items-center gap-2 text-sm font-semibold">
               <span className="quickforge-dreaming-dot" data-state={dotState} aria-hidden="true" />
               {t('dreamingTab')}
+              <span className="quickforge-settings-beta">{t('dreamingBeta')}</span>
               <span className="quickforge-dreaming-status-text" data-state={dotState}>{t(STATE_TEXT_KEY[dotState])}</span>
               <InfoTip label={t('dreamingEnabledInfo')} />
+              <InfoTip label={t('dreamingBetaInfo')} />
             </div>
             <p className="mt-1 max-w-prose text-xs leading-relaxed text-muted-foreground">{t('dreamingDescription')}</p>
           </div>
@@ -638,17 +444,12 @@ export function DreamingSettingsTab() {
         </div>
 
         <div className={`quickforge-dreaming-stats border-t ${HAIRLINE}`}>
-          {[
+          {([
             { label: t('dreamingNextRun'), value: formatDreamingTimestamp(overview?.nextRunAt) },
             { label: t('dreamingLastRun'), value: formatDreamingTimestamp(settings.lastRunAt) },
-            { label: t('dreamingCountActive'), value: String(overview?.counts.active ?? 0) },
-            {
-              label: t('dreamingRunModel'),
-              value: effectiveModel?.effective
-                ? `${effectiveModel.effective} · ${t(modelSourceKey(effectiveModel.source))}`
-                : t('dreamingModelNone'),
-            },
-          ].map(({ label, value }) => (
+            { label: t('dreamingNotesCount'), value: String(overview?.counts.notes ?? 0) },
+            { label: t('dreamingHistory'), value: String(overview?.counts.runs ?? 0) },
+          ] as { label: string; value: string }[]).map(({ label, value }) => (
             <div className="quickforge-dreaming-stat" key={label}>
               <span className="quickforge-dreaming-stat-label">{label}</span>
               <span className="quickforge-dreaming-stat-value">{value}</span>
@@ -673,17 +474,17 @@ export function DreamingSettingsTab() {
             />
           </Field>
 
-          <Field label={t('dreamingExecuteTime')}>
+          <Field label={t('dreamingExecuteTime')} hint={t('dreamingExecuteTimeHint')}>
             <input
               className="h-9 w-full rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-sm text-foreground outline-none transition-colors focus:border-[color-mix(in_oklab,var(--border)_70%,transparent)] disabled:opacity-55"
               type="time"
               value={settings.executeTime}
-              disabled={!settings.enabled || !settings.scheduleEnabled || saving}
+              disabled={!settings.enabled || saving}
               onChange={(event) => void updateSettings({ executeTime: event.currentTarget.value })}
             />
           </Field>
 
-          <Field label={t('dreamingLanguage')}>
+          <Field label={t('dreamingLanguage')} hint={t('dreamingLanguageInfo')}>
             <SettingsSelect
               value={settings.contentLanguage}
               options={languageOptions}
@@ -702,31 +503,24 @@ export function DreamingSettingsTab() {
               />
             </div>
           </Field>
-
-          <Field label={t('dreamingSchedule')}>
-            <div>
-              <SettingsSwitch
-                checked={settings.scheduleEnabled}
-                onChange={(checked) => void updateSettings({ scheduleEnabled: checked })}
-                disabled={!settings.enabled || saving}
-              />
-            </div>
-          </Field>
         </div>
+
+        {message ? <p className={`px-5 pb-4 text-xs ${HAIRLINE}`}>{message}</p> : null}
+        {error ? <p className="quickforge-dreaming-error px-5 pb-4">{error}</p> : null}
       </section>
 
-      <section className={CARD} aria-label={t('dreamingMemories')}>
+      <section className={CARD} aria-label={t('dreamingNotes')}>
         <div className="quickforge-dreaming-tabs-wrap">
           <div className="quickforge-dreaming-tabs" role="tablist">
             <button
               className="quickforge-dreaming-tab"
               type="button"
               role="tab"
-              aria-selected={view === 'memories'}
-              onClick={() => setView('memories')}
+              aria-selected={view === 'notes'}
+              onClick={() => setView('notes')}
             >
-              {t('dreamingMemories')}
-              <span className="quickforge-dreaming-tab-count">{overview?.counts.active ?? 0}</span>
+              {t('dreamingNotes')}
+              <span className="quickforge-dreaming-tab-count">{overview?.counts.notes ?? 0}</span>
             </button>
             <button
               className="quickforge-dreaming-tab"
@@ -740,123 +534,117 @@ export function DreamingSettingsTab() {
             </button>
           </div>
 
-          {view === 'memories' ? (
+          {view === 'notes' ? (
             <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
               <input
                 className="h-8 w-full max-w-56 rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[color-mix(in_oklab,var(--border)_70%,transparent)]"
                 type="search"
-                value={memoryQuery}
+                value={noteQuery}
                 placeholder={t('dreamingMemorySearchPlaceholder')}
-                onChange={(event) => setMemoryQuery(event.currentTarget.value)}
+                onChange={(event) => setNoteQuery(event.currentTarget.value)}
               />
               <SettingsSelect
-                value={memoryStatus}
-                options={memoryStatusOptions}
-                onChange={setMemoryStatus}
-                label={t('dreamingStatus')}
+                value={noteKind}
+                options={kindOptions}
+                onChange={setNoteKind}
+                label={t('dreamingKindFact')}
               />
             </div>
           ) : null}
         </div>
 
-        {view === 'memories' ? (
-          <>
-
-            {memories.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-muted-foreground">{t('dreamingNoMemories')}</div>
+        {view === 'notes' ? (
+          <div className="flex flex-col gap-3 p-5">
+            <p className="quickforge-settings-row-description">{t('dreamingNotesDescription')}</p>
+            {notes.length === 0 ? (
+              <div className="text-sm text-muted-foreground">{t('dreamingNoNotes')}</div>
             ) : (
-              <ul className="quickforge-dreaming-list divide-y divide-[color-mix(in_oklab,var(--border)_60%,transparent)]">
-                {memories.map((memory) => (
-                  <MemoryRow
-                    key={memory.id}
-                    memory={memory}
-                    onRetired={() => {
-                      setMessage(t('dreamingMemoryRetired'))
-                      void loadMemories(memoryPage, memoryQuery, memoryStatus)
-                      void loadOverview()
-                    }}
-                  />
+              <ul className="quickforge-recall-list">
+                {notes.map((note) => (
+                  <li className="quickforge-recall-item" key={note.id}>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      {note.kind ? (
+                        <div className="quickforge-recall-meta">
+                          <KindBadge kind={note.kind} />
+                        </div>
+                      ) : null}
+                      <div className="quickforge-recall-content">{note.text}</div>
+                      <span className="text-xs text-muted-foreground">
+                        {note.recallCount && note.recallCount > 0
+                          ? t('dreamingNoteRecallCount', { count: note.recallCount })
+                          : t('dreamingNoteNeverRecalled')}
+                        {note.firstSeen ? ` · ${t('dreamingNoteFirstSeen', { when: formatDreamingTimestamp(note.firstSeen.at) })}` : ''}
+                      </span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void removeNote(note.id)}
+                    >
+                      {t('dreamingNoteDelete')}
+                    </Button>
+                  </li>
                 ))}
               </ul>
             )}
-
-            {totalMemoryPages > 1 ? (
-              <div className={`flex items-center justify-end gap-2 border-t px-5 py-3 ${HAIRLINE}`}>
-                <span className="mr-auto text-xs text-muted-foreground">
-                  {t('dreamingPage').replace('{page}', String(memoryPage)).replace('{total}', String(totalMemoryPages))}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  disabled={memoryPage <= 1}
-                  onClick={() => void loadMemories(memoryPage - 1, memoryQuery, memoryStatus)}
-                >{t('dreamingPrev')}</Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  disabled={memoryPage >= totalMemoryPages}
-                  onClick={() => void loadMemories(memoryPage + 1, memoryQuery, memoryStatus)}
-                >{t('dreamingNext')}</Button>
+            <p className="text-xs text-muted-foreground">{t('dreamingNotesReadOnly')}</p>
+            {totalNotePages > 1 ? (
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <Button variant="ghost" size="sm" type="button" disabled={notePage <= 1} onClick={() => void loadNotes(notePage - 1, noteQuery, noteKind)}>
+                  {t('dreamingPrev')}
+                </Button>
+                <span>{t('dreamingPage', { page: notePage, total: totalNotePages })}</span>
+                <Button variant="ghost" size="sm" type="button" disabled={notePage >= totalNotePages} onClick={() => void loadNotes(notePage + 1, noteQuery, noteKind)}>
+                  {t('dreamingNext')}
+                </Button>
               </div>
             ) : null}
-          </>
+          </div>
         ) : (
-          <>
+          <div className="flex flex-col gap-3 p-5">
+            <p className="quickforge-settings-row-description">{t('dreamingHistoryDescription')}</p>
             {runs.length === 0 ? (
-              <div className="px-5 py-10 text-center text-sm text-muted-foreground">{t('dreamingNoRuns')}</div>
+              <div className="text-sm text-muted-foreground">{t('dreamingNoRuns')}</div>
             ) : (
-              <div className="divide-y divide-[color-mix(in_oklab,var(--border)_60%,transparent)]">
+              <ul className="quickforge-settings-list">
                 {runs.map((run) => (
-                  <button
-                    className="quickforge-dreaming-row"
-                    type="button"
-                    key={run.id}
-                    onClick={() => setSelectedRunId(run.id)}
-                  >
-                    <span className="quickforge-dreaming-row-head">
-                      <StatusBadge status={run.status} />
-                      <span className="quickforge-dreaming-row-time">{formatDreamingTimestamp(run.startedAt)}</span>
-                    </span>
-                    <RunMetrics run={run} />
-                    {run.summary ?? run.error ? (
-                      <span className={run.error ? 'quickforge-dreaming-error' : 'quickforge-settings-row-description'}>
-                        {run.summary ?? run.error}
+                  <li className="quickforge-settings-list-item" key={run.id}>
+                    <button
+                      className="flex min-w-0 flex-1 flex-col gap-1 text-left"
+                      type="button"
+                      onClick={() => setSelectedRunId(run.id)}
+                    >
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <StatusBadge status={run.status} />
+                        <span className="quickforge-settings-badge quickforge-settings-badge-muted">
+                          {t(run.trigger === 'manual' ? 'dreamingTriggerManual' : 'dreamingTriggerSchedule')}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{formatDreamingTimestamp(run.startedAt)}</span>
                       </span>
-                    ) : null}
-                  </button>
+                      <RunMetrics run={run} />
+                      {run.summary ? <span className="quickforge-dreaming-summary">{run.summary}</span> : null}
+                      {run.error ? <span className="quickforge-dreaming-error">{run.error}</span> : null}
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             )}
-
             {totalRunPages > 1 ? (
-              <div className={`flex items-center justify-end gap-2 border-t px-5 py-3 ${HAIRLINE}`}>
-                <span className="mr-auto text-xs text-muted-foreground">
-                  {t('dreamingPage').replace('{page}', String(runPage)).replace('{total}', String(totalRunPages))}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  disabled={runPage <= 1}
-                  onClick={() => void loadRuns(runPage - 1)}
-                >{t('dreamingPrev')}</Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  disabled={runPage >= totalRunPages}
-                  onClick={() => void loadRuns(runPage + 1)}
-                >{t('dreamingNext')}</Button>
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <Button variant="ghost" size="sm" type="button" disabled={runPage <= 1} onClick={() => void loadRuns(runPage - 1)}>
+                  {t('dreamingPrev')}
+                </Button>
+                <span>{t('dreamingPage', { page: runPage, total: totalRunPages })}</span>
+                <Button variant="ghost" size="sm" type="button" disabled={runPage >= totalRunPages} onClick={() => void loadRuns(runPage + 1)}>
+                  {t('dreamingNext')}
+                </Button>
               </div>
             ) : null}
-          </>
+          </div>
         )}
       </section>
-
-      {message ? <div className="quickforge-settings-message">{message}</div> : null}
-      {error ? <div className="quickforge-settings-alert">{error}</div> : null}
     </div>
   )
 }

@@ -5,7 +5,6 @@ import { cacheDir } from './storage.mjs'
 
 export const DEFAULT_COMPACT_KEEP_TURNS = 0
 const MAX_COMPACT_KEEP_TURNS = 20
-const MIN_SUMMARY_SOURCE_CHARS = 1600
 const COMPACT_SUMMARY_OPEN_TAG = '<compact_summary>'
 const COMPACT_SUMMARY_CLOSE_TAG = '</compact_summary>'
 const COMPACTION_DETAILS_KEY = 'quickforgeCompaction'
@@ -318,17 +317,14 @@ export async function compactConversation({
   thinkingLevel,
   getApiKey,
   keepTurns = DEFAULT_COMPACT_KEEP_TURNS,
-  minSourceChars = MIN_SUMMARY_SOURCE_CHARS,
 }) {
   if (!model?.provider) throw new Error('No model configured for conversation compaction.')
 
   const split = splitMessagesForCompaction(messages, { keepTurns })
   const transcript = buildTranscript(split.compactRange)
-  const normalizedMinSourceChars = Number.isFinite(Number(minSourceChars))
-    ? Math.max(0, Number(minSourceChars))
-    : MIN_SUMMARY_SOURCE_CHARS
 
-  if (split.compactRange.length === 0 || (split.compactRange.length < 4 && transcript.length < normalizedMinSourceChars)) {
+  // 唯一跳过条件是结构性的：没有可压缩消息序列。没有字符数下限。
+  if (split.compactRange.length === 0) {
     return {
       skipped: true,
       reason: 'not_enough_history',

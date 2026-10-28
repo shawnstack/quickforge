@@ -5,7 +5,7 @@ import type { AgentMessage, AgentTool, AssistantMessage as AssistantMessageType,
 import { AssistantMessage } from './AssistantMessage'
 import { UserMessage } from './UserMessage'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
-import { ContextCompactionNotice, type CompactionBoundary } from './ContextCompactionNotice'
+import { ContextCompactionNotice, type CompactionBoundary, type CompactionMarker } from './ContextCompactionNotice'
 import { ContextCompactionStatusRow } from './ContextCompactionStatusRow'
 import { ContextCompactionDecisionRow } from './ContextCompactionDecisionRow'
 import { AssistantWaitingBubble } from './AssistantWaitingBubble'
@@ -68,8 +68,15 @@ type MessageListProps = {
   /** Show the persist-degraded warning as the list's first child. */
   persistDegraded?: boolean
   /**
-   * Context-compaction divider position (see `resolveCompactionBoundary`).
-   * Rendered as a list child at the resolved row index; absent means hidden.
+   * Context-compaction divider positions (see `resolveCompactionMarkers`): one
+   * divider per compaction, anchored to the moment it ran. Empty/absent means
+   * no divider is rendered.
+   */
+  compactionMarkers?: CompactionMarker[]
+  /**
+   * Single-divider form, kept for callers that only have the legacy
+   * one-record payload (and for the boundary tests). `compactionMarkers` wins
+   * when both are supplied.
    */
   compactionBoundary?: CompactionBoundary
   /**
@@ -106,7 +113,7 @@ export function collectToolResultsById(messages: AgentMessage[]): Map<string, To
 /** Messages the list renders standalone (artifact/toolResult are excluded). */
 type RenderableMessage = Extract<AgentMessage, { role: 'user' | 'user-with-attachments' | 'assistant' }>
 
-export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false, compactionBoundary, assistantWaitingRow, compactionNotice = null, onApproveCompaction, onRejectCompaction, compactionDecisionReadOnly = false, compactionDecisionDisabledReason, compactionApprovePending = false, compactionRejectPending = false }: MessageListProps) {
+export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false, compactionBoundary, compactionMarkers, assistantWaitingRow, compactionNotice = null, onApproveCompaction, onRejectCompaction, compactionDecisionReadOnly = false, compactionDecisionDisabledReason, compactionApprovePending = false, compactionRejectPending = false }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const elements = listRef.current?.querySelectorAll<HTMLElement>(':scope > .qf-user-message, :scope > .qf-assistant-message')
@@ -183,25 +190,50 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
   // forward pass: two successive `splice` calls made the second index stale
   // (inserting the divider shifts every later position by one), so a divider
   // above the waiting row pushed the bubble one row too far.
-  const dividerRow = compactionBoundary?.kind === 'at'
-    ? Math.min(compactionBoundary.rowIndex, rows.length)
-    : Number.POSITIVE_INFINITY
+  // One divider per compaction (rolling compaction appends a record each time),
+  // keyed by its immutable physical position so each line keeps its own
+  // disclosure state and never moves again.
+  const markers: CompactionMarker[] = compactionMarkers && compactionMarkers.length > 0
+    ? compactionMarkers
+    : compactionBoundary?.kind === 'at'
+      ? [{
+        rowIndex: compactionBoundary.rowIndex,
+        boundaryIndex: compactionBoundary.boundaryIndex,
+        occurredAtIndex: compactionBoundary.boundaryIndex,
+        summaryText: compactionBoundary.summaryText,
+        isLatest: true,
+      }]
+      : []
+  const markersByRow = new Map<number, CompactionMarker[]>()
+  for (const marker of markers) {
+    // Clamp to the row count: a compaction that just ran belongs at the bottom
+    // edge of the list, not dropped.
+    const row = Math.min(marker.rowIndex, rows.length)
+    const bucket = markersByRow.get(row)
+    if (bucket) bucket.push(marker)
+    else markersByRow.set(row, [marker])
+  }
   const waitingRow = assistantWaitingRow !== undefined && assistantWaitingRow >= 0
     ? Math.min(assistantWaitingRow, rows.length)
     : Number.POSITIVE_INFINITY
 
   const children: ReactNode[] = []
   for (let index = 0; index <= rows.length; index++) {
-    // The divider belongs to the history flow, so at an equal index it is
+    // The dividers belong to the history flow, so at an equal index they are
     // emitted before the bubble.
-    if (index === dividerRow) {
-      children.push(
-        <ContextCompactionNotice
-          key="quickforge-context-compaction"
-          summaryText={(compactionBoundary as Extract<CompactionBoundary, { kind: 'at' }>).summaryText}
-          boundaryIndex={(compactionBoundary as Extract<CompactionBoundary, { kind: 'at' }>).boundaryIndex}
-        />,
-      )
+    const rowMarkers = markersByRow.get(index)
+    if (rowMarkers) {
+      for (const marker of rowMarkers) {
+        children.push(
+          <ContextCompactionNotice
+            key={`quickforge-context-compaction-${marker.occurredAtIndex}`}
+            summaryText={marker.summaryText}
+            boundaryIndex={marker.boundaryIndex}
+            compactedAt={marker.compactedAt}
+            mergedIntoLater={!marker.isLatest}
+          />,
+        )
+      }
     }
     // The waiting bubble sits immediately after the last user row, i.e. after the
     // divider when both land on the same position.

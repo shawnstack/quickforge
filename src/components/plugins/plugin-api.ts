@@ -9,6 +9,15 @@ type PluginPathContribution = {
   path: string
 }
 
+export type PluginUiContribution = {
+  slots: string[]
+  actions: string[]
+  panels: Array<{ id: string; title: string; entry: string; width: number }>
+  permissions: string[]
+  digest?: string | null
+  warnings?: string[]
+}
+
 export type QuickForgePlugin = {
   name: string
   displayName: string
@@ -24,6 +33,7 @@ export type QuickForgePlugin = {
   tools: PluginToolSummary[]
   skills?: PluginPathContribution[]
   commands?: PluginPathContribution[]
+  ui?: PluginUiContribution | null
   config?: Record<string, unknown>
 }
 

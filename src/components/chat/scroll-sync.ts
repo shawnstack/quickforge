@@ -40,9 +40,18 @@ type ScrollSyncOptions = {
   /** Forward the auto-scroll flag to the React ChatSurface handle. */
   setAutoScroll?: (enabled: boolean) => void
   onReachTop?: () => void
+  /**
+   * The viewport reached the bottom edge. The surface uses it to page the
+   * rendered window forward: a window that was moved back to an early turn ends
+   * there, so without this the reader hits the end of the rendered rows with the
+   * rest of the conversation never mounted.
+   *
+   * Called on every bottom-edge scroll event; the surface guards re-entry.
+   */
+  onReachBottom?: () => void
 }
 
-export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyncOptions) {
+export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBottom }: ScrollSyncOptions) {
   let autoScrollEnabled = true
   let autoScrollFrame: number | undefined
   let lastScrollTop = 0
@@ -332,6 +341,11 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
         autoScrollEnabled = true
         setPanelAutoScroll(true)
       }
+      // Ask for the next page every time the bottom edge is touched: a window
+      // that was moved back to an early turn ends there, and only this gets the
+      // rest of the conversation mounted. The surface guards re-entry, and a
+      // successful page grows the content, so `distance` leaves the band.
+      if (programmaticScrollDepth === 0) onReachBottom?.()
     } else if (
       userInitiatedScrollUp &&
       (anchorMessage !== undefined || distance > releaseFollowDistancePx)
@@ -342,8 +356,12 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
       disableAutoScroll()
       if (currentScrollTop <= 0 && lastScrollTop > 0) onReachTop?.()
     } else if (currentScrollTop > lastScrollTop + 1 && recentlyUserScrolled() && isNearBottom(scrollContainer)) {
-      autoScrollEnabled = true
-      setPanelAutoScroll(true)
+      // Scroll-down near the tail re-arms the follow. Only on the transition:
+      // calling the host setter every frame of a scroll-down is pure churn.
+      if (!autoScrollEnabled) {
+        autoScrollEnabled = true
+        setPanelAutoScroll(true)
+      }
     }
     lastScrollTop = currentScrollTop
   }
@@ -354,6 +372,17 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop }: ScrollSyn
       markUserScrollUp()
       // Short pages may already be at the top and cannot emit a scroll event.
       if ((findScrollContainer()?.scrollTop ?? 1) <= 0 && programmaticScrollDepth === 0) onReachTop?.()
+      return
+    }
+    // Symmetric case: a window shorter than the viewport has no scroll range, so
+    // scrolling down never emits `scroll` and the next page would never load.
+    const container = findScrollContainer()
+    if (
+      container
+      && container.scrollTop + container.clientHeight >= container.scrollHeight - 1
+      && programmaticScrollDepth === 0
+    ) {
+      onReachBottom?.()
     }
   }
 

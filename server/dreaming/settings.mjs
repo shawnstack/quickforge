@@ -9,8 +9,9 @@ export const DREAMING_SETTINGS_KEY = 'dreaming-settings'
  * one-time warning instead of a per-run confirmation.
  */
 export const DEFAULT_DREAMING_SETTINGS = Object.freeze({
+  // Enabling Dreaming means "run daily at executeTime": there is no separate
+  // scheduling switch, and "process now" is a manual trigger.
   enabled: false,
-  scheduleEnabled: true,
   executeTime: '03:00',
   modelRef: null,
   allowSensitive: true,
@@ -51,7 +52,6 @@ export function normalizeDreamingSettings(value) {
   const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   return {
     enabled: source.enabled === true,
-    scheduleEnabled: source.scheduleEnabled !== false,
     executeTime: normalizeExecuteTime(source.executeTime),
     modelRef: normalizeModelRef(source.modelRef),
     allowSensitive: source.allowSensitive !== false,

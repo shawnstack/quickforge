@@ -1,4 +1,5 @@
 import { DownloadCloud, Server, Settings } from 'lucide-react'
+import { PluginSlot } from '@/components/plugins/PluginSlot'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
@@ -107,6 +108,10 @@ export function SidebarFooter({
           ) : null}
         </button>
       ) : null}
+      <PluginSlot
+        slot="sidebar.footer"
+        className={cn('mb-2 w-full', sidebarOpen ? 'justify-start' : 'justify-center')}
+      />
       <button
         type="button"
         className={cn(footerRowClass, 'min-h-9 w-full shrink-0 rounded-lg', inactiveRowClass)}

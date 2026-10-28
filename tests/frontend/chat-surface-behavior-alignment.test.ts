@@ -80,16 +80,29 @@ describe('auto-scroll ownership', () => {
   })
 })
 
-describe('message windowing stays off for turn navigation', () => {
-  it('renders the complete conversation up front, like the legacy window layer', () => {
-    // Legacy ChatPanelHost: `createMessageWindow({ enabled: false })` so turn
-    // navigation can scroll directly to DOM nodes that already exist; silently
-    // falling back to the default (windowing) would drop older turns from the DOM.
-    expect(chatSurfaceSource).toContain('createMessageWindow({ enabled: false })')
-    expect(chatSurfaceSource).not.toContain('createMessageWindow()')
-    // The disabled window layer still exposes the handle API the host drives.
+describe('message windowing is on by default', () => {
+  it('constructs the controller with its default (windowing) configuration', () => {
+    // Long conversations must not mount the whole history: the controller's own
+    // thresholds (`WINDOW_ENABLE_*`) already pass short conversations through
+    // unchanged, so the surface has no reason to force `enabled: false`.
+    expect(chatSurfaceSource).toContain('createMessageWindow()')
+    expect(chatSurfaceSource).not.toContain('createMessageWindow({ enabled: false })')
+    // The window layer still exposes the handle API the host drives.
     expect(chatSurfaceSource).toContain('getWindowMessages: () => committedWindowRef.current.messages')
     expect(chatSurfaceSource).toContain('getWindowStart: () => committedWindowRef.current.start')
+  })
+
+  it('replaces turn-navigation DOM lookups with a window move before measuring', () => {
+    // This is what used to force windowing off: jumping to an old turn needs the
+    // target row in the DOM. The jump must move the window first (`showMessageIndex`
+    // resolves after the window commit) and only then measure/scroll.
+    const turnNavigationSource = readFileSync(
+      new URL('../../src/components/chat/turn-navigation.ts', import.meta.url),
+      'utf8',
+    )
+    expect(turnNavigationSource).toMatch(
+      /if \(showMessageIndex\) void showMessageIndex\(turn\.messageIndex\)\.then\(finish, finishProgrammaticScroll\)/,
+    )
   })
 })
 

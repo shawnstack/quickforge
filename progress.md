@@ -2,6 +2,258 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## compaction-remove-skip-gates（done，2026-10-28）
+
+- 反馈：「源 <1600 字符 / 距上次 <30s / 10 分钟内拒绝过——这些奇怪的约束都应该去掉，上下文不够就该压缩」。
+- 改动：
+  1. 删除 `AUTO_COMPACT_MIN_INTERVAL_MS`（30s 间隔）与 `AUTO_COMPACT_REJECTION_SUPPRESS_MS`（拒绝后 10 分钟抑制）常量及全部检查；`shouldSuppressAfterRejection` / `markAutoCompactRejected` / `clearAutoCompactRejected` 一并删除，`declined` 决定只跳过当前这一次尝试。
+  2. `minSourceChars` 从前后端 `DEFAULT_AUTO_COMPACT_SETTINGS` / `normalizeAutoCompactSettings` 及 `compactSessionInPlace` 参数中删除；自动路径的前置只剩结构性检查：可压缩消息 ≥2 条、自上次压缩后有新消息。旧存储里的 `minSourceChars` 由 normalizer 丢弃。
+  3. `lastAutoCompactRejected` 不再写入；`resetSessionCompaction` / agent 初始化保留置空，兼容旧持久化数据。
+  4. 防空转的结构性护栏保留：`not_enough_new_messages`（滚动压缩没有新增量就不压，天然截断「摘要压摘要」循环）与 `sourceMessages.length < 2`；`manual_compact` 继续向 `compactConversation` 传 `minSourceChars: 0`，conversation-compaction 内部 `MIN_SUMMARY_SOURCE_CHARS` 结构性下限不动。
+- 代价（用户知情）：开着确认时，拒绝后下一次过阈值请求会重新弹决策行；极小会话也可能触发一次摘要调用。
+- 验证：`npx tsc -b` 0 错误；`npx eslint 改动文件` 0 problems；`npx vitest run` 压缩+设置相关 8 个测试文件 84 例全过。未创建 Git commit。
+- 评审追补（同日）：`compactConversation` 的自动路径没显式传 `minSourceChars`，继承 `conversation-compaction.mjs:8` 默认的 1600 地板（`compactRange < 4 且 transcript < 1600` 时 `not_enough_history` 静默跳过），与移除意图相悖；改为自动/手动统一传 `minSourceChars: 0`，`MIN_SUMMARY_SOURCE_CHARS` 常量保留但压缩入口已无实际作用面。另修正 `agent-approval-orchestrator.mjs:206` 注释仍写「suppress for 10 minutes」的陈旧表述。验证：5 个压缩测试文件 57 例全过、`npx eslint` 两文件 0 problems。
+- 二次追补（同日，用户裁定限制代码本身也删）：`MIN_SUMMARY_SOURCE_CHARS` 常量、`compactConversation` 的 `minSourceChars` 参数与归一化、`compactRange < 4 && transcript < N` 字符门槛全部删除；跳过条件只剩结构性的 `compactRange.length === 0`。调用方不再传 `minSourceChars`（`auto-compaction.mjs`、`agent-compaction.mjs` /summary 路径——后者此前一直在吃 1600 默认地板，短会话 `/summary` 会静默不压，现在只要有可压缩消息就压）。测试删除 6 处 `minSourceChars: 0` 传参并改名短历史用例；`git grep` 确认源码零残留（前端 normalizer 对旧存储值的丢弃测试保留）。验证：5 个压缩测试文件 57 例全过、`feature_list.json` JSON parse 通过、eslint 0 problems。
+
+## compaction-timeline-history（done，2026-10-28）
+
+- 反馈：「每次压缩都要有线出现，压缩的时机点显示要准确，一定是真实时序来的」+「第一次压缩后，第二次压缩会把第一次压缩后面的内容再压缩」。
+- 现状诊断（三条根因）：
+  1. `session.contextCompaction` 是**单值**（`auto-compaction.mjs:355` 直接赋值），SQLite 无 compaction 表、会话事件不落库 → 历次压缩的切点/摘要/用量不可还原，界面永远只有一条线，第 2 次压缩是把第 1 条线**挪走**而不是新增。
+  2. 线的位置用的是 `compactedUpToIndex`（= `tailStart`，摘要覆盖范围的右边界），而「压缩发生时刻」是压缩那一刻的 `messages.length`。保留最近 n 轮时两者差若干条消息，用户读到的是「压缩发生在上一轮回答之后」，实际发生在这一轮的中间。
+  3. 定位靠数组下标，而压缩在 `transformContext` 里跑的是 `state.messages.slice()` 副本；尾部截断、整体替换、前端乐观尾插都会让下标失真，`compactedUpToIndex > windowEnd` 时旧实现直接 **hidden** → 「这次压缩没有线」。
+- 方案（用户选 A：每次压缩都留一条线，旧线原地不动）：
+  1. `compactSessionInPlace()` 追加 `contextCompaction.history[]`，每条 `{ compactedAt, occurredAtIndex, boundaryIndex, summaryMessage, keepRecentTurns, sourceMessageCount, usageBefore, thresholdPercent }`，上限 `MAX_CONTEXT_COMPACTION_HISTORY = 20`（超出丢最旧）；顶层字段保持「最新一次」语义不变。`body_json` 存完整对象，**没有表结构迁移**。
+  2. 前端 `resolveCompactionMarkers()` 按 history 每条生成一条线，锚定 `occurredAtIndex`；`boundaryIndex` 只作为范围信息留着，不再决定线的位置。
+  3. 窗口外**双向钳制**而不是隐藏：低于窗口 → 钳到首行，高于窗口 → 钳到末行；同渲染位置只保留最新一条（窗口化上翻时不会在顶部堆一摞同样的线）。
+  4. 非最新条目 pill 追加 i18n `contextCompactedMergedLabel`（已并入后续摘要），`compactedAt` 写进 tooltip 与 `data-compacted-at`。
+  5. `MessageList` 由单 `compactionBoundary` 扩展为 `compactionMarkers[]`（旧 prop 保留给单记录 payload 与既有测试），每条线独立 `<details>` 状态。
+- 顺带修掉的两个既有缺陷：
+  - `session-state-service.applyMetadataToState()` 曾用扁平 metadata（无 `summaryMessage`）覆盖 `state.contextCompaction` → 改标题/置顶这类元数据写入会把摘要降级为空、history 整个丢掉。现在按字段合并，保留 body 侧富字段。
+  - 分享页 `sanitizeContextCompaction()` 原来只清洗顶层 `summaryMessage`，history 里每条摘要会带着 `contextReferences` 泄漏 → 现在逐条 `sanitizeMessage`；`sanitizeEvent` 的触发条件也从「有 summaryMessage」改为「有 contextCompaction」。
+- 没动的：`buildCompactionSourceMessages()` 的滚动压缩语义（旧摘要 + 上次切点之后的增量）、`compactedUpToIndex` 的裁剪口径、`resolveCompactionBoundary()` 的既有契约（含过期即 hidden）都没改。
+- 验证：`npx tsc -b` 0 错误；`npx eslint 改动文件` 0 problems；`npm run lint` 0 problems；`npm run build` 成功；`npm run test` → 450 files / 5268 passed / 2 skipped；唯一失败 `tests/server/scheduled-tasks.commands.test.mjs` 是既有 flaky（该文件未被本改动触碰，失败点在 goal run 计数断言，同一文件单跑时通时不通——三次运行分别是全量挂、单跑过、单跑挂）。未创建 Git commit。
+- 追加修复（同日）：`resolveAutoCompactTailStart()` 原来在切点落到 index 0 时回退到 `tailStartForRecentTurns(source, configured)`，而该回退目标在单用户回合会话里同样是 0 → 自动压缩永远 `not_enough_history`。现在改为逐级降级保留回合（n → n-1 → … → 1），仍留不出可压缩段时**压缩全部历史**。单用户回合的 agentic 会话不再出现「上下文涨到 provider 报错但从不压缩」，也不会再出现「一条线都没有」。
+- 有意保留的限制：`minSourceChars`（1600 字符）、30 秒最小间隔、拒绝后抑制都原样保留——它们防的是「没内容可压」「抖动式反复压缩」「用户刚拒绝又弹」，不是「凑不齐保留回合就放弃」那类会导致静默失效的限制。（同日晚些时候用户裁定这三条也属「静默不压」应全部移除，见上文 compaction-remove-skip-gates。）
+
+## chat-message-windowing（done，2026-10-28）
+
+- 反馈：「当前是全量加载对话显示，希望做到窗口化，每次只加载 10 条这种渲染页面，这样多了界面不会卡顿」。
+- 范围取舍（用户确认）：**只改渲染层**，服务端仍全量取数（`agent.state.messages` 恒为全量、`/restore` 仍一次拉完）；粒度**按轮 3 轮/窗**，复用现有实现而不新增「条数」维度。
+- 现状盘点：`windowed-messages.ts` 能力完整（按轮切片、`loadMore` 纯本地扩窗、`showMessageIndex` 移窗、pinned 保位、toolResult 补齐），14 条单测覆盖；但 `ChatSurface` 自 `32be493` 起用 `createMessageWindow({ enabled: false })` 全量渲染，唯一理由是轮次导航要直接滚到已存在的 DOM 节点。装饰层 `messageIndexOffset` 数学、`data-message-index` / `data-window-start` 契约早已按窗口化接线，`enabled:false` 时 offset 恒 0。
+- 改动：
+  1. `ChatSurface.tsx` 构造点改回 `createMessageWindow()`（默认启用）。短会话仍全量：控制器自己的 `WINDOW_ENABLE_TURNS`(6) / `WINDOW_ENABLE_MESSAGES`(48) / `WINDOW_ENABLE_CONTENT_CHARS`(8 万) 门槛原样保留。
+  2. 新增**填满视口兜底** layout effect：窗口内容高度不超过视口时容器没有滚动范围，宿主的 `onReachTop`（挂在 scroll/wheel 上）永远不会触发——触摸端连 `scroll` 都不会发，历史就彻底不可达。现在尾部跟随状态下继续 `loadMore()` 直到填满或到达首轮，`pageInFlight` 在下一个 window commit 回调里释放；隐藏视图（`isInsideHiddenView`，布局盒为 0）与 `clientHeight <= 0` 直接跳过，避免无限扩窗。
+  3. 轮次导航不需要改：`turn-navigation.ts` 已经是「先 `showMessageIndex` 移窗 → 等 React 布局提交 → rAF 里按绝对 `data-message-index` 测量」。
+  4. 测试护栏换向：`chat-surface-behavior-alignment.test.ts` 原来断言源码含 `createMessageWindow({ enabled: false })`，改为断言默认构造 + 不含 `enabled: false`，并新增一条锁住 `showMessageIndex(...).then(finish, ...)` 这条「先移窗再测量」的契约。
+  5. 注释/文档同步：`message-actions.ts` 的 `messageIndexOffset` 说明从「offset 恒为 0，将来重开窗口化时才用得上」改为窗口化下的实际语义（含 extras 只追加在尾部、前 `end-start` 项保持全量下标这一前提）；`docs/wiki/src/components/README.md` 目录条目与「对话消息渲染」条目由「窗口化默认关闭」改为默认开启；`docs/architecture/session-open-fast-path.zh-CN.md` 的「仍未改动」段落补落地说明。
+- 没动的：`windowed-messages.ts` 一行未改（默认值本来就是 3 轮/窗）；`chat-surface-render.test.ts` 的 `data-window-start="0"` 断言天然仍成立（该用例只有 1 轮，不触发窗口化）。
+- 验证：`npm run test` → 452 files / 5290 passed / 2 skipped，1 failed = `tests/frontend/chat-surface-css-contract.test.ts`（他人未提交的 `src/styles/chat/process.css` 改动所致，与本次无关）；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。未创建 Git commit，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+- 反馈跟进：「为什么从下往上翻会回弹到最下面」。根因是控制器把窗口**滑动**而不是**扩展**：`rebuild` 用 `[startOrdinal, startOrdinal + activeWindowTurns)` 切片，`loadMore` 只减小 `startOrdinal`，于是整窗内容被换成更早的一页——用户正在读的那一行随之离开 DOM，`resolveAnchorRow` 必然失败，`anchoredScrollTop` 返回 `null`，`loadMoreMessages` 的兜底把 `scrollTop` 设成 `scrollHeight - clientHeight`（对话末尾）。修了三处：
+  1. **`endOrdinal` 变成控制器状态**（`windowed-messages.ts`）：`loadMore` 只前移起点、终点不动，窗口 3 轮 → 6 轮 → 9 轮……已渲染行全部留在 DOM，锚点能解析，滚动位置精确复原。补回归测试 `widens the window on loadMore instead of sliding it forward`。
+  2. **`isAtTail()`**：扩展后 `atTail`（最新轮是否在窗口内）仍为 true，`resumeTail` 原来靠它早退，导致翻页后永远不重新切回尾部；改问 `isAtTail()`（`startOrdinal >= tailOrdinal`）。补两条测试覆盖「含最新轮但不是尾部窗口」与 disabled 恒 true。
+  3. **`loadMoreMessages` 兜底**：不再贴 `scrollHeight - clientHeight`，改为「按上方新增高度补偿」；锚点行没存活时也不会把人扔到对话末尾。
+  另外 `fillInFlight` 与 `pageInFlight` 拆成两个标志，避免填满视口的扩窗和触顶分页互相提前解锁。
+- 反馈跟进二：「从上往下也是有问题的一下到底了」。根因是 `resumeTail` **主动缩窗**：`scroll-sync` 在「距底 80px 内向下滚动」时每帧调 `setPanelAutoScroll(true)` → `resumeTail` → un-pin + 重新切片，已扩展的 9 轮窗口被缩回 3 轮，脚下内容被换成尾部，看起来就是「一滚就到底」。改为**窗口只增不减**：
+  1. `setFullMessages(messages, followTail)`：`followTail` = `autoScrollRef`。读者跟随尾部时 `endOrdinal` 跟到 `turnCount`（右扩，新消息可见、不卸载任何行）；读者停在历史时冻结（既不重渲染大窗口，也不换掉脚下内容）。
+  2. `endPinned` 只给 `showMessageIndex` 跳转用（固定宽窗口，避免「跳到第 3 轮却挂载到第 50 轮」）；`loadMore` 显式 `endPinned = false`。
+  3. `resumeTail` 不再缩窗，只清 pinned + 把右边界追到尾部（`isAtTail()` 早退避免无谓重建）。
+  4. `rebuild()` 在起点与行序列都没变时复用原数组引用，避免整窗重渲染 + 装饰 pass。
+  5. `scroll-sync.ts` 向下滚动 re-arm 分支补 `!autoScrollEnabled` 过渡判断，不再每帧调宿主 setter。
+  窗口真正收缩只发生在会话切换（控制器重建），这是有意的取舍：宁可多留已加载历史，也不让滚动中的内容消失。
+- 反馈跟进三：「从第一条往下滚动鼠标滚轮会直接到最后，没有中间的对话」。根因是窗口化只有**向上**翻页：轮次导航跳到早期轮后窗口是固定宽 `[start, start+3)`，向下滚到底时 `setAutoScroll(true)` 走 `resumeTail` 把右边界拉到 `turnCount`，中间的轮次从未挂载，所以一滚就到底。补上向下翻页：`windowed-messages.ts` 加 `hasMoreNewer()` / `loadNewer()`（内容追加在视口下方，无需锚点，读者位置不动）；`scroll-sync.ts` 加 `onReachBottom`（触底 scroll 事件 + 内容不足一屏时的向下 wheel）；`ChatPanelHost` 转给 surface 的 `loadNewerMessages()`；`setAutoScroll(true)` 只补一页而不是拉满；`setFullMessages` 的右边界改为只有「原本就在末尾（`wasAtEnd`）且读者在跟随」时才跟到 `turnCount`，跳转后的早期窗口不会被拖到末尾。`endPinned` 状态随之删除（`wasAtEnd` 覆盖了它的场景）。补三条回归测试（前向分页、到末尾停止、早期窗口不被拖到尾部）。
+- Notes（与本次改动无关，未扩大范围）：全量测试 452 files 里有 1 个失败 —— `tests/frontend/chat-surface-css-contract.test.ts` 断言 `.quickforge-process-stage-body` 的缩进规则，而工作区 `src/styles/chat/process.css` 有他人未提交的改动（新增 `.qf-hl-*` 高亮规则等）。本次只改 `windowed-messages.ts` / `ChatSurface.tsx` / `scroll-sync.ts` / `ChatPanelHost.tsx` 与对应测试，未触碰 `src/styles/`。
+- 风险与后续：数据层仍全量持有，长会话内存占用不变；若之后要做「连取数也分页」，需要让 `agent.state.messages` 只保留窗口、并统一 `reconcileMessagesFromSummary` / `mergeWindowedMessages` 的 offset 语义——那是独立立项级别的改动。真机需要过的点：长会话上翻触顶加载是否稳定、轮次导航点远端轮次是否一次到位、移动端手指上滚能否触发加载。
+
+## plugin-ui-extension（done，2026-10-28）
+
+- 反馈：「插件可以修改当前界面的功能、可以结合 UI」+「设计完整方案，goal 模式执行，同时内置一个插件创建的 skill」。
+- 设计结论（详见 `docs/architecture/plugin-ui-extension.zh-CN.md`）：
+  - **插件只能插入界面、不能改写界面**。`contributes.ui.overrides` / CSS 注入 / 选择器 patch 一律不做，否则设计语言每次调整都会破坏第三方插件。
+  - 三档：L1 受限节点 DSL（默认路径，无代码执行）→ L2 `iframe sandbox="allow-scripts"`（不加 `allow-same-origin`，靠 opaque origin 隔离）→ L3 既有 `registerToolRenderer`（只给内置插件）。
+  - 明确不动态加载宿主 React：双 React 会炸 hooks、Tailwind 4 类是编译期生成的、Vite 产物 hash 不稳定、还要兼容 Capacitor。
+  - 行为类诉求归 `contributes.hooks`（服务端），界面归 slot，职责分离。
+  - 进程隔离（`utilityProcess` + Node `--permission`）推迟：现在插件来源等同用户自己放置的代码，威胁模型与 Koishi / Obsidian 一致。
+- 落地：
+  1. `manifest.mjs`：`PLUGIN_API_VERSION` 2 + 支持列表 `[1,2]`（v1 零改动），`contributes.ui` 归一化 + 不含绝对路径的 `uiDigest`。
+  2. 新增 `plugins/ui-schema.mjs`：13 种白名单 type、剥离 `style`/`className`/`html`、限额（20 顶层 / 200 总数 / 深度 6 / 8 slot / 64KB / payload 8KB）、`$slot`·`$state` 引用。**未知 type 丢弃而不是抛错**，结构性超限才整块失败。
+  3. 新增 `plugins/audit.mjs`：`plugin-audit` root-array store（300 条）。
+  4. `registry.mjs`：`getUiSnapshot()`（静态节点 + 可选 `getSlots` 覆盖；**只缓存 `getSlots` 产出的节点**，2s TTL，`refreshPlugins` 与成功的 `dispatchUiAction` 都会失效缓存，元信息与 KV 状态每次现算）、`dispatchUiAction()`（action 白名单 400 → 声明 slot → `ui:*` 权限 403 → 并发 4 返回 429 → 返回节点二次校验失败则丢弃）、`getPluginKv/setPluginKv`（64KB / 单值 8KB，存 `plugins.json` 的 `kv` 段，**不新增文件也不迁移**）。UI hook 的超时**在 `loader.mjs` 的调用边界上**包：`handle` 5s → 504、`getSlots` 2s → 回退静态节点；registry 只判「允不允许」，不重复计时。
+  5. `routes/plugins.mjs`：`GET /api/plugins/ui`、`POST /api/plugins/:name/ui`（app client 鉴权）、`GET|PUT /api/plugins/:name/kv`、`GET /api/plugins/audit`、`GET /api/plugins/:name/assets/*`（仅声明 panels、仅插件目录内、仅白名单扩展名）。
+  6. 前端 `plugin-ui-types/client/resolve/bridge` 四件套 + `PluginSlot`（白名单渲染、未知 type 返回 null、`ErrorBoundary`、空贡献不渲染外壳）+ `PluginFrame`（iframe + postMessage bridge，`event.source` 校验，放行 kv/notify/callTool）+ `PluginUiToasts`。插件页展示每个插件的 slots / actions 数 / 可点开的面板 / 声明的 `ui:*` 权限。挂载点：`ConversationHeader` → `session.header`、`ChatSurface` 的 `leadingControls` → `composer.actions`、`SidebarFooter` → `sidebar.footer`、`App` → toast。沙箱属性（有 `allow-scripts`、无 `allow-same-origin`/`allow-top-navigation`/`allow-popups`、`no-referrer`、`src` 指向 assets 路由）由 `tests/frontend/plugin-frame.test.ts` 锁死——这是整个 L2 的安全要点，不能只靠代码评审。插件页还会显示 normaliser 产出的 warnings（例如 `style`/`className` 被剥离、未知节点类型被丢弃），否则插件作者只会看到“样式没生效”却查不到原因。
+  7. 内置技能 `skills/plugin-creator/`（SKILL.md + manifest/ui-slots/examples 三份参考 + `scaffold-plugin.mjs` / `validate-plugin.mjs`），加入 `defaultGlobalSkillNames`。
+  8. 示例插件 `plugins/hello-ui/`（默认禁用）：L1 按钮 + 可打开的沙箱面板。`tests/server/plugins/hello-ui-example.test.mjs` 守护它——用真实 normalizer 校验 manifest、断言 slot/action/panel 与权限声明自洽、panel 入口文件存在且扩展名可服务，并禁止面板里出现 `fetch('/api...')` 与 `localStorage`（opaque origin 下必然静默失效的写法）。
+- 落地时发现并修掉的真实缺陷：
+  1. **registry 只在 `tools.length > 0` 时实例化插件** → 纯 UI 插件被静默跳过。改为「有工具或 UI」即实例化。
+  2. **`getSlots` 不能填充未声明的 slot** —— 这是权限映射成立的前提（`ui:*` 从声明 slot 派生），已在文档写明，不做放宽。
+  3. **L2 bridge 的 `callTool` 收窄成两级门禁**：只接受本插件自有工具（`plugin__<plugin>__<tool>`），再转发到 `POST /api/tools/:name`，复用既有的 `assertAccessModeAllowsDirectTool`（默认权限模式下直接执行插件工具 403）。面板不比它所在的 UI 更有权限，也不会让 iframe 去触发 agent 审批链路；`callTool` 用服务端 2 分钟预算，其余方法 5 秒。
+  4. `PluginListItem` 不能引入 hooks：`tests/frontend/plugins-page.test.ts` 直接调用组件函数取元素树。面板开关状态上提到 `PluginsPage`。
+  5. **`refreshPluginUi()` 没有调用方**（本轮回查发现）：启用/禁用插件、点「重新加载插件」后，服务端 catalog 已更新，但前端 slot 快照是冷加载时的那份，界面上已渲染的按钮会一直停在那里直到整页刷新。已在 `PluginsPage` 的 reload 与 toggle 两处接上，并补三条测试：刷新是**整份替换**（移除的 slot 要消失）、单个插件的 `slots` 覆盖不能动邻居、返回空节点等于把该插件从 slot 摘掉。顺带把 toast 的 `window.setTimeout` 换成 `globalThis.setTimeout`——SSR/测试里没有 `window`，原来会抛错并被当成 action 失败。
+- 验证：`npx tsc -b` 0 错误；`npm run lint` 0 problems；`npm run build` 成功（`✓ built in 4.46s`）；本 feature 定向 11 files / 121 tests 全过；`npm run test` → **453 files / 5297 passed / 2 skipped，退出码 0（无排除）**。
+- Notes：
+  - **改了别人家的一条断言，为的是让第 13 项可达成**：`tests/frontend/chat-surface-css-contract.test.ts` 的 `process fold hierarchy contract` 原来断言 `.quickforge-process-stage-body` 的**精确刻度**（`padding-left: 0.75rem`），而该刻度正被另一个会话按用户反馈微调成 `margin-left: 0.5rem` + `padding-left: 0.625rem`。现在改为语义断言：连接线必须是 `1px solid color-mix(in oklab, var(--border) 60%, transparent)`、横向缩进必须存在且非零。这样视觉微调不再误报，但「线被删掉 / 缩进归零」仍会被抓到；同一用例里「顶层 body 不缩进、线不落到叶子节点」三条断言原样保留。**产品 CSS 一行未改**。
+  - 全量与 `npm run build` 并行、或别的会话在跑重活时，会出现 1~7 个时序用例抖动（`agent-goal-*` / `scheduled-tasks.commands` / `auto-compaction*` / `windowed-messages`），单跑必过（如 `scheduled-tasks.commands` 单跑 24/24），属存量 flaky；跑全量时不要与其他重活并行。
+  - 测试文件名与最初描述有一处差异：`tests/frontend/plugin-slot.test.ts` 而非 `.tsx`。项目 `vitest.config.ts` 只收集 `tests/**/*.test.{mjs,ts}`，该测试用 `createElement` 不写 JSX，改扩展名没有收益。
+  - 文档与实现的偏差已就地修正：设计文档原先写「`uiDigest` 不一致时要求重新确认（前端弹授权）」，实际只做 digest 可观测；已改为如实描述，自动确认留到有第三方分发渠道时再做。安全表里「permissions 首次渲染前要求确认」改为「插件页展示 + dispatch 时强制 403」。
+  - `ui-schema.mjs` 与 `PluginSlot.tsx` 在编辑过程中被工具重复追加过代码，已截断修复并复跑测试确认；后续改这两个文件建议整体重写而不是局部替换。
+  - **共享文件并发写入事故**：`progress.md` / `session-handoff.md` / `feature_list.json` 在同期被多会话反复覆盖（含一次非 UTF-8 写入把换行压平成单行、`feature_list.json` 回滚掉约 10 条未提交条目）。已重编码为合法 UTF-8 并重建本 feature 的段落/条目；权威验证明细另记在 `docs/architecture/plugin-ui-extension.zh-CN.md` §15.1，因为那份文件只由本会话维护。
+  - 仍未做：`contributes.hooks`（下一个最划算的扩展点，`hook-engine` 已有事件模型）、`contributes.mcpServers` / `agents`、权限授权弹窗、`settings.tabs` slot、marketplace 安装器。
+
+## dreaming-beta-badge-and-review-fixes（done，2026-10-28）
+
+- 反馈：「加一个 beta 的表示 在设置里面给这个功能 然后再评审一下」。
+- Beta 标识：
+  - `settings-tabs.ts` 的 dreaming 项加 `beta: true`（在 map 里统一归一成 boolean）。
+  - 设置侧栏（桌面 + 移动）、tab 头部、页内标题三处渲染 `quickforge-settings-beta` 徽章；页内另挂 `InfoTip(dreamingBetaInfo)`，**不用 `title`**——移动端 hover 不可见。
+  - 样式落在 `src/styles/settings/dreaming.css`，只用语义 token（`--border` / `--muted-foreground`）。
+- 二轮评审发现并修掉的三处偏差：
+  1. **冷笔记筛选会在短列表上失控**。笔记本来就全量注入系统提示，`recall_experience` 很少被调用，所以「从没被召回」几乎是每条笔记的常态。原实现 30 天 + 无条数门槛 = 每隔一段时间把整份列表当作删除候选塞给模型。改为 **≥ 40 条才启用** + 阈值提到 **60 天**，并补「短列表不提议删除」的测试。
+  2. **统计失败被误报成写盘失败**。`syncNoteStats()` 原来和 `writeDreamingNotes()` 在同一个 `try` 里，统计抛错会写进 run 的 `error`，让人以为笔记没保存。拆成独立 `catch`，只 warn。
+  3. **删除末页唯一一条后停在空页**。`removeNote` 改为按剩余条数重算目标页（`min(当前页, ceil((total-1)/pageSize))`）。
+- 验证：`npm run test` → 445 files / 5205 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+- Notes：
+  - 评审仍不同意的一个点：`noteIdOf` 是文本哈希，**模型改写措辞 = 计数归零**。这是「笔记没有身份」的直接后果，属于有意接受；如果之后发现好笔记因为改写被当成冷的，正确做法是提高门槛，而不是给笔记加 id（那会把文件变成需要同步的结构）。
+  - 删除仍无二次确认（项目风格），也没有 undo；误删的恢复路径是「回滚到该条存在时的某次 run」。
+
+## dreaming-recall-feedback-and-note-delete（done，2026-10-28）
+
+- 反馈：「反馈闭环（召回计数/强度衰减）需要做 还有为什么没有删除功能」。
+- 删除功能为什么之前没有：设计上笔记归模型所有，只支持「下一轮重写」和「run 回滚」两种整体操作，刻意没做单条编辑。现在补上。
+- 做了什么：
+  1. **迁移 v18** `dreaming_note_stats`（6 列：`note_id`(=noteIdOf(text)) / `note_text` / `recall_count` / `last_recalled_at` / `created_at` / `updated_at`）。没有 FTS、没有向量、没有评分字段。
+  2. **计数**：`recall_experience` 真正返回某条笔记时 `recordNoteRecall()` +1 并记时间；工具在无 SQLite 的环境静默跳过，不影响调用。
+  3. **衰减的形态**：`listNoteStats()` 找出「存在 ≥ 30 天且从未被召回」的笔记，作为 `## Never recalled (deletion candidates)` 段交给模型。系统提示明确写：进入这个列表是因为没人搜过它、不是因为它错了；只有本轮也证明失效或只是重复时才删，便宜留着但丢了很贵的东西（安全红线、发布门禁、危险命令警告）不要删。
+     - 这是有意的取舍：**信息而不是规则**。旧实现的 `strength` 衰减会自动淘汰，那会把「少用但关键」的规则删掉。
+  4. **对齐**：每轮写回后 `syncNoteStats()` —— 新笔记载入（记 `created_at`）、消失的笔记删行；同一措辞以后重新加回来从 0 开始，不继承旧计数。文件清空时整表清空。
+  5. **删除单条**：`DELETE /api/dreaming/notes/:id` 直接改 `DREAMING.md` 并删统计。因为文件是唯一真相，下一轮 dreaming 看到的已经是删过的列表，不可能复活。id 不存在返回 404。
+  6. 前端笔记行显示「被召回 N 次 / 从未被召回」+ 删除按钮；notes 接口返回 `recallCount` / `lastRecalledAt`。
+- 验证：`npm run test` → 445 files / 5204 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。测试覆盖：计数累加与时间戳、sync 增删行、清空、单条删除、DELETE 路由（成功 / 404）、notes 返回 recallCount、冷笔记进 prompt 段、统计随文件对齐。
+- Notes：
+  - 召回计数只统计 `recall_experience` 的显式命中。笔记本来就已经全量注入系统提示，所以「没被召回」不等于「没用过」——这也是为什么冷笔记只是候选，不做自动淘汰。
+  - 删除了 `recall.mjs` 的 `noteIdOf` 定义，改到 `notes.mjs`（repository 与 routes 都要用它算 id，放在纯函数模块里避免把 global-memory 拉进 SQLite 层）；`recall.mjs` 保留 re-export。
+
+## dreaming-notes-hardening（done，2026-10-28）
+
+- 背景：对照 Claude Dreaming 的机制做了一次评审，找出 4 个偏离和 4 个实现缺陷。用户要求「都实现，但不要过度设计」。
+- 全部落在**不加表、不加迁移、不加依赖**的前提下：
+
+| 问题 | 补法 | 量级 |
+|---|---|---|
+| 截断方向与 prompt 契约不一致 | prompt 要求「从最重要到最不重要排序，尾部会被丢弃」 | 1 行 |
+| 冲突无裁决规则 | prompt 加「最新证据优先；跨会话重复只在新说法是一笔带过时才压过它」 | 1 行 |
+| 死代码：`dreaming:auto` 行过滤 | 删掉 | 2 行 |
+| 无漂移防护 | `added+removed` ≥ 改前/改后较大者的 80%，且改前 ≥ 5 条 → run 仍成功但 `error` 写「可能发生了记忆漂移」 | 10 行 |
+| 无来源追溯 | `operations.notesAfter` 存完整快照；`GET /api/dreaming/notes` 扫最近 50 个 run 反推每条 `firstSeen` | 25 行 |
+| 无回滚 | `POST /api/dreaming/runs/:id/restore` 写回快照，无快照 409 | 18 行 |
+| 会话采样无优先级 | `correctionSignals()`：用户纠正词 / assistant error+aborted 计数，预算不够时先留这些会话 | 30 行 |
+| 死代码：`summarizeMemory` | 删掉 | 4 行 |
+
+- 取舍说明：
+  - 漂移告警**不阻断**——笔记是模型的判断，代码只让它显形（run 页可见 + error 文案）。
+  - 来源只到 **run 粒度**，不让模型写 `evidence`（会吃掉 300 字符预算）。快照本身就是证据。
+  - 回滚拒绝旧 run（没有 `notesAfter` 时 409），而不是用半个 diff 猜一个列表。
+  - 采集加权会让候选会话的尾部消息被**全部读出**（最多 40 个），牺牲一点后台耗时换取「不再先丢纠正会话」。
+- 验证：`npm run test` → 445 files / 5194 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。测试覆盖：排序/冲突规则写进 prompt 的断言、churn 告警（大列表触发 / 短列表不触发）、`notesAfter` 快照、restore 成功 + 无快照 409、`firstSeen` 有来源/无来源、纠正会话优先入窗口。
+- Notes：
+  - 仍然没有反馈闭环（召回计数/强度衰减）。这是有意保留的唯一缺口：没有「这条笔记真被用过」的证据，靠人看改动率告警兜底。
+  - 前端「恢复到此版本」按钮不做二次确认——与项目其他动作用同一风格；如果后续觉得危险，可加一个 inline 确认而不是弹窗。
+
+## dreaming-notes-file（done，2026-10-28）
+
+- 反馈：记忆「拆分成两份应该只是共同注入到提示词而已」，dreaming 只写它自己那份。
+- 结论：`~/.quickforge/MEMORY.md`（人写）与 `~/.quickforge/DREAMING.md`（dreaming 写）彻底分成两个文件，互不读写；注入时各占一个 xml 段。
+- 拆掉的东西：
+  1. `MEMORY.md` 里的 `<!-- dreaming:auto:begin/end -->` 标记段机制整段移除。
+  2. `global-memory.mjs` 删除 `DREAMING_SECTION_BEGIN/END`、`splitMemorySections()`、`composeMemoryDocument()`、`writeDreamingMemorySection()`、`saveManualSection()`。
+  3. 由此消失的一整类问题：保存 MEMORY.md 时要先读盘重拼自动区、编辑器可能冲掉机器块、要判断"有没有自动区"、要按 16KB 总预算给自动段留额度。
+- 新增：
+  - `DREAMING_NOTES_FILE_NAME = 'DREAMING.md'`、`dreamingNotesFilePath()`、`readDreamingNotes()`、`writeDreamingNotes()`（原子写 + 8KB 上限 + 敏感内容校验 + 内容相同则 `changed: false`）、`readDreamingNotesPrompt()`。
+  - `readGlobalMemoryDocument()` 返回 `{ markdown, dreaming, path, dreamingPath }`，两份文档一次取回。
+  - 系统提示新增 `<dreaming_memory source="~/.quickforge/DREAMING.md">`，与 `<global_user_memory>` 并列——分段是为了让模型区分"用户告诉我的"和"过去会话总结出来的"。
+- 连带：`PUT /api/memory` 与 `manage_global_memory` 直接写 `MEMORY.md`（不再有 merge 步骤）；`/api/memory` 多返回 `dreaming`；`/api/dreaming/notes` 的 `hasAutoSection` 改名 `hasNotes`；overview 的 `memoryDocument` 改为 `{ dreamingNotes, manual }`；`counts.active/retired/superseded` → `counts.notes/runs`；前端记忆页只编辑 MEMORY.md，并在 DREAMING.md 有内容时提示"它的笔记在另一个文件"。
+- 验证：`npm run test` → 445 files / 5186 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。`tests/server/dreaming-memory.test.mjs` 重写为「两个文件互不影响」的 11 例（写 DREAMING.md 不动 MEMORY.md、第二次整份覆盖、空内容清空、内容相同不写盘、敏感拒绝、8KB 上限、两份文档同时返回、独立注入块、保存 MEMORY.md 不碰 DREAMING.md、落盘互不包含）。
+- Notes：
+  - 项目级记忆没有由 dreaming 实现（用户明确：项目那份是手工维护的，dreaming 只写全局）。若以后要加，最省的形式是复用同一套 notes 解析，只是多一个文件路径，不要回到带 scope 字段的表。
+  - 迁移 v17 已经把 `memories` 系列表删掉，本次改动纯文件层，没有新迁移。
+  - 全量跑第一次时 `tests/server/scheduled-tasks.commands.test.mjs` 有一条时序用例偶发失败（`/plan inspect the release`）；单跑该文件 24 passed，复跑全量 445 files / 5186 passed，判定为 flaky，与本次改动无关，未修改。
+
+## dreaming-notes-only（done，2026-10-28）
+
+- 反馈：上一轮的语义召回那套「太重了」，参照 Claude Dreaming 的机制做**最简单可用**的版本。用户选 A：记忆整层退化，旧记忆直接丢弃。
+- 结论：记忆 = `MEMORY.md` 自动区里的一份 bullet 列表；每轮 dreaming 读「当前列表 + 窗口内会话」，**一次**模型调用拿回「新的完整列表」，代码只校验格式/大小/敏感内容后整段覆盖。没有第二份存储，就没有同步问题。
+- 删掉的东西（这是重点，不是新增）：
+  1. 表：`memories`、`memories_fts`、`memory_events`、`memory_embeddings` —— migration v17 `drop_structured_memory_store` 直接 DROP，旧数据不迁移。
+  2. 模块：`apply.mjs`（JSON 操作清单 + 逐条硬校验）、`vector.mjs`、`embedding.mjs`。
+  3. 机制：fingerprint 去重、confidence/strength、30 天半衰淘汰、`memory_events` 逐条审计、FTS5 bm25、向量余弦 + RRF、embedding 模型设置项、向量覆盖率 UI、`POST /embeddings/backfill`、记忆行 retire、`<experience_memory>` 注入段。
+  4. 代码量：`dreaming-repository.mjs` 399 → 137 行，`recall.mjs` 215 → 56 行，`prompt.mjs` 122 → 100 行，`DreamingSettingsTab.tsx` 848 → 530 行，`dreaming.test.mjs` 382 → 215 行。
+- 新增：`server/dreaming/notes.mjs`（`parseNoteLines` / `normalizeNoteLines` / `composeAutoSection` / `diffNoteLines`）。
+  - 笔记契约：一行一条 `- `，可选 `[fact|preference|experience|pitfall|decision]` 前缀，单行 ≤ 300 字符、≤ 60 条、整段 ≤ 3800 字节，超限从尾部截断并计入 `dropped`。
+  - **掉线保护**：回复非空但一条 bullet 都抽不出（模型跑题说散文）→ run 标 `failed` 且**不写盘**；真正空回复是合法的「今天没有值得记的」，会把段落清空。
+- `recall_experience`：读自动区做子串过滤（多词要求每词命中），`kind` 只匹配 `[kind]` 前缀；工具 schema 删掉 `scope`，description 改成「笔记已在你 system prompt 里，这里只是显式过滤」。
+- 运行记录保留：`dreaming_runs` 仍在，`operations_json` 改存 `{added, removed, dropped}` 行 diff（旧数组形状在 `toRun` 里归一为空 diff），详情页直接显示「本次新增/移除/丢弃了哪些行」+ 模型原始回复。
+- 验证：`npm run test` → 445 files / 5185 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。新增 `tests/server/dreaming-notes.test.mjs`（12 例：解析/代码围栏/标记保护/去重/截断/敏感过滤/空散文/组装上限/diff），runner 测试重写为「写回列表 + 两次运行的 added/removed + 散文保护 + 空回复清空」。
+- Notes：
+  - 语义召回能力随表一起消失。真要换述召回，下一步是「LLM 查询改写 + 让模型从候选里挑」，而不是把向量库加回来 —— 笔记只有几十条，全量注入本来就没有召回不准的空间。
+  - `scheduled-task-runs-repository.test.mjs` 里回退到 v2 的 DROP 列表仍列着已删表，`IF EXISTS` 下无害，未清理。
+  - i18n 里 `dreamingMemoryConfidence/Strength/Evidence/Retire/…` 等旧 key 仍留着（`MemorySettingsTab` 可能复用），只删了确认无引用的 `recallExperienceSessions/UpdatedToday/UpdatedDays`。
+  - 未做：笔记行的编辑入口（现在只能靠下一轮运行或手工改 MEMORY.md 人工区）；如需手工增删单条，应加「编辑自动区」的危险操作而不是恢复表结构。
+
+## dreaming-semantic-recall（done，2026-10-28）
+
+- 反馈：向量/语义召回缺失，「感觉语义召回不是很好」。先确认事实——原先全链路只有 FTS5 trigram bm25 + `strength × 时间半衰 × confidence` 排序，中文短查询退化成 `LIKE '%…%'`，多字查询被包成整串短语，任何换述都召回不到；`progress.md:338` 早就写着「没有真正的语义相似度」。
+- 方案（用户选 A）：**不内嵌模型、不用向量库**。embedding 复用用户已有的 OpenAI 兼容 `/embeddings`（Ollama / LM Studio / llama.cpp / vLLM，项目 provider 类型本来就含这四家），向量存 `memory_embeddings` 的 Float32 BLOB，Node 内暴力余弦。零新增 npm 依赖；未引入 `sqlite-vec`（要开 `allowExtension` + 随包分发 `.dll/.so` + Node 22.19/Electron 双端未验证，三条风险换不到收益）。
+- 改动：
+  1. 迁移 v16 `memory_embeddings`（`model / dim / content_hash / vector` + `length(vector) = dim * 4` CHECK + FK `ON DELETE CASCADE`）。
+  2. 新 `server/dreaming/vector.mjs`（Float32 编解码、余弦、RRF）与 `server/dreaming/embedding.mjs`（端点候选 `base/v1/embeddings → base/embeddings → base/api/embed`，仅 404/405 换路；兼容 `data[].embedding`、`embeddings:[[]]`、`embedding:[]` 三种响应；幂等批量回填）。
+  3. `recall.mjs` 新增 `recallExperiencesHybrid()`：query 向量 → 余弦（下限 0.2）→ 与 bm25 做 RRF(k=60) 融合；`recallExperiences()` 保持同步语义不变，作为降级路径。
+  4. `updateMemory()` 主动删除旧向量（否则内容改了仍按旧语义排序）；`runner.mjs` 在 apply 之后、finishRun 之前回填，失败只 `warn` 并并入 run 的 `error` 字段。
+  5. 设置：`dreaming-settings.embeddingModelRef`、设置页「语义召回模型 + 向量索引覆盖 + 生成向量」、`POST /api/dreaming/embeddings/backfill`、overview 的 `embedding{model,configured,resolved,embedded,total,pending}`。
+  6. `server/tools/index.mjs` 的 `recall_experience` 改走 hybrid。
+- 验证：`npm run test` → 445 files / 5203 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。新增 `tests/server/dreaming-embedding.test.mjs`（16 例：编解码、余弦、RRF、端点候选与回落、响应形状、幂等回填、换模型重算、改内容失效、scope 过滤、换述召回、端点失败降级、无向量降级、余弦下限）。未提交 Git。
+- Notes：
+  - 修了一个连带失败：`tests/server/scheduled-task-runs-repository.test.mjs` 回退到 v2 时按表名逐个 DROP，漏了新模式下的 `memory_embeddings`，导致重跑迁移撞「table already exists」——已在 DROP 列表补上。
+  - 本机探测 11434/1234/8000 全部 `ECONNREFUSED`，没有本地推理服务在跑，所以端到端只有 mock 级证据。真机需要先 `ollama serve` + `ollama pull bge-m3`，把 `http://127.0.0.1:11434/v1` 作为 provider、`bge-m3` 作为 model 加进自定义 provider，再在 Dreaming 设置里选中它。
+  - 语义路径刻意「只增不减」：`recallExperiencesHybrid` 在无模型 / 端点不可达 / 无向量三种情况都 `catch` 后回到纯 bm25，因此升级不会让召回变差。
+  - 未做：写入侧去重仍只靠 `fingerprint` 哈希 + LLM 快照，没有用向量先筛近似重复；本轮按用户选择只改召回。
+
+## dreaming-always-scheduled（done，2026-10-28）
+
+- 反馈：“定时处理”这个开关可以不要，默认开了就是定时处理。
+- 改法：彻底移除 `scheduleEnabled`（DEFAULT、normalize、类型、UI、路由、测试共 0 残留）。语义改为 **开启即定时**：每天 `executeTime` 自跑一次，「立即处理」只是手动提前触发。
+- 连带：
+  1. `tick()` 只看 `enabled`；`PUT /api/dreaming/settings` 在 enabled 时必定算 `nextRunAt`，关闭时清空。
+  2. 执行时间字段现在带 ⓘ 说明（`dreamingExecuteTimeHint`），顶替被删的开关描述；旧文案 `dreamingSchedule/Description` 删除。
+  3. 旧配置文件里的 `scheduleEnabled: false` 会被 normalize 直接丢弃 → 行为变成“开启即定时”，与预期一致。
+- 验证：`npm run test` → 444 files / 5184 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。未提交。
+
+
+## dreaming-memory-ownership（done，2026-10-28）
+
+- 三个问题一起修：
+  1. **不显示**：从 stats 条里拿掉「MEMORY.md 自动段落」（它只是一个事实陈述，不该占位）；stats 改为「下次运行 / 上次运行 / 生效条目 / 已淘汰」，CSS 改成 `repeat(auto-fit, minmax(8rem, 1fr))`，不再写死 4 列。
+  2. **不可编辑**：以前记忆页 textarea 显示整份 MEMORY.md，保存会连同自动段一起写回（可能改掉或删标记）。现在 `readGlobalMemoryDocument()` 额外返回 `manual/auto/hasAutoSection`，前端只编辑 `manual`；`PUT /api/memory` 与 agent 的 `manage_global_memory` 都走新增的 `saveManualSection()`，它从磁盘重拼当前自动段，因此人工路径无法覆盖它。记忆页在有自动段时显示一行说明。
+  3. **Bug：淘汰不同步**：`POST /api/dreaming/memories/:id/retire` 以前只改 DB 行，MEMORY.md 里那一条要等下次定时运行才消失。现在淘汰后立即 `writeDreamingMemorySection(renderAutoSection(...))`，并在响应里返回 `memoryFileSynced`；写失败只记 warning，不阻断淘汰。
+- 测试：新增 3 例 `saveManualSection` 行为（暴露 manual/auto、保存不动自动段、无自动段时不新增），retire 路由测试补同步断言；测试里 `vi.mock` 掉 global-memory 的写盘，避免再次污染真实 `~/.quickforge/MEMORY.md`。
+- 验证：`npm run test` → 444 files / 5184 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。未提交。
+
+
+## dreaming-auto-section-copy（done，2026-10-28）
+
+- 用户问：“MEMORY.md 自动段落 · 已开启 这是啥”。
+- 实际含义：该项表示 `~/.quickforge/MEMORY.md` 里是否已存在 Dreaming 维护的标记段（`<!-- dreaming:auto:begin/end -->`）。用户机器上为有（2493 字符）。
+- 问题在文案：value 复用了开关语义的 `dreamingStateOn`（“已开启”），会让人以为是另一个开关。改为「已写入 / 尚未写入」，并在标签旁加 ⓘ 说明（写在哪个文件、只改标记之间、手工内容不动）。
+- 实现：i18n 新增 `dreamingAutoSectionWritten/NotWritten/Hint`；stats 项支持可选 `hint` 并渲染 InfoTip。
+- 验证：`npm run test` → 444 files / 5182 passed；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。未提交。
+
+
+## dreaming-model-row-removed（done，2026-10-28）
+
+- 反馈：主卡 stats 里的“模型 HAPI/deepseek-v4-flash · 已指定”与下方模型下拉重复，可以去掉。
+- 改法：stats 第 4 项换成「自动记忆段」开/关（原本只在旧 meta 行里出现过）；模型不另占一行，而是把当前生效模型写进下拉首项——“跟随对话模型 · HAPI/deepseek-v4-flash”，选“跟随”时不再看不见实际模型。
+- 连带清理：删除只服务于那行的 `MODEL_SOURCE_KEY`/`modelSourceKey` 与本地 `effectiveModel`（tsc 报 unused）；运行详情页的 `modelLabel` 保留（那是单次运行的真实记录）。
+- 验证：`npm run test` → 444 files / 5182 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。未提交（等用户确认）。
+
+
 ## dreaming-model-label-dedupe（done，2026-10-28）
 
 - 现象：梦境页模型下拉里供应商名字重复，如 “GLM-4.6V (智谱) (智谱)”。
@@ -14,14 +266,14 @@
 
 - 现象：`run_workflow` 失败时错误原文（服务端不截断，多段 + 「已完成步骤」清单）直接铺满聊天消息流 / 详情页，阶段与步骤被挤出可视区。
 - 修法（一律「先给结论、按需展开」）：
-  1. `src/lib/workflow-run-detail.ts` 新增 `isWorkflowErrorCollapsible(text)`（>140 字符或含换行）与 `WORKFLOW_ERROR_COLLAPSE_THRESHOLD`，纯 UI 判定，不动数据。
-  2. Inspector 详情 `run.error` 抽成 `WorkflowErrorBanner`：原文默认 `-webkit-line-clamp: 2`，长错误给「展开详情 / 收起详情」（`aria-expanded` + `data-open`），展开后 `max-height: 40vh` 内部滚动；短错误不加按钮，渲染与之前一致。
-  3. `PhaseLogs` 不再「阶段有 error 级日志就默认展开」——日志一律默认收起，error 只在头部保留 `-logs-flag` 标记点（原行为会让一屏全是日志）。
-  4. 聊天区无 details 的失败帧（审批拒绝、参数校验失败、worker 启动失败）抽出 `WorkflowFallbackError`，套用同一折叠规则。
-  5. i18n 新增 `workflowErrorExpand` / `workflowErrorCollapse`（中英成对）；样式改动落在 `workflow-detail.css` 与 `goal-workflow.css`，没有新增样式文件或依赖。
-- 测试：`workflow-renderer.test.ts` 新增「长错误折叠 + 短错误不折叠 + 详情页折叠与日志默认收起」断言；同步修正两条原先依赖「error 日志默认展开」的旧断言。
+  1. Inspector 详情 `run.error` 抽成 `WorkflowErrorBanner`：**折叠态只渲染一个错误图标**（`AlertTriangle` 图标按钮，点击就地展开原文，`aria-expanded` + `workflowErrorExpand`/`Collapse` 作 `aria-label`/`title`），展开后 `max-height: 40vh` 内部滚动，并显示「定位失败步骤」；不按长度分叉，短错误同样折叠、原文只在展开后进 DOM。
+  2. `PhaseLogs` 不再「阶段有 error 级日志就默认展开」——日志一律默认收起，error 只在头部保留 `-logs-flag` 标记点（原行为会让一屏全是日志）。
+  3. 聊天区无 details 的失败帧（审批拒绝、参数校验失败、worker 启动失败）抽出 `WorkflowFallbackError`，套用同一 icon-only 折叠规则。
+  4. i18n 新增 `workflowErrorExpand` / `workflowErrorCollapse`（中英成对，现作用为展开/收起按钮的无障碍文案）；样式改动落在 `workflow-detail.css` 与 `goal-workflow.css`，没有新增样式文件或依赖。
+- 中途调整（同日，用户反馈「只要有错误 icon 就好了，点击再展开」）：第一版是「原文 clamp 两行 + 展开详情文字按钮 + 140 字符阈值」，按要求改为 icon-only，并删除 `isWorkflowErrorCollapsible` / `WORKFLOW_ERROR_COLLAPSE_THRESHOLD`（已无消费方），少一层长度判断。
+- 测试：`workflow-renderer.test.ts` 新增「失败帧折叠为 icon-only（短/长错误都折叠、原文不进 DOM、aria 文案与 40vh 样式）」「详情页错误折叠 + 日志默认收起」断言；同步修正三条原先依赖「error 文本常显 / error 日志默认展开」的旧断言。
 - 文档：`docs/architecture/workflow-orchestration.zh-CN.md`（错误展示与 i18n 键）、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`（两处）、`docs/wiki/src/styles/README.md`。
-- 验证：`npm run test` → 443 files / 5178 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+- 验证：`npm run test` → 444 files / 5184 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
 - Notes（本次不动）：`src/components/workspace/SubagentRunDetailContent.tsx` 的 subagent 错误块（`border-destructive/50` 那段）仍是无 clamp 的全量文本，属同类问题，等有反馈再统一。
 
 

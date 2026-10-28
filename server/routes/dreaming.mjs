@@ -1,11 +1,14 @@
 import { readJsonBody, sendJson } from '../utils/response.mjs'
 import { createDreamingRepository } from '../sqlite/dreaming-repository.mjs'
 import { normalizeDreamingSettings, readDreamingSettings, saveDreamingSettings } from '../dreaming/settings.mjs'
-import { isDreamingRunning, modelLabelOf, nextScheduledRunAt, resolveDreamingModel, runDreaming } from '../dreaming/runner.mjs'
+import { isDreamingRunning, modelLabelOf, nextScheduledRunAt, readAutoNotes, resolveDreamingModel, runDreaming } from '../dreaming/runner.mjs'
+import { noteIdOf, noteKindOf, noteTextOf } from '../dreaming/recall.mjs'
+import { composeAutoSection } from '../dreaming/notes.mjs'
 import { listModelCatalog, modelReferenceFromSnapshot, resolveModelBinding } from '../model-catalog.mjs'
-import { DREAMING_SECTION_BEGIN, splitMemorySections, readGlobalMemory } from '../global-memory.mjs'
+import { readGlobalMemory, readDreamingNotes, writeDreamingNotes } from '../global-memory.mjs'
 
 const MAX_DREAMING_REQUEST_BYTES = 32 * 1024
+const MAX_NOTE_PAGE_SIZE = 200
 
 function requestError(message, statusCode = 400) {
   const error = new Error(message)
@@ -19,11 +22,44 @@ function pagination(url) {
   return { page, pageSize, offset: (page - 1) * pageSize }
 }
 
+/** Notes as rows for the settings page: identity is derived, semantics are not. */
+function noteRows(lines, firstSeen = null, stats = null) {
+  return lines.map((line) => {
+    const id = noteIdOf(line)
+    const stat = stats?.get(id)
+    return {
+      id,
+      kind: noteKindOf(line),
+      text: noteTextOf(line),
+      // When this note first appeared in a recorded run, so the page can answer
+      // "where did this come from" without a per-entry table.
+      firstSeen: firstSeen?.get(line) ?? null,
+      // Recall feedback: how many times a search actually returned this note.
+      recallCount: stat?.recallCount ?? 0,
+      lastRecalledAt: stat?.lastRecalledAt ?? null,
+    }
+  })
+}
+
+/**
+ * Which run first wrote each note, scanned oldest-to-newest over recent runs.
+ * Bounded by the run page size, so this stays a cheap read.
+ */
+function noteOrigins(repository, { runLimit = 50 } = {}) {
+  const origins = new Map()
+  for (const run of repository.listRuns({ limit: runLimit }).reverse()) {
+    for (const note of run.operations?.notesAfter ?? []) {
+      if (!origins.has(note)) origins.set(note, { runId: run.id, at: run.startedAt })
+    }
+  }
+  return origins
+}
+
 async function overview(repository) {
   const settings = await readDreamingSettings()
-  const memory = await readGlobalMemory()
   const resolved = await resolveDreamingModel(settings)
   const models = await listModelCatalog().catch(() => [])
+  const notes = await readAutoNotes()
   return {
     settings,
     // What a run would actually use right now, and why. Without this the page
@@ -42,14 +78,14 @@ async function overview(repository) {
     nextRunAt: settings.nextRunAt,
     lastRun: repository.latestRun(),
     counts: {
-      active: repository.countMemories({ status: 'active' }),
-      retired: repository.countMemories({ status: 'retired' }),
-      superseded: repository.countMemories({ status: 'superseded' }),
+      notes: notes.length,
       runs: repository.countRuns(),
     },
     memoryDocument: {
-      hasAutoSection: memory.markdown.includes(DREAMING_SECTION_BEGIN),
-      manual: splitMemorySections(memory.markdown).manual,
+      // The notes file is machine-owned; the manual file is a different document
+      // and is edited elsewhere (Settings → Memory).
+      dreamingNotes: (await readDreamingNotes().catch(() => '')).trim().length > 0,
+      manual: (await readGlobalMemory()).markdown,
     },
   }
 }
@@ -82,14 +118,15 @@ export async function handleDreamingApi(req, res, url) {
       }
       const current = await readDreamingSettings()
       const next = normalizeDreamingSettings({ ...current, ...body })
-      // Recompute the schedule whenever the trigger configuration changes, so a
-      // newly enabled daily run does not wait for the next tick to get a target.
-      if (next.scheduleEnabled && next.enabled) {
-        const needsSchedule = !current.enabled || !current.scheduleEnabled
+      // Enabled means "run daily at executeTime", so a target always exists; it is
+      // recomputed when the switch flips or the time changes, otherwise the
+      // runner's own advance is kept.
+      if (next.enabled) {
+        const needsSchedule = !current.enabled
           || current.executeTime !== next.executeTime
           || !next.nextRunAt
         if (needsSchedule) next.nextRunAt = nextScheduledRunAt(next.executeTime, new Date())
-      } else if (!next.enabled || !next.scheduleEnabled) {
+      } else {
         next.nextRunAt = null
       }
       sendJson(res, 200, await saveDreamingSettings(next))
@@ -113,98 +150,83 @@ export async function handleDreamingApi(req, res, url) {
   }
 
   if (rest[0] === 'runs') {
-    if (req.method !== 'GET') throw requestError('Method not allowed', 405)
+    if (req.method !== 'GET' && rest.length < 2) throw requestError('Method not allowed', 405)
     if (rest.length === 1) {
       const { page, pageSize, offset } = pagination(url)
       const runs = repository.listRuns({ limit: pageSize, offset })
       sendJson(res, 200, { runs, page, pageSize, total: repository.countRuns() })
       return
     }
+    if (rest[2] === 'restore') {
+      if (req.method !== 'POST') throw requestError('Method not allowed', 405)
+      const run = repository.findRun(decodeURIComponent(rest[1]))
+      if (!run) throw requestError('Dreaming run not found.', 404)
+      const notes = run.operations?.notesAfter
+      if (!Array.isArray(notes)) {
+        // Runs written before notesAfter existed cannot be restored: guessing the
+        // list from a partial diff would silently lose notes.
+        throw requestError('This run did not record its notes, so it cannot be restored.', 409)
+      }
+      const settings = await readDreamingSettings()
+      const saved = await writeDreamingNotes(composeAutoSection(notes), { allowSensitive: settings.allowSensitive })
+      sendJson(res, 200, { restored: notes.length, run, changed: saved.changed })
+      return
+    }
+    if (req.method !== 'GET') throw requestError('Method not allowed', 405)
     const run = repository.findRun(decodeURIComponent(rest[1]))
     if (!run) throw requestError('Dreaming run not found.', 404)
+    // Nothing else to join: the run row already carries the notes diff, and the
+    // raw model reply is the only other artifact a user can inspect.
+    sendJson(res, 200, { run })
+    return
+  }
+
+  if (rest[0] === 'notes') {
+    if (rest.length === 2) {
+      if (req.method !== 'DELETE') throw requestError('Method not allowed', 405)
+      const id = decodeURIComponent(rest[1])
+      const lines = await readAutoNotes()
+      const remaining = lines.filter((line) => noteIdOf(line) !== id)
+      if (remaining.length === lines.length) throw requestError('Note not found.', 404)
+      const settings = await readDreamingSettings()
+      // Deleting through the API keeps the file the single source of truth: the
+      // next run sees the shortened list and cannot resurrect the line.
+      await writeDreamingNotes(composeAutoSection(remaining), { allowSensitive: settings.allowSensitive })
+      try {
+        repository.deleteNoteStat(id)
+      } catch {
+        // Usage bookkeeping is best-effort; the note is already gone from the file.
+      }
+      sendJson(res, 200, { removed: 1, total: remaining.length })
+      return
+    }
+    if (req.method !== 'GET') throw requestError('Method not allowed', 405)
+    const query = String(url.searchParams.get('query') || '').trim().toLowerCase()
+    const kind = url.searchParams.get('kind') || null
+    const page = Math.max(1, Number(url.searchParams.get('page')) || 1)
+    const pageSize = Math.min(MAX_NOTE_PAGE_SIZE, Math.max(1, Number(url.searchParams.get('pageSize')) || MAX_NOTE_PAGE_SIZE))
+    const lines = await readAutoNotes()
+    const filtered = lines.filter((line) => {
+      if (kind && noteKindOf(line) !== kind) return false
+      return query ? line.toLowerCase().includes(query) : true
+    })
+    const offset = (page - 1) * pageSize
+    const stats = (() => {
+      try {
+        return repository.listNoteStats()
+      } catch {
+        return null
+      }
+    })()
     sendJson(res, 200, {
-      run,
-      events: collectRunEvents(repository, run),
-      memories: collectTouchedMemories(repository, run),
+      notes: noteRows(filtered.slice(offset, offset + pageSize), noteOrigins(repository), stats),
+      page,
+      pageSize,
+      total: filtered.length,
+      hasNotes: lines.length > 0,
     })
     return
   }
 
-  if (rest[0] === 'memories') {
-    if (rest.length === 1) {
-      if (req.method !== 'GET') throw requestError('Method not allowed', 405)
-      const { page, pageSize, offset } = pagination(url)
-      const memories = repository.listMemories({
-        query: url.searchParams.get('query') || '',
-        kind: url.searchParams.get('kind') || null,
-        status: url.searchParams.get('status') || 'active',
-        scope: url.searchParams.get('scope') || null,
-        projectId: url.searchParams.get('projectId') || null,
-        limit: pageSize,
-        offset,
-      })
-      sendJson(res, 200, { memories, page, pageSize, total: repository.countMemories({ status: url.searchParams.get('status') || 'active' }) })
-      return
-    }
-    const id = decodeURIComponent(rest[1])
-    if (rest[2] === 'retire') {
-      if (req.method !== 'POST') throw requestError('Method not allowed', 405)
-      const memory = repository.findById(id)
-      if (!memory) throw requestError('Memory not found.', 404)
-      if (memory.status !== 'active') throw requestError(`Memory is already ${memory.status}.`, 409)
-      const retired = repository.setStatus(id, 'retired', { now: Date.now() })
-      repository.logEvent({ memoryId: id, action: 'retire', before: memory, after: retired, now: Date.now() })
-      sendJson(res, 200, { memory: retired })
-      return
-    }
-    if (req.method !== 'GET') throw requestError('Method not allowed', 405)
-    const memory = repository.findById(id)
-    if (!memory) throw requestError('Memory not found.', 404)
-    sendJson(res, 200, { memory, events: repository.listEvents(id) })
-    return
-  }
-
   throw requestError('Not found', 404)
-}
-
-/**
- * The run row already carries the applied/rejected summary, but the audit trail
- * in `memory_events` is what proves an entry was actually touched; the detail
- * page shows both.
- */
-function collectRunEvents(repository, run) {
-  const ids = new Set()
-  for (const operation of run.operations) {
-    if (operation.id) ids.add(operation.id)
-    if (operation.replacementId) ids.add(operation.replacementId)
-  }
-  const events = []
-  for (const memoryId of ids) {
-    for (const event of repository.listEvents(memoryId, 20)) {
-      if (event.runId === run.id) events.push(event)
-    }
-  }
-  return events.sort((a, b) => b.ts - a.ts)
-}
-
-/**
- * Current state of every memory the run touched, keyed by id.
- *
- * The run page shows the *result* of each operation (content, evidence,
- * strength) next to what the model proposed, and the audit events carry the
- * before/after snapshots. Resolving them here keeps the client from issuing one
- * request per operation.
- */
-function collectTouchedMemories(repository, run) {
-  const ids = new Set()
-  for (const operation of run.operations) {
-    if (operation.id) ids.add(operation.id)
-    if (operation.replacementId) ids.add(operation.replacementId)
-  }
-  const memories = {}
-  for (const id of ids) {
-    const memory = repository.findById(id)
-    if (memory) memories[id] = memory
-  }
-  return memories
 }

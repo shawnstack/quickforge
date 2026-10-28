@@ -685,6 +685,78 @@ export const SQLITE_MIGRATIONS = Object.freeze([
       `)
     },
   }),
+  Object.freeze({
+    // Semantic recall for the experience store. Vectors are produced by whatever
+    // OpenAI-compatible /embeddings endpoint the user points at (Ollama, LM Studio,
+    // llama.cpp, vLLM) and kept as raw Float32 blobs instead of a vector index:
+    // the table holds a few thousand rows at most, so scoring every candidate in
+    // Node is cheaper than shipping and verifying a SQLite extension.
+    //
+    // `model` is part of the row rather than a column on `memories` so switching
+    // the embedding model invalidates vectors by mismatch instead of requiring a
+    // migration, and `content_hash` reuses the memory fingerprint so an edited
+    // memory is re-embedded instead of silently keeping a stale vector.
+    version: 16,
+    name: 'create_memory_embeddings',
+    up(database) {
+      database.exec(`
+        CREATE TABLE memory_embeddings (
+          memory_id TEXT PRIMARY KEY REFERENCES memories (id) ON DELETE CASCADE,
+          model TEXT NOT NULL CHECK (length(trim(model)) > 0),
+          dim INTEGER NOT NULL CHECK (dim > 0),
+          content_hash TEXT NOT NULL CHECK (length(content_hash) = 64),
+          vector BLOB NOT NULL CHECK (length(vector) = dim * 4),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= 0)
+        );
+
+        CREATE INDEX idx_memory_embeddings_model ON memory_embeddings (model);
+      `)
+    },
+  }),
+  Object.freeze({
+    // The structured experience store (rows + FTS index + per-entry audit +
+    // vectors) was replaced by a single LLM-owned notes block in MEMORY.md.
+    // Dropping the tables is the point: with no second store there is no
+    // dedupe/decay/retrieval pipeline to keep consistent with the notes file.
+    // Existing rows are intentionally discarded rather than migrated - the next
+    // run rebuilds the notes from the same session history.
+    version: 17,
+    name: 'drop_structured_memory_store',
+    up(database) {
+      database.exec(`
+        DROP TABLE IF EXISTS memory_embeddings;
+        DROP TABLE IF EXISTS memory_events;
+        DROP TABLE IF EXISTS memories_fts;
+        DROP TABLE IF EXISTS memories;
+      `)
+    },
+  }),
+  Object.freeze({
+    // Feedback loop for the notes file. The notes themselves stay a plain file
+    // owned by the model; this table only remembers "was this note ever actually
+    // recalled?", which is the one piece of evidence a file cannot carry.
+    //
+    // Keyed by the derived note id (hash of the text) instead of a row id, so the
+    // note has no identity to keep in sync: rewrite the wording and it is a new
+    // note with a fresh record.
+    version: 18,
+    name: 'create_dreaming_note_stats',
+    up(database) {
+      database.exec(`
+        CREATE TABLE dreaming_note_stats (
+          note_id TEXT PRIMARY KEY CHECK (length(trim(note_id)) > 0),
+          note_text TEXT NOT NULL CHECK (length(trim(note_text)) > 0),
+          recall_count INTEGER NOT NULL DEFAULT 0 CHECK (recall_count >= 0),
+          last_recalled_at INTEGER,
+          created_at INTEGER NOT NULL CHECK (created_at >= 0),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= 0)
+        );
+
+        CREATE INDEX idx_dreaming_note_stats_recall
+          ON dreaming_note_stats (recall_count, last_recalled_at);
+      `)
+    },
+  }),
 ])
 
 function readUserVersion(database) {

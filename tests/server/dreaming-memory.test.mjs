@@ -3,13 +3,15 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  DREAMING_SECTION_BEGIN,
-  DREAMING_SECTION_END,
-  composeMemoryDocument,
+  DREAMING_NOTES_FILE_NAME,
+  dreamingNotesFilePath,
   globalMemoryFilePath,
+  readDreamingNotes,
+  readDreamingNotesPrompt,
   readGlobalMemory,
-  splitMemorySections,
-  writeDreamingMemorySection,
+  readGlobalMemoryDocument,
+  saveGlobalMemoryDocument,
+  writeDreamingNotes,
 } from '../../server/global-memory.mjs'
 import {
   DEFAULT_DREAMING_SETTINGS,
@@ -29,59 +31,87 @@ afterEach(async () => {
 
 const MANUAL = '# 我的记忆\n\n我主要使用中文沟通。\n'
 
-describe('MEMORY.md dreaming section', () => {
-  it('appends an auto section without touching manual bytes', async () => {
+describe('two memory files', () => {
+  it('writes Dreaming notes to their own file and leaves MEMORY.md byte-identical', async () => {
     await writeFile(globalMemoryFilePath(dataDir), MANUAL, 'utf8')
-    await writeDreamingMemorySection('## 自动记忆\n\n- [fact] 使用 SQLite FTS5', { dataDir, allowSensitive: true })
-    const { markdown } = await readGlobalMemory({ dataDir })
-    expect(markdown.startsWith(MANUAL.trimEnd())).toBe(true)
-    expect(markdown).toContain(DREAMING_SECTION_BEGIN)
-    expect(markdown).toContain(DREAMING_SECTION_END)
-    const sections = splitMemorySections(markdown)
-    expect(sections.manual.trim()).toBe(MANUAL.trim())
-    expect(sections.auto).toContain('SQLite FTS5')
+    await writeDreamingNotes('## 记忆笔记\n\n- [fact] 使用 SQLite', { dataDir, allowSensitive: true })
+
+    // The human file is untouched: no markers, no spliced block.
+    expect((await readGlobalMemory({ dataDir })).markdown).toBe(MANUAL)
+    // The notes are in their own file, and that is what the return value points at.
+    expect(await readDreamingNotes({ dataDir })).toContain('- [fact] 使用 SQLite')
+    expect(dreamingNotesFilePath(dataDir).endsWith(DREAMING_NOTES_FILE_NAME)).toBe(true)
   })
 
-  it('rewrites the auto section in place on a second pass', async () => {
-    await writeFile(globalMemoryFilePath(dataDir), MANUAL, 'utf8')
-    await writeDreamingMemorySection('- first pass', { dataDir, allowSensitive: true })
-    await writeDreamingMemorySection('- second pass', { dataDir, allowSensitive: true })
-    const sections = splitMemorySections((await readGlobalMemory({ dataDir })).markdown)
-    expect(sections.auto).toBe('- second pass')
-    expect(sections.manual.trim()).toBe(MANUAL.trim())
-    expect((await readGlobalMemory({ dataDir })).markdown.match(/dreaming:auto:begin/g)).toHaveLength(1)
+  it('rewrites the notes file wholesale on a second pass', async () => {
+    await writeDreamingNotes('- first pass', { dataDir, allowSensitive: true })
+    await writeDreamingNotes('- second pass', { dataDir, allowSensitive: true })
+    const notes = await readDreamingNotes({ dataDir })
+    expect(notes).toContain('- second pass')
+    expect(notes).not.toContain('- first pass')
   })
 
-  it('preserves manual edits made between runs', async () => {
-    await writeFile(globalMemoryFilePath(dataDir), MANUAL, 'utf8')
-    await writeDreamingMemorySection('- auto one', { dataDir, allowSensitive: true })
-    const withEdit = composeMemoryDocument(`${MANUAL}\n新增手工条目。`, '- auto one')
-    await writeFile(globalMemoryFilePath(dataDir), withEdit, 'utf8')
-    await writeDreamingMemorySection('- auto two', { dataDir, allowSensitive: true })
-    const { markdown } = await readGlobalMemory({ dataDir })
-    expect(markdown).toContain('新增手工条目。')
-    expect(splitMemorySections(markdown).auto).toBe('- auto two')
+  it('treats empty notes as "delete the content", never as "keep the old version"', async () => {
+    await writeDreamingNotes('- something durable', { dataDir, allowSensitive: true })
+    const result = await writeDreamingNotes('', { dataDir, allowSensitive: true })
+    expect(result.changed).toBe(true)
+    expect((await readDreamingNotes({ dataDir })).trim()).toBe('')
   })
 
-  it('removes the section when given empty content', async () => {
-    await writeFile(globalMemoryFilePath(dataDir), MANUAL, 'utf8')
-    await writeDreamingMemorySection('- auto', { dataDir, allowSensitive: true })
-    await writeDreamingMemorySection('', { dataDir, allowSensitive: true })
-    const { markdown } = await readGlobalMemory({ dataDir })
-    expect(markdown).not.toContain(DREAMING_SECTION_BEGIN)
-    expect(markdown.trim()).toBe(MANUAL.trim())
+  it('reports no change when the notes are identical', async () => {
+    await writeDreamingNotes('- same', { dataDir, allowSensitive: true })
+    await expect(writeDreamingNotes('- same', { dataDir, allowSensitive: true })).resolves.toMatchObject({ changed: false })
   })
 
-  it('refuses secrets when sensitive content is not allowed', async () => {
-    await writeFile(globalMemoryFilePath(dataDir), MANUAL, 'utf8')
-    await expect(writeDreamingMemorySection('- token: sk-abcdefghijklmnopqrstuv', { dataDir, allowSensitive: false }))
-      .rejects.toThrow(/Sensitive/i)
-    expect((await readFile(globalMemoryFilePath(dataDir), 'utf8')).trim()).toBe(MANUAL.trim())
+  it('refuses secrets unless sensitive content is explicitly allowed', async () => {
+    await expect(writeDreamingNotes('- 令牌 sk-live-abcdefghijklmnopqrstuvwxyz', { dataDir, allowSensitive: false }))
+      .rejects.toThrow(/Sensitive/)
+    // With the setting on, the worker is allowed to store what it extracted.
+    await expect(writeDreamingNotes('- 令牌 sk-live-abcdefghijklmnopqrstuvwxyz', { dataDir, allowSensitive: true }))
+      .resolves.toMatchObject({ changed: true })
   })
 
-  it('caps the auto section size', async () => {
-    await expect(writeDreamingMemorySection('x'.repeat(5000), { dataDir, allowSensitive: true }))
-      .rejects.toThrow(/size limit/i)
+  it('caps the notes file size', async () => {
+    await expect(writeDreamingNotes(`- ${'x'.repeat(9000)}`, { dataDir, allowSensitive: true }))
+      .rejects.toThrow(/size limit/)
+  })
+
+  it('returns both documents, with the notes read-only', async () => {
+    await writeFile(globalMemoryFilePath(dataDir), MANUAL, 'utf8')
+    await writeDreamingNotes('- 一条笔记', { dataDir, allowSensitive: true })
+
+    const document = await readGlobalMemoryDocument({ dataDir, enabled: true })
+    expect(document.markdown).toBe(MANUAL)
+    expect(document.dreaming).toContain('一条笔记')
+    expect(document.path).toBe('~/.quickforge/MEMORY.md')
+    expect(document.dreamingPath).toBe('~/.quickforge/DREAMING.md')
+  })
+
+  it('injects the notes as a separate prompt block', async () => {
+    await expect(readDreamingNotesPrompt({ dataDir, enabled: true })).resolves.toMatchObject({ content: null })
+    await writeDreamingNotes('- 一条笔记', { dataDir, allowSensitive: true })
+    await expect(readDreamingNotesPrompt({ dataDir, enabled: true })).resolves.toMatchObject({
+      source: '~/.quickforge/DREAMING.md',
+      content: expect.stringContaining('一条笔记'),
+    })
+    await expect(readDreamingNotesPrompt({ dataDir, enabled: false })).resolves.toBeNull()
+  })
+
+  it('saves the human file without merging anything back in', async () => {
+    await writeDreamingNotes('- 机器笔记', { dataDir, allowSensitive: true })
+    const saved = await saveGlobalMemoryDocument('# 重写后的人工记忆', { dataDir, enabled: true })
+    expect(saved.markdown).toBe('# 重写后的人工记忆')
+    // Saving the human file cannot touch the notes, and vice versa.
+    expect((await readDreamingNotes({ dataDir })).trim()).toBe('- 机器笔记')
+  })
+
+  it('keeps the notes file independent of the human file on disk', async () => {
+    await saveGlobalMemoryDocument(MANUAL, { dataDir, enabled: true })
+    await writeDreamingNotes('- 笔记', { dataDir, allowSensitive: true })
+    const manualFile = await readFile(globalMemoryFilePath(dataDir), 'utf8')
+    const notesFile = await readFile(dreamingNotesFilePath(dataDir), 'utf8')
+    expect(manualFile).not.toContain('笔记')
+    expect(notesFile).not.toContain('我的记忆')
   })
 })
 

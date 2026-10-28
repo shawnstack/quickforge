@@ -721,58 +721,57 @@ html.dark .quickforge-todo-history-item--completed .quickforge-todo-history-stat
 }
 
 /* 错误块：无 details 的失败帧（审批拒绝、参数校验失败）仍要在聊天里透出原因。
-   错误原文可能很长（含「已完成步骤」清单），默认只露两行，长文本给展开按钮。 */
+   折叠态只留一个错误图标，点击就地展开原文（展开后 40vh 内滚动），
+   避免服务端不截断的长错误铺满消息流。 */
 .quickforge-workflow-error {
   display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin-top: 0.125rem;
   border-left: 2px solid var(--destructive);
   border-radius: 0 0.375rem 0.375rem 0;
   background: color-mix(in oklab, var(--destructive) 6%, transparent);
-  padding: 0.25rem 0.625rem;
+  padding: 0.1875rem 0.3125rem 0.1875rem 0.375rem;
 }
 
-.quickforge-workflow-error-text {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-
-/* 展开后不截断，但限制高度并在内部滚动，避免又铺满整个消息流。 */
-.quickforge-workflow-error[data-open='true'] .quickforge-workflow-error-text {
-  display: block;
-  max-height: 40vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.quickforge-workflow-error-label {
-  font-weight: 600;
-  color: var(--destructive);
+.quickforge-workflow-error[data-open='true'] {
+  padding: 0.3125rem 0.625rem;
 }
 
 .quickforge-workflow-error-toggle {
-  align-self: flex-start;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
   padding: 0;
   border: 0;
+  border-radius: 0.3125rem;
   background: transparent;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+  color: var(--destructive);
   cursor: pointer;
-  transition: color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
 }
 
 .quickforge-workflow-error-toggle:hover {
-  color: var(--foreground);
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
 }
 
 .quickforge-workflow-error-toggle:focus-visible {
   outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
   outline-offset: 1px;
+}
+
+.quickforge-workflow-error-text {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -203,7 +203,7 @@ export function createAskUserPromise(session, toolCallId, params) {
  * Auto-compact confirmation promise.
  *
  * Resolves an `AUTO_COMPACT_DECISION` instead of a boolean so the caller can
- * distinguish "user said no" (suppress for 10 minutes) from "nobody answered"
+ * distinguish "user said no" (skip this attempt; next over-threshold request asks again) from "nobody answered"
  * (drop the card, do not suppress) and "no channel" (server misconfiguration).
  *
  * Every terminal path emits `auto_compact_approval_settled`. The timeout path

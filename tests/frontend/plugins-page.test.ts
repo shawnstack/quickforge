@@ -125,4 +125,65 @@ describe('PluginListItem', () => {
     expect(html).toContain('quickforge-settings-alert')
     expect(html).toContain('插件加载失败')
   })
+
+  it('surfaces the ui contribution: slots, action count and claimed permissions', () => {
+    applyAppLanguageFromSnapshot('en')
+    const html = renderToStaticMarkup(
+      createElement(PluginListItem, {
+        plugin: pluginFixture({
+          name: 'custom',
+          displayName: 'Custom',
+          ui: {
+            slots: ['composer.actions', 'session.header'],
+            actions: ['greet', 'reset'],
+            panels: [],
+            permissions: ['ui:composer', 'ui:session'],
+            digest: 'digest',
+          },
+        }),
+        busy: false,
+        onToggle: vi.fn(),
+      })
+    )
+
+    // Locale-independent: slot names and permission strings are identifiers.
+    expect(html).toContain('composer.actions')
+    expect(html).toContain('session.header')
+    expect(html).toContain('ui:composer')
+    expect(html).toContain('ui:session')
+    expect(html).toContain(t('pluginUiActionLabel'))
+  })
+
+  it('surfaces normaliser warnings so stripped styles are not a mystery', () => {
+    applyAppLanguageFromSnapshot('en')
+    const warnings = ['Ignored forbidden UI node attribute "style" on <button>.']
+    const html = renderToStaticMarkup(
+      createElement(PluginListItem, {
+        plugin: pluginFixture({
+          name: 'custom',
+          displayName: 'Custom',
+          ui: { slots: [], actions: [], panels: [], permissions: [], digest: 'digest', warnings },
+        }),
+        busy: false,
+        onToggle: vi.fn(),
+      })
+    )
+
+    expect(html).toContain(t('pluginUiWarnings', { count: 1 }))
+    // The detail is a tooltip, not a wall of text on the row.
+    expect(html).toContain('Ignored forbidden UI node attribute')
+  })
+
+  it('renders no ui block for a plugin without ui contributions', () => {
+    applyAppLanguageFromSnapshot('en')
+    const html = renderToStaticMarkup(
+      createElement(PluginListItem, {
+        plugin: pluginFixture({ name: 'custom', displayName: 'Custom' }),
+        busy: false,
+        onToggle: vi.fn(),
+      })
+    )
+    expect(html).not.toContain('ui:composer')
+    expect(html).not.toContain(t('pluginUiActionLabel'))
+  })
 })

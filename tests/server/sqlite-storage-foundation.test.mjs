@@ -126,23 +126,17 @@ describe('SQLite storage foundation', () => {
     // guards against partially applied or duplicated rows without restating
     // the version number in the test.
     expect(rowsAfter).toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
-    // The memories_fts* rows are FTS5 shadow tables for the Dreaming trigram
-    // index; SQLite creates them as real tables, so they show up here too.
+    // The memories / memories_fts / memory_events / memory_embeddings rows are
+    // gone as of v17: Dreaming now owns a notes block inside MEMORY.md and keeps
+    // only its run log in SQLite.
     expect(tables).toEqual([
+      { name: 'dreaming_note_stats' },
       { name: 'dreaming_runs' },
       { name: 'lan_access_json_mirror_queue' },
       { name: 'lan_access_maintenance_lock' },
       { name: 'lan_access_state' },
       { name: 'lan_access_storage_state' },
       { name: 'lan_access_tokens' },
-      { name: 'memories' },
-      { name: 'memories_fts' },
-      { name: 'memories_fts_config' },
-      { name: 'memories_fts_content' },
-      { name: 'memories_fts_data' },
-      { name: 'memories_fts_docsize' },
-      { name: 'memories_fts_idx' },
-      { name: 'memory_events' },
       { name: 'scheduled_runs_maintenance_lock' },
       { name: 'scheduled_runs_state' },
       { name: 'scheduled_task_runs' },

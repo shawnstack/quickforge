@@ -7,9 +7,15 @@ export const WINDOW_ENABLE_TURNS = 6
 export const WINDOW_ENABLE_MESSAGES = 48
 /** Approximate content characters before a short-turn conversation is windowed. */
 export const WINDOW_ENABLE_CONTENT_CHARS = 80_000
-/** How many recent turns are rendered by default. */
+/** Initial window width: how many recent turns are rendered before paging. */
 export const WINDOW_TURNS = 3
-/** How many older turns are loaded each time the user scrolls to the top. */
+/**
+ * How many older turns are added each time the user scrolls to the top.
+ *
+ * `loadMore` WIDENS the window (start moves back, end stays put). Sliding the
+ * whole window forward instead would unmount every rendered row, which breaks
+ * the scroll anchor and lands the viewport at the bottom of the swapped page.
+ */
 export const WINDOW_PAGE_TURNS = 3
 
 type MessageWindowOptions = {
@@ -23,8 +29,13 @@ type MessageWindowOptions = {
 }
 
 export type MessageWindowController = {
-  /** Feed the full message array; returns the window array to render in `MessageList`. */
-  setFullMessages(messages: AgentMessage[]): AgentMessage[]
+  /**
+   * Feed the full message array; returns the window array to render.
+   *
+   * `followTail` (default true) says whether the reader is at the tail: it only
+   * decides whether a paged window keeps tracking the tail on its right edge.
+   */
+  setFullMessages(messages: AgentMessage[], followTail?: boolean): AgentMessage[]
   /** Full-array index of the first rendered message (used to offset rollback/retry indices). */
   getWindowStart(): number
   /** The window array currently rendered by `MessageList` (turn slice + required toolResults). */
@@ -33,8 +44,28 @@ export type MessageWindowController = {
   isEnabled(): boolean
   /** Whether earlier turns exist that can still be loaded. */
   hasMore(): boolean
+  /**
+   * Whether the rendered window IS the tail window (no older turns paged in).
+   *
+   * Distinct from "the newest turn is inside the window": while following the
+   * tail every window contains the newest turn, and so does a window that has
+   * paged nine turns of history back in. Callers that need to know whether
+   * anything would be dropped by re-slicing must ask this, not `atTail`.
+   */
+  isAtTail(): boolean
   /** Extend the window one page of turns back; returns the new window array (or null when nothing to load). */
   loadMore(): AgentMessage[] | null
+  /** Whether newer turns exist beyond the window's right edge. */
+  hasMoreNewer(): boolean
+  /**
+   * Extend the window one page FORWARD; returns the new window array (or null).
+   *
+   * The mirror of `loadMore`: content is appended below the viewport, so no
+   * scroll compensation is needed. Without this, a window that was moved back to
+   * an early turn would simply end there and the reader could not scroll through
+   * the conversation that follows.
+   */
+  loadNewer(): AgentMessage[] | null
   /** Move the rendered window so the turn containing the full-array message index is visible. */
   showMessageIndex(messageIndex: number): AgentMessage[] | null
   /** Un-pin the window so it follows the tail again (e.g. user scrolled back to the bottom). */
@@ -139,6 +170,17 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
   let turnStarts: number[] = []
   let activeWindowTurns = windowTurns
   let startOrdinal = 0
+  /**
+   * Exclusive end ordinal of the rendered window.
+   *
+   * Held as state (not derived as `startOrdinal + activeWindowTurns`) because
+   * `loadMore` must WIDEN the window: extending the start while the end slides
+   * along with it replaced every rendered row with an older page, which dropped
+   * the row the user was reading from the DOM, made anchor resolution fail, and
+   * left the viewport parked at the bottom of the freshly swapped page — the
+   * "I scroll up and get thrown back down" feel.
+   */
+  let endOrdinal = 0
   let windowStart = 0
   let windowMessages: AgentMessage[] = []
   let pinned = false
@@ -146,20 +188,38 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
 
   const tailOrdinal = (turnCount: number) => Math.max(0, turnCount - activeWindowTurns)
 
+  /** Same rows in the same order — used to keep the array identity stable. */
+  const sameRows = (a: AgentMessage[], b: AgentMessage[]) => {
+    if (a === b) return true
+    if (a.length !== b.length) return false
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+    return true
+  }
+
   const rebuild = () => {
-    // Window covers exactly `windowTurns` turns, starting at the first turn
-    // of the window (`startOrdinal` = index into `turnStarts`). If the window
-    // reaches all the way back to the first turn, include any leading
-    // non-user messages (artifacts etc.) from index 0.
+    // Window covers turns [startOrdinal, endOrdinal). If it reaches all the way
+    // back to the first turn, include any leading non-user messages (artifacts
+    // etc.) from index 0.
     const start = startOrdinal === 0 ? 0 : turnStarts[startOrdinal]
-    const endOrdinal = Math.min(turnStarts.length, startOrdinal + activeWindowTurns)
     const end = endOrdinal < turnStarts.length ? turnStarts[endOrdinal] : allMessages.length
+    const next = buildWindow(allMessages, start, end)
+    // Keep the previous identity when the window did not move: `ChatSurface` and
+    // `MessageList` both bail out on identity, so re-slicing an unchanged window
+    // would re-render every row (and re-run the decoration pass) for nothing.
+    if (windowStart === start && sameRows(next, windowMessages)) return
     windowStart = start
-    windowMessages = buildWindow(allMessages, start, end)
+    windowMessages = next
   }
 
   return {
-    setFullMessages(messages) {
+    setFullMessages(messages, followTail = true) {
+      // Whether the window's right edge already reached the tail BEFORE this
+      // update. Only then may it keep following: a window that was moved back to
+      // an early turn must not jump to the tail on the next snapshot (that both
+      // mounts the whole conversation at once and yanks the viewport to the
+      // bottom). Scrolling forward is what advances it, one page at a time
+      // (`loadNewer`).
+      const wasAtEnd = endOrdinal >= turnStarts.length
       allMessages = messages
       turnStarts = collectTurnStarts(messages)
       const turnCount = turnStarts.length
@@ -169,6 +229,7 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
         || exceedsContentThreshold(messages, enableContentChars))
       if (!enabled) {
         startOrdinal = 0
+        endOrdinal = turnCount
         windowStart = 0
         windowMessages = messages
         pinned = false
@@ -176,9 +237,17 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
       }
       if (!pinned) {
         startOrdinal = tailOrdinal(turnCount)
+        endOrdinal = turnCount
       } else {
         // Keep the pinned position, but clamp if the history shrank (rollback / compaction).
         startOrdinal = Math.max(0, Math.min(startOrdinal, tailOrdinal(turnCount)))
+        // Follow the tail only when the window was already at it AND the reader is
+        // following. Extending during streaming would otherwise re-render every
+        // row of a large window on every token, and moving an early window to the
+        // tail would replace the content under the viewport.
+        endOrdinal = wasAtEnd && followTail
+          ? turnCount
+          : Math.max(startOrdinal + 1, Math.min(endOrdinal, turnCount))
       }
       rebuild()
       return windowMessages
@@ -200,10 +269,28 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
       return enabled && startOrdinal > 0
     },
 
+    hasMoreNewer() {
+      return enabled && endOrdinal < turnStarts.length
+    },
+
+    isAtTail() {
+      // A disabled window renders the whole array, so it is always "at tail".
+      return !enabled || startOrdinal >= tailOrdinal(turnStarts.length)
+    },
+
     loadMore() {
       if (!enabled || startOrdinal <= 0) return null
       pinned = true
       startOrdinal = Math.max(0, startOrdinal - pageTurns)
+      rebuild()
+      return windowMessages
+    },
+
+    loadNewer() {
+      if (!enabled || endOrdinal >= turnStarts.length) return null
+      // Appended below the viewport: no anchor needed, the reader keeps their
+      // position and scrolls into the newly mounted turns.
+      endOrdinal = Math.min(turnStarts.length, endOrdinal + pageTurns)
       rebuild()
       return windowMessages
     },
@@ -217,11 +304,15 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
         targetOrdinal = ordinal
       }
 
-      const currentEndOrdinal = Math.min(turnStarts.length, startOrdinal + activeWindowTurns)
+      const currentEndOrdinal = Math.min(turnStarts.length, endOrdinal)
       if (targetOrdinal >= startOrdinal && targetOrdinal < currentEndOrdinal) return windowMessages
 
       pinned = true
+      // A jump gets a fixed-width window around its target, so "jump to turn 3 of
+      // 50" does not mount 3..50. The reader scrolls forward page by page from
+      // there (`loadNewer`).
       startOrdinal = Math.min(targetOrdinal, tailOrdinal(turnStarts.length))
+      endOrdinal = Math.min(turnStarts.length, startOrdinal + activeWindowTurns)
       rebuild()
       return windowMessages
     },

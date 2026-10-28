@@ -3,11 +3,26 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { dataDir, readStore } from './storage.mjs'
 
+/**
+ * Two separate memory files, both injected into the system prompt.
+ *
+ * - `MEMORY.md` is the human file. Only the user (and the `manage_global_memory`
+ *   tool acting for them) writes it. Nothing machine-generated is spliced into it.
+ * - `DREAMING.md` is the machine file. The Dreaming worker owns it end to end and
+ *   rewrites it wholesale on every run.
+ *
+ * Keeping them in two files instead of two marked regions of one file removes the
+ * whole class of "did the editor clobber the machine block" problems: no markers,
+ * no re-composition on save, no partial ownership.
+ */
+
 export const GLOBAL_MEMORY_SETTINGS_KEY = 'memory-settings'
 export const GLOBAL_MEMORY_FILE_NAME = 'MEMORY.md'
+export const DREAMING_NOTES_FILE_NAME = 'DREAMING.md'
 export const DEFAULT_GLOBAL_MEMORY_SETTINGS = { enabled: true }
 
 const MAX_MEMORY_FILE_BYTES = 16 * 1024
+const MAX_DREAMING_FILE_BYTES = 8 * 1024
 
 let memoryWriteQueue = Promise.resolve()
 
@@ -27,6 +42,10 @@ export async function isGlobalMemoryEnabled() {
 
 export function globalMemoryFilePath(baseDir = dataDir) {
   return path.join(baseDir, GLOBAL_MEMORY_FILE_NAME)
+}
+
+export function dreamingNotesFilePath(baseDir = dataDir) {
+  return path.join(baseDir, DREAMING_NOTES_FILE_NAME)
 }
 
 function requestError(message, statusCode = 400) {
@@ -77,17 +96,31 @@ export async function readGlobalMemory(options = {}) {
   }
 }
 
-export async function readGlobalMemoryDocument(options = {}) {
-  const memory = await readGlobalMemory(options)
-  return {
-    enabled: options.enabled === undefined ? await isGlobalMemoryEnabled() : options.enabled,
-    markdown: memory.markdown,
-    path: '~/.quickforge/MEMORY.md',
+export async function readDreamingNotes(options = {}) {
+  const file = dreamingNotesFilePath(options.dataDir)
+  try {
+    return await fs.readFile(file, 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') return ''
+    throw error
   }
 }
 
-async function writeGlobalMemoryMarkdown(markdown, options = {}) {
-  const file = globalMemoryFilePath(options.dataDir)
+export async function readGlobalMemoryDocument(options = {}) {
+  const memory = await readGlobalMemory(options)
+  const dreaming = await readDreamingNotes(options).catch(() => '')
+  return {
+    enabled: options.enabled === undefined ? await isGlobalMemoryEnabled() : options.enabled,
+    markdown: memory.markdown,
+    // Shown read-only next to the editable file: it is the model's output, and the
+    // only supported way to change it is the next Dreaming run.
+    dreaming,
+    path: '~/.quickforge/MEMORY.md',
+    dreamingPath: '~/.quickforge/DREAMING.md',
+  }
+}
+
+async function writeMarkdownAtomically(file, markdown) {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
   await fs.writeFile(temporary, markdown, 'utf8')
@@ -110,7 +143,7 @@ export async function saveGlobalMemoryDocument(markdown, options = {}) {
   await assertMemoryEnabled(options)
   const validated = validateGlobalMemoryMarkdown(markdown)
   return withMemoryWriteLock(async () => {
-    const file = await writeGlobalMemoryMarkdown(validated, options)
+    const file = await writeMarkdownAtomically(globalMemoryFilePath(options.dataDir), validated)
     return {
       enabled: true,
       markdown: validated,
@@ -118,6 +151,28 @@ export async function saveGlobalMemoryDocument(markdown, options = {}) {
       file,
       chars: validated.length,
     }
+  })
+}
+
+/**
+ * Rewrite DREAMING.md. Empty content deletes the file's content (a valid "there
+ * was nothing durable today"), never leaves a stale version behind.
+ */
+export async function writeDreamingNotes(markdown, options = {}) {
+  const validated = String(markdown ?? '').trim()
+  if (Buffer.byteLength(validated, 'utf8') > MAX_DREAMING_FILE_BYTES) {
+    throw requestError('Dreaming notes exceed the size limit.')
+  }
+  if (options.allowSensitive !== true && containsSensitiveMemory(validated)) {
+    throw requestError('Sensitive credentials or secrets cannot be stored in dreaming notes.')
+  }
+  return withMemoryWriteLock(async () => {
+    const current = await readDreamingNotes(options).catch(() => '')
+    if (current.trim() === validated) {
+      return { changed: false, markdown: validated, path: '~/.quickforge/DREAMING.md' }
+    }
+    await writeMarkdownAtomically(dreamingNotesFilePath(options.dataDir), validated ? `${validated}\n` : '')
+    return { changed: true, markdown: validated, path: '~/.quickforge/DREAMING.md' }
   })
 }
 
@@ -132,65 +187,19 @@ export async function readGlobalMemoryPrompt(options = {}) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Dreaming-managed region
-//
-// The dreaming worker owns exactly the bytes between the two markers and must
-// never touch the rest of the file. Users (and `manage_global_memory`) keep full
-// free-form control of the manual region, including deleting the markers to opt
-// out of automatic summarization entirely.
-// ---------------------------------------------------------------------------
-
-export const DREAMING_SECTION_BEGIN = '<!-- dreaming:auto:begin -->'
-export const DREAMING_SECTION_END = '<!-- dreaming:auto:end -->'
-export const DREAMING_SECTION_MAX_BYTES = 4 * 1024
-
-export function splitMemorySections(markdown) {
-  const text = typeof markdown === 'string' ? markdown : ''
-  const begin = text.indexOf(DREAMING_SECTION_BEGIN)
-  const end = text.indexOf(DREAMING_SECTION_END)
-  if (begin === -1 || end === -1 || end < begin) {
-    return { manual: text, auto: null, hasAuto: false }
-  }
-  return {
-    manual: `${text.slice(0, begin)}${text.slice(end + DREAMING_SECTION_END.length)}`.trimEnd(),
-    auto: text.slice(begin + DREAMING_SECTION_BEGIN.length, end).trim(),
-    hasAuto: true,
-  }
-}
-
-export function composeMemoryDocument(manual, auto) {
-  const head = String(manual ?? '').trimEnd()
-  if (!auto) return head ? `${head}\n` : ''
-  const block = `${DREAMING_SECTION_BEGIN}\n${String(auto).trim()}\n${DREAMING_SECTION_END}`
-  return head ? `${head}\n\n${block}\n` : `${block}\n`
-}
-
 /**
- * Rewrite only the Dreaming region, preserving the manual region byte-for-byte.
- * Passing an empty `auto` removes the region (used when dreaming is switched off).
+ * The machine-owned notes as a prompt block. Separate from the human file so the
+ * two can never be confused for each other by the model either.
  */
-export async function writeDreamingMemorySection(autoMarkdown, options = {}) {
-  const validated = String(autoMarkdown ?? '').trim()
-  if (Buffer.byteLength(validated, 'utf8') > DREAMING_SECTION_MAX_BYTES) {
-    throw requestError('Dreaming memory section exceeds the size limit.')
+export async function readDreamingNotesPrompt(options = {}) {
+  if (options.enabled === false) return null
+  if (options.enabled === undefined && !(await isGlobalMemoryEnabled())) return null
+  const notes = await readDreamingNotes(options).catch(() => '')
+  return {
+    source: '~/.quickforge/DREAMING.md',
+    content: notes.trim() || null,
+    enabled: true,
   }
-  if (options.allowSensitive !== true && containsSensitiveMemory(validated)) {
-    throw requestError('Sensitive credentials or secrets cannot be stored in global memory.')
-  }
-  return withMemoryWriteLock(async () => {
-    const memory = await readGlobalMemory(options)
-    const sections = splitMemorySections(memory.markdown)
-    const next = composeMemoryDocument(sections.manual, validated)
-    if (Buffer.byteLength(next, 'utf8') > MAX_MEMORY_FILE_BYTES) {
-      throw requestError('Global memory exceeds the size limit.')
-    }
-    if (next === memory.markdown) {
-      return { changed: false, markdown: next, path: '~/.quickforge/MEMORY.md' }
-    }
-    await writeGlobalMemoryMarkdown(next, options)
-    return { changed: true, markdown: next, path: '~/.quickforge/MEMORY.md' }
-  })
 }
 
 export async function manageGlobalMemory(params = {}, options = {}) {

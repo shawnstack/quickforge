@@ -436,7 +436,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
         enabled: autoCompactRef.current.enabled,
         thresholdPercent: autoCompactRef.current.thresholdPercent,
         keepRecentTurns: autoCompactRef.current.keepRecentTurns,
-        minSourceChars: 1600,
         requireConfirmation: autoCompactRef.current.requireConfirmation,
       })
       markSaved()

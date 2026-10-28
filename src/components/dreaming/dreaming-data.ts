@@ -3,11 +3,9 @@ import { t } from '@/lib/i18n'
 export type DreamingTrigger = 'schedule' | 'manual'
 export type DreamingRunStatus = 'running' | 'succeeded' | 'failed' | 'skipped'
 export type MemoryKind = 'fact' | 'preference' | 'experience' | 'pitfall' | 'decision'
-export type MemoryStatus = 'active' | 'superseded' | 'retired'
 
 export type DreamingSettings = {
   enabled: boolean
-  scheduleEnabled: boolean
   executeTime: string
   /** Pinned model reference, or null to follow the chat model. */
   modelRef: { source: string; providerId?: string; modelId?: string } | null
@@ -17,17 +15,19 @@ export type DreamingSettings = {
   lastRunAt: number | null
 }
 
-export type DreamingRunOperation = {
-  action: string
-  phase: 'applied' | 'rejected' | 'decayed'
-  id?: string
-  kind?: string | null
-  scope?: string | null
-  content?: string | null
-  reason?: string | null
-  targetId?: string | null
-  replacementId?: string
-  replacementContent?: string | null
+/**
+ * What a run changed in the notes block.
+ *
+ * There are no per-entry rows any more, so "what did it learn / what did it
+ * forget" is recorded as a line diff. `dropped` explains lines the code refused
+ * (sensitive content, or over the size budget).
+ */
+export type DreamingRunDiff = {
+  added: string[]
+  removed: string[]
+  dropped?: { reason: string; content: string }[]
+  /** Full notes list at the end of that run; null on runs recorded before it. */
+  notesAfter?: string[] | null
 }
 
 export type DreamingRunSession = {
@@ -57,28 +57,23 @@ export type DreamingRun = {
   retiredCount: number
   rejectedCount: number
   summary: string | null
-  operations: DreamingRunOperation[]
+  operations: DreamingRunDiff
   error: string | null
   startedAt: number
   finishedAt: number | null
   durationMs: number | null
 }
 
-export type DreamingMemory = {
+/** One bullet of the Dreaming notes block in MEMORY.md. */
+export type DreamingNote = {
   id: string
-  scope: 'global' | 'project'
-  projectId: string
-  kind: MemoryKind
-  content: string
-  evidence: { sessionId: string; seq: number | null; note: string }[]
-  confidence: number
-  strength: number
-  status: MemoryStatus
-  supersededBy: string | null
-  createdAt: number
-  updatedAt: number
-  lastRecalledAt: number | null
-  recallCount: number
+  kind: MemoryKind | null
+  text: string
+  /** Where it first appeared, resolved from recent run snapshots. */
+  firstSeen?: { runId: string; at: number } | null
+  /** How many times recall_experience actually returned this note. */
+  recallCount?: number
+  lastRecalledAt?: number | null
 }
 
 export type DreamingModelOption = {
@@ -104,12 +99,12 @@ export type DreamingOverview = {
   running: boolean
   nextRunAt: number | null
   lastRun: DreamingRun | null
-  counts: { active: number; retired: number; superseded: number; runs: number }
-  memoryDocument: { hasAutoSection: boolean; manual: string }
+  counts: { notes: number; runs: number }
+  memoryDocument: { dreamingNotes: boolean; manual: string }
 }
 
 export type DreamingRunPage = { runs: DreamingRun[]; page: number; pageSize: number; total: number }
-export type DreamingMemoryPage = { memories: DreamingMemory[]; page: number; pageSize: number; total: number }
+export type DreamingNotePage = { notes: DreamingNote[]; page: number; pageSize: number; total: number; hasNotes: boolean }
 
 export async function requestDreamingJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -141,42 +136,46 @@ export function fetchDreamingRuns(page: number, pageSize: number): Promise<Dream
   return requestDreamingJson<DreamingRunPage>(`/api/dreaming/runs?page=${page}&pageSize=${pageSize}`)
 }
 
-export type DreamingRunDetail = {
-  run: DreamingRun
-  events: {
-    id: number
-    memoryId: string
-    action: string
-    before: DreamingMemory | null
-    after: DreamingMemory | null
-    runId: string | null
-    ts: number
-  }[]
-  memories: Record<string, DreamingMemory>
-}
+export type DreamingRunDetail = { run: DreamingRun }
 
 export function fetchDreamingRun(id: string): Promise<DreamingRunDetail> {
   return requestDreamingJson<DreamingRunDetail>(`/api/dreaming/runs/${encodeURIComponent(id)}`)
 }
 
-export function fetchDreamingMemories(params: {
-  query?: string
-  kind?: string
-  status?: string
-  page?: number
-  pageSize?: number
-}): Promise<DreamingMemoryPage> {
-  const search = new URLSearchParams()
-  search.set('page', String(params.page ?? 1))
-  search.set('pageSize', String(params.pageSize ?? 20))
-  if (params.query?.trim()) search.set('query', params.query.trim())
-  if (params.kind) search.set('kind', params.kind)
-  if (params.status) search.set('status', params.status)
-  return requestDreamingJson<DreamingMemoryPage>(`/api/dreaming/memories?${search.toString()}`)
+/**
+ * Write a past run's snapshot back into DREAMING.md. This is the escape hatch for
+ * memory drift: the notes are the model's output, so "undo that run" has to be a
+ * real operation rather than a manual file edit.
+ */
+export function restoreDreamingRun(id: string): Promise<{ restored: number; changed: boolean; run: DreamingRun }> {
+  return requestDreamingJson(`/api/dreaming/runs/${encodeURIComponent(id)}/restore`, { method: 'POST' })
 }
 
-export function retireDreamingMemory(id: string): Promise<{ memory: DreamingMemory }> {
-  return requestDreamingJson(`/api/dreaming/memories/${encodeURIComponent(id)}/retire`, { method: 'POST' })
+/**
+ * The notes are read-only in the UI: they are the model's output, and the only
+ * supported way to change them is the next Dreaming run (or editing MEMORY.md's
+ * manual section by hand, which is a different block).
+ */
+export function fetchDreamingNotes(params: {
+  query?: string
+  kind?: string
+  page?: number
+  pageSize?: number
+}): Promise<DreamingNotePage> {
+  const search = new URLSearchParams()
+  search.set('page', String(params.page ?? 1))
+  search.set('pageSize', String(params.pageSize ?? 50))
+  if (params.query?.trim()) search.set('query', params.query.trim())
+  if (params.kind) search.set('kind', params.kind)
+  return requestDreamingJson<DreamingNotePage>(`/api/dreaming/notes?${search.toString()}`)
+}
+
+/**
+ * Delete one note. The notes file is the only store, so this is a real edit of the
+ * file — the next run sees the shortened list and cannot bring the line back.
+ */
+export function deleteDreamingNote(id: string): Promise<{ removed: number; total: number }> {
+  return requestDreamingJson(`/api/dreaming/notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 /**

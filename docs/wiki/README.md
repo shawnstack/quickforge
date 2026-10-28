@@ -53,7 +53,7 @@ quickforge/
 | [浏览器缓存策略](../architecture/browser-cache-strategy.zh-CN.md) | 应用层缓存分级与已实施范围 |
 | [会话打开快路径](../architecture/session-open-fast-path.zh-CN.md) | 打开历史会话的耗时构成、交互契约红线、内容寻址渲染缓存与后续里程碑 |
 | [对话轨迹](../architecture/conversation-trace.zh-CN.md) | 对话区的只读运行时视图（Turn→Step→Tool 投影、三轨时间总览、检查器、不虚构耗时） |
-| [Dreaming 记忆固化](../architecture/dreaming-memory.zh-CN.md) | 后台把已结束会话沉淀为长期记忆（结构化经验库 + FTS5 检索 + MEMORY.md 自动区 + `recall_experience`） |
+| [Dreaming 记忆固化](../architecture/dreaming-memory.zh-CN.md) | 后台把已结束会话沉淀为 `DREAMING.md` 里的一份笔记（一次 LLM 调用读旧列表 + 新会话，写回新列表；与手写的 `MEMORY.md` 是两个文件，一起注入） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
 | [小版本发布 Runbook](../architecture/patch-release-runbook.zh-CN.md) | patch 版本发布流程 |

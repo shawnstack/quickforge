@@ -23,10 +23,25 @@ import type { AgentMessage } from './ChatTypes'
  * layout must stay pixel-identical.
  */
 
+/** One entry in `contextCompaction.history` (see the server-side contract). */
+export type ContextCompactionHistoryEntry = {
+  compactedAt?: string
+  occurredAtIndex?: number
+  boundaryIndex?: number
+  summaryMessage?: unknown
+}
+
 /** Compaction state as published on the server agent (`state.contextCompaction`). */
 export type ContextCompactionState = {
   compactedUpToIndex?: number
   summaryMessage?: unknown
+  compactedAt?: string
+  /**
+   * Every compaction this session went through, oldest first. Each one keeps a
+   * divider of its own; `compactedUpToIndex` stays as the newest entry's range
+   * edge for older payloads and for the context-usage projection.
+   */
+  history?: ContextCompactionHistoryEntry[]
 }
 
 /**
@@ -95,6 +110,95 @@ export function resolveCompactionBoundary(options: {
   }
 }
 
+/**
+ * One divider to render.
+ *
+ * Rolling compaction happens repeatedly during a long session, and each pass
+ * only summarizes "previous summary + the delta since the last cut", so every
+ * pass deserves its own line at the moment it ran. Two coordinates are kept
+ * apart on purpose:
+ * - `occurredAtIndex` (absolute) is the messages length at the instant
+ *   compaction ran → the physical timeline position, which never moves again;
+ * - `boundaryIndex` is the right edge of the summarized range, which sits
+ *   several messages earlier whenever recent turns are kept.
+ */
+export type CompactionMarker = {
+  /** Row index within the rendered message rows. */
+  rowIndex: number
+  /** Range edge, relative to the rendered window. */
+  boundaryIndex: number
+  /** Physical position, absolute in the session's message array. */
+  occurredAtIndex: number
+  summaryText: string
+  compactedAt?: string
+  /** Newest entry: its summary is still the one the model receives. */
+  isLatest: boolean
+}
+
+function compactionEntries(compaction: ContextCompactionState): ContextCompactionHistoryEntry[] {
+  const history = Array.isArray(compaction.history)
+    ? compaction.history.filter((entry) => entry && typeof entry === 'object')
+    : []
+  if (history.length > 0) return history
+  // Payloads written before `history` existed: a single record, where the range
+  // edge is all the position information there is.
+  if (compaction.compactedUpToIndex === undefined && !compaction.summaryMessage) return []
+  return [{
+    compactedAt: compaction.compactedAt,
+    occurredAtIndex: compaction.compactedUpToIndex,
+    boundaryIndex: compaction.compactedUpToIndex,
+    summaryMessage: compaction.summaryMessage,
+  }]
+}
+
+/**
+ * Resolve every divider position.
+ *
+ * Unlike `resolveCompactionBoundary` (kept for the single-record shape and its
+ * stale-boundary contract), a marker outside the rendered window is **clamped**
+ * to the window edge instead of being dropped: a compaction that silently
+ * produces no line is the failure mode this list exists to prevent.
+ *
+ * Clamping is safe because `occurredAtIndex` is immutable — the line never
+ * drifts afterwards. A marker above the window lands on the first row, one below
+ * lands on the last row, and markers that collapse onto the same row keep only
+ * the newest (scrolling up through history would otherwise stack one identical
+ * line per past compaction at the window top).
+ */
+export function resolveCompactionMarkers(options: {
+  compaction: ContextCompactionState | null | undefined
+  messages: readonly AgentMessage[]
+  messageIndexOffset: number
+  isRenderable: (message: AgentMessage) => boolean
+}): CompactionMarker[] {
+  const { compaction, messages, messageIndexOffset, isRenderable } = options
+  if (!compaction || messages.length === 0) return []
+
+  const windowStart = messageIndexOffset
+  const windowEnd = messageIndexOffset + messages.length
+  const entries = compactionEntries(compaction)
+  const byRow = new Map<number, CompactionMarker>()
+  entries.forEach((entry, entryIndex) => {
+    const absolute = Math.max(0, Number(entry.occurredAtIndex ?? entry.boundaryIndex) || 0)
+    if (absolute <= 0) return
+    const clamped = Math.min(Math.max(absolute, windowStart), windowEnd)
+    const boundaryIndex = clamped - windowStart
+    let rowIndex = 0
+    for (let index = 0; index < messages.length && index < boundaryIndex; index++) {
+      if (isRenderable(messages[index])) rowIndex += 1
+    }
+    byRow.set(rowIndex, {
+      rowIndex,
+      boundaryIndex,
+      occurredAtIndex: absolute,
+      summaryText: entry.summaryMessage ? readCompactionSummaryText(entry.summaryMessage) : '',
+      compactedAt: entry.compactedAt,
+      isLatest: entryIndex === entries.length - 1,
+    })
+  })
+  return [...byRow.values()]
+}
+
 function CopyIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -114,7 +218,29 @@ function CopiedIcon() {
 
 const COPIED_FEEDBACK_MS = 1200
 
-export function ContextCompactionNotice({ summaryText, boundaryIndex }: { summaryText: string; boundaryIndex: number }) {
+/** Localized timestamp for the divider tooltip; empty when unparseable. */
+function formatCompactionTimestamp(iso: string): string {
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return ''
+  try {
+    return new Date(parsed).toLocaleString()
+  } catch {
+    return ''
+  }
+}
+
+export function ContextCompactionNotice({ summaryText, boundaryIndex, compactedAt, mergedIntoLater = false }: {
+  summaryText: string
+  boundaryIndex: number
+  /** When this compaction ran (ISO). Shown in the tooltip so the line is datable. */
+  compactedAt?: string
+  /**
+   * Older compaction whose summary was folded into a later one. The line stays
+   * where it happened; only the label changes, because the summary it carries is
+   * no longer the one the model receives.
+   */
+  mergedIntoLater?: boolean
+}) {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -123,7 +249,8 @@ export function ContextCompactionNotice({ summaryText, boundaryIndex }: { summar
     if (copiedTimerRef.current !== null) clearTimeout(copiedTimerRef.current)
   }, [])
 
-  const tooltip = t('contextCompactedTooltip')
+  const timestamp = compactedAt ? formatCompactionTimestamp(compactedAt) : ''
+  const tooltip = timestamp ? `${t('contextCompactedTooltip')} (${timestamp})` : t('contextCompactedTooltip')
   // `data-*` attributes are part of the decoration's public surface (stylesheet
   // and issue reports read them); keep them supplied by React so they stay
   // truthful without a second writer.
@@ -134,7 +261,15 @@ export function ContextCompactionNotice({ summaryText, boundaryIndex }: { summar
     'data-boundary-index': String(boundaryIndex),
     'data-summary-text': summaryText,
     'data-has-summary': String(Boolean(summaryText)),
+    ...(compactedAt ? { 'data-compacted-at': compactedAt } : {}),
+    ...(mergedIntoLater ? { 'data-merged-into-later': 'true' } : {}),
   } as const
+
+  const pillTail = (
+    <>
+      {mergedIntoLater ? <> · {t('contextCompactedMergedLabel')}</> : null}
+    </>
+  )
 
   if (!summaryText) {
     return (
@@ -145,6 +280,7 @@ export function ContextCompactionNotice({ summaryText, boundaryIndex }: { summar
             <span className="quickforge-context-compaction-dot" aria-hidden="true" />
             <span>
               <strong>{t('contextCompactedLabel')}</strong> · {t('contextCompactedTimelineLabel')}
+              {pillTail}
             </span>
           </div>
           <div className="quickforge-context-compaction-line" />
@@ -167,7 +303,8 @@ export function ContextCompactionNotice({ summaryText, boundaryIndex }: { summar
           <div className="quickforge-context-compaction-pill">
             <span className="quickforge-context-compaction-dot" aria-hidden="true" />
             <span>
-              <strong>{t('contextCompactedLabel')}</strong> · {t('contextCompactedTimelineLabel')} · <span className="quickforge-context-compaction-toggle-label">{toggleLabel}</span>
+              <strong>{t('contextCompactedLabel')}</strong> · {t('contextCompactedTimelineLabel')}
+              {pillTail} · <span className="quickforge-context-compaction-toggle-label">{toggleLabel}</span>
             </span>
           </div>
           <div className="quickforge-context-compaction-line" />

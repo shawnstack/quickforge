@@ -15,7 +15,6 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   enabled: true,
   thresholdPercent: 80,
   keepRecentTurns: 0,
-  minSourceChars: 1600,
   requireConfirmation: true,
 }
 
@@ -27,8 +26,15 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
  */
 export const DEFAULT_MAX_TAIL_CHARS = 40000
 
-const AUTO_COMPACT_MIN_INTERVAL_MS = 30_000
-const AUTO_COMPACT_REJECTION_SUPPRESS_MS = 10 * 60_000
+/**
+ * 压缩历史条数上限。
+ *
+ * 滚动压缩（rolling compaction）每次只把「上一版摘要 + 上次切点之后的增量」
+ * 交给模型，但界面需要每一次压缩都在真实发生的位置留一条分割线，所以每次
+ * 压缩都往 `contextCompaction.history` 追加一条记录而不是覆盖。
+ * 每条记录带一份当次摘要（几 KB），设上限避免 body_json 无限增长。
+ */
+export const MAX_CONTEXT_COMPACTION_HISTORY = 20
 
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value)
@@ -42,7 +48,6 @@ export function normalizeAutoCompactSettings(value) {
     enabled: value.enabled !== false,
     thresholdPercent: clampNumber(value.thresholdPercent, DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent, 50, 95),
     keepRecentTurns: clampNumber(value.keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20),
-    minSourceChars: clampNumber(value.minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000),
     requireConfirmation: value.requireConfirmation !== false,
   }
 }
@@ -131,10 +136,6 @@ function messageChars(message) {
   return [message.role || '', contentToText(message.content), safeJson(message.attachments)].join('\n').length
 }
 
-function estimateMessagesChars(messages) {
-  return (Array.isArray(messages) ? messages : []).reduce((total, message) => total + messageChars(message), 0)
-}
-
 function isUserMessage(message) {
   return (message?.role === 'user' || message?.role === 'user-with-attachments')
     && !isCompactSummaryMessage(message)
@@ -165,34 +166,6 @@ export function tailStartForRecentTurns(messages, keepRecentTurns, maxTailChars 
     }
   }
   return 0
-}
-
-function shouldSuppressAfterRejection(session, messages, usage) {
-  const rejection = session?.lastAutoCompactRejected
-  if (!rejection) return false
-  const now = Date.now()
-  const rejectedAt = Number(rejection.rejectedAt) || 0
-  if (rejectedAt <= 0 || now - rejectedAt > AUTO_COMPACT_REJECTION_SUPPRESS_MS) return false
-
-  const rejectedMessageCount = Number(rejection.messageCount) || 0
-  const currentMessageCount = Array.isArray(messages) ? messages.length : 0
-  if (currentMessageCount >= rejectedMessageCount + 3) return false
-
-  const rejectedPercent = Number(rejection.percent) || 0
-  const currentPercent = Number(usage?.percent) || 0
-  return currentPercent <= rejectedPercent + 5
-}
-
-function markAutoCompactRejected(session, messages, usage) {
-  session.lastAutoCompactRejected = {
-    rejectedAt: Date.now(),
-    messageCount: Array.isArray(messages) ? messages.length : 0,
-    percent: Number(usage?.percent) || 0,
-  }
-}
-
-function clearAutoCompactRejected(session) {
-  session.lastAutoCompactRejected = null
 }
 
 function userTextMessage(text, details) {
@@ -291,6 +264,10 @@ export function hasNewMessagesSinceCompaction(session, messages) {
  * Keeping the current user turn gives the divider a real referent (history above,
  * this turn below) at any `keepRecentTurns` setting, and costs nothing when the
  * configured value is already ≥ 1.
+ *
+ * It is a preference, not a precondition: a single-user-turn agentic session has
+ * no complete turn to keep once the tail would swallow the whole history, so
+ * compaction then runs with an empty tail instead of being skipped entirely.
  */
 export const AUTO_COMPACT_MIN_TAIL_USER_TURNS = 1
 
@@ -299,18 +276,25 @@ export function resolveAutoCompactTailStart(messages, keepRecentTurns) {
   const configured = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
   const effective = Math.max(AUTO_COMPACT_MIN_TAIL_USER_TURNS, configured)
   const tailStart = tailStartForRecentTurns(source, effective)
-  // Degenerate histories (no user message at all) can make the aligned cut land
-  // before the array start; fall back to the configured behaviour so a run is
-  // never left uncompacted just because the tail could not be aligned.
-  if (tailStart <= 0) return tailStartForRecentTurns(source, configured)
-  return tailStart
+  // A cut at index 0 keeps the whole history, i.e. compacts nothing —
+  // `tailStartForRecentTurns` cannot tell "found at index 0" from "not found"
+  // because both return 0. Do not give up on that: degrade the number of kept
+  // turns (3 → 2 → 1) and, when even one kept turn would swallow everything,
+  // compact the whole history. A session must never end up permanently
+  // uncompacted just because it happens to contain fewer user turns than the
+  // setting asks for.
+  if (tailStart > 0) return tailStart
+  for (let keep = effective - 1; keep >= 1; keep--) {
+    const candidate = tailStartForRecentTurns(source, keep)
+    if (candidate > 0) return candidate
+  }
+  return source.length
 }
 
 export async function compactSessionInPlace({
   session,
   messages,
   keepRecentTurns = DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns,
-  minSourceChars = DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars,
   usage,
   thresholdPercent,
   emitSessionEvent,
@@ -321,7 +305,6 @@ export async function compactSessionInPlace({
 }) {
   const source = Array.isArray(messages) ? messages : []
   const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
-  const normalizedMinSourceChars = clampNumber(minSourceChars, DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars, 0, 200000)
   // The manual command keeps its exact "summarize everything" semantics; the
   // automatic path aligns the cut to the current user turn (see
   // AUTO_COMPACT_MIN_TAIL_USER_TURNS).
@@ -329,7 +312,8 @@ export async function compactSessionInPlace({
     ? tailStartForRecentTurns(source, normalizedKeepRecentTurns)
     : resolveAutoCompactTailStart(source, normalizedKeepRecentTurns)
   const sourceMessages = buildCompactionSourceMessages(session, source, tailStart)
-  if (sourceMessages.length < 2 || estimateMessagesChars(sourceMessages) < normalizedMinSourceChars) {
+  // 上下文超过阈值就压：唯一的前置是确实存在可压缩的消息序列（至少两条）。
+  if (sourceMessages.length < 2) {
     return { compacted: false, usage, reason: 'not_enough_history' }
   }
 
@@ -339,12 +323,12 @@ export async function compactSessionInPlace({
     thinkingLevel: session.thinkingLevel,
     getApiKey: session.getApiKey,
     keepTurns: 0,
-    ...(reason === 'manual_compact' ? { minSourceChars: normalizedMinSourceChars } : {}),
   })
 
   if (result.skipped) return { compacted: false, usage, reason: result.reason || 'skipped' }
 
   await saveCompactBackup(session.sessionId, sourceMessages)
+  const compactedAt = new Date().toISOString()
   const summaryMessage = userTextMessage([
     summaryIntro,
     '',
@@ -352,14 +336,38 @@ export async function compactSessionInPlace({
     result.summary,
     '</compact_summary>',
   ].join('\n'), compactionMessageDetails('summary'))
-  session.contextCompaction = {
+  // Every compaction is appended to `history` instead of overwriting the single
+  // record, so the timeline can keep one divider per compaction at the moment it
+  // really happened.
+  //
+  // Two coordinates are recorded on purpose — they are different things and only
+  // coincide when `keepRecentTurns` is 0 in a single-turn session:
+  // - `occurredAtIndex`: the messages length at the instant compaction ran. This
+  //   is the physical position ("this is where the timeline got summarized") and
+  //   is what the divider is anchored to.
+  // - `boundaryIndex`: the tail start, i.e. the right edge of the summarized
+  //   range. A rolling compaction keeps N recent turns, so this can sit several
+  //   messages *before* the moment it happened.
+  const historyEntry = {
+    compactedAt,
+    occurredAtIndex: source.length,
+    boundaryIndex: tailStart,
     summaryMessage,
-    compactedUpToIndex: tailStart,
-    compactedAt: new Date().toISOString(),
     keepRecentTurns: normalizedKeepRecentTurns,
     sourceMessageCount: source.length,
     usageBefore: usage,
     thresholdPercent,
+  }
+  const previousHistory = Array.isArray(session.contextCompaction?.history) ? session.contextCompaction.history : []
+  session.contextCompaction = {
+    summaryMessage,
+    compactedUpToIndex: tailStart,
+    compactedAt,
+    keepRecentTurns: normalizedKeepRecentTurns,
+    sourceMessageCount: source.length,
+    usageBefore: usage,
+    thresholdPercent,
+    history: [...previousHistory, historyEntry].slice(-MAX_CONTEXT_COMPACTION_HISTORY),
   }
   onBeforePersist?.({ result, sourceMessages, tailStart, summaryMessage })
   await persistSession?.(session)
@@ -495,19 +503,15 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   })
   if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
   if (!shouldCompactContextByPercent(usage, settings.thresholdPercent)) return { compacted: false, usage, reason: 'below_threshold' }
-  if (shouldSuppressAfterRejection(session, messages, usage)) return { compacted: false, usage, reason: 'user_rejected_recently' }
 
   const now = Date.now()
-  if (session.lastAutoCompactAt && now - session.lastAutoCompactAt < AUTO_COMPACT_MIN_INTERVAL_MS) {
-    return { compacted: false, usage, reason: 'recently_compacted' }
-  }
   if (!hasNewMessagesSinceCompaction(session, messages)) {
     return { compacted: false, usage, reason: 'not_enough_new_messages' }
   }
 
   const tailStart = resolveAutoCompactTailStart(messages, settings.keepRecentTurns)
   const sourceMessages = buildCompactionSourceMessages(session, messages, tailStart)
-  if (sourceMessages.length < 2 || estimateMessagesChars(sourceMessages) < settings.minSourceChars) {
+  if (sourceMessages.length < 2) {
     return { compacted: false, usage, reason: 'not_enough_history' }
   }
 
@@ -547,7 +551,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     setCompactionNotice(session, null, emitSessionEvent)
 
     if (decision !== AUTO_COMPACT_DECISION.APPROVED || signal?.aborted) {
-      if (decision === AUTO_COMPACT_DECISION.DECLINED) markAutoCompactRejected(session, messages, usage)
       return {
         compacted: false,
         usage,
@@ -576,7 +579,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       session,
       messages,
       keepRecentTurns: settings.keepRecentTurns,
-      minSourceChars: settings.minSourceChars,
       usage,
       thresholdPercent: settings.thresholdPercent,
       emitSessionEvent,
@@ -584,7 +586,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       reason: 'auto_compact',
       summaryIntro: 'The previous conversation has been automatically compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
       onBeforePersist: () => {
-        clearAutoCompactRejected(session)
         session.lastAutoCompactAt = now
       },
     })

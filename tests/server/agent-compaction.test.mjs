@@ -333,7 +333,6 @@ describe('compactSession', () => {
       session,
       messages: session.agent.state.messages.slice(),
       keepRecentTurns: 0,
-      minSourceChars: 0,
       thresholdPercent: 65,
       reason: 'manual_compact',
       emitSessionEvent,

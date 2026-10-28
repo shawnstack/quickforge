@@ -171,13 +171,15 @@ export type MessageDecorationDeps = {
   panel: HTMLElement
   getMessages: () => MessageWithUsage[]
   /**
-   * Windowing offset: the window controller is kept (the React ChatSurface
-   * creates it with `enabled: false`) and the host still passes
-   * `getWindowStart()`, but since the surface renders the complete conversation
-   * the decoration layer always receives the full message array and this offset
-   * stays 0. Decoration index math keeps adding it so actions (rollback /
-   * retry / copy) address full-conversation indices, not a window-local
-   * ordinal, if windowing is ever switched back on.
+   * Windowing offset: `getWindowStart()` of the committed React window, i.e. the
+   * full-array index of the first rendered message. `getMessages()` returns the
+   * window, so every row's full-conversation index is `messageIndexOffset` plus
+   * its window-local ordinal — decoration keeps adding it so actions (rollback /
+   * retry / copy) address full-conversation indices, never a window-local one.
+   *
+   * Append-only extras: the controller may append out-of-window `toolResult`
+   * messages at the END of the window array (lookup-only, never rendered), so the
+   * leading `end - start` entries keep their full-array positions.
    */
   messageIndexOffset?: number
   isStreaming: () => boolean

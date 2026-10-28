@@ -506,9 +506,19 @@ describe('process fold hierarchy contract', () => {
     // 左缩进 + 1px 弱化连接线，表达 stage 头 → 子内容（思考块/工具行）的从属；
     // 顶层组 body 不缩进（用户反馈：组头 → stage 这一层不要缩进和细线），
     // 纯思考段直挂顶层 body 的 step 因此与组头同层。
-    expect(css).toContain(
-      '.quickforge-process-stage-body {\n  padding-left: 0.75rem;\n  border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);\n}',
-    )
+    //
+    // 这里断言「语义」而不是具体刻度：连接线必须用统一配方，横向缩进必须存在且非零。
+    // padding-left 与 margin-left 各取多少属于视觉微调（用户反馈过“内容别贴线”），
+    // 改刻度不该让契约失败；把线删掉或把缩进归零才会。
+    // `.quickforge-process-stage-body` 出现多次（动画壳层、展开态等），
+    // 取带连接线的那一条来断言。
+    const stageBodyRules = [...css.matchAll(/\n\.quickforge-process-stage-body \{[\s\S]*?\n\}/g)].map((match) => match[0])
+    const indentRule = stageBodyRules.find((rule) => rule.includes('border-left')) ?? ''
+    expect(indentRule).not.toBe('')
+    expect(indentRule).toContain('border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent)')
+    const indent = indentRule.match(/(?:padding|margin)-left: ([0-9.]+)rem/)
+    expect(indent).not.toBeNull()
+    expect(Number(indent?.[1])).toBeGreaterThan(0)
     // 共享布局规则恢复原样：顶层组 body 不得再带缩进/连接线。
     const sharedRule = css.match(/\.quickforge-process-body,\s*\.quickforge-process-stage-body \{[\s\S]*?\n\}/)?.[0] ?? ''
     expect(sharedRule).not.toContain('padding-left')

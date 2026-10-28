@@ -400,6 +400,28 @@ function mergeMetadata(existing, update, sessionId) {
   return metadata
 }
 
+/**
+ * Merge a metadata projection of `contextCompaction` into the state copy.
+ *
+ * The metadata projection is deliberately flat (session lists never need the
+ * summary text), but `applyMetadataToState` replaces state fields wholesale —
+ * so a metadata-only save (rename / pin / archive) used to downgrade the body's
+ * full record to that flat subset. Keep the body-side rich fields when the
+ * incoming projection does not carry them: `summaryMessage` and `history`
+ * (one entry per compaction, see `MAX_CONTEXT_COMPACTION_HISTORY`).
+ */
+function mergeContextCompactionMetadata(current, incoming) {
+  if (!isPlainObject(incoming)) return incoming
+  if (!isPlainObject(current)) return incoming
+  const merged = { ...incoming }
+  for (const field of ['summaryMessage', 'history']) {
+    if (!Object.prototype.hasOwnProperty.call(merged, field) && current[field] !== undefined) {
+      merged[field] = current[field]
+    }
+  }
+  return merged
+}
+
 function applyMetadataToState(existing, metadata) {
   const state = { ...existing.state }
   for (const field of [
@@ -409,6 +431,7 @@ function applyMetadataToState(existing, metadata) {
   ]) {
     if (!Object.prototype.hasOwnProperty.call(metadata, field)) continue
     if ((field === 'pinnedAt' || field === 'archivedAt') && (metadata[field] === undefined || metadata[field] === null)) delete state[field]
+    else if (field === 'contextCompaction') state[field] = mergeContextCompactionMetadata(state[field], metadata[field])
     else state[field] = metadata[field]
   }
   return synchronize(state, metadata, existing.sessionId, existing)

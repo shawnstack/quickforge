@@ -1,6 +1,12 @@
 import path from 'node:path'
+import { createHash } from 'node:crypto'
+import { normalizeUiContribution } from './ui-schema.mjs'
 
-export const PLUGIN_API_VERSION = 1
+// Plugin apiVersion 2 added `contributes.ui` (declarative slots + sandboxed
+// panels). Version 1 manifests stay fully supported: everything they could do
+// in v1 behaves identically, they simply have no UI contribution.
+export const PLUGIN_API_VERSION = 2
+export const SUPPORTED_PLUGIN_API_VERSIONS = Object.freeze([1, 2])
 
 const pluginNamePattern = /^[a-z0-9][a-z0-9_-]{0,63}$/
 const toolNamePattern = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
@@ -143,14 +149,17 @@ export function normalizePluginManifest(raw, pluginDir) {
   }
 
   const apiVersion = Number(raw.apiVersion || PLUGIN_API_VERSION)
-  if (apiVersion !== PLUGIN_API_VERSION) {
-    throw new Error(`Unsupported plugin apiVersion ${apiVersion}. Current QuickForge plugin API is ${PLUGIN_API_VERSION}.`)
+  if (!SUPPORTED_PLUGIN_API_VERSIONS.includes(apiVersion)) {
+    throw new Error(`Unsupported plugin apiVersion ${apiVersion}. QuickForge supports ${SUPPORTED_PLUGIN_API_VERSIONS.join(', ')}.`)
   }
 
   const contributes = isPlainObject(raw.contributes) ? raw.contributes : {}
   const tools = Array.isArray(contributes.tools)
     ? contributes.tools.map((tool) => normalizeTool(tool, name))
     : []
+  const ui = apiVersion >= 2
+    ? normalizeUiContribution(contributes.ui, { pluginName: name, pluginDir, normalizeRelativePath })
+    : null
 
   return {
     name,
@@ -162,13 +171,26 @@ export function normalizePluginManifest(raw, pluginDir) {
     enabledByDefault: raw.enabledByDefault === true,
     main: asString(raw.main, 'index.mjs'),
     permissions: normalizePermissions(raw.permissions),
+    uiDigest: ui ? uiDigestOf(ui) : null,
     contributes: {
       tools,
       skills: normalizePathContributions(contributes.skills, 'skills', name, pluginDir),
       commands: normalizePathContributions(contributes.commands, 'commands', name, pluginDir),
       settings: isPlainObject(contributes.settings) ? contributes.settings : null,
+      ui,
     },
     dir: pluginDir,
     manifestPath: path.join(pluginDir, 'plugin.json'),
   }
+}
+
+// Digest of the *declared* UI contribution only (never absolute paths), so
+// moving a plugin directory does not look like a permission change while
+// editing its slots does.
+function uiDigestOf(ui) {
+  return createHash('sha256').update(JSON.stringify({
+    slots: ui.slots,
+    actions: ui.actions,
+    panels: ui.panels.map((panel) => ({ id: panel.id, title: panel.title, entry: panel.entry, width: panel.width })),
+  })).digest('hex')
 }

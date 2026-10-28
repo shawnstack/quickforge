@@ -11,7 +11,6 @@ vi.mock('../../server/storage.mjs', () => ({
       enabled: true,
       thresholdPercent: 50,
       keepRecentTurns: 0,
-      minSourceChars: 0,
       requireConfirmation: true,
     },
   })),
@@ -132,8 +131,9 @@ describe('maybeAutoCompactSession notice projection', () => {
 
     expect(result).toMatchObject({ compacted: false, reason: 'user_rejected' })
     expect(session.compactionNotice).toBeNull()
-    // A decline is remembered so the row does not immediately reappear.
-    expect(session.lastAutoCompactRejected).not.toBeNull()
+    // A decline only skips this attempt; the next over-threshold request asks
+    // again (no rejection suppression anymore).
+    expect(session.lastAutoCompactRejected).toBeNull()
     expect(noticeEvents(emitSessionEvent).at(-1)).toBeNull()
   })
 
@@ -150,8 +150,8 @@ describe('maybeAutoCompactSession notice projection', () => {
       confirmAutoCompact,
     })
 
-    // The old contract collapsed timeout into `false`, which suppressed the next
-    // attempt for 10 minutes even though the user never said no.
+    // The old contract collapsed timeout into `false`, which used to suppress
+    // the next attempt; timeouts and declines are both remembered as nothing.
     expect(result).toMatchObject({ compacted: false, reason: 'confirmation_timeout' })
     expect(session.lastAutoCompactRejected).toBeNull()
     expect(session.compactionNotice).toBeNull()

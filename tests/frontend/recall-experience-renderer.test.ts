@@ -10,7 +10,7 @@ vi.mock('@/lib/tool-display-settings', () => ({
   getCachedToolDisplaySettings: () => ({ toolDisplayMode: toolDisplay.mode }),
 }))
 
-import { buildRecallExperienceViewModel, recallRecencyDays } from '../../src/lib/recall-experience-history'
+import { buildRecallExperienceViewModel } from '../../src/lib/recall-experience-history'
 import { applyAppLanguageFromSnapshot, t } from '../../src/lib/i18n'
 import { RecallExperienceToolRenderer } from '../../src/lib/tool-renderers/recall-experience-tool-renderer'
 import { summarizeParams } from '../../src/lib/tool-param-summary'
@@ -22,15 +22,9 @@ const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'ut
 const css = appCss
 
 const memory = (overrides: Record<string, unknown> = {}) => ({
-  id: 'mem-1',
+  id: 'note-1',
   kind: 'preference',
-  scope: 'project',
   content: 'Run the full test/lint/build gate before any release.',
-  confidence: 0.86,
-  strength: 4.2,
-  recallCount: 2,
-  evidence: [{ sessionId: 's1', seq: 1, note: '' }, { sessionId: 's2', seq: 2, note: '' }, { sessionId: 's1', seq: 3, note: '' }],
-  updatedAt: Date.now(),
   ...overrides,
 })
 
@@ -49,20 +43,16 @@ function render(params: unknown, output: unknown, streaming = false, detailed = 
 }
 
 describe('recall_experience view model', () => {
-  it('reads memories from result details and derives a deduped session count', () => {
+  it('reads notes from result details', () => {
     const view = buildRecallExperienceViewModel(result([memory()]))
     expect(view.available).toBe(true)
     expect(view.query).toBe('release')
     expect(view.memories).toHaveLength(1)
-    expect(view.memories[0]).toMatchObject({
-      id: 'mem-1',
+    // 一条笔记只有正文和可选的 kind：没有 scope / 置信度 / 强度 / 召回次数。
+    expect(view.memories[0]).toEqual({
+      id: 'note-1',
       kind: 'preference',
-      scope: 'project',
       content: 'Run the full test/lint/build gate before any release.',
-      confidence: 0.86,
-      strength: 4.2,
-      recallCount: 2,
-      sessionCount: 2,
     })
   })
 
@@ -73,23 +63,21 @@ describe('recall_experience view model', () => {
     }
   })
 
-  it('drops unusable rows and normalizes out-of-range fields instead of rendering junk', () => {
+  it('drops unusable rows and keeps an unknown kind as "no badge"', () => {
     const view = buildRecallExperienceViewModel(result([
       null,
       'bad',
       {},
       memory({ id: '', content: '   ' }),
-      memory({ kind: 'bogus', scope: 'bogus', confidence: 4, strength: -1, recallCount: -3, evidence: null, updatedAt: 0 }),
+      memory({ kind: 'bogus' }),
     ]))
     expect(view.memories).toHaveLength(1)
-    // 空正文的行整条丢弃；剩下的行保留自己的 id，越界字段收敛到合法区间。
-    expect(view.memories[0]).toMatchObject({ id: 'mem-1', kind: 'experience', scope: 'global', confidence: 1, strength: 0, recallCount: 0, sessionCount: 0, updatedAt: null })
-  })
-
-  it('treats future timestamps as fresh rather than negative ages', () => {
-    expect(recallRecencyDays(null)).toBeNull()
-    expect(recallRecencyDays(Date.now() + 86_400_000)).toBe(0)
-    expect(recallRecencyDays(Date.now() - 3 * 86_400_000)).toBe(3)
+    // 空正文的行整条丢弃；未知 kind 归一到 null（渲染器据此不显示徽标）。
+    expect(view.memories[0]).toEqual({
+      id: 'note-1',
+      kind: null,
+      content: 'Run the full test/lint/build gate before any release.',
+    })
   })
 })
 
@@ -110,18 +98,19 @@ describe('recall_experience registered renderer', () => {
     expect(view.markup).not.toContain('data-tone=')
   })
 
-  it('shows kind, scope, recall count, content and quality metrics per entry', () => {
+  it('shows the kind badge and the note text per entry', () => {
     const view = render({ query: 'release' }, result([memory()]))
     expect(view.markup).toContain('quickforge-recall-kind')
     expect(view.markup).toContain(t('dreamingKindPreference'))
-    expect(view.markup).toContain(t('dreamingScopeProject'))
-    expect(view.markup).toContain('×2')
     expect(view.markup).toContain('Run the full test/lint/build gate before any release.')
-    expect(view.markup).toContain('quickforge-recall-metrics')
-    expect(view.markup).toContain('0.86')
-    expect(view.markup).toContain('4.2')
-    expect(view.markup).toContain(t('recallExperienceSessions', { count: 2 }))
-    expect(view.markup).toContain(t('recallExperienceUpdatedToday'))
+    // 笔记没有质量指标可展示：scope / confidence / strength / 召回次数都随表结构一起删了。
+    expect(view.markup).not.toContain('quickforge-recall-metrics')
+  })
+
+  it('renders a note without a kind badge', () => {
+    const view = render({ query: 'release' }, result([memory({ kind: null })]))
+    expect(view.markup).toContain('Run the full test/lint/build gate before any release.')
+    expect(view.markup).not.toContain('quickforge-recall-meta')
   })
 
   it('treats zero hits as a normal result, not an error', () => {
@@ -217,9 +206,6 @@ describe('recall_experience copy', () => {
       'recallExperienceNoMatch',
       'recallExperienceEmptyMatch',
       'recallExperienceEmptyAll',
-      'recallExperienceSessions',
-      'recallExperienceUpdatedToday',
-      'recallExperienceUpdatedDays',
     ]) {
       expect(i18n.match(new RegExp(`\\b${key}:`, 'g'))?.length).toBe(2)
     }

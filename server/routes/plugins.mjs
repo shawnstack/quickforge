@@ -1,7 +1,19 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
+import { isAuthenticatedAppClient } from '../access-policy.mjs'
 import { refreshAllSessionTools } from '../agent-manager.mjs'
 import { projectContextFromId, readProjectConfig } from '../project-config.mjs'
-import { getPluginStatus, refreshPlugins, setPluginConfig, setPluginEnabled } from '../plugins/registry.mjs'
+import { listPluginAudit } from '../plugins/audit.mjs'
+import {
+  dispatchUiAction,
+  getPluginKv,
+  getPluginStatus,
+  getUiSnapshot,
+  readPluginAsset,
+  refreshPlugins,
+  setPluginConfig,
+  setPluginEnabled,
+  setPluginKv,
+} from '../plugins/registry.mjs'
 
 async function activeProjectContext() {
   const config = await readProjectConfig()
@@ -17,11 +29,22 @@ async function refreshPluginsAndAgentTools() {
   return { ...(await getPluginStatus(projectContext)), refreshedSessions }
 }
 
-export async function handlePluginsApi(req, res, url) {
+function assertAppClient(context) {
+  if (isAuthenticatedAppClient({
+    isLocalRequest: context?.isLocalRequest,
+    remoteAuthorized: context?.remoteAuthorized,
+  })) return
+  const error = new Error('Plugin UI actions are only available to authenticated app clients')
+  error.statusCode = 403
+  throw error
+}
+
+export async function handlePluginsApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean)
+  const projectContext = () => activeProjectContext()
 
   if (req.method === 'GET' && url.pathname === '/api/plugins') {
-    sendJson(res, 200, await getPluginStatus(await activeProjectContext()))
+    sendJson(res, 200, await getPluginStatus(await projectContext()))
     return
   }
 
@@ -30,9 +53,61 @@ export async function handlePluginsApi(req, res, url) {
     return
   }
 
+  // Cold-load snapshot of every declarative slot. Registered before the
+  // `/api/plugins/:name` branch so "ui" is never mistaken for a plugin name.
+  if (req.method === 'GET' && url.pathname === '/api/plugins/ui') {
+    sendJson(res, 200, await getUiSnapshot(await projectContext()))
+    return
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/plugins/audit') {
+    const plugin = url.searchParams.get('plugin') || ''
+    const limit = Number(url.searchParams.get('limit'))
+    sendJson(res, 200, { entries: await listPluginAudit({ plugin, limit: Number.isFinite(limit) ? limit : 50 }) })
+    return
+  }
+
+  if (req.method === 'POST' && parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[3] === 'ui') {
+    assertAppClient(context)
+    const name = decodeSegment(parts[2])
+    const body = await readJsonBody(req, 256 * 1024)
+    const result = await dispatchUiAction(name, body || {}, await projectContext())
+    sendJson(res, 200, result || {})
+    return
+  }
+
+  if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[3] === 'kv') {
+    assertAppClient(context)
+    const name = decodeSegment(parts[2])
+    sendJson(res, 200, { value: await getPluginKv(name) })
+    return
+  }
+
+  if (req.method === 'PUT' && parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[3] === 'kv') {
+    assertAppClient(context)
+    const name = decodeSegment(parts[2])
+    const body = await readJsonBody(req, 128 * 1024)
+    const patch = body?.patch || body || {}
+    sendJson(res, 200, { value: await setPluginKv(name, patch) })
+    return
+  }
+
+  if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'plugins' && parts[2] && parts[3] === 'assets') {
+    const name = decodeSegment(parts[2])
+    const relativePath = parts.slice(4).map((segment) => decodeSegment(segment)).join('/')
+    const asset = await readPluginAsset(name, relativePath, await projectContext())
+    res.writeHead(200, {
+      'content-type': asset.contentType,
+      'cache-control': 'no-store',
+      'content-length': asset.data.length,
+    })
+    res.end(asset.data)
+    return
+  }
+
   if (req.method === 'GET' && parts[0] === 'api' && parts[1] === 'plugins' && parts[2]) {
     const name = decodeSegment(parts[2])
-    const status = await getPluginStatus(await activeProjectContext())
+    const status = await getPluginStatus(await projectContext())
     const plugin = status.plugins.find((item) => item.name === name)
     if (!plugin) {
       const error = new Error(`Unknown plugin: ${name}`)

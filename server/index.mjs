@@ -465,7 +465,7 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Plugins
   if (pathname === '/api/plugins' || pathname.startsWith('/api/plugins/')) {
-    await handlePluginsApi(req, res, url)
+    await handlePluginsApi(req, res, url, requestContext)
     return
   }
 

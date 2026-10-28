@@ -148,42 +148,59 @@
 }
 
 /* run.error 仍是可定位的错误横幅；只有 run.error 存在时才渲染。
-   服务端不截断错误原文，所以默认只露两行，长文本由「展开详情」按钮显式展开。 */
+   折叠态只留一个错误图标（点击就地展开原文），避免服务端不截断的长堆栈铺满详情页。 */
 .quickforge-workflow-detail-error {
   display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin: 0.75rem var(--qf-detail-pad);
-  padding: 0.4375rem 0.625rem;
+  align-items: flex-start;
+  gap: 0.375rem;
+  margin: 0.375rem var(--qf-detail-pad);
+  padding: 0.1875rem 0.3125rem 0.1875rem 0.375rem;
   border-left: 2px solid var(--destructive);
   border-radius: 0 0.375rem 0.375rem 0;
   background: color-mix(in oklab, var(--destructive) 6%, transparent);
 }
 
-.quickforge-workflow-detail-error-text {
-  display: -webkit-box;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
+/* 展开后恢复可读排版：图标与首行基线对齐，文本吃满剩余宽度并在 40vh 内滚动。 */
+.quickforge-workflow-detail-error[data-open='true'] {
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0.75rem var(--qf-detail-pad);
+  padding: 0.4375rem 0.625rem;
 }
 
-/* 展开后不再截断，但仍限制高度并在内部滚动，避免长堆栈再次占满详情页。 */
-.quickforge-workflow-detail-error[data-open='true'] .quickforge-workflow-detail-error-text {
-  display: block;
+.quickforge-workflow-detail-error-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.3125rem;
+  background: transparent;
+  color: var(--destructive);
+  cursor: pointer;
+  transition: background-color var(--quickforge-dur-fast) var(--quickforge-ease-out);
+}
+
+.quickforge-workflow-detail-error-toggle:hover {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+}
+
+.quickforge-workflow-detail-error-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-workflow-detail-error-text {
+  flex: 1 1 auto;
+  min-width: 0;
   max-height: 40vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-}
-
-.quickforge-workflow-detail-error-label {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--destructive);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: calc(var(--quickforge-message-font-size, 14px) * 0.75);
 }
 
@@ -193,33 +210,6 @@
   align-self: center;
   align-items: center;
   gap: 0.25rem;
-}
-
-/* 折叠开关：辅助动作，比「定位失败步骤」更弱，不额外引入危险色噪点。 */
-.quickforge-workflow-detail-error-toggle {
-  height: 1.25rem;
-  padding: 0 0.375rem;
-  border: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-  border-radius: 0.3125rem;
-  background: transparent;
-  color: var(--muted-foreground);
-  font: inherit;
-  font-size: calc(var(--quickforge-message-font-size, 14px) * 0.6875);
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background-color var(--quickforge-dur-fast) var(--quickforge-ease-out),
-    color var(--quickforge-dur-fast) var(--quickforge-ease-out);
-}
-
-.quickforge-workflow-detail-error-toggle:hover {
-  background: color-mix(in oklab, var(--muted) 60%, transparent);
-  color: var(--foreground);
-}
-
-.quickforge-workflow-detail-error-toggle:focus-visible {
-  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
-  outline-offset: 1px;
 }
 
 .quickforge-workflow-detail-error-jump {

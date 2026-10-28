@@ -141,6 +141,132 @@ describe('message windowing (by turns)', () => {
     expect(window.loadMore()).toBeNull()
   })
 
+  it('widens the window on loadMore instead of sliding it forward', () => {
+    // Regression: the window used to be [startOrdinal, startOrdinal + windowTurns),
+    // so paging older turns replaced every rendered row. The row the user was
+    // reading then left the DOM, the scroll anchor resolved to nothing, and the
+    // viewport fell back to the bottom of the freshly swapped page — reported as
+    // "scrolling up bounces me back to the bottom".
+    const window = createMessageWindow()
+    const full = turns(50)
+    const first = window.setFullMessages(full)
+    const lastRendered = first[first.length - 1]
+
+    const next = window.loadMore()
+    expect(next).not.toBeNull()
+    // Everything that was already rendered is still rendered, in place...
+    for (const message of first) expect(next).toContain(message)
+    expect(next?.[next.length - 1]).toBe(lastRendered)
+    // ...and the window grew by one page of turns.
+    expect(next?.length).toBe(first.length + WINDOW_PAGE_TURNS * 2)
+  })
+
+  it('keeps following the tail on the right edge after paging, without unloading rows', () => {
+    const window = createMessageWindow()
+    let full = turns(50)
+    window.setFullMessages(full)
+    const paged = window.loadMore()
+    expect(paged).not.toBeNull()
+
+    // A new turn arrives while the reader is back at the tail.
+    full = [...full, userMessage(50), assistantMessage(50)]
+    const next = window.setFullMessages(full, true)
+
+    // Nothing that was rendered got unloaded, and the new turn is visible.
+    for (const message of paged!) expect(next).toContain(message)
+    expect(next[next.length - 1]).toBe(full[full.length - 1])
+  })
+
+  it('keeps the window identity stable while the reader is up in history', () => {
+    const window = createMessageWindow()
+    let full = turns(50)
+    window.setFullMessages(full)
+    const paged = window.loadMore()
+
+    // Streaming while the reader is reading history must not extend the window:
+    // every token would otherwise re-render (and re-decorate) every row of a
+    // large window, and could replace content under the viewport.
+    full = [...full, userMessage(50), assistantMessage(50)]
+    const next = window.setFullMessages(full, false)
+    expect(next).toBe(paged)
+  })
+
+  it('pages the window forward when the reader scrolls down', () => {
+    const window = createMessageWindow()
+    const full = turns(50)
+    window.setFullMessages(full)
+    // Jump to the first turn: a fixed-width window that stops at its right edge.
+    const jumped = window.showMessageIndex(0)
+    expect(jumped).not.toBeNull()
+    expect(window.hasMoreNewer()).toBe(true)
+
+    const next = window.loadNewer()
+    expect(next).not.toBeNull()
+    expect(next!.length).toBeGreaterThan(jumped!.length)
+    // Appended below: everything already rendered is still there, in place.
+    for (const message of jumped!) expect(next).toContain(message)
+  })
+
+  it('stops paging forward once the right edge reaches the tail', () => {
+    const window = createMessageWindow()
+    const full = turns(50)
+    window.setFullMessages(full)
+    window.showMessageIndex(0)
+
+    let guard = 0
+    while (window.hasMoreNewer() && guard < 100) {
+      window.loadNewer()
+      guard += 1
+    }
+    expect(window.hasMoreNewer()).toBe(false)
+    expect(window.loadNewer()).toBeNull()
+    expect(window.getWindowMessages()).toHaveLength(full.length)
+  })
+
+  it('does not drag an early window to the tail on the next snapshot', () => {
+    // Regression: the reader jumped to the first turn, and the next snapshot
+    // moved the right edge straight to the tail — the whole conversation mounted
+    // at once and the viewport was yanked to the newest message, so "scrolling
+    // down from the first turn" skipped everything in between.
+    const window = createMessageWindow()
+    let full = turns(50)
+    window.setFullMessages(full)
+    const jumped = window.showMessageIndex(0)
+
+    full = [...full, userMessage(50), assistantMessage(50)]
+    const next = window.setFullMessages(full, true)
+
+    expect(next).toBe(jumped)
+    expect(window.hasMoreNewer()).toBe(true)
+  })
+
+  it('distinguishes the tail window from a window that merely contains the newest turn', () => {
+    // Regression: callers used to decide "already at the tail" from the rendered
+    // window containing the newest turn. That is true for every window while
+    // following the tail AND for a paged-back window, so `resumeTail` never
+    // re-sliced and the next snapshot collapsed the paged window silently.
+    const window = createMessageWindow()
+    const full = turns(50)
+    window.setFullMessages(full)
+    expect(window.isAtTail()).toBe(true)
+    expect(window.hasMore()).toBe(true)
+
+    window.loadMore()
+    expect(window.isAtTail()).toBe(false)
+    // The newest turn is still rendered — that is exactly the trap.
+    expect(window.getWindowMessages()).toContain(full[full.length - 1])
+
+    window.resetToTail()
+    window.setFullMessages(full)
+    expect(window.isAtTail()).toBe(true)
+  })
+
+  it('reports a disabled window as at tail so short chats never re-slice', () => {
+    const window = createMessageWindow({ enabled: false })
+    window.setFullMessages(turns(2))
+    expect(window.isAtTail()).toBe(true)
+  })
+
   it('keeps the pinned window position while streaming new turns', () => {
     const window = createMessageWindow()
     let full = turns(50)

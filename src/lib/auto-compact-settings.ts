@@ -6,7 +6,6 @@ type AutoCompactSettings = {
   enabled: boolean
   thresholdPercent: number
   keepRecentTurns: number
-  minSourceChars: number
   requireConfirmation: boolean
 }
 
@@ -14,7 +13,6 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS: AutoCompactSettings = {
   enabled: true,
   thresholdPercent: 80,
   keepRecentTurns: 0,
-  minSourceChars: 1600,
   requireConfirmation: true,
 }
 
@@ -40,12 +38,6 @@ export function normalizeAutoCompactSettings(value: unknown): AutoCompactSetting
       DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns,
       0,
       20,
-    ),
-    minSourceChars: clampNumber(
-      settings.minSourceChars,
-      DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars,
-      0,
-      200000,
     ),
     requireConfirmation: settings.requireConfirmation !== false,
   }

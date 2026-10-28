@@ -9,6 +9,7 @@ vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 import { MessageList } from '../../src/components/chat/surface/MessageList'
 import {
   resolveCompactionBoundary,
+  resolveCompactionMarkers,
   ContextCompactionNotice,
 } from '../../src/components/chat/surface/ContextCompactionNotice'
 import { isRenderableMessage } from '../../src/components/chat/surface/content-parts'
@@ -197,5 +198,117 @@ describe('context compaction notice rendering', () => {
     expect(notice.dataset.hasSummary).toBe('false')
     expect(notice.querySelector('.quickforge-context-compaction-details')).toBeNull()
     expect(notice.querySelector('.quickforge-context-compaction-summary')!.getAttribute('role')).toBe('separator')
+  })
+})
+
+/**
+ * Rolling compaction runs repeatedly and each pass only summarizes "previous
+ * summary + the delta since the last cut", so every pass keeps its own divider
+ * at the moment it ran — the first line is never replaced by the second one.
+ */
+describe('multiple compaction dividers', () => {
+  it('resolves one marker per history entry, anchored to where it ran', () => {
+    const messages = [userMessage('a'), assistantMessage('b'), userMessage('c'), assistantMessage('d')]
+
+    const markers = resolveCompactionMarkers({
+      compaction: {
+        compactedUpToIndex: 4,
+        history: [
+          { compactedAt: '2024-01-01T00:00:00.000Z', occurredAtIndex: 2, boundaryIndex: 2, summaryMessage: assistantMessage('first summary') },
+          { compactedAt: '2024-01-02T00:00:00.000Z', occurredAtIndex: 4, boundaryIndex: 4, summaryMessage: assistantMessage('second summary') },
+        ],
+      },
+      messages,
+      messageIndexOffset: 0,
+      isRenderable: isRenderableMessage,
+    })
+
+    expect(markers.map((marker) => marker.rowIndex)).toEqual([2, 4])
+    expect(markers.map((marker) => marker.isLatest)).toEqual([false, true])
+    expect(markers.map((marker) => marker.summaryText)).toEqual(['first summary', 'second summary'])
+    expect(markers.map((marker) => marker.compactedAt))
+      .toEqual(['2024-01-01T00:00:00.000Z', '2024-01-02T00:00:00.000Z'])
+  })
+
+  it('falls back to the single legacy record when the payload has no history', () => {
+    const markers = resolveCompactionMarkers({
+      compaction: { compactedUpToIndex: 1, compactedAt: '2024-01-01T00:00:00.000Z' },
+      messages: [userMessage('a'), assistantMessage('b')],
+      messageIndexOffset: 0,
+      isRenderable: isRenderableMessage,
+    })
+
+    expect(markers).toHaveLength(1)
+    expect(markers[0]).toMatchObject({ rowIndex: 1, isLatest: true, summaryText: '' })
+  })
+
+  it('clamps a marker past the rendered window instead of dropping the line', () => {
+    // A stale boundary (messages shrank on rollback) used to be hidden; a
+    // compaction that silently yields no line is the failure this list prevents.
+    const markers = resolveCompactionMarkers({
+      compaction: { history: [{ occurredAtIndex: 15, boundaryIndex: 15 }] },
+      messages: [userMessage('a'), userMessage('b')],
+      messageIndexOffset: 10,
+      isRenderable: isRenderableMessage,
+    })
+
+    expect(markers).toHaveLength(1)
+    expect(markers[0].rowIndex).toBe(2)
+  })
+
+  it('collapses markers above the window onto its first row, keeping the newest', () => {
+    // Scrolling back through a windowed session must not stack one identical
+    // line per past compaction at the top of the visible slice.
+    const markers = resolveCompactionMarkers({
+      compaction: {
+        history: [
+          { occurredAtIndex: 2, boundaryIndex: 2, summaryMessage: assistantMessage('old') },
+          { occurredAtIndex: 4, boundaryIndex: 4, summaryMessage: assistantMessage('newer') },
+        ],
+      },
+      messages: [userMessage('a'), assistantMessage('b')],
+      messageIndexOffset: 10,
+      isRenderable: isRenderableMessage,
+    })
+
+    expect(markers).toHaveLength(1)
+    expect(markers[0]).toMatchObject({ rowIndex: 0, occurredAtIndex: 4, summaryText: 'newer' })
+  })
+
+  it('renders both lines and marks the older one as merged into a later summary', () => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const messages = [userMessage('a'), assistantMessage('b'), userMessage('c'), assistantMessage('d')]
+
+    try {
+      act(() => {
+        root.render(createElement(MessageList, {
+          messages,
+          compactionMarkers: resolveCompactionMarkers({
+            compaction: {
+              history: [
+                { occurredAtIndex: 2, boundaryIndex: 2, summaryMessage: assistantMessage('first') },
+                { occurredAtIndex: 4, boundaryIndex: 4, summaryMessage: assistantMessage('second') },
+              ],
+            },
+            messages,
+            messageIndexOffset: 0,
+            isRenderable: isRenderableMessage,
+          }),
+        }))
+      })
+
+      const notices = Array.from(container.querySelectorAll<HTMLElement>('.quickforge-context-compaction-notice'))
+      expect(notices).toHaveLength(2)
+      expect(notices[0].dataset.mergedIntoLater).toBe('true')
+      expect(notices[1].dataset.mergedIntoLater).toBeUndefined()
+      expect(notices[0].dataset.summaryText).toBe('first')
+      expect(notices[1].dataset.summaryText).toBe('second')
+    } finally {
+      act(() => root.unmount())
+      container.remove()
+    }
   })
 })

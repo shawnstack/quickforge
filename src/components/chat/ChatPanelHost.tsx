@@ -1005,6 +1005,13 @@ export function ChatPanelHost({
         const endProgrammaticScroll = scrollSync.beginProgrammaticScroll()
         void Promise.resolve(surfaceRef.current?.loadMoreMessages()).finally(endProgrammaticScroll)
       },
+      onReachBottom: () => {
+        // Mirror of onReachTop: the window's right edge stops where the reader
+        // started, so reaching the bottom has to mount the next page. The surface
+        // appends it BELOW the viewport (nothing moves) and guards re-entry, so
+        // this needs no programmatic-scroll guard.
+        void surfaceRef.current?.loadNewerMessages()
+      },
     })
     scrollSyncRef.current = scrollSync
 

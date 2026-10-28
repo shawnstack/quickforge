@@ -10,7 +10,7 @@ Agent Plugin = Skill + Command + Hook + Tool/MCP + Agent/Subagent + Context + Pe
 
 ## 当前 V1 定位
 
-当前已落地的是 Agent 能力插件系统的 V1 基础能力：通用插件基础设施 + `contributes.tools` + 静态 `contributes.skills` / `contributes.commands`。
+当前已落地的是 Agent 能力插件系统的 V1 基础能力：通用插件基础设施 + `contributes.tools` + 静态 `contributes.skills` / `contributes.commands`；V1.5 新增声明式 UI 扩展（plugin `apiVersion: 2`，v1 插件零改动兼容）。
 
 已支持：
 
@@ -26,6 +26,11 @@ Agent Plugin = Skill + Command + Hook + Tool/MCP + Agent/Subagent + Context + Pe
 - 插件静态 `contributes.commands`：启用插件后自动加入项目 slash command 发现，项目本地命令可覆盖插件命令。
 - YOLO 关闭时插件工具走审批逻辑，类似 MCP。
 - 插件加载失败不导致服务崩溃，插件页展示错误。
+- 插件声明式 UI（`apiVersion: 2`）：`contributes.ui.slots` 向固定 slot（`composer.actions` / `session.header` / `sidebar.footer`）插入受限节点树，宿主用自有组件渲染；插件不能改写界面，不注入 CSS、不加载宿主 React 组件。
+- 插件 UI 动作：`POST /api/plugins/:name/ui`，action 必须在 `contributes.ui.actions` 白名单内，slot → `ui:*` 权限校验，5s 超时，单插件并发 4，全部写入 `plugin-audit`。
+- 插件沙箱面板（L2）：`contributes.ui.panels` 由 `sandbox="allow-scripts"`（**不加** `allow-same-origin`）iframe 承载，只能通过 postMessage 调用 `kv.get` / `kv.set` / `notify` / `callTool`；`callTool` 限本插件自有工具，并复用直接的插件工具执行门禁（默认权限模式 403）。
+- 插件 KV：服务端 `ctx.kv` 与 `GET|PUT /api/plugins/:name/kv`，每插件 64KB、单值 8KB，存在 `plugins.json` 的 `kv` 段。
+- 内置技能 `plugin-creator`：SKILL.md + manifest/ui-slots/examples 参考 + `scaffold-plugin.mjs` / `validate-plugin.mjs`。
 
 当前暂未实现但已纳入 Agent 能力插件架构：
 
@@ -34,9 +39,12 @@ Agent Plugin = Skill + Command + Hook + Tool/MCP + Agent/Subagent + Context + Pe
 - `contributes.agents`
 - `contributes.lspServers`
 - `contributes.monitors`
-- 完整 Permission Broker
-- Audit Logger
+- 完整 Permission Broker（当前只对 `ui:*` 做 slot 级强制，工具权限仍走既有审批链路）
+- 完整 Audit Logger（当前 `plugin-audit` 只记录 UI 动作）
+- 进程隔离（`utilityProcess` + Node `--permission`）：现在插件来源等同用户自己放置的代码，威胁模型与 Koishi / Obsidian 一致
 - Marketplace / install / update / lockfile
+
+插件 UI 扩展的完整设计（节点 DSL、slot/权限映射、限额、非目标）见 [plugin-ui-extension.zh-CN.md](./plugin-ui-extension.zh-CN.md)。
 
 ## 搜索路径
 

@@ -4,7 +4,17 @@ import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dataDir, readStore, atomicUpdate } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
-import { loadPlugin } from './loader.mjs'
+import { DEFAULT_UI_ACTION_TIMEOUT_MS, loadPlugin } from './loader.mjs'
+import { recordPluginAudit } from './audit.mjs'
+import {
+  UI_LIMITS,
+  isUiSlotName,
+  isValidUiActionName,
+  normalizeUiNodes,
+  normalizeUiPayload,
+  pluginUiError,
+  uiPermissionForSlot,
+} from './ui-schema.mjs'
 import {
   isPluginToolName,
   normalizePluginManifest,
@@ -23,9 +33,19 @@ const LEGACY_BUNDLED_PLUGIN_NAMES = {
   'openai-spreadsheets': 'spreadsheets',
 }
 export const DEFAULT_PLUGIN_TOOL_TIMEOUT_MS = 2 * 60 * 1000
+// UI action budget is owned by the loader (see loader.mjs). Re-exported so
+// existing callers/tests keep a single import path.
+export const PLUGIN_UI_ACTION_TIMEOUT_MS = DEFAULT_UI_ACTION_TIMEOUT_MS
+export const PLUGIN_UI_ACTION_MAX_CONCURRENCY = 4
+const uiActionConcurrency = new Map()
 let cachedCatalog = null
 let cachedCatalogKey = null
 let catalogDirty = false
+// Cold-load snapshot of the *slot nodes* only. `getSlots` is a plugin hook, so
+// recomputing it on every `GET /api/plugins/ui` (one per page load, per window)
+// is wasted work; the metadata/state half is cheap and stays fresh.
+let cachedUiSlotsSnapshot = null
+const UI_SLOT_SNAPSHOT_TTL_MS = 2000
 let refreshPromise = null
 
 function catalogKey(projectContext = null) {
@@ -113,11 +133,19 @@ async function listPluginDirs(root) {
 
 function normalizePluginStore(store) {
   const source = isPlainObject(store) ? store : {}
-  return {
+  const next = {
     schemaVersion: Number.isInteger(source.schemaVersion) ? source.schemaVersion : 1,
     enabled: isPlainObject(source.enabled) ? { ...source.enabled } : {},
     config: isPlainObject(source.config) ? { ...source.config } : {},
   }
+  // Per-plugin key/value scratch space for UI contributions. Lives in the same
+  // store as `enabled`/`config` on purpose: no new file and no migration. The
+  // key is only materialised once a plugin actually stores something, so an
+  // untouched plugins.json keeps its exact previous shape.
+  if (isPlainObject(source.kv) && Object.keys(source.kv).length > 0) {
+    next.kv = { ...source.kv }
+  }
+  return next
 }
 
 function migratePluginStore(store) {
@@ -145,6 +173,40 @@ function contributionSummary(contribution) {
   return {
     path: contribution.path,
     resolvedPath: contribution.resolvedPath,
+  }
+}
+
+// Turns the manifest's `contributes.ui` into the shape the registry, the status
+// route and the audit log all agree on. Permissions are derived from the slots a
+// plugin actually contributes, so a plugin cannot claim `ui:composer` without
+// also declaring composer.actions.
+function buildUiEntry(manifest) {
+  const ui = manifest.contributes.ui
+  if (!ui) return null
+  const permissions = []
+  for (const slotName of Object.keys(ui.slots)) {
+    const permission = uiPermissionForSlot(slotName)
+    if (permission && !permissions.includes(permission)) permissions.push(permission)
+  }
+  return {
+    slots: ui.slots,
+    actions: ui.actions,
+    panels: ui.panels,
+    permissions,
+    digest: manifest.uiDigest,
+    warnings: Array.isArray(ui.warnings) ? ui.warnings : [],
+  }
+}
+
+function publicUiEntry(ui) {
+  if (!ui) return null
+  return {
+    slots: Object.keys(ui.slots),
+    actions: ui.actions,
+    panels: ui.panels.map((panel) => ({ id: panel.id, title: panel.title, entry: panel.entry, width: panel.width })),
+    permissions: ui.permissions,
+    digest: ui.digest,
+    warnings: ui.warnings,
   }
 }
 
@@ -194,9 +256,13 @@ async function loadEnabledPlugins(projectContext, previousCatalog = null) {
       })),
       skills: manifest.contributes.skills.map(contributionSummary),
       commands: manifest.contributes.commands.map(contributionSummary),
+      ui: buildUiEntry(manifest),
     }
 
-    if (enabled && entry.tools.length > 0) {
+    // A plugin needs an instance when it provides tools *or* any UI behaviour:
+    // a UI-only plugin (static slots, getSlots, handle) must not be skipped.
+    const needsInstance = entry.tools.length > 0 || Boolean(entry.ui)
+    if (enabled && needsInstance) {
       try {
         const loaded = await loadPlugin(manifest, { config, projectContext })
         handlers.set(manifest.name, loaded)
@@ -242,6 +308,9 @@ export async function refreshPlugins(projectContext = null) {
       cachedCatalog = catalog
       cachedCatalogKey = key
       catalogDirty = false
+      // A new catalog means new plugin instances: any cached getSlots output is
+      // stale by definition.
+      invalidateUiSlotsSnapshot()
       await disposeHandlers(previousCatalog, new Set(catalog.handlers.values()))
       return catalog
     }).finally(() => {
@@ -309,6 +378,7 @@ export async function getPluginStatus(projectContext = null) {
       skills: plugin.skills.map((skill) => ({ path: skill.path })),
       commands: plugin.commands.map((command) => ({ path: command.path })),
       settings: plugin.contributes.settings,
+      ui: publicUiEntry(plugin.ui),
       config: plugin.config,
     })),
   }
@@ -406,5 +476,296 @@ export async function callPluginTool(toolName, params = {}, toolContext = {}) {
       pluginName: plugin.name,
       tool: tool.name,
     },
+  }
+}
+
+// --- UI contributions -------------------------------------------------------
+//
+// Two entry points, both synchronous-looking to the caller:
+//   getUiSnapshot()                -> everything the composer/header/sidebar need
+//   dispatchUiAction(name, body)   -> one click, validated, audited, timed out
+// The registry is the single enforcement point for action allow-lists,
+// permissions, concurrency and response validation.
+
+
+async function readPluginKvMap() {
+  const store = await readPluginStore()
+  return isPlainObject(store.kv) ? store.kv : {}
+}
+
+export async function getPluginKv(name) {
+  const kv = await readPluginKvMap()
+  return isPlainObject(kv[name]) ? { ...kv[name] } : {}
+}
+
+export async function setPluginKv(name, patch) {
+  if (!isPlainObject(patch)) throw pluginUiError(`Plugin ${name} UI state must be an object.`)
+  for (const [key, value] of Object.entries(patch)) {
+    if (!/^[A-Za-z0-9_.-]{1,64}$/.test(key)) {
+      throw pluginUiError(`Plugin ${name} UI state key is invalid: ${key || '(empty)'}.`)
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8')
+    if (bytes > UI_LIMITS.maxKvValueBytes) {
+      throw pluginUiError(`Plugin ${name} UI state value "${key}" exceeds ${UI_LIMITS.maxKvValueBytes} bytes.`)
+    }
+  }
+
+  const updated = await atomicUpdate('plugins', (store) => {
+    const next = migratePluginStore(store).store
+    const kvMap = isPlainObject(next.kv) ? next.kv : {}
+    const current = isPlainObject(kvMap[name]) ? kvMap[name] : {}
+    const merged = { ...current, ...patch }
+    const total = Buffer.byteLength(JSON.stringify(merged), 'utf8')
+    if (total > UI_LIMITS.maxKvBytes) {
+      throw pluginUiError(`Plugin ${name} UI state exceeds ${UI_LIMITS.maxKvBytes} bytes.`)
+    }
+    next.kv = { ...kvMap, [name]: merged }
+    return next
+  })
+
+  return isPlainObject(updated?.kv?.[name]) ? { ...updated.kv[name] } : {}
+}
+
+function panelAssetUrl(pluginName, entry) {
+  const encoded = String(entry || '').split('/').map((segment) => encodeURIComponent(segment)).join('/')
+  return `/api/plugins/${encodeURIComponent(pluginName)}/assets/${encoded}`
+}
+
+// Sandboxed panel assets. Only a plugin that declares `contributes.ui.panels`
+// can serve files, only from inside its own directory, and only well-known
+// static types - an extension point is not a general file server.
+const PLUGIN_ASSET_TYPES = new Map([
+  ['.html', 'text/html; charset=utf-8'],
+  ['.js', 'text/javascript; charset=utf-8'],
+  ['.mjs', 'text/javascript; charset=utf-8'],
+  ['.css', 'text/css; charset=utf-8'],
+  ['.json', 'application/json; charset=utf-8'],
+  ['.svg', 'image/svg+xml'],
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.woff2', 'font/woff2'],
+])
+
+export async function readPluginAsset(name, relativePath, projectContext = null) {
+  const catalog = await getCatalog(projectContext)
+  const plugin = catalog.plugins.find((item) => item.name === name)
+  const notFound = () => {
+    const error = new Error(`Unknown plugin asset: ${name}`)
+    error.statusCode = 404
+    return error
+  }
+  if (!plugin || !plugin.enabled || plugin.status !== 'loaded') throw notFound()
+  if (!plugin.ui || plugin.ui.panels.length === 0) throw notFound()
+
+  const cleaned = String(relativePath || '').replace(/\\/g, '/')
+  if (!cleaned || cleaned.includes('\0') || path.isAbsolute(cleaned)) {
+    const error = new Error('Invalid plugin asset path')
+    error.statusCode = 400
+    throw error
+  }
+
+  const resolved = path.resolve(plugin.dir, cleaned)
+  const relative = path.relative(plugin.dir, resolved)
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    const error = new Error('Plugin asset path is outside the plugin directory')
+    error.statusCode = 400
+    throw error
+  }
+
+  const contentType = PLUGIN_ASSET_TYPES.get(path.extname(resolved).toLowerCase())
+  if (!contentType) throw notFound()
+
+  try {
+    return { data: await fs.readFile(resolved), contentType }
+  } catch {
+    throw notFound()
+  }
+}
+
+/**
+ * Everything the frontend needs to place plugin UI on first paint.
+ * Dynamic `getSlots` values win over the manifest's static nodes; a failing
+ * hook falls back to the static nodes instead of removing the slot.
+ */
+export async function getUiSnapshot(projectContext = null) {
+  const catalog = await getCatalog(projectContext)
+  const slots = await cachedUiSlots(catalog, catalogKey(projectContext))
+  const kvMap = await readPluginKvMap()
+  const plugins = []
+
+  for (const plugin of catalog.plugins) {
+    if (!plugin.enabled || plugin.status !== 'loaded' || !plugin.ui) continue
+    plugins.push({
+      name: plugin.name,
+      actions: plugin.ui.actions,
+      permissions: plugin.ui.permissions,
+      panels: plugin.ui.panels.map((panel) => ({
+        id: panel.id,
+        title: panel.title,
+        width: panel.width,
+        url: panelAssetUrl(plugin.name, panel.entry),
+      })),
+      state: isPlainObject(kvMap[plugin.name]) ? kvMap[plugin.name] : {},
+    })
+  }
+
+  return { slots, plugins }
+}
+
+function invalidateUiSlotsSnapshot() {
+  cachedUiSlotsSnapshot = null
+}
+
+async function cachedUiSlots(catalog, key) {
+  const now = Date.now()
+  if (
+    cachedUiSlotsSnapshot
+    && cachedUiSlotsSnapshot.key === key
+    && now - cachedUiSlotsSnapshot.at < UI_SLOT_SNAPSHOT_TTL_MS
+  ) {
+    return cachedUiSlotsSnapshot.slots
+  }
+  const slots = await computeUiSlots(catalog)
+  cachedUiSlotsSnapshot = { key, at: now, slots }
+  return slots
+}
+
+async function computeUiSlots(catalog) {
+  const slots = {}
+
+  for (const plugin of catalog.plugins) {
+    if (!plugin.enabled || plugin.status !== 'loaded' || !plugin.ui) continue
+    const handler = catalog.handlers.get(plugin.name)
+    const contributed = {}
+
+    for (const [slotName, staticNodes] of Object.entries(plugin.ui.slots)) {
+      contributed[slotName] = staticNodes
+      if (typeof handler?.getSlots !== 'function') continue
+      try {
+        // The budget is enforced by the loader (it owns the call boundary).
+        const dynamicNodes = await handler.getSlots(slotName, {})
+        if (dynamicNodes !== undefined) {
+          contributed[slotName] = normalizeUiNodes(dynamicNodes, { pluginName: plugin.name, slot: slotName }).nodes
+        }
+      } catch (error) {
+        logger.warn(`Plugin ${plugin.name} getSlots(${slotName}) failed; keeping static nodes:`, error)
+      }
+    }
+
+    for (const [slotName, nodes] of Object.entries(contributed)) {
+      if (!isUiSlotName(slotName) || !Array.isArray(nodes) || nodes.length === 0) continue
+      if (!slots[slotName]) slots[slotName] = []
+      slots[slotName].push({ plugin: plugin.name, nodes })
+    }
+  }
+
+  return slots
+}
+
+export async function dispatchUiAction(name, body = {}, options = {}) {
+  const catalog = await getCatalog(options)
+  const plugin = catalog.plugins.find((item) => item.name === name)
+  if (!plugin || !plugin.enabled || plugin.status !== 'loaded') {
+    const error = new Error(`Plugin is not loaded: ${name}`)
+    error.statusCode = 503
+    throw error
+  }
+
+  const ui = plugin.ui
+  if (!ui) throw pluginUiError(`Plugin ${name} does not contribute any UI.`)
+
+  const slot = typeof body?.slot === 'string' ? body.slot : ''
+  if (!isUiSlotName(slot)) throw pluginUiError(`Unknown UI slot: ${slot || '(empty)'}.`)
+
+  const action = typeof body?.action === 'string' ? body.action : ''
+  if (!isValidUiActionName(action)) throw pluginUiError('Invalid UI action name.')
+
+  if (!ui.actions.includes(action)) {
+    await recordPluginAudit({ plugin: name, slot, action, outcome: 'rejected', reason: 'action not declared in contributes.ui.actions' })
+    throw pluginUiError(`Plugin ${name} did not declare UI action "${action}".`)
+  }
+
+  if (!ui.slots[slot]) {
+    throw pluginUiError(`Plugin ${name} does not contribute slot "${slot}".`)
+  }
+
+  const permission = uiPermissionForSlot(slot)
+  if (permission && !plugin.permissions.includes(permission)) {
+    await recordPluginAudit({ plugin: name, slot, action, outcome: 'denied', reason: `missing permission ${permission}` })
+    const error = new Error(`Plugin ${name} is missing permission ${permission} required by slot ${slot}.`)
+    error.statusCode = 403
+    throw error
+  }
+
+  const payload = normalizeUiPayload(body?.payload, name)
+  const props = isPlainObject(body?.props) ? body.props : {}
+
+  const running = uiActionConcurrency.get(name) || 0
+  if (running >= PLUGIN_UI_ACTION_MAX_CONCURRENCY) {
+    await recordPluginAudit({ plugin: name, slot, action, outcome: 'throttled', reason: 'concurrency limit reached' })
+    const error = new Error(`Plugin ${name} UI actions are limited to ${PLUGIN_UI_ACTION_MAX_CONCURRENCY} concurrent calls.`)
+    error.statusCode = 429
+    throw error
+  }
+
+  uiActionConcurrency.set(name, running + 1)
+  const startedAt = Date.now()
+  try {
+    const handler = catalog.handlers.get(name)
+    const kv = await getPluginKv(name)
+    let result = {}
+    if (typeof handler?.handleUiAction === 'function') {
+      // Budget enforced by the loader; the registry only decides whether it runs.
+      result = await handler.handleUiAction(action, payload, {
+        slot,
+        props,
+        kv,
+        plugin: { name: plugin.name, dir: plugin.dir, config: plugin.config },
+      })
+    }
+
+    const response = {}
+    if (isPlainObject(result)) {
+      if (result.state !== undefined) {
+        response.state = await setPluginKv(name, result.state)
+      }
+      if (isPlainObject(result.slots)) {
+        const nextSlots = {}
+        for (const [slotName, nodes] of Object.entries(result.slots)) {
+          if (!isUiSlotName(slotName)) continue
+          try {
+            nextSlots[slotName] = normalizeUiNodes(nodes, { pluginName: name, slot: slotName }).nodes
+          } catch (error) {
+            logger.warn(`Plugin ${name} returned invalid nodes for ${slotName}; dropping:`, error)
+          }
+        }
+        if (Object.keys(nextSlots).length > 0) response.slots = nextSlots
+      }
+      if (isPlainObject(result.toast) && typeof result.toast.message === 'string') {
+        const level = ['info', 'success', 'warning', 'error'].includes(result.toast.level) ? result.toast.level : 'info'
+        response.toast = { level, message: result.toast.message.slice(0, 300) }
+      }
+    }
+
+    // The action may have changed what `getSlots` would return next time.
+    invalidateUiSlotsSnapshot()
+    await recordPluginAudit({ plugin: name, slot, action, outcome: 'ok', durationMs: Date.now() - startedAt })
+    return response
+  } catch (error) {
+    const timedOut = /timed out/i.test(error?.message || '')
+    await recordPluginAudit({
+      plugin: name,
+      slot,
+      action,
+      outcome: timedOut ? 'timeout' : 'error',
+      reason: error?.message,
+      durationMs: Date.now() - startedAt,
+    })
+    if (!error.statusCode) error.statusCode = timedOut ? 504 : 500
+    throw error
+  } finally {
+    uiActionConcurrency.set(name, Math.max(0, (uiActionConcurrency.get(name) || 1) - 1))
   }
 }

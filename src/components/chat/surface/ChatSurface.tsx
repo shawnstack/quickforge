@@ -32,10 +32,11 @@ import { MessageEditor } from './MessageEditor'
 import { TodoWriteSummary } from './TodoWriteSummary'
 import { GoalControlStrip } from './GoalControlStrip'
 import { ComposerPlusPopover, ComposerPlusTrigger, useComposerPlusMenu } from './ComposerPlusMenu'
+import { PluginSlot } from '@/components/plugins/PluginSlot'
 import { AgentAccessMenu, AgentAccessTrigger, PlanModeTrigger, positionAgentAccessMenu } from './ComposerAccessControls'
 import { registerAgentAccessMenuCloser } from '../panel-decoration/agent-access-menu'
 import { ModelRetryNotice, ReconnectNotice, SessionLeaseStrip, UnreachableStrip, useSseConnectionStatus, type ModelRetryInfo } from './ConnectionNotices'
-import { resolveCompactionBoundary, type ContextCompactionState } from './ContextCompactionNotice'
+import { resolveCompactionMarkers, type ContextCompactionState } from './ContextCompactionNotice'
 import { resolveAssistantWaitingRow } from './AssistantWaitingBubble'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
 import { CommandActionsEnabledContext, LocalFilePathHandlerContext } from './surface-context'
@@ -710,11 +711,12 @@ const MessageArea = memo(function MessageArea({
   const renderedSequence = rendersStreamingRow && streamingAssistant
     ? [...messages, streamingAssistant]
     : messages
+  // One divider per compaction (rolling compaction appends a record each time).
   // Resolved here (not in MessageList) so the memoized list keeps receiving a
-  // stable, already-computed position: the boundary depends on the rendered
+  // stable, already-computed position: the markers depend on the rendered
   // window offset, not on anything the list itself owns.
-  const compactionBoundary = useMemo(
-    () => resolveCompactionBoundary({
+  const compactionMarkers = useMemo(
+    () => resolveCompactionMarkers({
       compaction: contextCompaction,
       messages,
       messageIndexOffset,
@@ -754,7 +756,7 @@ const MessageArea = memo(function MessageArea({
             streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}
             onCostClick={onCostClick}
             persistDegraded={persistDegraded}
-            compactionBoundary={compactionBoundary}
+            compactionMarkers={compactionMarkers}
             assistantWaitingRow={assistantWaitingRow}
             compactionNotice={compactionNotice}
             onApproveCompaction={onApproveCompaction}
@@ -793,6 +795,17 @@ const MessageArea = memo(function MessageArea({
 export type WindowedChatSurfaceHandle = ChatSurfaceHandle & {  getWindowMessages: () => AgentMessage[]
   getWindowStart: () => number
   loadMoreMessages: () => Promise<void>
+  /**
+   * Extend the rendered window one page FORWARD (towards the newest turn).
+   *
+   * The mirror of `loadMoreMessages`: a window that was moved back to an early
+   * turn (turn navigation, or paging history in) stops at its right edge, so
+   * scrolling down would hit the end of the rendered rows with the rest of the
+   * conversation missing. Content is appended BELOW the viewport, so this needs
+   * no scroll anchor — the reader keeps their position and scrolls into the
+   * newly mounted turns.
+   */
+  loadNewerMessages: () => Promise<void>
   showMessageIndex: (index: number) => Promise<void>
   /**
    * Capture the current reading anchor so a change that prepends content above
@@ -987,9 +1000,19 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
   // would re-create the callback and re-run the subscription effect on every
   // agent event.
   const snapshotRef = useRef(snapshot)
-  // Render the complete conversation up front so turn navigation can scroll
-  // directly to existing DOM nodes without replacing the message window.
-  const [windowController] = useState(() => createMessageWindow({ enabled: false }))
+  /**
+   * Turn-windowed rendering is ON by default (see `windowed-messages.ts`):
+   * short conversations still render in full (the controller's own thresholds
+   * keep `enabled` false), while long ones only mount the most recent turns and
+   * extend upwards page by page. That is the only thing keeping a 500-message
+   * conversation from mounting 500 subtrees at once.
+   *
+   * Turn navigation used to be the reason this was disabled: it wanted the
+   * target row to already exist in the DOM. `showMessageIndex` now moves the
+   * window first and the host measures after the window commit, so the rail
+   * works against a windowed list too (see `turn-navigation.ts` jump()).
+   */
+  const [windowController] = useState(() => createMessageWindow())
   const [messageWindow, setMessageWindow] = useState(() => {
     const messages = snapshot?.messages ?? []
     windowController.setFullMessages(messages)
@@ -1003,6 +1026,12 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
   const fullMessagesRef = useRef(snapshot?.messages ?? [])
   const windowCommitCallbacksRef = useRef<Array<() => void>>([])
   const pageInFlightRef = useRef(false)
+  /**
+   * Separate from `pageInFlightRef`: the viewport-fill guard below extends the
+   * window without a scroll, and sharing the flag would let one path release the
+   * other's guard while its promise is still pending.
+   */
+  const fillInFlightRef = useRef(false)
   /**
    * Composer hot-path state, deliberately held outside React's render inputs.
    *
@@ -1141,11 +1170,18 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     setMessageWindow(next)
   }, [windowController])
 
+  /**
+   * Return to the tail window and re-arm tail-following.
+   *
+   * For explicit "go back to the newest message" actions (sending, session
+   * activation), NOT for scrolling: `setAutoScroll(true)` only re-arms following
+   * and pages forward, so a window that was moved back to an early turn is never
+   * collapsed under the reader.
+   */
   const resumeTail = useCallback(() => {
     autoScrollRef.current = true
     windowController.resetToTail()
-    if (committedWindowRef.current.atTail) return
-    windowController.setFullMessages(fullMessagesRef.current)
+    windowController.setFullMessages(fullMessagesRef.current, true)
     publishWindow()
   }, [publishWindow, windowController])
 
@@ -1204,6 +1240,38 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     onWindowChanged?.()
   }, [applyReadingAnchor, messageWindow, onWindowChanged])
 
+  /**
+   * Window fill guard.
+   *
+   * With windowing on, the first paint mounts only the recent turns. When those
+   * are shorter than the viewport the container has no scroll range at all, so
+   * nothing can ever ask for older history: the host's `onReachTop` hangs off
+   * scroll/wheel, and a non-overflowing container emits no `scroll` (touch
+   * especially). Keep extending the window while we are tail-following until the
+   * content fills the viewport or the window reaches the first turn. Each pass
+   * adds a whole page of turns, so this settles within a commit or two.
+   */
+  useLayoutEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container || fillInFlightRef.current) return
+    // Only while tail-following: a user reading a specific row must not have
+    // content prepended above it.
+    if (!autoScrollRef.current) return
+    if (!windowController.hasMore()) return
+    // A kept-but-hidden view has no layout box (scrollHeight/clientHeight read 0),
+    // which would look like "shorter than viewport" and extend the window forever.
+    if (isInsideHiddenView(container)) return
+    if (container.clientHeight <= 0) return
+    if (container.scrollHeight > container.clientHeight) return
+    fillInFlightRef.current = true
+    windowController.loadMore()
+    // Released by the next window commit, exactly like a scroll-driven page.
+    windowCommitCallbacksRef.current.push(() => {
+      fillInFlightRef.current = false
+    })
+    publishWindow()
+  }, [messageWindow, publishWindow, windowController])
+
   useEffect(() => () => {
     windowCommitCallbacksRef.current.splice(0).forEach((callback) => callback())
   }, [])
@@ -1216,8 +1284,19 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         if (attachments !== undefined) applyEditorAttachments(attachments)
       },
       setAutoScroll: (enabled: boolean) => {
-        if (enabled) resumeTail()
-        else autoScrollRef.current = false
+        if (!enabled) {
+          autoScrollRef.current = false
+          return
+        }
+        autoScrollRef.current = true
+        // Re-armed when the reader comes back to the bottom. Page the window
+        // FORWARD instead of jumping to the tail: appended content lands below
+        // the viewport, so nothing moves under the reader. Jumping the right edge
+        // to the tail here is what made "scroll down from the first turn" land on
+        // the newest message with everything in between never mounted.
+        if (!windowController.hasMoreNewer()) return
+        if (!windowController.loadNewer()) return
+        publishWindow()
       },
       getWindowMessages: () => committedWindowRef.current.messages,
       getWindowStart: () => committedWindowRef.current.start,
@@ -1228,16 +1307,22 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         // Anchor on a real message row only: paging rebuilds folded process
         // groups, so a group row is not a stable anchor across the load.
         const anchor = readScrollAnchor(container, { requireMessageIndex: true })
+        const heightBefore = container.scrollHeight
         if (!windowController.loadMore()) return Promise.resolve()
         pageInFlightRef.current = true
         return new Promise<void>((resolve) => {
           windowCommitCallbacksRef.current.push(() => {
             pageInFlightRef.current = false
             const next = anchor ? anchoredScrollTop(container, anchor, { requireMessageIndex: true }) : null
-            // Fixed-size pages may not overlap. Land at the older page's bottom
-            // when no anchor row survived, rather than reusing an unrelated
-            // element's rendered ordinal.
-            container.scrollTop = next ?? Math.max(0, container.scrollHeight - container.clientHeight)
+            // Never fall back to `scrollHeight - clientHeight` here: the older
+            // page was prepended ABOVE the viewport, so "the bottom" is the end
+            // of the conversation. Landing there is why paging read as "I scroll
+            // up and get thrown back to the newest message". Anchor resolution
+            // returning null means "nothing moved"; fall back to how much the
+            // content grew above instead, which is 0 in that case anyway.
+            container.scrollTop = next !== null
+              ? next
+              : (anchor?.scrollTop ?? 0) + Math.max(0, container.scrollHeight - heightBefore)
             resolve()
           })
           publishWindow()
@@ -1251,6 +1336,21 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
           publishWindow()
         })
       },
+      loadNewerMessages: () => {
+        const container = scrollContainerRef.current
+        if (!container || pageInFlightRef.current || !windowController.hasMoreNewer()) return Promise.resolve()
+        // Content is appended BELOW the viewport, so the reader's position is
+        // already correct — no anchor capture or scrollTop restore needed.
+        if (!windowController.loadNewer()) return Promise.resolve()
+        pageInFlightRef.current = true
+        return new Promise<void>((resolve) => {
+          windowCommitCallbacksRef.current.push(() => {
+            pageInFlightRef.current = false
+            resolve()
+          })
+          publishWindow()
+        })
+      },
       captureScrollAnchor: () => {
         const captured = captureReadingAnchor()
         if (!captured) return () => undefined
@@ -1260,7 +1360,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         }
       },
     }),
-    [applyEditorText, applyEditorAttachments, captureReadingAnchor, publishWindow, resumeTail, windowController],
+    [applyEditorText, applyEditorAttachments, captureReadingAnchor, publishWindow, windowController],
   )
 
   /**
@@ -1276,7 +1376,10 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     const next = readAgentSnapshot(agent, snapshotRef.current ?? undefined)
     snapshotRef.current = next
     fullMessagesRef.current = next.messages
-    windowController.setFullMessages(next.messages)
+    // `autoScrollRef` is the reader's position: while it is false the user is up
+    // in history, so a paged window keeps its right edge frozen (no row
+    // re-renders per streaming token, no content replaced under the viewport).
+    windowController.setFullMessages(next.messages, autoScrollRef.current)
     setSnapshot(next)
     publishWindow()
   }, [agent, publishWindow, windowController])
@@ -1534,6 +1637,10 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                 leadingControls={(
                   <>
                     {activePlusMenu ? <ComposerPlusTrigger controller={activePlusMenu} disabled={composerControlsDisabled} /> : null}
+                    <PluginSlot
+                      slot="composer.actions"
+                      props={{ sessionId, isStreaming: snapshot.isStreaming }}
+                    />
                     {showPlanModeControl && planMode ? (
                       <PlanModeTrigger planMode={planMode} onToggle={() => onTogglePlanMode?.()} />
                     ) : null}

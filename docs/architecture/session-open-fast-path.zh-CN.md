@@ -704,6 +704,13 @@ full 优先、取消）与 `tests/frontend/streaming-decoration.test.ts`（3 例
 仍未改动：`tool_execution_update` 仍触发完整装饰、流式 Markdown 仍按帧全量解析、
 消息列表仍全量常驻 DOM。这三项分别需要事件合并、增量解析与等价窗口化。
 
+> 后续（2026-10-28）：第三项已落地。`ChatSurface` 不再以 `enabled: false` 构造
+> `createMessageWindow`，长会话默认只挂载最近 `WINDOW_TURNS`(3) 轮，向上滚动分页
+> 加载更早轮次，并增加「窗口内容不足一屏时自动续扩」的兜底（否则容器不产生滚动，
+> `onReachTop` 永远不触发）。轮次导航改为先 `showMessageIndex` 移窗、等布局提交后
+> 再测量。数据层仍是全量取数（`agent.state.messages` 恒为全量），本节的目标
+> 「不一次性挂载整段历史 DOM」已达成，内存侧的等价窗口化仍未做。
+
 
 ## 5. 重写原则
 

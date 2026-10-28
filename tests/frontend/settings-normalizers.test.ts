@@ -105,13 +105,12 @@ describe('settings normalizers', () => {
       enabled: true,
       thresholdPercent: 95,
       keepRecentTurns: 0,
-      minSourceChars: DEFAULT_AUTO_COMPACT_SETTINGS.minSourceChars,
       requireConfirmation: false,
     })
+    // Legacy `minSourceChars` in stored settings is dropped by the normalizer.
     expect(normalizeAutoCompactSettings({ thresholdPercent: 49.2, keepRecentTurns: 20.4, minSourceChars: -1 })).toMatchObject({
       thresholdPercent: 50,
       keepRecentTurns: 20,
-      minSourceChars: 0,
     })
   })
 
@@ -121,12 +120,11 @@ describe('settings normalizers', () => {
     })
 
     await expect(loadAutoCompactSettings(storage)).resolves.toMatchObject({ thresholdPercent: 95 })
-    await saveAutoCompactSettings(storage, { enabled: true, thresholdPercent: 60.8, keepRecentTurns: 4.2, minSourceChars: 12.3, requireConfirmation: true })
+    await saveAutoCompactSettings(storage, { enabled: true, thresholdPercent: 60.8, keepRecentTurns: 4.2, requireConfirmation: true })
     expect(values.get('auto-compact-settings')).toEqual({
       enabled: true,
       thresholdPercent: 61,
       keepRecentTurns: 4,
-      minSourceChars: 12,
       requireConfirmation: true,
     })
   })

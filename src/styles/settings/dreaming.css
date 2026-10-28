@@ -185,7 +185,8 @@
 
 @media (min-width: 48rem) {
   .quickforge-dreaming-stats {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Count-agnostic: the strip has three items today and may gain or lose one. */
+    grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
   }
 }
 
@@ -285,4 +286,18 @@
   flex-wrap: nowrap;
   margin-left: auto;
   padding-top: 0.125rem;
+}
+
+/* Beta marker: the same pill in the settings nav, the tab header and the page title. */
+.quickforge-settings-beta {
+  flex-shrink: 0;
+  border-radius: 0.375rem;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  padding: 0 0.3rem;
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.1rem;
+  text-transform: uppercase;
 }

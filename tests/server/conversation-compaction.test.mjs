@@ -36,11 +36,10 @@ const legacyNoticeText = [
 ].join('\n')
 
 describe('conversation compaction message handling', () => {
-  it('allows a short single user turn when the manual character gate is disabled', async () => {
+  it('compacts a short single user turn (no character floor)', async () => {
     const result = await (await import('../../server/conversation-compaction.mjs')).compactConversation({
       messages: [textMessage('user', 'u1'), textMessage('assistant', 'a1')],
       model: { provider: 'mock', id: 'mock-model' },
-      minSourceChars: 0,
     })
 
     expect(result.skipped).toBe(false)
@@ -155,7 +154,6 @@ describe('conversation compaction prompt', () => {
     await (await import('../../server/conversation-compaction.mjs')).compactConversation({
       messages: [textMessage('user', 'u1'), textMessage('assistant', 'a1')],
       model: { provider: 'mock', id: 'mock-model' },
-      minSourceChars: 0,
     })
 
     const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
@@ -175,7 +173,6 @@ describe('conversation compaction prompt', () => {
         textMessage('assistant', 'done'),
       ],
       model: { provider: 'mock', id: 'mock-model', contextWindow: 128_000 },
-      minSourceChars: 0,
     })
 
     const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
@@ -198,7 +195,6 @@ describe('conversation compaction prompt', () => {
         textMessage('assistant', 'ok'),
       ],
       model: { provider: 'mock', id: 'mock-model' },
-      minSourceChars: 0,
     })
 
     const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
@@ -221,7 +217,6 @@ describe('conversation compaction prompt', () => {
         textMessage('assistant', 'done'),
       ],
       model: { provider: 'mock', id: 'mock-model' },
-      minSourceChars: 0,
     })
 
     const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)
@@ -243,7 +238,6 @@ describe('conversation compaction prompt', () => {
         textMessage('assistant', 'done'),
       ],
       model: { provider: 'mock', id: 'mock-model' },
-      minSourceChars: 0,
     })
 
     const [, llmContext] = logger.streamSimpleWithAiHttpLogging.mock.calls.at(-1)

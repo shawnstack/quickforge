@@ -56,6 +56,8 @@ export const stores = new Set([
   // Root-array store (see rootArrayStores): the hook engine's bounded
   // execution log, persisted as a plain JSON array at the file root.
   'hook-executions',
+  // Root-array store: the plugin UI audit log (see server/plugins/audit.mjs).
+  'plugin-audit',
   'custom-agents',
   'agent-profile-overrides',
 ])
@@ -114,6 +116,7 @@ const configStoreLocations = (() => {
 // queue (one queue per store, like scheduled-tasks).
 const rootArrayStores = {
   'hook-executions': 'hook-executions.json',
+  'plugin-audit': 'plugin-audit.json',
 }
 
 function isRootArrayStore(storeName) {

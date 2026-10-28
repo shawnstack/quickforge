@@ -13,6 +13,7 @@ import {
   Share2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PluginSlot } from '@/components/plugins/PluginSlot'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
@@ -158,6 +159,7 @@ export function ConversationHeader({
               </button>
             </div>
           ) : null}
+          <PluginSlot slot="session.header" props={{ projectId, title }} className="shrink-0" />
           <div className="relative shrink-0" onClick={(event) => event.stopPropagation()}>
             <Button
               variant="ghost"

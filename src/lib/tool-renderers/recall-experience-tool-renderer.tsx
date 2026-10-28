@@ -1,6 +1,6 @@
 import type { AppTextKey } from '@/lib/i18n'
 import { t } from '@/lib/i18n'
-import { buildRecallExperienceViewModel, recallRecencyDays, type RecallExperienceKind } from '@/lib/recall-experience-history'
+import { buildRecallExperienceViewModel, type RecallExperienceKind } from '@/lib/recall-experience-history'
 import { extractQuickForgeTiming } from '@/lib/tool-execution-events'
 import {
   ToolDetails,
@@ -19,9 +19,9 @@ import {
 /**
  * `recall_experience` 渲染器。
  *
- * 兜底卡把命中列表渲染成一整段 JSON，读不出「这条经验适不适用」；这里改为
- * 一行摘要 + 展开后的结构化条目列表（kind/scope/正文/质量指标），并复刻其他
- * 本地工具的骨架（quickforge-local-tool-shell > details > summary + mt-3 展开区）。
+ * 兜底卡把命中列表渲染成一整段 JSON，读不出「这条笔记适不适用」；这里改为
+ * 一行摘要 + 展开后的笔记列表（可选的 kind 徽标 + 正文），并复刻其他本地工具的
+ * 骨架（quickforge-local-tool-shell > details > summary + mt-3 展开区）。
  *
  * 关键语义：0 条命中是**正常结果**，不是失败——摘要常显「无匹配」，展开区用
  * 中性灰字说明原因，只有 result.isError 才走 error 色与 console 块。
@@ -35,14 +35,6 @@ const KIND_TEXT_KEY = {
   decision: 'dreamingKindDecision',
 } as const satisfies Record<RecallExperienceKind, AppTextKey>
 
-function relativeUpdatedAt(updatedAt: number | null) {
-  const days = recallRecencyDays(updatedAt)
-  if (days === null) return ''
-  // 相对时间只到「天」：经验库的更新粒度本来就是天级，精确时间在设置页可查。
-  if (days === 0) return t('recallExperienceUpdatedToday')
-  return t('recallExperienceUpdatedDays', { count: days })
-}
-
 export class RecallExperienceToolRenderer {
   render(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined, isStreaming?: boolean) {
     const status = toolStatus(result, isStreaming)
@@ -54,7 +46,7 @@ export class RecallExperienceToolRenderer {
     const details = detailed ? stringifyValue(result?.details) : ''
     const errorText = status === 'error' ? resultText(result) : ''
 
-    // 摘要：有 query 就显示 query，否则说明这是「最强记忆」列表。
+    // 摘要：有 query 就显示 query，否则说明这是「全部笔记」列表。
     const summaryText = view.available
       ? view.query || t('recallExperienceBest')
       : typeof params?.query === 'string' ? params.query.trim() : ''
@@ -95,44 +87,16 @@ export class RecallExperienceToolRenderer {
             <div className="mt-3 min-w-0 max-w-full space-y-3">
               {count > 0 ? (
                 <ul className="quickforge-recall-list">
-                  {view.memories.map((memory) => {
-                    const recency = relativeUpdatedAt(memory.updatedAt)
-                    return (
-                      <li className="quickforge-recall-item" key={memory.id}>
+                  {view.memories.map((memory) => (
+                    <li className="quickforge-recall-item" key={memory.id}>
+                      {memory.kind ? (
                         <div className="quickforge-recall-meta">
                           <span className="quickforge-recall-kind">{t(KIND_TEXT_KEY[memory.kind])}</span>
-                          <span aria-hidden="true" className="quickforge-recall-sep">·</span>
-                          <span>{t(memory.scope === 'project' ? 'dreamingScopeProject' : 'dreamingScopeGlobal')}</span>
-                          {memory.recallCount > 0 ? (
-                            <>
-                              <span aria-hidden="true" className="quickforge-recall-sep">·</span>
-                              <span>×{memory.recallCount}</span>
-                            </>
-                          ) : null}
                         </div>
-                        <div className="quickforge-recall-content">{memory.content}</div>
-                        {/* 质量指标不带标签：行内 `0.86 · 4.2 · 2 个会话 · 3 天前` 已够读，
-                            完整名词挂在 title 上，避免辅助信息抢正文。 */}
-                        <div className="quickforge-recall-metrics">
-                          <span title={t('dreamingMemoryConfidence')}>{memory.confidence.toFixed(2)}</span>
-                          <span aria-hidden="true" className="quickforge-recall-sep">·</span>
-                          <span title={t('dreamingMemoryStrength')}>{memory.strength.toFixed(1)}</span>
-                          {memory.sessionCount > 0 ? (
-                            <>
-                              <span aria-hidden="true" className="quickforge-recall-sep">·</span>
-                              <span>{t('recallExperienceSessions', { count: memory.sessionCount })}</span>
-                            </>
-                          ) : null}
-                          {recency ? (
-                            <>
-                              <span aria-hidden="true" className="quickforge-recall-sep">·</span>
-                              <span>{recency}</span>
-                            </>
-                          ) : null}
-                        </div>
-                      </li>
-                    )
-                  })}
+                      ) : null}
+                      <div className="quickforge-recall-content">{memory.content}</div>
+                    </li>
+                  ))}
                 </ul>
               ) : null}
               {/* 0 命中：只在成功返回时给出「没查到」的说明；调用失败走下面的 console 块。 */}

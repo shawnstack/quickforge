@@ -1,0 +1,30 @@
+{
+  "name": "hello-ui",
+  "displayName": "Hello UI",
+  "version": "0.1.0",
+  "description": "Minimal example of a declarative UI plugin: a composer slot button plus a sandboxed panel.",
+  "apiVersion": 2,
+  "quickforgeVersion": ">=2.3.4",
+  "enabledByDefault": false,
+  "main": "index.mjs",
+  "permissions": ["ui:composer"],
+  "contributes": {
+    "ui": {
+      "slots": {
+        "composer.actions": [
+          {
+            "type": "button",
+            "label": "Hello",
+            "icon": "sparkles",
+            "variant": "ghost",
+            "onClick": { "action": "greet" }
+          }
+        ]
+      },
+      "actions": ["greet"],
+      "panels": [
+        { "id": "hello", "title": "Hello panel", "entry": "panel/index.html", "width": 420 }
+      ]
+    }
+  }
+}

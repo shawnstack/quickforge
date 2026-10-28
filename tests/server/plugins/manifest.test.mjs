@@ -28,21 +28,28 @@ describe('normalizePluginManifest input validation', () => {
   })
 
   it('rejects unsupported apiVersion values', () => {
-    for (const apiVersion of [2, '2', 1.5, 'x']) {
+    for (const apiVersion of [3, '3', 1.5, 'x']) {
       expect(() => normalizePluginManifest(rawManifest({ apiVersion }), pluginDir))
         .toThrow('Unsupported plugin apiVersion')
     }
   })
 
+  it('keeps apiVersion 1 manifests working (v1 compatibility)', () => {
+    const manifest = normalizePluginManifest(rawManifest({ apiVersion: 1 }), pluginDir)
+    expect(manifest.apiVersion).toBe(1)
+    expect(manifest.contributes.ui).toBeNull()
+  })
+
   it('falls back to the current API version for falsy apiVersion values', () => {
     for (const apiVersion of [undefined, null, 0, '']) {
-      expect(normalizePluginManifest(rawManifest({ apiVersion }), pluginDir).apiVersion).toBe(1)
+      expect(normalizePluginManifest(rawManifest({ apiVersion }), pluginDir).apiVersion).toBe(2)
     }
   })
 
   it('coerces numeric-string apiVersion and defaults to the current API version', () => {
     expect(normalizePluginManifest(rawManifest({ apiVersion: '1' }), pluginDir).apiVersion).toBe(1)
-    expect(normalizePluginManifest(rawManifest({}), pluginDir).apiVersion).toBe(1)
+    expect(normalizePluginManifest(rawManifest({ apiVersion: '2' }), pluginDir).apiVersion).toBe(2)
+    expect(normalizePluginManifest(rawManifest({}), pluginDir).apiVersion).toBe(2)
   })
 })
 
@@ -54,7 +61,7 @@ describe('normalizePluginManifest defaults', () => {
       displayName: 'demo',
       version: '0.0.0',
       description: '',
-      apiVersion: 1,
+      apiVersion: 2,
       quickforgeVersion: '',
       enabledByDefault: false,
       main: 'index.mjs',

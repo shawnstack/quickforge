@@ -20,7 +20,7 @@ const settingsTabDefinitions = [
   { key: 'plugins', name: 'plugins', description: undefined, group: 'ai', keywords: '插件 plugins 扩展 extensions' },
   { key: 'hooks', name: 'hooksTab', description: 'hooksTabDescription', group: 'automation', keywords: 'Hooks webhook 命令 事件' },
   { key: 'scheduledTasks', name: 'scheduledTasks', description: 'scheduledTasksDescription', group: 'automation', keywords: '定时任务 scheduled tasks cron 计划 调度' },
-  { key: 'dreaming', name: 'dreamingTab', description: 'dreamingDescription', group: 'automation', keywords: '梦境 dreaming 记忆 memory 经验 experience 长期 long-term 沉淀 consolidate 淘汰' },
+  { key: 'dreaming', name: 'dreamingTab', description: 'dreamingDescription', group: 'automation', beta: true, keywords: '梦境 dreaming 记忆 memory 经验 experience 长期 long-term 沉淀 consolidate 淘汰 beta' },
   { key: 'projectCommands', name: 'projectCommands', description: 'projectCommandsDescription', group: 'automation', keywords: '项目命令 commands slash 目录' },
   { key: 'data', name: 'dataManagement', description: 'dataManagementDescription', group: 'automation', keywords: '数据管理 data backup 备份 restore 恢复 archived 归档 conversations 对话 share 分享 links 链接 import 导入 export 导出' },
   { key: 'about', name: 'about', description: 'aboutQuickForgeDescription', group: undefined, keywords: '关于 about version 版本 update 更新 docs 文档 github' },
@@ -29,14 +29,21 @@ const settingsTabDefinitions = [
 export type SettingsInitialTab = typeof settingsTabDefinitions[number]['key']
 
 export function createSettingsTabs(customProvider?: string) {
-  const items = settingsTabDefinitions.map(({ key, name, description, group, keywords }) => ({
-    key,
-    group,
-    keywords,
-    getTabName: () => t(name),
-    getDescription: description ? () => t(description) : undefined,
-    content: createElement(ReactSettingsTabContent, { key: `${key}:${customProvider ?? ''}`, tabKey: key, customProvider }),
-  }))
+  const items = settingsTabDefinitions.map((definition) => {
+    const { key, name, description, group, keywords } = definition
+    return {
+      key,
+      group,
+      keywords,
+      // Rendered as a badge in the nav and in the tab header: the feature is still
+      // settling (notes format, run semantics), so users should know before they
+      // rely on it.
+      beta: (definition as { beta?: boolean }).beta === true,
+      getTabName: () => t(name),
+      getDescription: description ? () => t(description) : undefined,
+      content: createElement(ReactSettingsTabContent, { key: `${key}:${customProvider ?? ''}`, tabKey: key, customProvider }),
+    }
+  })
   const groups = settingsTabGroupDefinitions.map((group) => ({
     key: group.key,
     getLabel: () => t(group.name),

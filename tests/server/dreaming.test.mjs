@@ -3,28 +3,22 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import {
-  createDreamingRepository,
-  memoryFingerprint,
-} from '../../server/sqlite/dreaming-repository.mjs'
-import { applyDreamingOperations, parseDreamingOutput } from '../../server/dreaming/apply.mjs'
+import { createDreamingRepository } from '../../server/sqlite/dreaming-repository.mjs'
 import { collectTranscript, detectContentLanguage } from '../../server/dreaming/collect.mjs'
-import { buildDreamingUserPrompt } from '../../server/dreaming/prompt.mjs'
-import { recallExperiences, rankMemories } from '../../server/dreaming/recall.mjs'
+import { DREAMING_SYSTEM_PROMPT, buildDreamingUserPrompt } from '../../server/dreaming/prompt.mjs'
+import { noteIdOf } from '../../server/dreaming/notes.mjs'
 
 let directory
 let databasePath
 let storage
 let repository
 
-async function setup() {
+beforeEach(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), 'qf-dreaming-test-'))
   databasePath = path.join(directory, 'quickforge.sqlite3')
   storage = await initializeSqliteStorage({ dataDir: directory, databasePath })
   repository = createDreamingRepository(storage)
-}
-
-beforeEach(setup)
+})
 
 afterEach(async () => {
   await closeSqliteStorage()
@@ -44,211 +38,83 @@ function insertSession({ sessionId = 's1', projectId = 'p1', messages = [], upda
   })
 }
 
-function createOperation(overrides = {}) {
-  return {
-    action: 'create',
-    kind: 'pitfall',
-    scope: 'project',
-    projectId: 'p1',
-    content: '发布前必须完整运行 npm run test、npm run lint 和 npm run build。',
-    evidence: [{ sessionId: 's1', seq: 3, note: 'tool result' }],
-    confidence: 0.9,
-    ...overrides,
-  }
-}
-
-describe('dreaming schema v13', () => {
-  it('creates the memory, run and audit tables', () => {
-    const tables = storage.prepare("SELECT name FROM sqlite_schema WHERE type IN ('table', 'view') ORDER BY name")
+describe('dreaming schema v18', () => {
+  it('keeps only the run log and the note usage table', () => {
+    const tables = storage.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
       .all().map((row) => row.name)
-    expect(tables).toContain('memories')
-    expect(tables).toContain('memories_fts')
-    expect(tables).toContain('memory_events')
     expect(tables).toContain('dreaming_runs')
+    // Recall feedback needs one row per note; the notes themselves are a file.
+    expect(tables).toContain('dreaming_note_stats')
+    // v17: the notes live in MEMORY.md now, so no memory rows, no FTS shadow
+    // tables, no audit trail and no vectors.
+    for (const dropped of ['memories', 'memories_fts', 'memory_events', 'memory_embeddings']) {
+      expect(tables).not.toContain(dropped)
+    }
   })
 
-  it('rejects project-scope rows without a project id', () => {
-    expect(() => storage.prepare(`INSERT INTO memories (
-        id, scope, project_id, kind, content, fingerprint, evidence_json, confidence, strength, status, created_at, updated_at
-      ) VALUES ('mem_x', 'project', '', 'fact', 'x', ?, '[]', 0.5, 1, 'active', 1, 1)`)
-      .run('b'.repeat(64))).toThrow()
+  it('records a run with its window and status', () => {
+    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
+    expect(run).toMatchObject({ trigger: 'manual', status: 'running', periodFrom: 0, periodTo: 1000 })
+    const finished = repository.finishRun(run.id, {
+      status: 'succeeded',
+      sessionCount: 2,
+      createdCount: 3,
+      retiredCount: 1,
+      operations: { added: ['a'], removed: ['b'], dropped: [] },
+      finishedAt: 2000,
+      durationMs: 1000,
+    })
+    expect(finished).toMatchObject({ status: 'succeeded', sessionCount: 2, createdCount: 3, retiredCount: 1 })
+    expect(finished.operations).toEqual({ added: ['a'], removed: ['b'], dropped: [], notesAfter: null })
+    expect(repository.latestSucceededPeriodTo()).toBe(1000)
+    expect(repository.countRuns()).toBe(1)
+    expect(repository.listRuns()).toHaveLength(1)
+  })
+
+  it('rejects an unknown trigger or status', () => {
+    expect(() => repository.createRun({ trigger: 'nope', periodFrom: 0, periodTo: 1, startedAt: 1 })).toThrow(/trigger/)
+    const run = repository.createRun({ trigger: 'schedule', periodFrom: 0, periodTo: 1, startedAt: 1 })
+    expect(() => repository.finishRun(run.id, { status: 'nope' })).toThrow(/status/)
   })
 })
 
-describe('dreaming repository', () => {
-  it('deduplicates by normalized fingerprint', () => {
-    const first = repository.insertMemory({
-      scope: 'project',
-      projectId: 'p1',
-      kind: 'fact',
-      content: '  Uses   SQLite   FTS5  ',
-      evidence: [],
-      confidence: 0.8,
-      strength: 1,
-      now: 1000,
-    })
-    expect(first.content).toBe('Uses SQLite FTS5')
-    expect(repository.findByFingerprint('project', 'p1', memoryFingerprint('uses sqlite fts5'))?.id).toBe(first.id)
-    expect(repository.findByFingerprint('project', 'p2', first.fingerprint)).toBeNull()
+describe('dreaming note stats', () => {
+  it('counts a recall per note and keeps the latest timestamp', () => {
+    const note = { id: noteIdOf('发布前必须跑完整测试'), text: '发布前必须跑完整测试' }
+    repository.recordNoteRecall([note], 1000)
+    repository.recordNoteRecall([note], 5000)
+
+    const stats = repository.listNoteStats()
+    expect(stats.get(note.id)).toMatchObject({ recallCount: 2, lastRecalledAt: 5000, createdAt: 1000 })
   })
 
-  it('finds CJK substrings through the trigram FTS index', () => {
-    repository.insertMemory({
-      scope: 'global',
-      projectId: '',
-      kind: 'preference',
-      content: '用户偏好用中文沟通，并要求 python 项目创建虚拟环境',
-      evidence: [],
-      confidence: 0.9,
-      strength: 1,
-      now: 1000,
-    })
-    const found = repository.listMemories({ scope: 'global', query: '虚拟环境' })
-    expect(found).toHaveLength(1)
-    expect(found[0].content).toContain('虚拟环境')
+  it('creates a row for every note in the file and drops rows for vanished notes', () => {
+    const first = { id: noteIdOf('一'), text: '一' }
+    const second = { id: noteIdOf('二'), text: '二' }
+    const third = { id: noteIdOf('三'), text: '三' }
+
+    repository.syncNoteStats([first, second], 1000)
+    expect([...repository.listNoteStats().keys()].sort()).toEqual([first.id, second.id].sort())
+
+    // '一' disappeared from the file: its row must go with it, so re-adding the
+    // same wording later starts from zero instead of inheriting the old count.
+    const result = repository.syncNoteStats([second, third], 2000)
+    expect(result.removed).toBe(1)
+    expect([...repository.listNoteStats().keys()].sort()).toEqual([second.id, third.id].sort())
+    expect(repository.listNoteStats().get(third.id)).toMatchObject({ recallCount: 0, createdAt: 2000 })
   })
 
-  it('keeps the FTS index in sync after an update', () => {
-    const memory = repository.insertMemory({
-      scope: 'global',
-      projectId: '',
-      kind: 'fact',
-      content: 'old wording about vite',
-      evidence: [],
-      confidence: 0.5,
-      strength: 1,
-      now: 1000,
-    })
-    repository.updateMemory(memory.id, { content: 'new wording about rollup' }, 2000)
-    expect(repository.listMemories({ scope: 'global', query: 'vite' })).toHaveLength(0)
-    expect(repository.listMemories({ scope: 'global', query: 'rollup' })).toHaveLength(1)
+  it('clears every row when the notes file becomes empty', () => {
+    repository.syncNoteStats([{ id: noteIdOf('一'), text: '一' }], 1000)
+    repository.syncNoteStats([], 2000)
+    expect(repository.listNoteStats().size).toBe(0)
   })
 
-  it('only retires memories that fail strength, confidence and recency together', () => {
-    const weak = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'fact', content: 'weak', evidence: [],
-      confidence: 0.2, strength: 0.5, now: 1000,
-    })
-    const confident = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'fact', content: 'confident', evidence: [],
-      confidence: 0.9, strength: 0.5, now: 1000,
-    })
-    const strong = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'fact', content: 'strong', evidence: [],
-      confidence: 0.2, strength: 5, now: 1000,
-    })
-    const retired = repository.retireWeakMemories({ now: 10_000_000, staleBefore: 2_000_000 })
-    expect(retired).toEqual([weak.id])
-    expect(repository.findById(confident.id).status).toBe('active')
-    expect(repository.findById(strong.id).status).toBe('active')
-  })
-
-  it('records recall as a usage signal', () => {
-    const memory = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'experience', content: 'x', evidence: [],
-      confidence: 0.6, strength: 1, now: 1000,
-    })
-    repository.recordRecall([memory.id, 'mem_missing'], 5000)
-    const after = repository.findById(memory.id)
-    expect(after.recallCount).toBe(1)
-    expect(after.lastRecalledAt).toBe(5000)
-    expect(after.strength).toBeCloseTo(1.2)
-  })
-})
-
-describe('dreaming apply', () => {
-  it('applies a create and logs an event', () => {
-    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
-    const result = applyDreamingOperations([createOperation()], { repository, runId: run.id, now: 2000 })
-    expect(result.created).toBe(1)
-    expect(result.rejected).toHaveLength(0)
-    const memory = repository.findById(result.createdIds[0])
-    expect(memory).toMatchObject({ kind: 'pitfall', scope: 'project', status: 'active' })
-    expect(memory.evidence).toHaveLength(1)
-    expect(repository.listEvents(memory.id).map((event) => event.action)).toContain('create')
-  })
-
-  it('downgrades a duplicate create to an update instead of adding a row', () => {
-    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
-    const first = applyDreamingOperations([createOperation()], { repository, runId: run.id, now: 2000 })
-    const second = applyDreamingOperations([createOperation()], { repository, runId: run.id, now: 3000 })
-    expect(first.created).toBe(1)
-    expect(second.created).toBe(0)
-    expect(second.updated).toBe(1)
-    expect(second.updatedIds[0]).toBe(first.createdIds[0])
-    expect(repository.countMemories()).toBe(1)
-    expect(repository.findById(first.createdIds[0]).strength).toBeCloseTo(1.5)
-  })
-
-  it('rejects invalid operations with reasons and still applies valid ones', () => {
-    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
-    const result = applyDreamingOperations([
-      createOperation(),
-      createOperation({ kind: 'nonsense' }),
-      createOperation({ evidence: [] }),
-      createOperation({ scope: 'project', projectId: '' }),
-      createOperation({ action: 'update', targetId: 'mem_ghost' }),
-      createOperation({ content: 'x'.repeat(600) }),
-    ], { repository, runId: run.id, now: 2000 })
-    expect(result.created).toBe(1)
-    expect(result.rejected).toHaveLength(5)
-    expect(result.rejected.map((entry) => entry.index)).toEqual([1, 2, 3, 4, 5])
-    expect(result.rejected.every((entry) => typeof entry.reason === 'string' && entry.reason.length > 0)).toBe(true)
-    expect(repository.listMemories({ status: 'any' })).toHaveLength(1)
-  })
-
-  it('caps confidence by evidence breadth', () => {
-    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
-    const result = applyDreamingOperations([
-      createOperation({ confidence: 0.99, evidence: [{ sessionId: 's1', seq: 1 }] }),
-    ], { repository, runId: run.id, now: 2000 })
-    expect(repository.findById(result.createdIds[0]).confidence).toBeCloseTo(0.7)
-  })
-
-  it('supersedes instead of deleting and refuses to touch retired rows', () => {
-    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
-    const oldOne = applyDreamingOperations([createOperation({ content: '发布只需 build' })], { repository, runId: run.id, now: 2000 })
-    const newOne = applyDreamingOperations([createOperation({ content: '发布需 test、lint、build' })], { repository, runId: run.id, now: 3000 })
-    const superseded = applyDreamingOperations([
-      { action: 'supersede', targetId: oldOne.createdIds[0], replacementId: newOne.createdIds[0] },
-    ], { repository, runId: run.id, now: 4000 })
-    expect(superseded.retired).toBe(1)
-    expect(repository.findById(oldOne.createdIds[0]).status).toBe('superseded')
-    expect(repository.findById(oldOne.createdIds[0]).supersededBy).toBe(newOne.createdIds[0])
-
-    const secondAttempt = applyDreamingOperations([
-      { action: 'retire', targetId: oldOne.createdIds[0] },
-    ], { repository, runId: run.id, now: 5000 })
-    expect(secondAttempt.retired).toBe(0)
-    expect(secondAttempt.rejected[0].reason).toContain('superseded')
-  })
-
-  it('drops sensitive content only when the setting forbids it', () => {
-    const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
-    const secret = createOperation({ content: 'The deploy token is sk-abcdefghijklmnopqrstuvwx' })
-    const blocked = applyDreamingOperations([secret], { repository, runId: run.id, now: 2000, allowSensitive: false })
-    expect(blocked.created).toBe(0)
-    expect(blocked.rejected[0].reason).toContain('凭据')
-
-    const allowed = applyDreamingOperations([secret], { repository, runId: run.id, now: 3000, allowSensitive: true })
-    expect(allowed.created).toBe(1)
-  })
-})
-
-describe('dreaming output parsing', () => {
-  it('accepts a fenced JSON reply', () => {
-    const parsed = parseDreamingOutput('```json\n{"summary":"s","operations":[{"action":"create"}]}\n```')
-    expect(parsed.summary).toBe('s')
-    expect(parsed.operations).toHaveLength(1)
-  })
-
-  it('rejects a reply without JSON', () => {
-    expect(() => parseDreamingOutput('nothing useful here')).toThrow(/no JSON object/i)
-  })
-
-  it('caps the operation list', () => {
-    const operations = Array.from({ length: 40 }, () => ({ action: 'create' }))
-    expect(parseDreamingOutput(JSON.stringify({ operations })).operations).toHaveLength(25)
+  it('deletes one row', () => {
+    const note = { id: noteIdOf('一'), text: '一' }
+    repository.syncNoteStats([note], 1000)
+    repository.deleteNoteStat(note.id)
+    expect(repository.listNoteStats().size).toBe(0)
   })
 })
 
@@ -297,6 +163,24 @@ describe('dreaming transcript collection', () => {
     expect(collected.transcript).not.toContain('read_file')
   })
 
+  it('prefers a session where the user pushed back when the budget is tight', () => {
+    insertSession({
+      sessionId: 'old-correction',
+      messages: [{ role: 'user', content: [{ type: 'text', text: '这个实现不对，应该先跑测试' }] }],
+      updatedAtMs: 3000,
+    })
+    insertSession({
+      sessionId: 'new-smooth',
+      messages: [{ role: 'user', content: [{ type: 'text', text: '继续' }] }],
+      updatedAtMs: 9000,
+    })
+    // Enough for one block only: without the correction weight the newest wins.
+    const collected = collectTranscript({ from: 0, to: 10_000, maxTotalChars: 100 })
+    expect(collected.sessions).toHaveLength(1)
+    expect(collected.sessions[0].sessionId).toBe('old-correction')
+    expect(collected.sessions[0].correctionSignals).toBe(1)
+  })
+
   it('only reads sessions inside the window', () => {
     insertSession({ sessionId: 'inside', messages: [{ role: 'user', content: 'a' }], updatedAtMs: 5000 })
     insertSession({ sessionId: 'outside', messages: [{ role: 'user', content: 'b' }], updatedAtMs: 90_000 })
@@ -306,37 +190,6 @@ describe('dreaming transcript collection', () => {
   })
 })
 
-describe('dreaming recall', () => {
-  it('prefers project scope and marks recalled entries', () => {
-    const globalMemory = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'preference', content: '用中文沟通',
-      evidence: [], confidence: 0.8, strength: 2, now: 1000,
-    })
-    const projectMemory = repository.insertMemory({
-      scope: 'project', projectId: 'p1', kind: 'fact', content: '本项目使用 SQLite 存储',
-      evidence: [], confidence: 0.8, strength: 1, now: 1000,
-    })
-    const recalled = recallExperiences({ projectId: 'p1', now: 2000, repository, markRecalled: true })
-    // Both scopes are searched; ordering stays honest (higher strength first)
-    // rather than hard-coding project-first.
-    expect(recalled.map((memory) => memory.id).sort()).toEqual([globalMemory.id, projectMemory.id].sort())
-    expect(repository.findById(projectMemory.id).recallCount).toBe(1)
-    expect(repository.findById(globalMemory.id).recallCount).toBe(1)
-  })
-
-  it('decays older memories in the ranking', () => {
-    const oldMemory = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'fact', content: 'old', evidence: [],
-      confidence: 0.8, strength: 2, now: 0,
-    })
-    const newMemory = repository.insertMemory({
-      scope: 'global', projectId: '', kind: 'fact', content: 'new', evidence: [],
-      confidence: 0.8, strength: 2, now: 90 * 24 * 60 * 60 * 1000,
-    })
-    const ranked = rankMemories([oldMemory, newMemory], { now: 90 * 24 * 60 * 60 * 1000 })
-    expect(ranked[0].id).toBe(newMemory.id)
-  })
-})
 describe('dreaming content language', () => {
   it('detects Chinese from the user turns', () => {
     expect(detectContentLanguage(['帮我改一下这个接口', '顺便跑下 npm run test'])).toBe('zh')
@@ -346,7 +199,7 @@ describe('dreaming content language', () => {
   })
 
   it('states the language as a hard requirement in the user prompt', () => {
-    const base = { transcript: '', existingMemories: [], periodFrom: 0, periodTo: 1000, allowSensitive: true }
+    const base = { transcript: '', existingNotes: [], periodFrom: 0, periodTo: 1000, allowSensitive: true }
     const zh = buildDreamingUserPrompt({ ...base, contentLanguage: 'zh' })
     expect(zh).toContain('## Output language')
     expect(zh).toContain('Simplified Chinese')
@@ -361,21 +214,50 @@ describe('dreaming content language', () => {
     expect(unknown).toContain('the language the user uses in the transcript')
   })
 
-  it('asks the model to rewrite existing foreign-language rows instead of duplicating them', () => {
+  it('asks the model to rewrite foreign-language notes in place instead of duplicating them', () => {
     const prompt = buildDreamingUserPrompt({
       transcript: '',
-      existingMemories: ['- mem_1 [fact/global] User prefers Chinese'],
+      existingNotes: ['用户偏好中文'],
       periodFrom: 0,
       periodTo: 1000,
       allowSensitive: true,
       contentLanguage: 'zh',
     })
-    expect(prompt).toContain('Entries already written in another language')
-    expect(prompt).toContain('instead of creating a second entry')
+    expect(prompt).toContain('Notes already written in another language')
+    expect(prompt).toContain('rather than adding a translated duplicate')
+    // The current list is what the model edits, not a snapshot of row ids.
+    expect(prompt).toContain('- 用户偏好中文')
 
     const noLanguage = buildDreamingUserPrompt({
-      transcript: '', existingMemories: ['- mem_1 [fact/global] x'], periodFrom: 0, periodTo: 1000, allowSensitive: true,
+      transcript: '', existingNotes: ['x'], periodFrom: 0, periodTo: 1000, allowSensitive: true,
     })
-    expect(noLanguage).not.toContain('Entries already written in another language')
+    expect(noLanguage).not.toContain('Notes already written in another language')
   })
-});
+
+  it('asks for the list ordered by importance because the tail gets dropped', () => {
+    expect(DREAMING_SYSTEM_PROMPT).toContain('ordered from most to least important')
+    expect(DREAMING_SYSTEM_PROMPT).toContain('the tail is dropped')
+    // Conflicts need a rule, otherwise two runs can flip a note back and forth.
+    expect(DREAMING_SYSTEM_PROMPT).toContain('the newest evidence wins')
+  })
+
+  it('lists never-recalled notes as deletion candidates only when there are some', () => {
+    const base = { transcript: '', existingNotes: ['一'], periodFrom: 0, periodTo: 1000, allowSensitive: true }
+    expect(buildDreamingUserPrompt(base)).not.toContain('Never recalled')
+
+    const withUnused = buildDreamingUserPrompt({ ...base, unusedNotes: [{ text: '一', ageDays: 45 }] })
+    expect(withUnused).toContain('Never recalled (deletion candidates)')
+    expect(withUnused).toContain('(45 days) 一')
+    // The signal is absence of searches, not evidence of being wrong.
+    expect(withUnused).toContain('not that it is wrong')
+  })
+
+  it('tells the model the contract is a bullet list, not JSON operations', () => {
+    const prompt = buildDreamingUserPrompt({
+      transcript: '', existingNotes: [], periodFrom: 0, periodTo: 1000, allowSensitive: true,
+    })
+    expect(prompt).toContain('Reply with the bullet list only.')
+    expect(prompt).not.toContain('"operations"')
+    expect(prompt).toContain('return the full list you want to keep')
+  })
+})

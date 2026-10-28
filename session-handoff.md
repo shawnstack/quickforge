@@ -1,5 +1,39 @@
 # Current Session Handoff
 
+## sidebar-show-more-indent（done，2026-10-28）
+
+- Current Objective（当前目标）：项目分区会话列表底部的「显示更多」与会话标题左对齐。
+- 结论（一句话）：按钮改用 `sidebarRowClass(sidebarOpen)` 并支持 `indent`，项目分区传 `indent` 得到与项目会话行一致的 `pl-8`；`timeline` / 全局对话不缩进，收起态跟随会话行居中。
+- 改动文件：`src/components/sidebar/chat-sidebar/SessionDisplayControls.tsx`、`src/components/sidebar/ChatSidebar.tsx`、`tests/frontend/sidebar-section-order.test.ts`、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run tests/frontend/sidebar-section-order.test.ts` → 22 passed；`npx eslint` 三个改动文件 → 0 error；`npx tsc -b` → 0 错误。未创建 Git commit，未手工改 `dist/` `package-dist/` `package-offline/`。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机看一眼项目展开、会话超过一屏（点两次「显示更多」）时，按钮文字左边缘应与会话标题左边缘重合。
+  2. 若之后给 pinned/timeline 也加行缩进，记得同步 `indent` 传参，否则会复现同样的错位。
+
+## rollback-inline-edit（done，2026-10-28）
+
+- Current Objective（当前目标）：回滚去掉二次确认，点图标即就地变输入框，Enter 发送。
+- 结论（一句话）：装饰层新增 `inline-message-editor.ts` 承担编辑态（预填原文 / 后续消息变淡 + 虚线说明 / 发送·取消），提交走「先静默截断、再由 composer.onSend 发送」两半步，旧 popover 只作为未接入方的降级路径。
+- 改动文件：`src/components/chat/panel-decoration/inline-message-editor.ts`（新）、`message-actions.ts`、`src/components/chat/ChatPanelHost.tsx`（新 prop `onRollbackForResend` + `onEditMessageAndResend` 适配）、`src/hooks/useChatActions.ts`（`performRollback` 抽取 + `rollbackForResend`）、`src/App.tsx`、`src/components/share/SharedConversationPage.tsx`、`src/styles/chat/message-edit.css`（新）、`src/styles/index.css`、`src/lib/i18n.ts`、`tests/frontend/inline-message-editor.test.ts`（新）、`docs/design/rollback-inline-edit.html`（新）、三份 wiki。
+- Evidence（验证）：`npm run test` → 443 files / 5176 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。未创建 Git commit，未手工改 `dist/` `package-dist/` `package-offline/`。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机走一遍：hover 第 3 条用户消息 → 点回滚图标 → 确认气泡原地变输入框、后续 2 条变淡、Enter 发出一轮新回复。
+  2. 重点验证「回滚到第一条消息」：这条路径会重建会话（删旧 session + 新 agent），实现上已用 `waitForComposerSend` 轮询最多 12 帧等新的 composer 绑定；确认新文案发到新会话而不是旧 agent。
+  3. 若之后想保留「回填输入框」入口，可在编辑态加一个「取消并回填」次级动作，而不是把确认弹窗加回来。
+
+## process-stage-scroll 回滚（done，2026-10-28）
+
+- Current Objective（当前目标）：撤回「执行中 · N 个工具调用 · N 条命令」展开区的限高 + 贴底跟随功能。
+- 结论（一句话）：该功能原为单提交 `55923d4` 且之后无人改动过相关文件，故按文件精确回退到父提交 `ab1ff0b0`；未用 `git revert`（`feature_list.json` / `progress.md` 有他人未提交改动会冲突），状态文件只做标注。
+- 改动文件：`src/styles/chat/process.css`、`src/components/chat/panel-decoration/process-folding.ts`、`tests/frontend/process-folding.test.ts`、`tests/frontend/process-folding-incremental.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts`、`docs/wiki/src/styles/README.md`、`docs/wiki/src/components/README.md`（均恢复为 `55923d4` 之前的内容）；`feature_list.json`（标「已回滚」）、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run` process-folding / -incremental / -ownership / chat-surface-css-contract / css-architecture → 5 files / 114 tests passed；`npx tsc -b` → 0 错误；`npm run lint` → 0 error；`npm run build` → 成功（4.24s）。未创建 Git commit，未手工改生成产物（dist 由 build 脚本产出）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机确认展开区已恢复全高、不再有内部滚动条与贴底跳动。
+  2. 若之后仍嫌「执行中」展开区太长，可改走更轻的方案（默认收起 stage / 只显示最近 3 条），不要再引入限高+跟随这套交互。
+
 ## dreaming-model-selection（done，2026-10-27）
 
 - Current Objective（当前目标）：让 Dreaming 能自由选模型；并解释为什么它一直用 智谱/GLM-4.6V。
@@ -166,7 +200,7 @@
 - Blockers（阻塞）：无。
 - Next Session（下一步）：未做真机视觉确认（18rem 上限是否合适、340px 窄面板下 meta 行数多时的观感；如偏矮可只调 `.quickforge-background-tasks-output` 的 `max-height`）；`npm run test` 全量未跑（本轮只跑 3 个相关文件）。未创建 Git commit，未触碰生成产物。
 
-## process-stage-scroll（done，2026-10-27）
+## process-stage-scroll（done，2026-10-27；2026-10-28 已整体回滚，见本文件顶部）
 
 - Current Objective（当前目标）：把「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段展开后的工具列表收拢为固定高度、超出区域内部滚动，并在执行中自动贴底到最新一行。
 - 结论（一句话）：限高 `min(50vh, 18rem)` 挂在折叠动画壳层 `.quickforge-process-body-inner`（stage 专属选择器，DOM 结构不变），滚动只在 `[data-expanded="true"]` 挂上 + `overscroll-behavior: contain`；执行中 `scheduleProcessStageStick`（rAF）贴底跟随，`resolveProcessStageScrollFollow` 24px/8px 双向滞回，跟随标记存 `dataset.quickforgeStageFollow`，手动收起复位。

@@ -29,6 +29,7 @@
 
 /* Shared UI and typography */
 @import "./chat/messages.css";
+@import "./chat/message-edit.css";
 @import "./chat/code-blocks.css";
 @import "./ui/info-tip.css";
 @import "./markdown.css";

@@ -38,6 +38,47 @@ import { extractSessionArtifacts, extractToolExecutionArtifacts, type AiTurnArti
 import type { ToolExecutionEvent } from '@/lib/tool-execution-events'
 import { getGitStatus } from '../workspace/workspace-api'
 import type { WorkspaceExternalOpenTarget } from '../workspace/workspace-api'
+
+/**
+ * 等一帧再读 composer 绑定：就地编辑提交时，回滚可能重建会话（回滚到第一条
+ * 消息会删掉旧会话并新建 agent），新的 `.qf-message-editor` bridge 要等 React
+ * 提交后才存在。非 DOM 环境（单测）直接放行。
+ */
+function nextAnimationFrame(): Promise<void> {
+  if (typeof requestAnimationFrame !== 'function') return Promise.resolve()
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()))
+}
+
+type ComposerSendBridge = HTMLElement & {
+  onSend?: (input: string, attachments: unknown[]) => void
+}
+
+/**
+ * 等 composer 的发送桥就绪后返回一个发送函数。
+ *
+ * 回滚到第一条消息会删掉旧会话并新建 agent，ChatSurface 随之重挂载，
+ * `.qf-message-editor` 上的 onSend 要等 React 提交后才可用；这里轮询几帧
+ * 而不是死等一帧，避免在重建路径上偶发「回滚成功但没发出去」。
+ */
+async function waitForComposerSend(
+  panel: HTMLElement,
+  maxFrames = 12,
+): Promise<((text: string) => void) | null> {
+  const read = () => {
+    const editor = panel.querySelector<ComposerSendBridge>('.qf-message-editor')
+    return typeof editor?.onSend === 'function' ? editor : null
+  }
+
+  const immediate = read()
+  if (immediate) return (text: string) => immediate.onSend?.(text, [])
+
+  for (let frame = 0; frame < maxFrames; frame += 1) {
+    await nextAnimationFrame()
+    const editor = read()
+    if (editor) return (text: string) => editor.onSend?.(text, [])
+  }
+  return null
+}
 import { requestAndroidRemoteSystemNotificationPermissionOnce } from '@/lib/system-notifications'
 import type { ChatCapabilities } from '@/lib/chat-capabilities'
 import { applyChatPagePolicy, QUICKFORGE_CHAT_CAPABILITIES, SIDE_CHAT_UI_CAPABILITIES } from '@/lib/chat-capabilities'
@@ -164,6 +205,12 @@ type ChatPanelHostSessionProps = {
 /** 消息级操作：回滚 / 重试 / 复制 / fork（发给当前 agent 的会话内动作）。 */
 type ChatPanelHostMessageActionProps = {
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
+  /**
+   * 就地编辑提交的「截断」半步：移除该条消息及之后的会话历史（不回填输入框），
+   * 返回 true 后面板会把新文本交给 composer 重新发送。
+   * 缺省时不启用就地编辑，回滚按钮退回二次确认弹窗。
+   */
+  onRollbackForResend?: (messageIndex: number) => Promise<boolean>
   onRetryFromMessage: (messageIndex: number) => void
   onCopyAnswer: (text: string) => Promise<void> | void
   onForkFromMessage: (messageIndex: number) => void
@@ -252,6 +299,7 @@ type ChatPanelHostProps = ChatPanelHostSessionProps &
 type PropsRef = {
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
+  onRollbackForResend?: (messageIndex: number) => Promise<boolean>
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   onAccessModeChange: (mode: AgentAccessMode) => void
@@ -308,6 +356,7 @@ export function ChatPanelHost({
   chatScope = 'global',
   onAccessModeChange,
   onRollbackFromMessage,
+  onRollbackForResend,
   onRetryFromMessage,
   onCopyAnswer,
   onForkFromMessage,
@@ -527,6 +576,7 @@ export function ChatPanelHost({
   const propsRef = useRef<PropsRef>({
     onCopyAnswer,
     onRollbackFromMessage,
+    onRollbackForResend,
     onRetryFromMessage,
     onForkFromMessage,
     onAccessModeChange,
@@ -567,6 +617,7 @@ export function ChatPanelHost({
     propsRef.current = {
       onCopyAnswer,
       onRollbackFromMessage,
+      onRollbackForResend,
       onRetryFromMessage,
       onForkFromMessage,
       onAccessModeChange,
@@ -1162,6 +1213,18 @@ export function ChatPanelHost({
           isStreaming: () => agent.state.isStreaming,
           onCopyAnswer: props.onCopyAnswer,
           onRollbackFromMessage: props.onRollbackFromMessage,
+          onEditMessageAndResend: propsRef.current.onRollbackForResend
+            ? async (messageIndex, text) => {
+                const rolledBack = await propsRef.current.onRollbackForResend!(messageIndex)
+                if (!rolledBack) return false
+                // 走 composer 既有的 onSend：复用 plan-mode 包装、发送前检查、
+                // 乐观消息与滚动锚定，避免在装饰层另起一条发送链路。
+                const send = await waitForComposerSend(panel)
+                if (!send) return false
+                send(text)
+                return true
+              }
+            : undefined,
           onRetryFromMessage: props.onRetryFromMessage,
           onForkFromMessage: props.onForkFromMessage,
           onRetryAfterError: (errorMessage, fallbackRetry) => {

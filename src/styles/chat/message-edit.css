@@ -1,0 +1,263 @@
+/* 消息就地编辑器 —— 取代回滚的二次确认弹窗。
+ *
+ * DOM 契约与交互见 src/components/chat/panel-decoration/inline-message-editor.ts：
+ * 点回滚图标 → 气泡原地变输入框；该行之后的消息加
+ * `.quickforge-message-doomed` 变淡，并在第一条前插入
+ * `.quickforge-removal-divider` 虚线说明。代价就地可见，因此不再弹确认框。
+ *
+ * 气泡本体样式在 messages.css 里是 `!important` 配方（max-width / 边框 /
+ * 背景 / 阴影），覆盖必须同样带 `!important` 且在本文件之后导入。
+ */
+
+.qf-user-message[data-quickforge-editing='true'] .quickforge-message-actions,
+.quickforge-user-message[data-quickforge-editing='true'] .quickforge-message-actions {
+  display: none !important;
+}
+
+/* 原始气泡内容（markdown、附件、上下文 chips）就地隐藏，只留编辑器。 */
+:is(.qf-user-message, .quickforge-user-message)
+  > .user-message-container.quickforge-inline-editor-host
+  > :not(.quickforge-inline-editor) {
+  display: none !important;
+}
+
+/* 编辑态铺满消息列（不超出对话列宽）：行内 margin 收窄、气泡撑满整行。 */
+.qf-user-message[data-quickforge-editing='true'],
+.quickforge-user-message[data-quickforge-editing='true'] {
+  margin-inline: 0.25rem !important;
+}
+
+:is(.qf-user-message, .quickforge-user-message) > .user-message-container.quickforge-inline-editor-host {
+  /* 气泡默认 align-self: flex-end，宽度按内容收缩——只写 max-width 不会变宽
+     （短消息的编辑框仍然很窄），必须显式撑满整行。 */
+  align-self: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  /* 长消息会挂 .quickforge-input-clamp 并用内联 max-height 定高收起；
+     编辑态必须完整展开，否则输入框与发送行会被裁掉。 */
+  max-height: none !important;
+  overflow: visible !important;
+  padding: 0.65rem 0.65rem 0.5rem 0.95rem !important;
+  border-color: color-mix(in oklab, var(--primary) 34%, var(--border)) !important;
+  border-radius: 1rem 1rem 0.5rem 1rem !important;
+  background: var(--card) !important;
+  /* 只留一层很淡的外扩光晕：避免聚焦时气泡内部出现深色描边观感。 */
+  box-shadow: 0 16px 40px -32px color-mix(in oklab, var(--primary) 58%, black) !important;
+  transition: max-width 180ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.quickforge-inline-editor {
+  display: block;
+}
+
+.quickforge-inline-editor-input {
+  display: block;
+  width: 100%;
+  min-height: 1.6rem;
+  max-height: 15rem;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--quickforge-message-font-size, 14px);
+  line-height: var(--quickforge-message-line-height, 1.625);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  caret-color: color-mix(in oklab, var(--primary) 85%, transparent);
+}
+
+.quickforge-inline-editor-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 62%, transparent);
+}
+
+/* 「这次编辑会移除什么 / 快捷键」收进 ⓘ 提示，footer 只留图标与两个按钮。 */
+.quickforge-inline-editor-tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.quickforge-inline-editor-tip-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  cursor: pointer;
+  transition: color 140ms ease, background-color 140ms ease;
+}
+
+.quickforge-inline-editor-tip-trigger:hover,
+.quickforge-inline-editor-tip[data-open='true'] .quickforge-inline-editor-tip-trigger {
+  background: color-mix(in oklab, var(--muted) 60%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-inline-editor-tip-trigger svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.quickforge-inline-editor-tip-trigger:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 60%, transparent);
+  outline-offset: 1px;
+}
+
+.quickforge-inline-editor-tip-body {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.4rem);
+  z-index: 20;
+  display: none;
+  width: max-content;
+  max-width: min(21rem, 68vw);
+  padding: 0.5rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--popover) 97%, transparent);
+  color: var(--popover-foreground);
+  box-shadow: 0 16px 40px -26px rgb(15 23 42 / 0.4);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.quickforge-inline-editor-tip:hover .quickforge-inline-editor-tip-body,
+.quickforge-inline-editor-tip:focus-within .quickforge-inline-editor-tip-body,
+.quickforge-inline-editor-tip[data-open='true'] .quickforge-inline-editor-tip-body {
+  display: block;
+}
+
+/* 靠近消息区顶部（空间不足）时翻到按钮下方。 */
+.quickforge-inline-editor-tip[data-placement='below'] .quickforge-inline-editor-tip-body {
+  top: calc(100% + 0.4rem);
+  bottom: auto;
+}
+
+.quickforge-inline-editor-tip-warning {
+  display: block;
+}
+
+.quickforge-inline-editor-tip-keys {
+  display: block;
+  margin-top: 0.3rem;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font-size: 0.72rem;
+}
+
+.quickforge-inline-editor-cancel,
+.quickforge-inline-editor-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.85rem;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+
+.quickforge-inline-editor-cancel:hover {
+  background: color-mix(in oklab, var(--muted) 62%, transparent);
+  color: var(--foreground);
+}
+
+.quickforge-inline-editor-submit {
+  gap: 0.28rem;
+  padding: 0 0.7rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+  box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--primary) 72%, black);
+}
+
+.quickforge-inline-editor-submit:hover {
+  background: color-mix(in oklab, var(--primary) 90%, var(--quickforge-sidebar-hover-bg));
+  color: var(--primary-foreground);
+}
+
+.quickforge-inline-editor-submit svg {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.quickforge-inline-editor-cancel:disabled,
+.quickforge-inline-editor-submit:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.quickforge-inline-editor-cancel {
+  margin-left: auto;
+}
+
+.quickforge-inline-editor :where(button):focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* 输入框不再画焦点框：编辑态本身就是焦点（气泡描边 + 光标），
+   再套一层 outline 会在气泡内部形成一圈「黑边」。 */
+.quickforge-inline-editor-input:focus,
+.quickforge-inline-editor-input:focus-visible {
+  outline: none;
+}
+
+/* 将被移除的消息：就地淡出预览（替代弹窗里的文字描述）。 */
+.quickforge-message-doomed {
+  opacity: 0.34;
+  filter: grayscale(0.45);
+  transition: opacity 260ms ease, filter 260ms ease;
+}
+
+.quickforge-removal-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.1rem 1rem;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+}
+
+.quickforge-removal-divider::before,
+.quickforge-removal-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed color-mix(in oklab, var(--border) 96%, transparent);
+}
+
+@media (width < 40rem) {
+  .quickforge-inline-editor-tip-body {
+    max-width: min(15rem, 70vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-message-doomed,
+  .quickforge-inline-editor-cancel,
+  .quickforge-inline-editor-submit {
+    transition: none;
+  }
+}

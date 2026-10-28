@@ -1,6 +1,43 @@
 {
   "features": [
     {
+      "id": "rollback-inline-edit",
+      "title": "回滚改为就地编辑（去掉二次确认）",
+      "status": "done",
+      "summary": "点用户消息的回滚图标不再弹确认气泡：气泡原地变输入框并预填原文；该行之后的消息就地变淡（quickforge-message-doomed）并插入虚线说明「以下 N 条消息将被移除」，把代价前置呈现。Enter/「发送」= 先静默截断（rollbackForResend，不回填输入框）再把新文案交给 composer.onSend 发出，Shift+Enter 换行、Esc/「取消」原样退出、再点同一图标取消。装饰层对编辑中的行整行短路（data-quickforge-editing），流式开始/只读切换统一收起编辑器；未提供 onRollbackForResend 的场景保留旧 popover 作为降级路径（侧聊等语义不变）。分享页实现同款 rollbackForResend。说明与快捷键收进 ⓘ 提示（hover/点击展开、顶部空间不足自动下翻），编辑态不画输入框焦点框，气泡以 align-self: stretch 撑满对话列宽（不超出列宽）。",
+      "files": [
+        "src/components/chat/panel-decoration/inline-message-editor.ts",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/hooks/useChatActions.ts",
+        "src/App.tsx",
+        "src/components/share/SharedConversationPage.tsx",
+        "src/styles/chat/message-edit.css",
+        "src/styles/index.css",
+        "src/lib/i18n.ts",
+        "tests/frontend/inline-message-editor.test.ts",
+        "docs/design/rollback-inline-edit.html",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/src/hooks/README.md",
+        "docs/wiki/src/styles/README.md"
+      ],
+      "verification": "npm run test -> 443 files / 5176 passed / 2 skipped; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-28"
+    },
+    {
+      "id": "dreaming-settings-discoverability",
+      "title": "记忆页添加 Dreaming 入口（跨页签跳转）",
+      "status": "done",
+      "summary": "用户反馈运行时找不到模型选项。排查确认代码已包含模型下拉（直接取运行实例的转译模块与 /api/dreaming 响应验证），真实原因是模型选择位于 设置→自动化→Dreaming，而 设置→记忆 页完全没有 Dreaming 的任何指向。修法：MemorySettingsTab 增加 Dreaming 区块（状态/条目数/当前生效模型 + 打开按钮），SettingsWorkspacePage 监听 quickforge:open-settings-tab 自定义事件实现跨页签跳转（项目原先没有此机制），监听对非 DOM 环境加守卫。",
+      "files": [
+        "src/components/settings/tabs/MemorySettingsTab.tsx",
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "src/lib/i18n.ts"
+      ],
+      "verification": "npm run test -> 442 files / 5172 passed; npm run lint -> 0 problems; npm run build -> ok; npx tsc -b -> 0 errors",
+      "updatedAt": "2026-10-27"
+    },
+    {
       "id": "dreaming-model-selection",
       "title": "Dreaming 模型自由选择（三级解析 + 设置页下拉）",
       "status": "done",
@@ -338,9 +375,9 @@
     },
     {
       "id": "process-stage-scroll",
-      "title": "过程内层阶段工具列表限高滚动 + 执行中贴底跟随",
+      "title": "过程内层阶段工具列表限高滚动 + 执行中贴底跟随（2026-10-28 已回滚）",
       "status": "done",
-      "summary": "「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段展开后不再无限拉长：限高 min(50vh, 18rem) 挂在折叠动画壳层 .quickforge-process-body-inner（stage-body 的 + 子级选择器，stage-body > inner > step 结构不变），滚动只在 [data-expanded=true] 挂上并带 overscroll-behavior: contain，避免收起动画期露滚动条与滚到底连锁滚动消息主滚动区。执行中新增工具行由 scheduleProcessStageStick（rAF，避免装饰 pass 内强制重排）贴底到最新一行；用户上翻超过 24px 停止跟随、回到 8px 内才重挂（resolveProcessStageScrollFollow 双向滞回），跟随标记存 inner 的 dataset.quickforgeStageFollow，手动收起时复位。",
+      "summary": "**已于 2026-10-28 整体回滚（勿重做）**：用户试用后反馈「限高 + 区域内滚动 + 执行中自动贴底」不好用，代码 / 测试 / wiki 已按文件精确回退到父提交 ab1ff0b0（未用 git revert，因状态文件存在未提交改动），回滚后展开区恢复随内容全高展开。以下为原实现记录：「执行中 · 16 个工具调用 · 4 条命令 · 编辑 1 个文件」这条内层阶段展开后不再无限拉长：限高 min(50vh, 18rem) 挂在折叠动画壳层 .quickforge-process-body-inner（stage-body 的 + 子级选择器，stage-body > inner > step 结构不变），滚动只在 [data-expanded=true] 挂上并带 overscroll-behavior: contain，避免收起动画期露滚动条与滚到底连锁滚动消息主滚动区。执行中新增工具行由 scheduleProcessStageStick（rAF，避免装饰 pass 内强制重排）贴底到最新一行；用户上翻超过 24px 停止跟随、回到 8px 内才重挂（resolveProcessStageScrollFollow 双向滞回），跟随标记存 inner 的 dataset.quickforgeStageFollow，手动收起时复位。",
       "files": [
         "src/styles/chat/process.css",
         "src/components/chat/panel-decoration/process-folding.ts",
@@ -352,8 +389,8 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "npx tsc -b 0 错误；npx eslint 改动源码/测试文件 0 error；npx vitest run process 相关 11 文件（process-folding / -incremental / -ownership、chat-surface-css-contract、css-architecture、thinking-streaming-stage、motion-design、thinking-hint、thinking-header-adoption、subagent-process-trace、scroll-sync）→ 11 files / 186 tests passed；npm run lint 0 error；npm run build 成功（6.08s）。",
-      "updatedAt": "2026-10-27"
+      "verification": "npx tsc -b 0 错误；npx eslint 改动源码/测试文件 0 error；npx vitest run process 相关 11 文件（process-folding / -incremental / -ownership、chat-surface-css-contract、css-architecture、thinking-streaming-stage、motion-design、thinking-hint、thinking-header-adoption、subagent-process-trace、scroll-sync）→ 11 files / 186 tests passed；npm run lint 0 error；npm run build 成功（6.08s）。回滚后复核：5 files / 114 tests passed；npx tsc -b 0 错误；npm run lint 0 error；npm run build 成功（4.24s）。",
+      "updatedAt": "2026-10-28"
     },
     {
       "id": "present-files-inline-links",

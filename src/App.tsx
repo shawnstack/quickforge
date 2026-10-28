@@ -896,6 +896,7 @@ function MainApp() {
     startNewGlobalChat,
     startNewProjectChat,
     rollbackFromMessage,
+    rollbackForResend,
     retryFromMessage,
     copyAnswer,
     forkFromMessage,
@@ -1805,6 +1806,7 @@ function MainApp() {
                       chatScope={agentManager.chatScope}
                       onAccessModeChange={setAccessMode}
                       onRollbackFromMessage={rollbackFromMessage}
+                      onRollbackForResend={rollbackForResend}
                       onRetryFromMessage={retryFromMessage}
                       onCopyAnswer={copyAnswer}
                       onForkFromMessage={forkFromMessage}

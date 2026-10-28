@@ -20,6 +20,14 @@ import { syncAssistantArtifactCard } from './assistant-artifact-card'
 import { syncGoalInternalMessage } from './goal-internal-message'
 import { syncGoalIterationDivider } from './goal-iteration-divider'
 import { removeRollbackConfirmPopover, showRollbackConfirmPopover } from './rollback-confirm-popover'
+import {
+  closeInlineMessageEditor,
+  closeInlineMessageEditors,
+  EDITING_ATTR,
+  hasInlineMessageEditor,
+  isInlineMessageEditorOpen,
+  openInlineMessageEditor,
+} from './inline-message-editor'
 import { getPrimaryMessageList, readMessageRows } from './message-rows'
 import { decorateTurnErrorRow, isErrorMessage } from './turn-error-row'
 import { turnErrorKeyOf, type TurnErrorTracker } from './turn-error-state'
@@ -109,10 +117,18 @@ function decorateAssistantStoppedText(element: HTMLElement, message: MessageWith
 
 type RollbackPopoverDeps = {
   panel: HTMLElement
+  row: HTMLElement
   messageIndex: number
+  /** 就地编辑器的预填文本（该条消息的原文）。 */
+  initialText: string
   isDisabled: boolean
   title: string
   description: string
+  /**
+   * 就地编辑提交：截断该条及之后的历史并以新内容重新提问。
+   * 提供时回滚按钮直接进入就地编辑态；缺省时回退到二次确认弹窗。
+   */
+  onEditSubmit?: (messageIndex: number, text: string) => Promise<boolean>
   onConfirm: (messageIndex: number) => Promise<void> | void
 }
 
@@ -120,7 +136,21 @@ function createRollbackAction(options: RollbackPopoverDeps) {
   const wrapper = document.createElement('span')
   wrapper.className = 'quickforge-rollback-action'
 
-  const rollbackButton = createIconActionButton('rollback', t('rollback'), rollbackIcon, (button) => {
+  const rollbackButton = createIconActionButton('rollback', t('editMessage'), rollbackIcon, (button) => {
+    if (options.onEditSubmit) {
+      // 就地编辑：同一按钮二次点击 = 取消编辑（不再弹二次确认）。
+      if (isInlineMessageEditorOpen(options.row)) {
+        closeInlineMessageEditor(options.row)
+        return
+      }
+      closeInlineMessageEditors(options.panel)
+      openInlineMessageEditor({
+        row: options.row,
+        initialText: options.initialText,
+        onSubmit: (text) => options.onEditSubmit!(options.messageIndex, text),
+      })
+      return
+    }
     showRollbackConfirmPopover({
       panel: options.panel,
       button,
@@ -130,7 +160,7 @@ function createRollbackAction(options: RollbackPopoverDeps) {
     })
   })
   rollbackButton.disabled = options.isDisabled
-  rollbackButton.setAttribute('aria-haspopup', 'dialog')
+  if (!options.onEditSubmit) rollbackButton.setAttribute('aria-haspopup', 'dialog')
   rollbackButton.setAttribute('aria-expanded', 'false')
 
   wrapper.append(rollbackButton)
@@ -153,6 +183,11 @@ export type MessageDecorationDeps = {
   isStreaming: () => boolean
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
+  /**
+   * 就地编辑提交：先截断该条及之后的历史，再以新内容重新提问。
+   * 返回 true 表示已成功发出；缺省时回滚按钮回退到二次确认弹窗。
+   */
+  onEditMessageAndResend?: (messageIndex: number, text: string) => Promise<boolean>
   onRetryFromMessage: (messageIndex: number) => void
   onForkFromMessage: (messageIndex: number) => void
   /** 终态错误旁「重试」：发送失败先重发原始消息，否则由 fallbackRetry 裁剪重生成。 */
@@ -405,6 +440,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     isStreaming,
     onCopyAnswer,
     onRollbackFromMessage,
+    onEditMessageAndResend,
     onRetryFromMessage,
     onForkFromMessage,
     onRetryAfterError,
@@ -457,6 +493,11 @@ export function decorateMessages(deps: MessageDecorationDeps) {
 
   const messageElements = messageRows ?? getPrimaryMessageElements(panel)
   const streaming = isStreaming()
+  // 就地编辑期间不隐藏用户输入：流式开始或切到只读时直接收起编辑器，
+  // 避免按钮被禁用后仍停留在不可提交的编辑态。
+  if (hasInlineMessageEditor(panel) && (streaming || readOnly || historyActionsDisabled)) {
+    closeInlineMessageEditors(panel)
+  }
   // 回合错误重试循环状态：尾部终态错误每周期观察一次（计数 / 重试中 / 升级态）。
   const trailingMessage = displayEntries[displayEntries.length - 1]?.message
   const hasTerminalError = Boolean(trailingMessage && isErrorMessage(trailingMessage))
@@ -502,6 +543,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     const entry = displayEntries[displayIndex]
     const internalGoalMessage = syncGoalInternalMessage(element, entry?.message ?? (element as HTMLElement & { message?: unknown }).message)
     if (!entry) return
+    // 就地编辑中的行保持原样：不要重建动作行或重写 dataset key，
+    // 否则用户正在输入的编辑框会被装饰层冲掉。
+    if (element.dataset[EDITING_ATTR] === 'true') return
     const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
     const isLastUserRow = !readOnly
       && (allowRetry || historyActionsDisabled)
@@ -682,10 +726,13 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       if (!readOnly && (allowRollback || historyActionsDisabled)) {
         const rollbackAction = createRollbackAction({
           panel,
+          row: element,
           messageIndex: entry.index,
+          initialText: text,
           isDisabled: historyActionsDisabled || isStreaming(),
           title: rollbackConfirmTitle,
           description: rollbackConfirmDescription,
+          onEditSubmit: onEditMessageAndResend,
           onConfirm: onRollbackFromMessage,
         })
         actions.append(rollbackAction)

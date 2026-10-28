@@ -203,6 +203,33 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     }
   }, [agent])
 
+  /**
+   * 就地编辑「发送」的截断半步（分享页同款交互）：只移除该条及之后的历史，
+   * 新文案交给 composer 立即发送。
+   */
+  const rollbackForResend = useCallback(async (messageIndex: number): Promise<boolean> => {
+    if (!agent || agent.permission !== 'operate') return false
+    setError(undefined)
+    if (agent.state.isStreaming) {
+      void showAlert(t('generationStillRunning'))
+      return false
+    }
+
+    const rollbackIndex = rollbackStartIndexFromMessage(agent.state.messages, messageIndex)
+    if (rollbackIndex < 0) {
+      void showAlert(t('noConversationTurnToRollback'))
+      return false
+    }
+
+    try {
+      await agent.rollback(messageIndex)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to roll back')
+      return false
+    }
+  }, [agent])
+
   if (!unlocked) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
@@ -266,6 +293,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         onModelSelect={openSharedModelSelector}
         onAccessModeChange={() => undefined}
         onRollbackFromMessage={rollback}
+        onRollbackForResend={rollbackForResend}
         onRetryFromMessage={() => undefined}
         onCopyAnswer={copyAnswer}
         onForkFromMessage={() => undefined}

@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>QuickForge · 回滚就地编辑（高保真预览）</title>
+<style>
+/* ============================================================
+   设计 token：直接取自 src/styles/foundation.css
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --success: oklch(0.55 0.13 158);
+
+  --qf-sidebar-bg: #f3f4f6;
+  --qf-sidebar-hover-bg: #e5e7eb;
+  --qf-sidebar-active-bg: #d9dee7;
+  --qf-main-bg: #ffffff;
+  --qf-content-max: 56rem;
+
+  --page-bg: #e9eaee;
+  --page-fg: oklch(0.145 0 0);
+
+  --qf-hl-comment: oklch(54% 0.019 247.858);
+  --qf-hl-string: oklch(29.6% 0.103 244.038);
+  --qf-hl-keyword: oklch(57.7% 0.245 27.325);
+  --qf-hl-number: oklch(43.5% 0.141 237.016);
+  --qf-hl-function: oklch(51.1% 0.136 307.715);
+  --qf-hl-property: oklch(43.5% 0.141 237.016);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+html.dark {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --popover: oklch(0.269 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(0.275 0 0);
+  --input: oklch(0.325 0 0);
+  --ring: oklch(0.556 0 0);
+
+  --qf-sidebar-bg: color-mix(in oklab, var(--background) 94%, var(--muted));
+  --qf-sidebar-hover-bg: color-mix(in oklab, var(--muted) 74%, transparent);
+  --qf-sidebar-active-bg: color-mix(in oklab, var(--muted) 96%, var(--foreground));
+  --qf-main-bg: var(--background);
+
+  --page-bg: #08080a;
+  --page-fg: oklch(0.985 0 0);
+
+  --qf-hl-comment: oklch(62.6% 0.025 247.858);
+  --qf-hl-string: oklch(78.6% 0.08 237.016);
+  --qf-hl-keyword: oklch(69.8% 0.159 21.174);
+  --qf-hl-number: oklch(73.2% 0.137 237.016);
+  --qf-hl-function: oklch(79.2% 0.124 307.715);
+  --qf-hl-property: oklch(73.2% 0.137 237.016);
+}
+
+html { font-size: 13px; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  padding: 20px 24px 28px;
+  background: var(--page-bg);
+  color: var(--page-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+body ::-webkit-scrollbar { width: 8px; height: 8px; }
+body ::-webkit-scrollbar-track { background: transparent; }
+body ::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+body ::-webkit-scrollbar-thumb:hover { background: transparent; }
+
+/* ============================================================
+   预览页控制条（不属于产品 UI）
+   ============================================================ */
+.pagebar {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pagebar .brand {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.pagebar h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.pagebar .sub {
+  color: color-mix(in oklab, var(--page-fg) 45%, transparent);
+  font-size: 11.5px;
+}
+.pagebar .spacer { margin-left: auto; }
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--page-fg) 7%, transparent);
+}
+.seg button {
+  height: 26px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in oklab, var(--page-fg) 55%, transparent);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+.seg button:hover { color: var(--page-fg); }
+.seg button[aria-selected='true'] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.08);
+  font-weight: 600;
+}
+.ghost-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in oklab, var(--page-fg) 12%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in oklab, var(--page-fg) 60%, transparent);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ghost-btn:hover { color: var(--page-fg); border-color: color-mix(in oklab, var(--page-fg) 22%, transparent); }
+.caption {
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  color: color-mix(in oklab, var(--page-fg) 48%, transparent);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.caption b { color: color-mix(in oklab, var(--page-fg) 72%, transparent); font-weight: 600; }
+
+/* ============================================================
+   应用窗口
+   ============================================================ */
+.window {
+  width: min(1180px, 100%);
+  height: clamp(560px, calc(100vh - 148px), 880px);
+  margin: 0 auto;
+  display: flex;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--qf-sidebar-bg);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--border) 70%, transparent),
+    0 40px 90px -50px rgb(15 23 42 / 0.5),
+    0 10px 26px -22px rgb(15 23 42 / 0.28);
+}
+
+/* ---------------- 侧边栏（304px） ---------------- */
+.sidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 304px;
+  flex: none;
+  min-height: 0;
+  background: var(--qf-sidebar-bg);
+  color: var(--foreground);
+  overflow: hidden;
+}
+.sb-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 4px;
+  flex: none;
+}
+.sb-mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  flex: none;
+}
+.sb-name { font-size: 12.5px; font-weight: 600; letter-spacing: -0.01em; }
+.sb-brand .sb-actions { margin-left: auto; display: flex; gap: 2px; }
+.sb-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.sb-icon-btn:hover { background: var(--qf-sidebar-hover-bg); color: var(--foreground); }
+.sb-icon-btn svg { width: 13px; height: 13px; }
+
+.sb-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 10px 10px; }
+.sb-project {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: color-mix(in oklab, var(--foreground) 82%, transparent);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sb-project:hover { background: var(--qf-sidebar-hover-bg); }
+.sb-project svg { width: 13px; height: 13px; color: var(--muted-foreground); flex: none; }
+.sb-project .chev { margin-left: auto; color: color-mix(in oklab, var(--muted-foreground) 70%, transparent); }
+.sb-group {
+  margin: 14px 0 4px;
+  padding: 4px 8px;
+  color: color-mix(in oklab, var(--muted-foreground) 62%, transparent);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+.sb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 350;
+  line-height: 1.25;
+  color: color-mix(in oklab, var(--foreground) 86%, transparent);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.sb-row:hover { background: var(--qf-sidebar-hover-bg); }
+.sb-row .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-row .time {
+  flex: none;
+  width: 34px;
+  text-align: right;
+  font-size: 10.5px;
+  color: color-mix(in oklab, var(--muted-foreground) 52%, transparent);
+}
+.sb-row:hover .time { color: color-mix(in oklab, var(--muted-foreground) 85%, transparent); }
+.sb-row.is-active {
+  background: var(--qf-sidebar-active-bg);
+  color: var(--foreground);
+  font-weight: 500;
+}
+.sb-footer {
+  flex: none;
+  padding: 8px 10px 10px;
+  border-top: 1px solid color-mix(in oklab, var(--border) 55%, transparent);
+}
+
+/* ---------------- 主区 ---------------- */
+.main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--qf-main-bg);
+  color: var(--foreground);
+  border-left: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-top: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  border-top-left-radius: 13px;
+  overflow: hidden;
+}
+
+/* 顶部栏 45.5px */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 3.5rem;
+  flex: none;
+  padding: 0 0.75rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+}
+.header .title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+.header .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 1.85rem;
+  padding: 0 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+  font: inherit;
+  font-size: 0.92rem;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.header .pill:hover { background: var(--muted); color: var(--foreground); }
+.header .pill svg { width: 1rem; height: 1rem; color: var(--muted-foreground); }
+.header .pill .chev { width: 0.7rem; height: 0.7rem; opacity: 0.7; }
+.header .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.view-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+}
+.view-switch button {
+  height: 1.875rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.view-switch button.is-on {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 2px hsl(0 0% 0% / 0.06);
+  font-weight: 600;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.icon-btn:hover { background: var(--muted); color: var(--foreground); }
+.icon-btn svg { width: 15px; height: 15px; }
+
+/* ---------------- 消息区 ---------------- */
+.scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: min(var(--qf-content-max), calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+/* 用户气泡：与 messages.css:222-240 配方一致 */
+.qf-user-message {
+  display: flex;
+  flex-direction: column;
+  margin-inline: 1rem;
+}
+.qf-user-message > .user-message-container {
+  order: 1;
+  align-self: flex-end;
+  max-width: min(78%, 45rem);
+  padding: 0.5rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 12%, var(--border));
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem;
+  background: color-mix(in oklab, var(--primary) 3%, var(--card));
+  color: var(--foreground);
+  font-size: var(--qf-msg-size, 1rem);
+  line-height: 1.625;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-shadow:
+    0 10px 28px -24px color-mix(in oklab, var(--primary) 55%, black),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+}
+html.dark .qf-user-message > .user-message-container {
+  background: color-mix(in oklab, var(--primary) 6%, var(--card));
+}
+
+/* assistant：无气泡，px-4 */
+.qf-assistant-message {
+  display: flex;
+  flex-direction: column;
+  padding-inline: 1rem;
+}
+.qf-assistant-message .body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  font-size: var(--qf-msg-size, 1rem);
+  line-height: 1.625;
+  overflow-wrap: anywhere;
+}
+.qf-assistant-message .body p { margin: 0; }
+.qf-assistant-message .body p + p { margin-top: 0.75rem; }
+.qf-assistant-message code.inline {
+  padding: 0.0625rem 0.375rem;
+  border-radius: 0.25rem;
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* 代码块：CodeBlock.tsx 结构 */
+.code-block {
+  margin: 0.375rem 0 0.125rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: color-mix(in oklab, var(--muted) 34%, transparent);
+}
+.code-block .cb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.25rem 0.75rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 65%, transparent);
+}
+.code-block .cb-lang {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  letter-spacing: 0.01em;
+}
+.code-block .cb-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.code-block .cb-copy:hover { color: var(--foreground); }
+.code-block .cb-copy svg { width: 12px; height: 12px; }
+.code-block pre {
+  margin: 0;
+  padding: 0 1rem 0.875rem;
+  overflow: auto;
+  max-height: 24rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.75;
+  color: var(--foreground);
+}
+.hl-keyword { color: var(--qf-hl-keyword); }
+.hl-string { color: var(--qf-hl-string); }
+.hl-number { color: var(--qf-hl-number); }
+.hl-fn { color: var(--qf-hl-function); }
+.hl-prop { color: var(--qf-hl-property); }
+.hl-comment { color: var(--qf-hl-comment); font-style: italic; }
+
+/* ---------------- 消息动作行（panel-decoration） ---------------- */
+.quickforge-message-actions {
+  order: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.qf-user-message .quickforge-message-actions { align-self: flex-end; }
+.qf-assistant-message .quickforge-message-actions { align-self: flex-start; }
+.qf-message:hover .quickforge-message-actions,
+.qf-message:focus-within .quickforge-message-actions { opacity: 1; }
+.qf-message.is-editing .quickforge-message-actions { visibility: hidden; opacity: 0; }
+
+.quickforge-message-time {
+  align-self: center;
+  padding: 0 4px;
+  color: color-mix(in oklab, var(--muted-foreground) 55%, transparent);
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.qf-actions-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color 140ms ease, background 140ms ease;
+}
+.qf-actions-btn:hover { color: var(--foreground); background: color-mix(in oklab, var(--muted) 62%, transparent); }
+.qf-actions-btn svg { width: 14px; height: 14px; }
+.rollback-wrap { position: relative; display: inline-flex; }
+.qf-actions-btn.is-on { color: var(--foreground); background: color-mix(in oklab, var(--muted) 78%, transparent); }
+
+/* ---------------- 就地编辑态 ---------------- */
+.qf-user-message.is-editing { margin-inline: 0.25rem; }
+.qf-user-message.is-editing > .user-message-container {
+  /* 气泡默认 align-self: flex-end 会按内容收缩，编辑态必须撑满整行。 */
+  align-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  padding: 0.65rem 0.65rem 0.5rem 0.95rem;
+  border-color: color-mix(in oklab, var(--primary) 34%, var(--border));
+  border-radius: 1rem 1rem 0.5rem 1rem;
+  background: var(--card);
+  box-shadow: 0 16px 40px -32px color-mix(in oklab, var(--primary) 58%, black);
+  transition: max-width 180ms ease, border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.inline-editor { display: block; }
+.inline-editor textarea {
+  display: block;
+  width: 100%;
+  min-height: 1.6rem;
+  max-height: 15rem;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--qf-msg-size, 1rem);
+  line-height: 1.625;
+  white-space: pre-wrap;
+  caret-color: color-mix(in oklab, var(--primary) 85%, transparent);
+}
+.edit-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 62%, transparent);
+}
+.edit-tip { position: relative; display: inline-flex; }
+.edit-tip-trigger {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.5rem; height: 1.5rem; padding: 0;
+  border: 0; border-radius: 999px; background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+  cursor: pointer;
+}
+.edit-tip-trigger:hover { background: color-mix(in oklab, var(--muted) 60%, transparent); color: var(--foreground); }
+.edit-tip-trigger svg { width: 0.85rem; height: 0.85rem; }
+.edit-tip-body {
+  position: absolute; left: 0; bottom: calc(100% + 0.4rem); z-index: 20;
+  display: none; width: max-content; max-width: min(21rem, 68vw);
+  padding: 0.5rem 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.6rem;
+  background: color-mix(in oklab, var(--popover) 97%, transparent);
+  color: var(--popover-foreground);
+  box-shadow: 0 16px 40px -26px rgb(15 23 42 / 0.4);
+  font-size: 0.78rem; line-height: 1.45; white-space: normal;
+}
+.edit-tip:hover .edit-tip-body,
+.edit-tip:focus-within .edit-tip-body { display: block; }
+.edit-tip-warning { display: block; }
+.edit-tip-keys { display: block; margin-top: 0.3rem; color: color-mix(in oklab, var(--muted-foreground) 88%, transparent); font-size: 0.72rem; }
+.edit-foot .edit-btn:first-of-type { margin-left: auto; }
+.edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.85rem;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 88%, transparent);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, opacity 140ms ease;
+}
+.edit-btn:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); color: var(--foreground); }
+.edit-btn-send {
+  gap: 0.28rem;
+  padding: 0 0.7rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-weight: 600;
+  box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--primary) 72%, black);
+}
+.edit-btn-send:hover { background: color-mix(in oklab, var(--primary) 90%, var(--qf-sidebar-hover-bg)); color: var(--primary-foreground); }
+.edit-btn-send svg { width: 0.72rem; height: 0.72rem; }
+.edit-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ---------------- 将被移除的消息（就地预览） ---------------- */
+.qf-message.doomed {
+  opacity: 0.34;
+  filter: grayscale(0.45);
+  transition: opacity 260ms ease, filter 260ms ease;
+}
+.doomed-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.1rem 1rem;
+  color: color-mix(in oklab, var(--muted-foreground) 72%, transparent);
+  font-size: 0.78rem;
+  letter-spacing: 0.01em;
+  animation: fade-in 220ms ease both;
+}
+.doomed-divider::before,
+.doomed-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed color-mix(in oklab, var(--border) 96%, transparent);
+}
+.doomed-divider svg { width: 0.8rem; height: 0.8rem; flex: none; opacity: 0.8; }
+@keyframes fade-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+
+/* ---------------- 二次确认 popover（现状，1:1 复刻） ---------------- */
+.quickforge-rollback-popover {
+  position: fixed;
+  z-index: 60;
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 0.75rem;
+  border: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-radius: 0.9rem;
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  box-shadow: 0 18px 46px -28px rgb(15 23 42 / 0.42);
+  color: var(--popover-foreground);
+  text-align: left;
+  animation: pop-in 140ms ease both;
+}
+@keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: none; } }
+.quickforge-rollback-popover-arrow {
+  position: absolute;
+  top: -0.35rem;
+  right: 0.75rem;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-left: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  background: color-mix(in oklab, var(--popover) 96%, transparent);
+  transform: rotate(45deg);
+}
+.quickforge-rollback-popover.up .quickforge-rollback-popover-arrow {
+  top: auto;
+  bottom: -0.35rem;
+  border-top: 0;
+  border-left: 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+  border-right: 1px solid color-mix(in oklab, var(--border) 72%, transparent);
+}
+.quickforge-rollback-popover-title { font-size: 0.92rem; font-weight: 600; line-height: 1.35; }
+.quickforge-rollback-popover-description {
+  margin-top: 0.35rem;
+  color: color-mix(in oklab, var(--muted-foreground) 82%, transparent);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+.quickforge-rollback-popover-footer { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.75rem; }
+.quickforge-rollback-popover-cancel,
+.quickforge-rollback-popover-confirm {
+  display: inline-flex;
+  min-height: 1.85rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0.55rem;
+  padding: 0 0.7rem;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.quickforge-rollback-popover-cancel { background: transparent; color: color-mix(in oklab, var(--muted-foreground) 86%, transparent); }
+.quickforge-rollback-popover-cancel:hover { background: color-mix(in oklab, var(--muted) 54%, transparent); color: var(--foreground); }
+.quickforge-rollback-popover-confirm {
+  background: color-mix(in oklab, var(--destructive) 12%, transparent);
+  color: color-mix(in oklab, var(--destructive) 88%, var(--foreground));
+}
+.quickforge-rollback-popover-confirm:hover { background: color-mix(in oklab, var(--destructive) 18%, transparent); color: var(--destructive); }
+
+/* ---------------- Composer ---------------- */
+.dock {
+  flex: none;
+  padding: 0 0.5rem 0.25rem;
+  background: var(--background);
+}
+.shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-width: min(var(--qf-content-max), calc(100% - 2rem));
+  margin: 0 auto;
+}
+.composer-card {
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 78%, transparent);
+  border-radius: 1.5rem;
+  background: color-mix(in oklab, var(--card) 86%, transparent);
+  box-shadow:
+    0 22px 70px -34px rgb(15 23 42 / 0.45),
+    0 10px 28px -22px color-mix(in oklab, var(--foreground) 45%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.08);
+  backdrop-filter: blur(18px) saturate(1.1);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+.composer-card:focus-within {
+  border-color: color-mix(in oklab, var(--primary) 42%, var(--border));
+  box-shadow:
+    0 18px 48px -34px rgb(15 23 42 / 0.38),
+    inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+.composer-card.flash {
+  animation: flash 700ms ease;
+}
+@keyframes flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary) 22%, transparent); }
+  40% { box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 16%, transparent); }
+  100% { box-shadow: 0 22px 70px -34px rgb(15 23 42 / 0.45); }
+}
+.composer-card textarea {
+  display: block;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 1rem 1rem 0.5rem;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+.composer-card textarea::placeholder { color: color-mix(in oklab, var(--muted-foreground) 82%, transparent); }
+.composer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 0.5rem 0.5rem;
+}
+.composer-row .left, .composer-row .right { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.ctl {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2rem;
+  min-width: 2rem;
+  padding: 0 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease;
+}
+.ctl:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); color: var(--foreground); }
+.ctl svg { width: 13px; height: 13px; }
+.ctl.tag {
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.6rem;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 42%, transparent);
+}
+.ctl.tag svg { width: 11px; height: 11px; }
+.model-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  height: 2rem;
+  padding: 0 0.55rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.model-trigger:hover { background: color-mix(in oklab, var(--muted) 62%, transparent); color: var(--foreground); }
+.model-trigger svg:first-child { width: 13px; height: 13px; }
+.model-trigger .chev { width: 9px; height: 9px; opacity: 0.65; }
+.send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  box-shadow: 0 10px 24px -12px color-mix(in oklab, var(--primary) 72%, black);
+  cursor: pointer;
+  transition: background 140ms ease;
+}
+.send-btn svg { width: 1.0625rem; height: 1.0625rem; }
+.send-btn:hover { background: color-mix(in oklab, var(--primary) 92%, var(--qf-sidebar-hover-bg)); }
+.usage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+.usage-bar .ctx { display: inline-flex; align-items: center; gap: 0.3rem; }
+.usage-bar .ctx svg { width: 10px; height: 10px; opacity: 0.7; }
+.branch-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0 0.35rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+}
+
+/* ---------------- 浮层提示 / typing ---------------- */
+.toast {
+  position: absolute;
+  left: 50%;
+  bottom: 5.75rem;
+  transform: translate(-50%, 4px);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--popover) 94%, transparent);
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  box-shadow: 0 12px 30px -24px rgb(15 23 42 / 0.5);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease, transform 200ms ease;
+  z-index: 30;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast svg { width: 11px; height: 11px; color: var(--success); }
+
+.typing { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--muted-foreground); font-size: 0.85rem; }
+.typing i { width: 0.25rem; height: 0.25rem; border-radius: 999px; background: currentColor; animation: blink 1.2s ease-in-out infinite; }
+.typing i:nth-child(2) { animation-delay: 0.15s; }
+.typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes blink { 0%, 100% { opacity: 0.25; transform: translateY(0); } 50% { opacity: 0.9; transform: translateY(-1px); } }
+
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="pagebar">
+  <div class="brand">
+    <h1>回滚交互重设计</h1>
+    <span class="sub">/ 去掉二次确认 · 就地编辑重发</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="seg" id="modeSeg" role="tablist">
+    <button type="button" data-mode="old" role="tab" aria-selected="false">现状：二次确认</button>
+    <button type="button" data-mode="new" role="tab" aria-selected="true">新方案：就地编辑</button>
+  </div>
+  <button class="ghost-btn" type="button" id="themeBtn">深浅色</button>
+</div>
+
+<p class="caption" id="caption">
+  新方案：把鼠标移到第三条用户消息上，点「回滚」图标 → 气泡原地变成输入框，后面的消息就地变淡并标注将被移除 → <b>Enter 发送</b>（等价于回滚 + 以新内容重新提问）。Shift+Enter 换行，Esc 取消。
+</p>
+
+<div class="window">
+
+  <!-- ================= 侧边栏 ================= -->
+  <aside class="sidebar">
+    <div class="sb-brand">
+      <span class="sb-mark">QF</span>
+      <span class="sb-name">QuickForge</span>
+      <div class="sb-actions">
+        <button class="sb-icon-btn" type="button" title="搜索">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </button>
+        <button class="sb-icon-btn" type="button" title="新对话">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="sb-scroll">
+      <div class="sb-project">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.7 2h9.3A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+        <span class="t">quickforge</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+
+      <div class="sb-group">今天</div>
+      <div class="sb-row is-active">
+        <span class="t">http.ts 重试与超时</span>
+        <span class="time">14:32</span>
+      </div>
+      <div class="sb-row">
+        <span class="t">侧边栏折叠动画卡顿</span>
+        <span class="time">11:08</span>
+      </div>
+      <div class="sb-row">
+        <span class="t">monaco 大文件加载</span>
+        <span class="time">09:41</span>
+      </div>
+
+      <div class="sb-group">昨天</div>
+      <div class="sb-row">
+        <span class="t">回滚交互评审</span>
+        <span class="time">18:22</span>
+      </div>
+      <div class="sb-row">
+        <span class="t">写一份 patch 发布说明</span>
+        <span class="time">16:05</span>
+      </div>
+      <div class="sb-row">
+        <span class="t">dreaming 语言判定</span>
+        <span class="time">10:17</span>
+      </div>
+    </div>
+
+    <div class="sb-footer">
+      <div class="sb-row">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:13px;height:13px;flex:none;color:var(--muted-foreground)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2v.2a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7.9 21l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3.7a2 2 0 1 1 0-4h.2a1.7 1.7 0 0 0 1.2-2.9L5 8.3a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 11 4.6v-.2a2 2 0 1 1 4 0v.2a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9h.2a2 2 0 1 1 0 4h-.2a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        <span class="t">设置</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ================= 主区 ================= -->
+  <div class="main">
+    <div class="header">
+      <button class="icon-btn" type="button" title="收起侧边栏">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>
+      </button>
+      <div class="title">http.ts 重试与超时</div>
+      <button class="pill" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l1.7 2h9.3A1.5 1.5 0 0 1 21 9.5v8A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/></svg>
+        <span>quickforge</span>
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="right">
+        <div class="view-switch">
+          <button type="button" class="is-on">对话</button>
+          <button type="button">轨迹</button>
+        </div>
+        <button class="icon-btn" type="button" title="更多">
+          <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="scroller" id="scroller">
+      <div class="messages" id="messages">
+
+        <!-- 1. user -->
+        <article class="qf-message qf-user-message" data-index="0">
+          <div class="user-message-container">
+            <span class="bubble-text">把 src/lib/http.ts 里的 retry 逻辑抽成独立函数，顺便把超时做成可配置的</span>
+          </div>
+          <div class="quickforge-message-actions">
+            <span class="quickforge-message-time">14:31</span>
+            <button class="qf-actions-btn" type="button" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+            </button>
+            <span class="rollback-wrap"><button class="qf-actions-btn" type="button" data-act="rollback" title="回滚到这条消息">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 0 14h-1"/></svg>
+            </button></span>
+          </div>
+        </article>
+
+        <!-- 2. assistant -->
+        <article class="qf-message qf-assistant-message" data-index="1">
+          <div class="body">
+            <p>已抽出 <code class="inline">withRetry()</code>（放在 <code class="inline">src/lib/with-retry.ts</code>），<code class="inline">http.ts</code> 里只保留调用；超时通过 <code class="inline">timeoutMs</code> 传入，默认沿用原来的 30s。</p>
+            <div class="code-block">
+              <div class="cb-head">
+                <span class="cb-lang">ts</span>
+                <button class="cb-copy" type="button" title="复制">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+                </button>
+              </div>
+              <pre><code><span class="hl-keyword">export async function</span> <span class="hl-fn">withRetry</span>&lt;T&gt;(
+  task: () =&gt; <span class="hl-fn">Promise</span>&lt;T&gt;,
+  { retries = <span class="hl-number">3</span>, timeoutMs = <span class="hl-number">30_000</span>, baseDelay = <span class="hl-number">500</span> }: <span class="hl-fn">RetryOptions</span> = {},
+): <span class="hl-fn">Promise</span>&lt;T&gt; {
+  <span class="hl-keyword">for</span> (<span class="hl-keyword">let</span> attempt = <span class="hl-number">0</span>; ; attempt += <span class="hl-number">1</span>) {
+    <span class="hl-keyword">try</span> {
+      <span class="hl-keyword">return await</span> <span class="hl-fn">withTimeout</span>(<span class="hl-fn">task</span>(), timeoutMs)
+    } <span class="hl-keyword">catch</span> (error) {
+      <span class="hl-keyword">if</span> (attempt &gt;= retries) <span class="hl-keyword">throw</span> error
+      <span class="hl-keyword">await</span> <span class="hl-fn">sleep</span>(baseDelay * <span class="hl-number">2</span> ** attempt) <span class="hl-comment">// 指数退避</span>
+    }
+  }
+}</code></pre>
+            </div>
+          </div>
+          <div class="quickforge-message-actions">
+            <button class="qf-actions-btn" type="button" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+            </button>
+            <button class="qf-actions-btn" type="button" title="从这条消息分支">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.2"/><circle cx="18" cy="5" r="2.2"/><circle cx="12" cy="19" r="2.2"/><path d="M6 7.2v3.3a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.2"/><path d="M12 12.5v4.3"/></svg>
+            </button>
+            <span class="quickforge-message-time">14:31</span>
+          </div>
+        </article>
+
+        <!-- 3. user（回滚目标） -->
+        <article class="qf-message qf-user-message" data-index="2">
+          <div class="user-message-container">
+            <span class="bubble-text">重试间隔也要退避，别一直固定 500ms</span>
+          </div>
+          <div class="quickforge-message-actions">
+            <span class="quickforge-message-time">14:32</span>
+            <button class="qf-actions-btn" type="button" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+            </button>
+            <span class="rollback-wrap"><button class="qf-actions-btn" type="button" data-act="rollback" title="回滚到这条消息">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 0 14h-1"/></svg>
+            </button></span>
+            <button class="qf-actions-btn" type="button" title="重试">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M3 13a9 9 0 1 0 3-7.7L3 8"/></svg>
+            </button>
+          </div>
+        </article>
+
+        <!-- 4. assistant（回滚后会被移除） -->
+        <article class="qf-message qf-assistant-message" data-index="3">
+          <div class="body">
+            <p>已改成指数退避：<code class="inline">delay = baseDelay * 2 ** attempt</code>，并加了 ±20% 抖动避免并发同时重试；单测覆盖了 3 次重试的时序。</p>
+          </div>
+          <div class="quickforge-message-actions">
+            <button class="qf-actions-btn" type="button" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+            </button>
+            <span class="quickforge-message-time">14:32</span>
+          </div>
+        </article>
+
+        <!-- 5. user（回滚后会被移除） -->
+        <article class="qf-message qf-user-message" data-index="4">
+          <div class="user-message-container">
+            <span class="bubble-text">再补一个超时触发的单测</span>
+          </div>
+          <div class="quickforge-message-actions">
+            <span class="quickforge-message-time">14:33</span>
+            <button class="qf-actions-btn" type="button" title="复制">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg>
+            </button>
+            <span class="rollback-wrap"><button class="qf-actions-btn" type="button" data-act="rollback" title="回滚到这条消息">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h9a7 7 0 0 1 0 14h-1"/></svg>
+            </button></span>
+          </div>
+        </article>
+
+      </div>
+    </div>
+
+    <!-- composer -->
+    <div class="dock">
+      <div class="shell">
+        <div class="composer-card" id="composerCard">
+          <textarea id="composerInput" rows="1" placeholder="输入消息，@ 引用文件，/ 使用命令"></textarea>
+          <div class="composer-row">
+            <div class="left">
+              <button class="ctl" type="button" title="添加">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+              </button>
+              <button class="ctl tag" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h10M4 12h16M4 18h7"/></svg>
+                计划
+              </button>
+              <button class="ctl tag" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>
+                完整访问
+              </button>
+              <button class="ctl" type="button" title="附件">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11.5 12.3 19a4.6 4.6 0 0 1-6.5-6.5l8-8a3 3 0 0 1 4.3 4.3l-8 8a1.5 1.5 0 0 1-2.1-2.1l7.3-7.3"/></svg>
+              </button>
+            </div>
+            <div class="right">
+              <button class="model-trigger" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3M12 18v3M5 12H2M22 12h-3M6.3 6.3 4.2 4.2M19.8 19.8l-2.1-2.1M17.7 6.3l2.1-2.1M4.2 19.8l2.1-2.1"/><circle cx="12" cy="12" r="3.4"/></svg>
+                <span>GLM-4.6 · thinking</span>
+                <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>
+              </button>
+              <button class="send-btn" type="button" title="发送">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="usage-bar">
+          <span></span>
+          <span class="ctx">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 12V7M12 12l3 2"/></svg>
+            上下文 12.4k / 128k
+            <span class="branch-chip">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="width:9px;height:9px"><circle cx="7" cy="6" r="2"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="8" r="2"/><path d="M7 8v8M17 10v1a4 4 0 0 1-4 4H9"/></svg>
+              main
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg>
+      <span id="toastText">已回滚到这条消息并重新发送</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var messages = document.getElementById('messages');
+  var scroller = document.getElementById('scroller');
+  var composerInput = document.getElementById('composerInput');
+  var composerCard = document.getElementById('composerCard');
+  var toast = document.getElementById('toast');
+  var toastText = document.getElementById('toastText');
+  var caption = document.getElementById('caption');
+  var initialMarkup = messages.innerHTML;
+  var mode = 'new';
+  var activeEditor = null;
+  var popover = null;
+
+  var CAPTION = {
+    new: '新方案：把鼠标移到第三条用户消息上，点「回滚」图标 → 气泡原地变成输入框，后面的消息就地变淡并标注将被移除 → <b>Enter 发送</b>（等价于回滚 + 以新内容重新提问）。Shift+Enter 换行，Esc 取消。',
+    old: '现状：同样的位置点「回滚」会弹出确认气泡，点「确认回滚」后才截断历史，而且原文案只会回到下方输入框，还需要再点一次发送。'
+  };
+
+  function el(tag, cls) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    return n;
+  }
+
+  function reset() {
+    closePopover();
+    messages.innerHTML = initialMarkup;
+    composerInput.value = '';
+    activeEditor = null;
+  }
+
+  /* ---------- 二次确认 popover（现状） ---------- */
+  function openPopover(button, row) {
+    closePopover();
+    var p = el('div', 'quickforge-rollback-popover');
+    p.innerHTML =
+      '<div class="quickforge-rollback-popover-arrow"></div>' +
+      '<div class="quickforge-rollback-popover-title">确认回滚？</div>' +
+      '<div class="quickforge-rollback-popover-description">确定回滚到这条消息之前吗？该消息及其之后的对话记录会被移除，消息内容会恢复到输入框。</div>' +
+      '<div class="quickforge-rollback-popover-footer">' +
+      '<button class="quickforge-rollback-popover-cancel" type="button">取消</button>' +
+      '<button class="quickforge-rollback-popover-confirm" type="button">确认回滚</button>' +
+      '</div>';
+    document.body.appendChild(p);
+    popover = p;
+    button.classList.add('is-on');
+    button.setAttribute('aria-expanded', 'true');
+
+    var rect = button.getBoundingClientRect();
+    var pw = p.offsetWidth;
+    var ph = p.offsetHeight;
+    var left = Math.min(Math.max(8, rect.right - pw), window.innerWidth - pw - 8);
+    var top = rect.bottom + 10;
+    var up = top + ph > window.innerHeight - 8;
+    if (up) top = rect.top - ph - 10;
+    if (up) p.classList.add('up');
+    p.style.left = left + 'px';
+    p.style.top = Math.max(8, top) + 'px';
+
+    p.querySelector('.quickforge-rollback-popover-cancel').addEventListener('click', function (e) {
+      e.stopPropagation();
+      closePopover();
+    });
+    p.querySelector('.quickforge-rollback-popover-confirm').addEventListener('click', function (e) {
+      e.stopPropagation();
+      closePopover();
+      rollbackToDraft(row);
+    });
+  }
+
+  function closePopover() {
+    if (!popover) return;
+    popover.remove();
+    popover = null;
+    var on = messages.querySelector('.qf-actions-btn.is-on');
+    if (on) {
+      on.classList.remove('is-on');
+      on.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  document.addEventListener('pointerdown', function (e) {
+    if (popover && !popover.contains(e.target) && !e.target.closest('[data-act="rollback"]')) closePopover();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && popover) closePopover();
+  });
+
+  /* 现状：截断 + 回填输入框（不发送） */
+  function rollbackToDraft(row) {
+    var text = row.querySelector('.bubble-text').textContent;
+    removeFollowers(row);
+    composerInput.value = text;
+    composerInput.focus();
+    composerInput.style.height = 'auto';
+    composerInput.style.height = Math.min(composerInput.scrollHeight, 200) + 'px';
+    composerCard.classList.remove('flash');
+    void composerCard.offsetWidth;
+    composerCard.classList.add('flash');
+    showToast('已回滚，内容恢复到输入框');
+  }
+
+  /* ---------- 就地编辑（新方案） ---------- */
+  function enterEdit(row) {
+    if (activeEditor && activeEditor.row !== row) exitEdit(activeEditor.row);
+    if (activeEditor && activeEditor.row === row) return;
+
+    var container = row.querySelector('.user-message-container');
+    var text = row.querySelector('.bubble-text').textContent;
+    row.classList.add('is-editing');
+    container.classList.add('is-editing');
+
+    var bubble = row.querySelector('.bubble-text');
+    bubble.hidden = true;
+
+    var editor = el('div', 'inline-editor');
+    var ta = el('textarea');
+    ta.rows = 1;
+    ta.value = text;
+    editor.appendChild(ta);
+
+    var foot = el('div', 'edit-foot');
+    var tip = el('span', 'edit-tip');
+    var tipBtn = el('button', 'edit-tip-trigger');
+    tipBtn.type = 'button';
+    tipBtn.setAttribute('aria-label', '这次编辑会做什么');
+    tipBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6h.01"/></svg>';
+    var tipBody = el('span', 'edit-tip-body');
+    var tipWarning = el('span', 'edit-tip-warning');
+    var tipKeys = el('span', 'edit-tip-keys');
+    tipKeys.textContent = 'Enter 发送 · Shift+Enter 换行 · Esc 取消';
+    tipBody.appendChild(tipWarning);
+    tipBody.appendChild(tipKeys);
+    tip.appendChild(tipBtn);
+    tip.appendChild(tipBody);
+    var cancel = el('button', 'edit-btn');
+    cancel.type = 'button';
+    cancel.textContent = '取消';
+    var send = el('button', 'edit-btn edit-btn-send');
+    send.type = 'button';
+    send.innerHTML = '发送<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>';
+    foot.appendChild(tip);
+    foot.appendChild(cancel);
+    foot.appendChild(send);
+    editor.appendChild(foot);
+    container.appendChild(editor);
+
+    var followers = followersOf(row);
+    if (followers.length) {
+      followers.forEach(function (f) { f.classList.add('doomed'); });
+      var divider = el('div', 'doomed-divider');
+      divider.innerHTML =
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 4 16 16M4 20 20 4"/><path d="M4 4h6M20 20h-6"/></svg>' +
+        '<span>以下 ' + followers.length + ' 条消息将被移除</span>';
+      followers[0].before(divider);
+      tipWarning.textContent = '这条消息及之后 ' + followers.length + ' 条会被移除，并以新内容重新提问';
+    } else {
+      tipWarning.textContent = '以新内容重新提问';
+    }
+
+    activeEditor = { row: row, ta: ta };
+    autosize(ta);
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    ta.addEventListener('input', function () { autosize(ta); });
+    ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { e.preventDefault(); exitEdit(row); return; }
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(row); }
+    });
+    cancel.addEventListener('click', function (e) { e.stopPropagation(); exitEdit(row); });
+    send.addEventListener('click', function (e) { e.stopPropagation(); submit(row); });
+
+    scrollRowIntoView(row);
+  }
+
+  function exitEdit(row) {
+    var container = row.querySelector('.user-message-container');
+    var editor = container.querySelector('.inline-editor');
+    if (editor) editor.remove();
+    var bubble = row.querySelector('.bubble-text');
+    if (bubble) bubble.hidden = false;
+    row.classList.remove('is-editing');
+    container.classList.remove('is-editing');
+    messages.querySelectorAll('.doomed').forEach(function (f) { f.classList.remove('doomed'); });
+    messages.querySelectorAll('.doomed-divider').forEach(function (d) { d.remove(); });
+    activeEditor = null;
+  }
+
+  function submit(row) {
+    if (!activeEditor || activeEditor.row !== row) return;
+    var ta = activeEditor.ta;
+    var text = ta.value.trim();
+    if (!text) { ta.focus(); return; }
+
+    var foot = row.querySelector('.edit-foot');
+    var send = foot.querySelector('.edit-btn-send');
+    var cancel = foot.querySelector('.edit-btn');
+    send.disabled = true;
+    cancel.disabled = true;
+    send.textContent = '发送中';
+    ta.readOnly = true;
+
+    setTimeout(function () {
+      removeFollowers(row);
+      var container = row.querySelector('.user-message-container');
+      var editor = container.querySelector('.inline-editor');
+      if (editor) editor.remove();
+      var bubble = row.querySelector('.bubble-text');
+      bubble.textContent = text;
+      bubble.hidden = false;
+      row.classList.remove('is-editing');
+      container.classList.remove('is-editing');
+      activeEditor = null;
+
+      var reply = el('article', 'qf-message qf-assistant-message');
+      var body = el('div', 'body');
+      body.innerHTML = '<span class="typing">正在重新回复<i></i><i></i><i></i></span>';
+      reply.appendChild(body);
+      messages.appendChild(reply);
+      scroller.scrollTop = scroller.scrollHeight;
+
+      showToast('已回滚到这条消息并重新发送');
+    }, 700);
+  }
+
+  /* ---------- 工具 ---------- */
+  function followersOf(row) {
+    var list = [];
+    var node = row.nextElementSibling;
+    while (node) {
+      if (node.classList.contains('qf-message')) list.push(node);
+      node = node.nextElementSibling;
+    }
+    return list;
+  }
+
+  function removeFollowers(row) {
+    followersOf(row).forEach(function (f) {
+      f.style.transition = 'opacity 180ms ease, transform 180ms ease';
+      f.style.opacity = '0';
+      f.style.transform = 'translateY(-2px)';
+      setTimeout(function () { f.remove(); }, 180);
+    });
+    messages.querySelectorAll('.doomed-divider').forEach(function (d) { d.remove(); });
+  }
+
+  function autosize(ta) {
+    ta.style.height = 'auto';
+    var minHeight = 52; // 4rem @ 13px 根字号
+    ta.style.height = Math.min(Math.max(ta.scrollHeight, minHeight), 195) + 'px';
+  }
+
+  function scrollRowIntoView(row) {
+    var r = row.getBoundingClientRect();
+    var s = scroller.getBoundingClientRect();
+    if (r.bottom > s.bottom - 12) scroller.scrollTop += r.bottom - s.bottom + 24;
+  }
+
+  var toastTimer = null;
+  function showToast(msg) {
+    toastText.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toast.classList.remove('show'); }, 2000);
+  }
+
+  /* ---------- 事件 ---------- */
+  messages.addEventListener('click', function (e) {
+    var rb = e.target.closest('[data-act="rollback"]');
+    if (rb) {
+      var row = rb.closest('.qf-message');
+      if (mode === 'new') {
+        if (activeEditor && activeEditor.row === row) exitEdit(row);
+        else enterEdit(row);
+      } else {
+        if (popover) closePopover();
+        else openPopover(rb, row);
+      }
+      return;
+    }
+  });
+
+  /* ---------- 模式 / 主题 ---------- */
+  var seg = document.getElementById('modeSeg');
+  seg.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-mode]');
+    if (!btn) return;
+    var next = btn.dataset.mode;
+    if (next === mode) return;
+    mode = next;
+    seg.querySelectorAll('button').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b.dataset.mode === mode));
+    });
+    caption.innerHTML = CAPTION[mode];
+    reset();
+    if (mode === 'old') {
+      // 现状模式下直接把 popover 摆出来，方便对比
+      var row = messages.querySelector('.qf-message[data-index="2"]');
+      var btn2 = row.querySelector('[data-act="rollback"]');
+      setTimeout(function () { openPopover(btn2, row); }, 120);
+    }
+  });
+
+  document.getElementById('themeBtn').addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+    if (popover) closePopover();
+  });
+
+  composerInput.addEventListener('input', function () {
+    composerInput.style.height = 'auto';
+    composerInput.style.height = Math.min(composerInput.scrollHeight, 200) + 'px';
+  });
+
+  window.addEventListener('resize', function () { if (popover) closePopover(); });
+  scroller.addEventListener('scroll', function () { if (popover) closePopover(); }, { passive: true });
+})();
+</script>
+</body>
+</html>

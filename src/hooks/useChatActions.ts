@@ -120,20 +120,30 @@ export function useChatActions({
     return 'created'
   }, [activeProjectRef, agentRef, currentChatScopeRef, needsModelSetup, setRestoredDraft, closeWorkspacePage, startDeferredSession, switchActiveProject])
 
-  const rollbackFromMessage = useCallback(async (messageIndex: number) => {
+  /**
+   * 回滚的公共实现。
+   *
+   * `restoreDraft` 区分两种入口：
+   * - true：传统「回滚」——把原文案回填到输入框，等用户自己再发；
+   * - false：就地编辑「发送」——只截断历史，新文案由 composer 立即发出
+   *   （见 ChatPanelHost 的 onEditMessageAndResend）。
+   *
+   * 返回是否成功；失败时调用方保持 UI 原状。
+   */
+  const performRollback = useCallback(async (messageIndex: number, restoreDraft: boolean): Promise<boolean> => {
     const currentAgent = agentRef.current
-    if (!currentAgent) return
+    if (!currentAgent) return false
 
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationStillRunning'))
-      return
+      return false
     }
 
     const rollbackIndex = rollbackStartIndexFromMessage(currentAgent.state.messages, messageIndex)
     const rollbackMessage = rollbackIndex >= 0 ? currentAgent.state.messages[rollbackIndex] : undefined
     if (rollbackIndex < 0 || !rollbackMessage) {
       void showAlert(t('noConversationTurnToRollback'))
-      return
+      return false
     }
 
     const restoredRollbackDraft = {
@@ -150,7 +160,7 @@ export function useChatActions({
     } catch (error) {
       logger.error('Failed to rollback conversation:', error)
       void showAlert(error instanceof Error ? error.message : t('rollbackFailed'))
-      return
+      return false
     }
 
     setCurrentAgentMessages(nextMessages)
@@ -160,10 +170,10 @@ export function useChatActions({
       : undefined
 
     if (shouldSaveSession(nextMessages) && currentTask) {
-      if (restoredRollbackDraft) setRestoredDraft(restoredRollbackDraft)
+      if (restoreDraft) setRestoredDraft(restoredRollbackDraft)
       setChatPanelRevision((value) => value + 1)
       syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI:', err))
-      return
+      return true
     }
 
     const storage = storageRef.current
@@ -203,8 +213,9 @@ export function useChatActions({
       },
     )
 
-    setRestoredDraft({ ...restoredRollbackDraft, sessionId: newSessionId })
+    if (restoreDraft) setRestoredDraft({ ...restoredRollbackDraft, sessionId: newSessionId })
     setChatPanelRevision((value) => value + 1)
+    return true
   }, [
     activeModelRef,
     activeProjectRef,
@@ -220,6 +231,19 @@ export function useChatActions({
     syncSessionUI,
     taskMapRef,
   ])
+
+  const rollbackFromMessage = useCallback(async (messageIndex: number) => {
+    await performRollback(messageIndex, true)
+  }, [performRollback])
+
+  /**
+   * 就地编辑「发送」的截断半步：只移除该条及之后的历史，不回填输入框，
+   * 新文案由 ChatPanelHost 立刻交给 composer 发送。
+   */
+  const rollbackForResend = useCallback(
+    (messageIndex: number) => performRollback(messageIndex, false),
+    [performRollback],
+  )
 
   const copyAnswer = useCallback(async (text: string) => {
     try {
@@ -334,6 +358,7 @@ export function useChatActions({
     startNewGlobalChat,
     startNewProjectChat,
     rollbackFromMessage,
+    rollbackForResend,
     retryFromMessage,
     copyAnswer,
     forkFromMessage,

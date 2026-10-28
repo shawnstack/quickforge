@@ -2,6 +2,50 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## sidebar-show-more-indent（done，2026-10-28）
+
+- 问题：项目分区的会话列表底部「显示更多」左边缘与会话标题对不齐——会话行展开态是 `px-2 + pl-8`（32px），按钮只有 `w-full px-2`（8px）。
+- 修复：`SessionDisplayControls` 改用 `sidebarRowClass(sidebarOpen)`，新增可选 `sidebarOpen` / `indent` props；项目分区调用点传 `indent`，`timeline` / 全局对话不加缩进。顺带修掉收起态的偏差——原来按钮固定 `px-2` 左对齐，现在跟随会话行的 `justify-center px-0` 居中。
+- 改动文件：`src/components/sidebar/chat-sidebar/SessionDisplayControls.tsx`、`src/components/sidebar/ChatSidebar.tsx`（三处调用点传 `sidebarOpen`，项目处加 `indent`）、`tests/frontend/sidebar-section-order.test.ts`（契约断言改指 `sidebarRowClass(sidebarOpen)` 并新增缩进断言）、`progress.md`、`session-handoff.md`。
+- 验证 / Evidence：`npx vitest run tests/frontend/sidebar-section-order.test.ts` → 22 passed；`npx eslint` 三个改动文件 → 无输出（0 error）；`npx tsc -b` → 0 错误。未创建 Git commit，未触碰 `dist/` 等生成产物。
+- Notes：`pl-8` 在拆分前的 `SidebarSessionRow` 里就已存在，「显示更多」此前从未跟随这段缩进，不是本轮重构新引入的回归；只是按钮与会话行共用 `sidebarSessionRowBaseClass` 后视觉上更容易被看成“共用同一行样式却没对齐”。
+
+## rollback-inline-edit（done，2026-10-28）
+
+- 需求：回滚不要二次确认，点一下就把那条消息就地变成输入框，改完直接发送。
+- 方案（一句话）：`inline-message-editor.ts` 把「确认弹窗」换成「就地编辑 + 后续消息变淡预览」，提交时先静默截断（`rollbackForResend`）再把新文案交给 composer 的 `onSend`，复用既有的 API key 检查 / plan-mode 包装 / 乐观消息 / 滚动锚定。
+- 关键取舍：
+  1. **不再有确认步骤，代价改用可视线索**：该行之后的消息加 `quickforge-message-doomed`（opacity .34 + grayscale）并插入 `quickforge-removal-divider` 虚线说明「以下 N 条消息将被移除」，比弹窗里那句抽象描述更具体。
+  2. **发送链路不另起一套**：装饰层不直接调 `agent.prompt`，而是回滚成功后在 panel 上轮询 `.qf-message-editor` 的 `onSend`（最多 12 帧）再发送——回滚到第一条会重建会话（新 agent + 新 surface），桥要等 React 提交后才可用；非 DOM 环境（rAF 缺失）轮询立即失败并保持编辑态。
+  3. **装饰层幂等**：编辑中的行打 `data-quickforge-editing`，行循环整行短路（不重写 dataset key），避免重装饰把用户正在输入的编辑框冲掉；流式开始 / 只读切换统一 `closeInlineMessageEditors`。
+  4. **保留降级路径**：没传 `onRollbackForResend` 的调用方仍走旧的 `rollback-confirm-popover.ts`，侧聊等只读场景语义不变。
+- 动过的文件：`inline-message-editor.ts`（新）、`message-actions.ts`、`ChatPanelHost.tsx`、`useChatActions.ts`（抽出 `performRollback(messageIndex, restoreDraft)` + 新导出 `rollbackForResend`）、`App.tsx`、`SharedConversationPage.tsx`、`src/styles/chat/message-edit.css`（新，index.css 里紧跟 messages.css 导入）、`i18n.ts`（双语 7 条）。
+- 验证：`npm run test` → 443 files / 5176 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功；`npx tsc -b` → 0 错误。单测 `tests/frontend/inline-message-editor.test.ts`（7 例，jsdom）：预填/变淡/虚线、提交成功关闭、提交失败保持编辑态、Enter vs Shift+Enter、Esc 还原、切换行互斥、装饰层点回滚不再出 popover 且二次点击取消。
+- Notes：设计稿在 `docs/design/rollback-inline-edit.html`（整屏高保真，可切「现状 / 新方案」对比）。真机待确认：编辑态气泡变宽后长文本的折行观感、以及回滚到第一条消息时（重建会话）发送是否稳定落到新 agent。
+- 追加调整（真机反馈）：「这条消息及之后 N 条会被移除…」与「Enter 发送 · Esc 取消」不再平铺，收进 footer 左侧的 ⓘ 提示（hover / focus / 点击展开，靠近消息区顶部时自动翻到按钮下方），footer 只留 ⓘ + 取消 + 发送；同时去掉 textarea 的 `focus-visible` outline 与气泡外扩的 3px ring——编辑态本身（主色描边 + 光标）已表达焦点，再套一层会在气泡内部形成深色边框。输入框默认书写高度提到 `min-height: 4rem`（约 2.5 行），自增高的 `resizeTextarea` 改为 `max(scrollHeight, computed min-height)` 取值，内容只有一行时不再缩成一条细缝。——随后按用户澄清「要的是宽度」回退了高度（min-height 回到 1.6rem），改为编辑态放宽宽度：行内 margin 收到 0.25rem、气泡 `max-width: 100%`，铺满消息列。
+- 宽度再调整（用户反馈「还是很短」「不要超过对话消息」）：根因是气泡是 `align-self: flex-end` 的**收缩宽度**，只写 `max-width` 根本不会变宽——短消息的编辑框始终只有一行文本那么宽。改为编辑态 `align-self: stretch` + `width: 100%`，宽度 = 对话列宽（不超出）；中途试过的「编辑时把消息列放宽到 80rem」已撤销。
+
+## process-stage-scroll（已回滚，2026-10-28）
+
+- 决定：用户试用后觉得「执行中 · N 个工具调用 · N 条命令」展开区被限高（`min(50vh, 18rem)` + 区域内滚动 + 执行中自动贴底）不好用，要求撤回该功能。
+- 回滚范围：整条 feature 的代码 / 测试 / wiki 全部还原——`src/styles/chat/process.css`（限高与展开态滚动规则）、`src/components/chat/panel-decoration/process-folding.ts`（`resolveProcessStageScrollFollow` / `bindProcessStageScrollFollow` / `applyProcessStageStick` / `scheduleProcessStageStick` / `resetProcessStageScrollFollow` 及 `updateProcessStageGroups` 内的绑定逻辑）、`tests/frontend/process-folding.test.ts`、`tests/frontend/process-folding-incremental.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts`、`docs/wiki/src/styles/README.md`、`docs/wiki/src/components/README.md`。
+- 回滚方式：该功能是一次独立提交 `55923d4`，且 `git log 55923d4..HEAD -- <上述文件>` 无任何结果（无后续提交改动过这些行），因此直接按文件回退到父提交 `ab1ff0b0` 的版本；**没有**用 `git revert`，因为 `feature_list.json` / `progress.md` 当时已有未提交改动（`dreaming-settings-discoverability`），revert 会在状态文件上冲突。
+- 保留：`feature_list.json` 的 `process-stage-scroll` 条目与 `session-handoff.md` 的记录（标注已回滚，便于日后查到这段历史，避免重复实现）。
+- 验证 / Evidence：`npx vitest run` process-folding + -incremental + -ownership + chat-surface-css-contract + css-architecture → 5 files / 114 tests passed；`npm run test` 全量 → 442 files / 5169 passed / 2 skipped（= 回滚前的 5172 减掉本 feature 的 3 个用例）；`npx tsc -b` → 0 错误；`npm run lint` → 0 error；`npm run build` → 成功（built in 4.24s）。未创建 Git commit。
+- Notes：回滚后「执行中 N 个工具调用」的展开区恢复成随内容全高展开（工具多时会把对话拉长、也不会自动贴底）——这是回滚预期的旧行为。`src/styles/chat/process.css` 里所有 `quickforge-process-stage*` 结构与 `PROCESS_STAGE_DEFAULT_EXPANDED = true`（内层阶段恒默认展开）属于更早的功能，未受影响。
+
+## dreaming-settings-discoverability（done，2026-10-27）
+
+- 现象：用户反馈“运行时候没有模型这个选项”。
+- 排查结论（代码本身没问题）：直接向正在运行的实例取了模块源码 —— `GET http://127.0.0.1:5176/src/components/dreaming/DreamingSettingsTab.tsx` 返回 130 KB 转译结果，确认包含 `dreamingModel` / `dreamingModelFollowChat`；`GET /api/dreaming` 也返回 `model.effective = HAPI/deepseek-v4-flash · source=active`，说明三级解析已生效。
+- 真正原因：模型选择在「设置 → 自动化 → Dreaming」，而「设置 → 记忆」页对 Dreaming **一字未提**（`MemorySettingsTab.tsx` 里没有任何 dreaming 字样），从“记忆”找入口必然找不到。
+- 修法：
+  1. `MemorySettingsTab` 新增 Dreaming 区块：一行摘要（状态 · 条目数 · 当前生效模型）+「打开 Dreaming 设置」按钮。
+  2. `SettingsWorkspacePage` 监听 `quickforge:open-settings-tab` 自定义事件跳转页签（项目里原先没有跨页签跳转机制）。
+  3. 事件监听对非 DOM 环境做了守卫：`typeof window === 'undefined' || typeof window.addEventListener !== 'function'` 直接 return——单元测试渲染该页时不提供 window。
+- 验证：`npm run test` → 442 files / 5172 passed / 2 skipped；`npm run lint` → 0 问题；`npm run build` → 成功；`npx tsc -b` → 0 错误。
+
+
 ## dreaming-model-selection（done，2026-10-27）
 
 - Goal：Dreaming 要能自由选模型；先搞清楚为什么它一直在用 智谱/GLM-4.6V。

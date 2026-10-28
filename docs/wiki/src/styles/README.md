@@ -36,12 +36,13 @@ src/styles/
 │   └── custom-providers.css      # 模型与提供商页：提供商列表 / 连接 / 模型三层主从布局（窄屏抽屉）
 ├── chat/
 │   ├── messages.css             # 消息滚动、轮次导航、用量行、用户气泡、输入收起
+│   ├── message-edit.css         # 回滚就地编辑：编辑态气泡、发送行、将被移除的消息预览与虚线说明
 │   ├── code-blocks.css          # 代码块/SVG/Mermaid 卡片兼容规则
 │   ├── markdown-content.css     # subagent trace 字号、文件路径链接、用户消息首尾距
 │   ├── context-compaction.css   # 上下文压缩提示卡
 │   ├── observer-strips.css      # persist-degraded / 会话写租约观察条
 │   ├── waiting-bubble.css       # assistant 等待气泡
-│   ├── process.css              # 过程组/阶段折叠；stage 展开区限高滚动（inner max-height: min(50vh,18rem)，展开态 overflow-y:auto + overscroll-behavior:contain）
+│   ├── process.css              # 过程组/阶段折叠
 │   ├── tool-summary.css         # 工具摘要行排版与标题
 │   ├── math.css                 # KaTeX 展示公式横滑
 │   ├── running-state.css        # 工具运行扫光与思考流光

@@ -2,6 +2,15 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## message-copy-window-index（done，2026-10-29）
+
+- Goal：用户反馈「对话里用户消息的复制用不了了——复制到空/错的内容，所有用户消息都这样」。
+- 根因：消息窗口化（4c4c0e1）后，装饰层把每行 index 算成**全对话绝对索引**（`index + messageIndexOffset`，`message-actions.ts:470`），而 `ChatPanelHost` 传进来的 `getMessages` 是 `getWindowMessages()` 的**窗口切片**（`ChatPanelHost.tsx:1193`，起点即 `messageIndexOffset`）。复制回调（`message-actions.ts:706` assistant / `:722` user）仍写 `getMessages()[entry.index]`：窗口起点 > 0 时绝对索引落在切片长度范围内，却指向窗口里的另一条消息 → 复制成别人的内容；命中的是 assistant / toolResult 时 `draftTextFromUserMessage` 返回 `''`，点击静默无任何反馈。同文件 173-183 行注释本就声明「copy 用全对话索引」，与实现自相矛盾；既有测试 `messageIndexOffset` 恒为 0，故未暴露。
+- 改动：新增 `messageAtFullIndex(fullIndex)`（`fullIndex - messageIndexOffset` 再读切片，越界返回 `undefined`），两处复制回调改用它，并在取到空文本时回退渲染时快照 `text`；rollback / retry / fork 仍用绝对索引（服务端语义），不动。
+- 测试：`tests/frontend/message-actions.test.ts` 新增 1 例「窗口起点 2 + 窗口内含不渲染的 toolResult」——用户行、助手行复制各自拿到自己那行的文本；临时把修复退回（`localIndex = fullIndex`）时该例失败并复现「复制成另一条消息」，确认用例能拦住回归。
+- 验证：`npx vitest run message-actions inline-message-editor` → 2 files / 53 passed；`npm run test` → 455 files / 5325 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功。未创建 Git commit，未手工改生成产物。
+- 范围：只改复制取值这一处 + 1 例测试；未动窗口化控制器、装饰短路 key、回滚/重试链路。
+
 ## release-2-3-5（done，2026-10-29）
 
 - 触发：「发布一个小版本」。

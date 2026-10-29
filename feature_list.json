@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "message-copy-window-index",
+      "title": "修复消息复制到空/错内容",
+      "status": "done",
+      "summary": "消息窗口化后复制失效：装饰层把每行的 entry.index 算成全对话绝对索引（窗口起点 + 窗口内序号），但复制回调又拿这个绝对索引去读 getMessages() 返回的窗口切片（ChatPanelHost 传的是 getWindowMessages()，起点为 messageIndexOffset）。窗口起点 > 0 时绝对索引落在切片长度范围内却指向另一条消息，于是复制成别人的内容；命中的是 assistant/toolResult 时 draftTextFromUserMessage 返回空、点击静默无反馈。修复：新增 messageAtFullIndex(fullIndex) 先把绝对索引减去 messageIndexOffset 再读切片（越界返回 undefined），复制回调改用它，并在取到空文本时回退到渲染时快照文本；assistant 复制同一处修复。回滚/重试/分支仍用全对话绝对索引不变。",
+      "files": [
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "tests/frontend/message-actions.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run message-actions + inline-message-editor → 2 files / 53 passed（新增 1 例：窗口起点 2、窗口内含不渲染的 toolResult 时，用户行与助手行复制各自正确文本；临时退回修复时该例失败并复现「复制成另一条消息」）。npm run test → 455 files / 5325 passed / 2 skipped；npm run lint → 0 problems；npx tsc -b → 0 错误；npm run build → 成功。",
+      "updatedAt": "2026-10-29"
+    },
+    {
       "id": "release-2-3-5",
       "title": "v2.3.5 小版本发布",
       "status": "done",

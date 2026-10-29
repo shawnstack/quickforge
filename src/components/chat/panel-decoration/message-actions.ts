@@ -527,6 +527,21 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   ].join('')
   const lastUserIndex = lastUserEntry ? lastUserEntry.index : -1
 
+  /**
+   * 按全对话索引取消息。
+   *
+   * `entry.index` 是绝对索引（`messageIndexOffset + 窗口内序号`），而
+   * `getMessages()` 返回的是已提交窗口的切片，起点正是 `messageIndexOffset`；
+   * 直接拿绝对索引去读切片，窗口起点 > 0 时会越界或命中窗口里另一条消息
+   * （复制到别人的内容或空文本）。
+   */
+  const messageAtFullIndex = (fullIndex: number) => {
+    const windowMessages = getMessages()
+    const localIndex = fullIndex - messageIndexOffset
+    if (localIndex < 0 || localIndex >= windowMessages.length) return undefined
+    return windowMessages[localIndex]
+  }
+
   const createCopyButton = (getText: () => string) => {
     const title = t('copy')
     return createIconActionButton('copy', title, copyIcon, async (button) => {
@@ -703,8 +718,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       if (!text) return
 
       const copyBtn = createCopyButton(() => {
-        const currentMessage = getMessages()[entry.index]
-        return currentMessage ? assistantText(currentMessage as Parameters<typeof assistantText>[0]) : text
+        const currentMessage = messageAtFullIndex(entry.index)
+        if (!currentMessage) return text
+        return assistantText(currentMessage as Parameters<typeof assistantText>[0]) || text
       })
       actions.append(copyBtn)
 
@@ -719,8 +735,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       const text = draftTextFromUserMessage(entry.message as Parameters<typeof draftTextFromUserMessage>[0])
       if (text) {
         const copyBtn = createCopyButton(() => {
-          const currentMessage = getMessages()[entry.index]
-          return currentMessage ? draftTextFromUserMessage(currentMessage as Parameters<typeof draftTextFromUserMessage>[0]) : text
+          const currentMessage = messageAtFullIndex(entry.index)
+          if (!currentMessage) return text
+          return draftTextFromUserMessage(currentMessage as Parameters<typeof draftTextFromUserMessage>[0]) || text
         })
         actions.append(copyBtn)
       }

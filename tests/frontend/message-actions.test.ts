@@ -1080,6 +1080,47 @@ describe('user message context chip decoration', () => {
     await vi.waitFor(() => expect(onCopyAnswer).toHaveBeenCalledWith('original body'))
   })
 
+  it('copies the rendered row text from a windowed message slice', async () => {
+    const firstRow = createUserMessageElement().element
+    const secondRow = createUserMessageElement().element
+    const assistantRow = createAssistantMessageHost()
+    const messageList = createMessageListElement()
+    messageList.append(firstRow, secondRow, assistantRow)
+    const panel = createFakeElement('div')
+    panel.append(messageList)
+    // 已提交窗口从全对话第 2 条开始，且窗口内含不渲染的 toolResult：
+    // 行上的 entry.index（2 / 4 / 5）是绝对索引，getMessages() 只给这 4 条切片。
+    const windowMessages = [
+      { role: 'user', content: 'window first question' },
+      { role: 'toolResult', content: 'tool output' },
+      { role: 'user', content: 'window second question' },
+      { role: 'assistant', content: [{ type: 'text', text: 'window answer' }] },
+    ]
+    const onCopyAnswer = vi.fn()
+    decorateMessages({
+      panel: panel as unknown as HTMLElement,
+      getMessages: () => windowMessages as never,
+      messageIndexOffset: 2,
+      isStreaming: () => false,
+      onCopyAnswer,
+      onRollbackFromMessage: vi.fn(),
+      onRetryFromMessage: vi.fn(),
+      onForkFromMessage: vi.fn(),
+      disableFork: false,
+    })
+
+    const copyOf = (row: FakeNode) => row.querySelector('button[data-quickforge-action="copy"]')
+
+    copyOf(firstRow)?.onclick?.({ stopPropagation() {} })
+    await vi.waitFor(() => expect(onCopyAnswer).toHaveBeenLastCalledWith('window first question'))
+
+    copyOf(secondRow)?.onclick?.({ stopPropagation() {} })
+    await vi.waitFor(() => expect(onCopyAnswer).toHaveBeenLastCalledWith('window second question'))
+
+    copyOf(assistantRow)?.onclick?.({ stopPropagation() {} })
+    await vi.waitFor(() => expect(onCopyAnswer).toHaveBeenLastCalledWith('window answer'))
+  })
+
   it('reads plugins and files only from details while keeping copy text on the original message', () => {
     const source = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
     expect(source).toContain('contextReferencesFromMessage')

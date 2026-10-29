@@ -1,5 +1,17 @@
 # Current Session Handoff
 
+## message-copy-window-index（done，2026-10-29）
+
+- Current Objective（当前目标）：修复「对话里用户消息的复制用不了了（复制到空/错内容）」。
+- 结论（一句话）：消息窗口化后装饰层的 `entry.index` 是全对话绝对索引，而 `getMessages` 是窗口切片，复制回调直接 `getMessages()[entry.index]` → 偏移后命中别人的消息（assistant/toolResult 则取到空、点击静默）；现在统一走 `messageAtFullIndex()`（减 `messageIndexOffset` 再读切片，越界回退快照文本），assistant 复制同修。
+- 改动文件：`src/components/chat/panel-decoration/message-actions.ts`（`messageAtFullIndex` + 两处复制回调）、`tests/frontend/message-actions.test.ts`（新增窗口化复制用例）、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run message-actions inline-message-editor` → 2 files / 53 passed（含能复现 old bug 的新用例）；`npm run test` → 455 files / 5325 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功。未创建 Git commit，未触碰 `dist/` 之外的手工产物。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机在长会话（消息超出渲染窗口、需要向上滚动）里对首屏每条用户消息点复制，粘出来应是它自己；assistant 复制也顺手验一遍。
+  2. 若还有「点了没反应」：先确认那条消息的 `content` 是否真的没有任何 text 块（纯附件/图片消息本来就不渲染复制按钮）。
+  3. 窗口化相关的其它取值处（`getArtifactMessages` 已由 `ChatPanelHost.tsx:1258` 传全量，正确）如需新增按索引取消息，一律走 `messageAtFullIndex()`，不要再直接索引 `getMessages()`。
+
 ## release-2-3-5（done，2026-10-29）
 
 - Current Objective（当前目标）：执行「发布一个小版本」，把 dev 上未发布的内容发成 patch 版本。

@@ -1,5 +1,19 @@
 # Current Session Handoff
 
+## render-memory-and-attachment-boundary（done，2026-10-29）
+
+- Current Objective（当前目标）：按 P0–P3 治理浏览器内存与卡顿，不改变交互、不打补丁；一次性完成流式、首屏、窗口/快照、附件传输边界。
+- 结论（一句话）：流式帧单份 + 只缓存定稿；窗口上限 12 轮/160k 字符并按锚点驱逐；快照只存尾部 200 条 + offset；历史附件只传 `assetUrl`、按需读字节并生成缩略图；首屏移除 pi-ai/xterm 并启用 br/gzip。
+- 改动文件：`server/utils/sse-wire.mjs`（新）、`server/client-attachments.mjs`（新）、`server/message-attachment-lookup.mjs`（新）、`server/routes/message-attachments.mjs`（新）、`server/routes/{agent,session-view,shared-conversation,static}.mjs`、`server/sqlite/session-state-repository.mjs`、`server/session-state-service.mjs`、`scripts/precompress-assets.mjs`（新）、`package.json`、`src/lib/{custom-model-selector,deferred-session-agent,server-agent,shared-server-agent,chat-math,code-highlight,session-message-cache}.ts`、`src/components/chat/{windowed-messages.ts,surface/{Markdown,AssistantMessage,ThinkingBlock,CodeBlock,AttachmentTile,AttachmentOverlay,attachment-client,ChatTypes}}`、`src/components/workspace/WorkspaceInspector.tsx`、`src/hooks/useChatActions.ts`、`src/components/share/SharedConversationPage.tsx`、测试 10 个文件、`docs/architecture/render-memory-and-attachment-boundary.zh-CN.md`（新）+ 4 份 wiki、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npm run test` → 461 files / 5357 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功 + `[precompress] 224 files: 12.66MB → 6.48MB`；首屏 3.6MB → 2.10MB 原始 / 0.53MB gzip，preload 无 pi-ai/xterm；隔离实例浏览器实测图片附件 view 仅 2KB、tile 走 raw 生成 blob 缩略图、overlay 正常。未创建 Git commit，未触碰生成产物的手工修改。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机长回答（含长代码块）观察流式期间堆是否平台化、`message_end` 后代码块高亮是否只算一次；对比 `dist/index.html` preload。
+  2. 真机长会话上翻 20+ 轮再下滚：阅读位置不跳、轮次导航可跳到被驱逐的早期轮；快照重载后先显示尾部再校准。
+  3. 真机旧图片会话（含 7MB 级附件）：tile 缩略图、overlay、回滚重发、fork、分享页图片各验一遍；首次 tile 可能先出现占位图标。
+  4. 首次打开右侧栏终端：多一次本地 chunk 加载属预期；确认不会回到首屏预加载。
+
+
 ## message-copy-window-index（done，2026-10-29）
 
 - Current Objective（当前目标）：修复「对话里用户消息的复制用不了了（复制到空/错内容）」。
@@ -11,6 +25,15 @@
   1. 真机在长会话（消息超出渲染窗口、需要向上滚动）里对首屏每条用户消息点复制，粘出来应是它自己；assistant 复制也顺手验一遍。
   2. 若还有「点了没反应」：先确认那条消息的 `content` 是否真的没有任何 text 块（纯附件/图片消息本来就不渲染复制按钮）。
   3. 窗口化相关的其它取值处（`getArtifactMessages` 已由 `ChatPanelHost.tsx:1258` 传全量，正确）如需新增按索引取消息，一律走 `messageAtFullIndex()`，不要再直接索引 `getMessages()`。
+
+## composer-pasted-text-attachment-remove（done，2026-10-29）
+
+- Current Objective（当前目标）：修复「对话框粘贴附件无法删除」。
+- 结论（一句话）：粘贴大段文本生成的文本附件 tile 被 `decorateComposerTextAttachmentTile` 的**捕获阶段** `stopPropagation()` 劫持，`×` 按钮的点击到不了 target、也冒泡不回 React 事件根，`onDelete` 永不执行；现在捕获监听遇到 `.qf-attachment-tile-remove` 直接放行。
+- 改动文件：`src/components/chat/panel-decoration/editor-bindings.ts`（放行删除按钮）、`tests/frontend/editor-bindings.test.ts`（FakeTile 记录 click handler + 新增 1 例）、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run editor-bindings/chat-surface-editor/composer-store-isolation/composer-drafts/message-actions` → 5 files / 89 passed；`npx eslint` → 0 problems；`npx tsc -b` → 通过。未跑全量 `npm run test` / `npm run build`，未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：真机在 composer 粘贴 3200+ 字符确认 tile 的 `×` 能删掉、点 tile 主体仍打开系统文件管理器；若要走发布流程，按 runbook 跑完整 test/lint/build。
 
 ## release-2-3-5（done，2026-10-29）
 

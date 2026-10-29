@@ -281,3 +281,72 @@ describe('GET /api/sessions/:sessionId/view', () => {
     })
   })
 })
+
+describe('GET /api/sessions/:sessionId/attachments/:attachmentId', () => {
+  const attachment = {
+    id: 'image.png_1_0.5',
+    type: 'image',
+    fileName: 'pixel.png',
+    mimeType: 'image/png',
+    size: 3,
+    content: Buffer.from([1, 2, 3]).toString('base64'),
+    preview: 'AQID',
+  }
+
+  async function writeAttachmentSession(storage, sessionId) {
+    await writeSession(storage, sessionId, {
+      messages: [
+        { role: 'user-with-attachments', content: 'see image', attachments: [attachment] },
+      ],
+    })
+  }
+
+  it('projects the view to an asset URL and serves the stored bytes', async () => {
+    await withTempModules(async ({ storage, routes }) => {
+      await writeAttachmentSession(storage, 'attachment-session')
+
+      const viewRes = mockResponse()
+      await routes.handleSessionViewApi(
+        { method: 'GET', headers: {} },
+        viewRes,
+        new URL('http://localhost/api/sessions/attachment-session/view'),
+      )
+      const view = JSON.parse(viewRes.body)
+      expect(view.messages[0].attachments[0]).toMatchObject({
+        id: attachment.id,
+        assetUrl: `/api/sessions/attachment-session/attachments/${attachment.id}`,
+      })
+      expect(view.messages[0].attachments[0]).not.toHaveProperty('content')
+
+      const rawRes = mockResponse()
+      const rawUrl = new URL(`http://localhost/api/sessions/attachment-session/attachments/${attachment.id}?raw=1`)
+      await routes.handleSessionViewApi(
+        { method: 'GET', headers: {}, url: rawUrl.pathname + rawUrl.search },
+        rawRes,
+        rawUrl,
+      )
+      expect(rawRes.status).toBe(200)
+      expect(rawRes.headers['content-type']).toBe('image/png')
+      expect(Buffer.from(rawRes.body).toString('base64')).toBe(attachment.content)
+
+      const jsonRes = mockResponse()
+      await routes.handleSessionViewApi(
+        { method: 'GET', headers: {} },
+        jsonRes,
+        new URL(`http://localhost/api/sessions/attachment-session/attachments/${attachment.id}`),
+      )
+      expect(JSON.parse(jsonRes.body).content).toBe(attachment.content)
+    })
+  })
+
+  it('returns 404 for unknown attachments', async () => {
+    await withTempModules(async ({ storage, routes }) => {
+      await writeAttachmentSession(storage, 'attachment-session')
+      await expect(routes.handleSessionViewApi(
+        { method: 'GET', headers: {} },
+        mockResponse(),
+        new URL('http://localhost/api/sessions/attachment-session/attachments/missing-id'),
+      )).rejects.toMatchObject({ statusCode: 404 })
+    })
+  })
+})

@@ -1,7 +1,7 @@
 import { useInspectorGitState, useInspectorGit, useInspectorReviewSelection, useInspectorGitDemand } from './useInspectorGit'
 import { useInspectorTabsState, useInspectorTabsEffects, useInspectorTabsActions, viewFromPanelKind } from './useInspectorTabs'
 import { useInspectorLayoutState, useInspectorViewport, useInspectorVisibility, useInspectorWidth, useInspectorLayoutActions, WORKSPACE_INSPECTOR_MIN_WIDTH, INSPECTOR_KEYBOARD_RESIZE_STEP, getInspectorMaxWidth, NAV_PANEL_MIN_WIDTH, NAV_PANEL_MAX_WIDTH } from './useInspectorLayout'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
 import { cn } from '@/lib/utils'
@@ -10,7 +10,11 @@ import { showAlert } from '@/components/ui/confirm-dialog'
 import { WebPreviewContent } from '@/components/preview/WebPreviewContent'
 import { openWorkspaceExternal } from './workspace-api'
 import { WorkspaceDocumentContent } from './WorkspaceDocumentContent'
-import { TerminalDock } from '@/components/terminal/TerminalDock'
+// The inspector is open by default but the terminal is not: a static import
+// would pull xterm into first paint. Load it when the terminal tab first opens.
+const TerminalDock = lazy(() =>
+  import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
+)
 import { SubagentRunDetailContent } from './SubagentRunDetailContent'
 import { WorkflowRunDetailContent } from './WorkflowRunDetailContent'
 import { SideChatTabContent, type SideChatComposerDraftMemory } from './SideChatTabContent'
@@ -421,18 +425,20 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
               onOpenLog={onOpenBackgroundTaskLog}
             />
           ) : activePanelTab.kind === 'terminal' ? (
-            <TerminalDock
-              key={activePanelTab.id}
-              project={project}
-              pendingCommand={pendingTerminalCommand}
-              onPendingCommandHandled={onPendingTerminalCommandHandled}
-              onCollapse={() => closePanelTab(activePanelTab.id)}
-              variant="panel"
-              singleSession
-              panelInstanceId={activePanelTab.id}
-              panelSessionId={activePanelTab.terminalSessionId}
-              onPanelSessionReady={(sessionId) => updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, terminalSessionId: sessionId }))}
-            />
+            <Suspense fallback={null}>
+              <TerminalDock
+                key={activePanelTab.id}
+                project={project}
+                pendingCommand={pendingTerminalCommand}
+                onPendingCommandHandled={onPendingTerminalCommandHandled}
+                onCollapse={() => closePanelTab(activePanelTab.id)}
+                variant="panel"
+                singleSession
+                panelInstanceId={activePanelTab.id}
+                panelSessionId={activePanelTab.terminalSessionId}
+                onPanelSessionReady={(sessionId) => updatePanelTab(activePanelTab.id, (tab) => ({ ...tab, terminalSessionId: sessionId }))}
+              />
+            </Suspense>
           ) : (
             <>
               {hasReaderPane ? (

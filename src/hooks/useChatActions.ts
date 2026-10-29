@@ -19,6 +19,7 @@ import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAgentTask } from '@/lib/agent-task-retention'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
+import { resolveAttachmentsForDraft, resolveMessagesForUpload } from '@/components/chat/surface/attachment-client'
 
 type UseChatActionsOptions = {
   storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
@@ -144,11 +145,24 @@ export function useChatActions({
     if (rollbackIndex < 0) return false
     const rollbackMessage = currentAgent.state.messages[rollbackIndex]
 
+    // Projected history carries attachment references, not bytes; rehydrate
+    // before handing the draft back to the composer.
+    let rollbackAttachments
+    try {
+      rollbackAttachments = rollbackMessage?.role === 'user-with-attachments'
+        ? await resolveAttachmentsForDraft(rollbackMessage.attachments)
+        : undefined
+    } catch (error) {
+      logger.error('Failed to resolve rollback attachments:', error)
+      void showAlert(error instanceof Error ? error.message : t('rollbackFailed'))
+      return false
+    }
+
     const restoredRollbackDraft = {
       id: Date.now(),
       sessionId: currentAgent.sessionId,
       text: rollbackMessage ? draftTextFromUserMessage(rollbackMessage) : '',
-      attachments: rollbackMessage?.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+      attachments: rollbackAttachments,
     }
 
     let nextMessages = currentAgent.state.messages.slice(0, rollbackIndex)
@@ -265,6 +279,9 @@ export function useChatActions({
     const messages = currentAgent.state.messages.slice(0, messageIndex + 1)
     if (!hasUserMessage(messages)) return
 
+    // The fork payload becomes the new session's stored history, so projected
+    // attachment references must be materialized before the upload.
+    const forkMessages = await resolveMessagesForUpload(messages)
     const scope = currentChatScopeRef.current
     const project = scope === 'project' ? activeProjectRef.current : undefined
     const newSessionId = randomId()
@@ -274,7 +291,7 @@ export function useChatActions({
       {
         model: currentAgent.state.model ?? activeModelRef.current,
         thinkingLevel: currentAgent.state.thinkingLevel,
-        messages,
+        messages: forkMessages,
         tools: [],
       },
       newSessionId,

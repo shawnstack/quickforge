@@ -1,6 +1,5 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { AgentAccessMode } from '@/lib/types'
 import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { normalizeGoalState, goalBudgetExtension, type GoalActionOptions, type GoalAction, type GoalState } from '@/lib/goal'
@@ -19,6 +18,7 @@ import { WorkflowAgentRunEventPublisher } from '@/lib/workflow-agent-run-events'
 import {
   readSessionMessageSnapshot,
   resolveServerCacheKey,
+  SESSION_MESSAGE_CACHE_TAIL_MESSAGES,
   writeSessionMessageSnapshot,
   type SessionMessageSnapshotEntry,
 } from '@/lib/session-message-cache'
@@ -271,14 +271,20 @@ const MESSAGE_CACHE_EVENT_TYPES = new Set([
   'tool_execution_start', 'tool_execution_end', 'goal_updated',
 ])
 
-type SessionMessageCacheSource = {
+type SessionMessageCachePayload = {
   stateVersion: number
   messages: AgentMessage[]
+  messageCount: number
+  windowOffset: number
   /** 去掉 messages/messagesSummary 的快照（messages 由缓存条目单独承载）。 */
   snapshot: Record<string, unknown>
 }
 
-function snapshotForCache(source: Record<string, unknown>): SessionMessageCacheSource {
+function snapshotForCache(source: Record<string, unknown>): {
+  stateVersion: number
+  messages: AgentMessage[]
+  snapshot: Record<string, unknown>
+} {
   const snapshot: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(source)) {
     if (key === 'messages' || key === 'messagesSummary') continue
@@ -446,7 +452,6 @@ export class ServerAgent {
     sessionLease?: SessionLeaseSnapshot
     goal?: GoalState | null
   }
-  streamFn = streamSimple
   getApiKey?: (provider: string) => Promise<string | undefined>
   sessionId: string
   /**
@@ -1354,11 +1359,22 @@ export class ServerAgent {
    * dispose 后 state 对象仍可安全读取；缺失字段宁可不写，保证 hydration
    * 侧构造器安全。
    */
-  private buildSessionMessageCachePayload(): SessionMessageCacheSource {
+  private buildSessionMessageCachePayload(): SessionMessageCachePayload {
     const state = this.state
+    // Store only the tail window (same shape the read-only view returns). The
+    // snapshot is a first-paint accelerator, not a second copy of the session:
+    // writing 10MB+ of messages on every commit made IndexedDB serialization
+    // itself a jank source. `windowOffset` preserves "local index == server
+    // index" for the incremental reconcile that follows a cache hit.
+    const messages = state.messages.length > SESSION_MESSAGE_CACHE_TAIL_MESSAGES
+      ? state.messages.slice(-SESSION_MESSAGE_CACHE_TAIL_MESSAGES)
+      : state.messages
+    const messageCount = this.messageWindowOffset + state.messages.length
     return {
       stateVersion: this.lastServerStateVersion,
-      messages: state.messages,
+      messages,
+      messageCount,
+      windowOffset: messageCount - messages.length,
       snapshot: {
         ...this.sessionCacheMetadata,
         systemPrompt: state.systemPrompt,
@@ -2573,6 +2589,9 @@ export class ServerAgent {
           baseUrl,
           initialState: initialStateFromSnapshot(stateSnapshot),
         })
+        // The snapshot is a tail window: record where it starts in the server's
+        // full list so the background reconcile asks for the right tail.
+        agent.messageWindowOffset = cached.windowOffset
         agent.sessionCacheMetadata = cached.snapshot
         void agent.refreshStateFromServer({ notify: true, forceMessages: false })
           .catch(() => {})

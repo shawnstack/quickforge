@@ -112,6 +112,7 @@ vi.mock('@/lib/logger', () => ({ logger: loggerMocks }))
 vi.mock('@/lib/random-id', () => ({ randomId: () => 'startup-session' }))
 vi.mock('@/lib/agent-task-retention', () => ({ disposeAllAgentTasks: vi.fn() }))
 vi.mock('@/lib/session-message-cache', () => ({
+  SESSION_MESSAGE_CACHE_TAIL_MESSAGES: 200,
   resolveServerCacheKey: () => 'server-snapshot',
 }))
 vi.mock('@/lib/app-settings-cache', () => settingsSnapshotMocks)

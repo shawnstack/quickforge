@@ -16,6 +16,21 @@
       "updatedAt": "2026-10-29"
     },
     {
+      "id": "composer-pasted-text-attachment-remove",
+      "title": "修复粘贴文本附件删不掉",
+      "status": "done",
+      "summary": "输入框粘贴大段文本（≥3000 字符）生成的文本附件 tile 点 × 无反应：decorateComposerTextAttachmentTile 在 tile 上以捕获阶段安装了「在文件管理器中打开」的点击劫持并 stopPropagation，tile 位于 React 事件根之下，事件既到不了 .qf-attachment-tile-remove 按钮 target、也冒泡不回根节点，onDelete 永不执行。修复为捕获监听先判断 event.target.closest('.qf-attachment-tile-remove')，命中直接放行；tile 主体点击行为（打开系统文件管理器）与其他附件类型不变。",
+      "files": [
+        "src/components/chat/panel-decoration/editor-bindings.ts",
+        "tests/frontend/editor-bindings.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run editor-bindings/chat-surface-editor/composer-store-isolation/composer-drafts/message-actions → 5 files / 89 passed（editor-bindings 新增 1 例：删除按钮点击不被劫持、tile 主体仍打开文件管理器）；npx eslint 两个改动文件 0 problems；npx tsc -b 通过。",
+      "updatedAt": "2026-10-29"
+    },
+    {
       "id": "release-2-3-5",
       "title": "v2.3.5 小版本发布",
       "status": "done",
@@ -1034,6 +1049,107 @@
         "session-handoff.md"
       ],
       "verification": "npx vitest run 工具渲染器与 CSS 契约 8 个文件 → 187 passed；npx eslint 改动源码/测试 → 0 problems；npm run build → 成功。真实渲染实测：收起态与展开态 header 均 200px（整行 624px），停止按钮距箭头 5px、位置不随展开变化；展开面板 624px；完成态无按钮、header 占满整行。未创建 Git commit。",
+      "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "streaming-render-cache-boundary",
+      "title": "P0 流式链路：SSE 单份帧 + 只缓存定稿内容",
+      "status": "done",
+      "summary": "SSE message_update 在写出边界删除 assistantMessageEvent.partial 副本（进程内事件不变），客户端 Markdown/数学预处理/代码高亮只缓存 message_end 后的定稿内容；AssistantMessage 用本行 isStreaming 而非 surfaceStreaming 传入 finalized，避免 trace 历史行每帧重解析。",
+      "files": [
+        "server/utils/sse-wire.mjs",
+        "server/routes/agent.mjs",
+        "server/routes/shared-conversation.mjs",
+        "src/components/chat/surface/Markdown.tsx",
+        "src/components/chat/surface/AssistantMessage.tsx",
+        "src/components/chat/surface/ThinkingBlock.tsx",
+        "src/components/chat/surface/CodeBlock.tsx",
+        "src/lib/chat-math.ts",
+        "src/lib/code-highlight.ts",
+        "tests/server/sse-wire.test.mjs",
+        "tests/frontend/streaming-render-cache.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run sse-wire + streaming-render-cache + chat-math + code-highlight → 82 passed；npm run test → 461 files / 5357 passed / 2 skipped；npm run lint → 0 problems；npx tsc -b → 0 错误；npm run build → 成功。未创建 Git commit。",
+      "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "first-paint-dependency-pruning",
+      "title": "P1 首屏依赖裁剪与静态预压缩",
+      "status": "done",
+      "summary": "custom-model-selector 改为本地 modelsAreEqual，pi-ai 不再进入首屏；移除三个浏览器 agent 类上未被消费的 streamSimple 属性；WorkspaceInspector 内 TerminalDock 改 lazy；构建期生成 .br/.gz，static 路由按 Accept-Encoding 协商。首屏 3.6MB → 2.1MB 原始 / 0.53MB gzip，preload 不再有 pi-ai/xterm。",
+      "files": [
+        "src/lib/custom-model-selector.ts",
+        "src/lib/deferred-session-agent.ts",
+        "src/lib/server-agent.ts",
+        "src/lib/shared-server-agent.ts",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "scripts/precompress-assets.mjs",
+        "package.json",
+        "server/routes/static.mjs",
+        "tests/server/static-encoding.test.mjs",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run build 成功（新增 [precompress] 224 files）；dist/index.html preload 实测无 pi-ai/xterm；curl 带 br/gzip 验证 content-encoding 与体积；npm run test / lint / tsc 全绿。未创建 Git commit。",
+      "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "bounded-render-window-snapshot-tail",
+      "title": "P2 有界渲染窗口 + 快照缓存尾部窗口",
+      "status": "done",
+      "summary": "窗口控制器新增 maxTurns=12 / maxChars=160000：loadMore 超限丢较新轮次，loadNewer 超限丢较旧轮次并用滚动锚点补偿；数据层保持全量。IndexedDB 快照 schema 2 只存尾部 200 条 + windowOffset + 服务端总条数，预算 64MB，schema 升级覆盖旧条目。",
+      "files": [
+        "src/components/chat/windowed-messages.ts",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/lib/session-message-cache.ts",
+        "src/lib/server-agent.ts",
+        "tests/frontend/windowed-messages.test.ts",
+        "tests/frontend/session-message-cache.test.ts",
+        "tests/frontend/server-agent.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "windowed-messages 25 例、session-message-cache 8 例、server-agent 142 例全过；npm run test → 461 files / 5357 passed / 2 skipped；lint/tsc/build 全绿。未创建 Git commit。",
+      "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "attachment-transport-boundary",
+      "title": "P3 附件传输边界：出站引用 + 按需读取",
+      "status": "done",
+      "summary": "出站消息删除附件 content 与 extractedText，仅保留 ≤128KB preview 并追加 assetUrl；新增 session/share 附件端点（raw/JSON）、热会话内存查找 + 冷会话 instr 查询；客户端按需生成 160px blob 缩略图、overlay 解析完整 payload、回滚草稿与 fork 上传前解析附件；存储与模型请求路径不变。",
+      "files": [
+        "server/client-attachments.mjs",
+        "server/message-attachment-lookup.mjs",
+        "server/routes/message-attachments.mjs",
+        "server/routes/session-view.mjs",
+        "server/routes/shared-conversation.mjs",
+        "server/routes/agent.mjs",
+        "server/sqlite/session-state-repository.mjs",
+        "server/session-state-service.mjs",
+        "src/components/chat/surface/attachment-client.ts",
+        "src/components/chat/surface/AttachmentTile.tsx",
+        "src/components/chat/surface/AttachmentOverlay.tsx",
+        "src/components/chat/surface/ChatTypes.ts",
+        "src/hooks/useChatActions.ts",
+        "src/components/share/SharedConversationPage.tsx",
+        "tests/server/client-attachments.test.mjs",
+        "tests/server/message-attachment-lookup.test.mjs",
+        "tests/server/routes/session-view.test.mjs",
+        "tests/server/routes/agent.test.mjs",
+        "tests/server/session-state-repository.test.mjs",
+        "tests/frontend/attachment-client.test.ts",
+        "tests/frontend/fixtures/chat-message-contract.ts",
+        "docs/architecture/render-memory-and-attachment-boundary.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "隔离实例浏览器实测：view 响应 2KB 且附件仅 id/assetUrl；tile 以 ?raw=1 生成 blob 缩略图（68B）；overlay 正常显示图片。服务端投影/查找/端点与客户端解析共 37+ 例单测通过；npm run test → 461 files / 5357 passed / 2 skipped；lint/tsc/build 全绿。未创建 Git commit。",
       "updatedAt": "2026-10-29"
     }
   ]

@@ -389,7 +389,12 @@ export const CodeBlock = memo(function CodeBlock({ language, source, isAssistant
   // Highlighted segments are memoized per source; plain runs render as bare
   // text nodes so the `pre>code` text (copy/selection target) stays verbatim —
   // the copy button keeps binding the raw `source`, not the highlighted spans.
-  const highlightSegments = useMemo(() => highlightCode(source, language), [source, language])
+  // While the block streams, `source` changes every frame: tokenize without
+  // touching the module cache, then cache the finalized source once.
+  const highlightSegments = useMemo(
+    () => highlightCode(source, language, { cache: !streaming }),
+    [source, language, streaming],
+  )
   const svgPreviewUrl = useMemo(() => (svgPreviewEnabled ? createSvgPreviewUrl(svgSource) : ''), [svgPreviewEnabled, svgSource])
   const mermaidState = mermaid && mermaid.source === source ? mermaid : null
   const mermaidPreviewUrl = mermaidPreviewEnabled && mermaidState && !mermaidState.error ? mermaidState.dataUrl : ''

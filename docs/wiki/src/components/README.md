@@ -514,3 +514,11 @@ React 类组件实现的错误边界，捕获子组件渲染错误并显示降�
 ### WindowGuardNotice.tsx (34 行)
 
 Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` 渲染前抢锁失败时），不加载 App、不发任何 `/api` 请求。纯静态提示（无按钮、无 state、无 `window.close()`——浏览器不允许脚本关闭手动打开的标签页，实测关闭按钮无效后移除）：全屏居中卡片复用既有 token（`bg-background` / `border-border` / `shadow-quickforge` / `rounded-xl`）与内联 SVG 层叠窗口图标 + 双语标题/描述（`windowGuardTitle` / `windowGuardDescription`），文案引导用户关闭本窗口并回到已有窗口使用。
+
+## 流式渲染缓存与有界窗口（2026-10-29）
+
+- `MarkdownBlock` 新增 `finalized`：流式行直接渲染、不写模块级 Markdown/数学缓存；`message_end` 后写入一次。`AssistantMessage` 必须传**本行** `isStreaming`，不能用 `surfaceStreaming`（trace 面板会让所有历史行跳过缓存）。
+- `CodeBlock` 在流式期间以 `highlightCode(source, language, { cache: false })` 跳过高亮缓存，定稿后重算一次并缓存。
+- `windowed-messages.ts` 新增 `WINDOW_MAX_TURNS=12` / `WINDOW_MAX_CHARS=160000`：`loadMore` 超限丢较新轮次，`loadNewer` 超限丢较旧轮次；`ChatSurface.loadNewerMessages` 用滚动锚点补偿，`showMessageIndex` 仍以目标轮为中心。
+- `AttachmentTile` 在内联 `preview` 缺失时用 `getAttachmentThumbnail(assetUrl)` 生成 160px blob 缩略图；加载中显示图片占位图标。`AttachmentOverlay` 打开时解析完整 payload，图片/文档预览复用既有组件。
+- `WorkspaceInspector` 内的 `TerminalDock` 改为 `lazy`，右侧栏默认展开不再加载 xterm。

@@ -392,6 +392,31 @@ export async function readSessionStateTail(sessionId, tailMessages) {
   }
 }
 
+/**
+ * Resolve one stored attachment by its client-generated id.
+ *
+ * Message bodies are only reachable through the storage service; the live
+ * session state is checked first by `server/message-attachment-lookup.mjs`.
+ * The row scan uses `findMessageContaining` and verifies the exact id, so a
+ * substring match can never return another attachment.
+ */
+export async function findSessionAttachmentRecord(sessionId, attachmentId) {
+  if (typeof sessionId !== 'string' || !sessionId || typeof attachmentId !== 'string' || !attachmentId) return null
+  const record = repository().findBySessionId(sessionId)
+  if (!record) return null
+  const scope = record.scope === 'project' ? 'project' : 'global'
+  const projectId = scope === 'project' ? record.projectId : ''
+  // Match the JSON-escaped id (quotes included) so ids containing quote or
+  // backslash characters cannot be mistaken for a prefix of another value.
+  const needle = JSON.stringify(attachmentId)
+  for (const row of repository().findMessageContaining({ scope, projectId, sessionId, needle })) {
+    if (!Array.isArray(row.message?.attachments)) continue
+    const attachment = row.message.attachments.find((candidate) => candidate && candidate.id === attachmentId)
+    if (attachment) return attachment
+  }
+  return null
+}
+
 function mergeMetadata(existing, update, sessionId) {
   const metadata = { ...existing, ...structuredClone(update), id: sessionId }
   for (const field of ['pinnedAt', 'archivedAt']) {

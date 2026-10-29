@@ -6,6 +6,7 @@ import {
   WINDOW_ENABLE_CONTENT_CHARS,
   WINDOW_TURNS,
   WINDOW_PAGE_TURNS,
+  WINDOW_MAX_TURNS,
 } from '../../src/components/chat/windowed-messages'
 
 // One turn = user message + assistant reply (optionally with a tool call + result).
@@ -220,7 +221,68 @@ describe('message windowing (by turns)', () => {
     }
     expect(window.hasMoreNewer()).toBe(false)
     expect(window.loadNewer()).toBeNull()
-    expect(window.getWindowMessages()).toHaveLength(full.length)
+    const rendered = window.getWindowMessages()
+    // The right edge reaches the tail, but the window itself stays bounded:
+    // older turns are evicted above the viewport instead of staying mounted.
+    expect(rendered[rendered.length - 1]).toBe(full[full.length - 1])
+    expect(rendered.length).toBeLessThanOrEqual(WINDOW_MAX_TURNS * 2)
+  })
+
+  it('caps the window when paging older history and drops rows below the viewport', () => {
+    const window = createMessageWindow({ windowTurns: 2, pageTurns: 2, maxTurns: 4 })
+    const full = turns(50)
+    window.setFullMessages(full)
+
+    const loaded = []
+    let guard = 0
+    while (window.hasMore() && guard < 100) {
+      const next = window.loadMore()
+      expect(next).not.toBeNull()
+      loaded.push(next)
+      expect(next!.length).toBeLessThanOrEqual(4 * 2)
+      guard += 1
+    }
+
+    expect(window.hasMore()).toBe(false)
+    expect(window.getWindowStart()).toBe(0)
+    // The newest turns were evicted while paging up; scrolling down can bring
+    // them back page by page.
+    expect(window.hasMoreNewer()).toBe(true)
+  })
+
+  it('caps the paged window by content characters', () => {
+    const window = createMessageWindow({ windowTurns: 1, pageTurns: 1, maxTurns: 10, maxChars: 1_000 })
+    const full = turns(20)
+    for (let index = 1; index < full.length; index += 2) {
+      full[index] = { ...full[index], content: [{ type: 'text', text: 'x'.repeat(400) }] }
+    }
+    window.setFullMessages(full)
+    window.loadMore()
+    window.loadMore()
+    window.loadMore()
+
+    const rendered = window.getWindowMessages()
+    const contentChars = rendered.reduce((sum, message) => {
+      const content = (message as { content?: unknown }).content
+      if (typeof content === 'string') return sum + content.length
+      if (!Array.isArray(content)) return sum
+      return sum + content.reduce((inner, part) => inner + (typeof (part as { text?: string })?.text === 'string' ? (part as { text: string }).text.length : 0), 0)
+    }, 0)
+    expect(contentChars).toBeLessThanOrEqual(1_000)
+    expect(rendered.length).toBeGreaterThan(0)
+  })
+
+  it('drops older turns above the viewport when paging forward past the cap', () => {
+    const window = createMessageWindow({ windowTurns: 2, pageTurns: 2, maxTurns: 4 })
+    const full = turns(20)
+    window.setFullMessages(full)
+    window.showMessageIndex(0)
+    window.loadNewer()
+    window.loadNewer()
+
+    expect(window.getWindowStart()).toBeGreaterThan(0)
+    expect(window.hasMore()).toBe(true)
+    expect(window.getWindowMessages().length).toBeLessThanOrEqual(4 * 2)
   })
 
   it('does not drag an early window to the tail on the next snapshot', () => {

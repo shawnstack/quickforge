@@ -73,6 +73,7 @@ const sessionCacheMock = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/session-message-cache', () => ({
+  SESSION_MESSAGE_CACHE_TAIL_MESSAGES: 200,
   resolveServerCacheKey: (baseUrl = '') => baseUrl || 'unknown',
   readSessionMessageSnapshot: async () => sessionCacheMock.read ?? null,
   writeSessionMessageSnapshot: vi.fn(),

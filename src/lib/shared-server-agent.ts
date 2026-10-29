@@ -1,6 +1,5 @@
 import type { AgentEvent, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { streamSimple } from '@earendil-works/pi-ai/compat'
 import type { ServerAgentContextCompaction, ServerAgentContextUsage } from '@/lib/server-agent'
 import type { SharePermission } from '@/lib/share-client'
 import { t } from '@/lib/i18n'
@@ -118,7 +117,6 @@ export class SharedServerAgent {
     contextUsage?: ServerAgentContextUsage | null
   }
 
-  streamFn = streamSimple
   getApiKey?: (provider: string) => Promise<string | undefined>
   sessionId: string
   readonly shareId: string

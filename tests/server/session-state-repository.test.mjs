@@ -169,6 +169,32 @@ describe('session state repository and schema v11', () => {
     })
   })
 
+  it('finds a stored message by attachment id', () => {
+    const withAttachment = record('attachment-session')
+    withAttachment.state.messages = [
+      { role: 'user', content: 'before' },
+      {
+        role: 'user-with-attachments',
+        content: 'see image',
+        attachments: [{ id: 'image.png_1_0.5', type: 'image', mimeType: 'image/png', content: 'AAAA', preview: 'AAAA' }],
+      },
+    ]
+    repository.save(withAttachment, { expectedRevision: 0 })
+
+    const rows = repository.findMessageContaining({
+      scope: 'global',
+      sessionId: 'attachment-session',
+      needle: 'image.png_1_0.5',
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0].message.attachments[0].id).toBe('image.png_1_0.5')
+    expect(repository.findMessageContaining({
+      scope: 'global',
+      sessionId: 'attachment-session',
+      needle: 'missing-id',
+    })).toEqual([])
+  })
+
   it('extracts messages from legacy split-marked bodies and honors explicit input.messages', () => {
     const legacy = record('legacy-split')
     legacy.state.messageStorage = 'split'

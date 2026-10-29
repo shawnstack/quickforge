@@ -8,6 +8,7 @@ import { ChatPanelHost } from '@/components/chat/ChatPanelHost'
 import { t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { copyTextToClipboard, draftTextFromUserMessage, rollbackStartIndexFromMessage } from '@/lib/message-utils'
+import { resolveAttachmentsForDraft } from '@/components/chat/surface/attachment-client'
 import { unlockSharedConversation, loadSharedConversationMeta, loadSharedModelProviders } from '@/lib/share-client'
 import { defaultThinkingLevelForModel } from '@/lib/pi-chat'
 import { filterSelectableModels } from '@/lib/model-visibility'
@@ -189,12 +190,15 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     const rollbackMessage = agent.state.messages[rollbackIndex]
 
     try {
+      const attachments = rollbackMessage?.role === 'user-with-attachments'
+        ? await resolveAttachmentsForDraft(rollbackMessage.attachments)
+        : undefined
       await agent.rollback(messageIndex)
       setRestoredDraft({
         id: Date.now(),
         sessionId: agent.sessionId,
         text: rollbackMessage ? draftTextFromUserMessage(rollbackMessage) : '',
-        attachments: rollbackMessage?.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+        attachments,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to roll back')

@@ -26,6 +26,12 @@ import { rehypeQfLocalFilePaths } from './rehype-local-file-paths'
 type MarkdownBlockProps = {
   content: string
   isThinking?: boolean
+  /**
+   * False while the message is still streaming. In-flight content changes on
+   * every frame, so it must not enter the content-addressed caches; the final
+   * body is cached once when the row commits.
+   */
+  finalized?: boolean
 }
 
 /**
@@ -148,11 +154,11 @@ export function clearMarkdownElementCache(): void {
   markdownElementCache.clear()
 }
 
-function renderMarkdownTree(content: string): ReactNode {
+function renderMarkdownTree(content: string, cacheable: boolean): ReactNode {
   // `\(…\)`/`\[…\]` must be swapped for placeholder tokens before markdown
   // parsing (markdown would eat the backslash); the token map is handed to
   // rehypeQfMath below to resolve them back into LaTeX.
-  const { content: mathContent, tokens } = preprocessLatexDelimiters(content)
+  const { content: mathContent, tokens } = preprocessLatexDelimiters(content, cacheable)
   // Called as a plain function (not `<ReactMarkdown>`): the parse result is
   // what we want to cache, and React elements are plain objects.
   return ReactMarkdown({
@@ -170,9 +176,11 @@ function renderMarkdownTree(content: string): ReactNode {
  * Empty/whitespace content renders nothing (callers skip empty text chunks,
  * but the guard keeps the component safe for standalone use).
  */
-export const MarkdownBlock = memo(function MarkdownBlock({ content, isThinking = false }: MarkdownBlockProps) {
+export const MarkdownBlock = memo(function MarkdownBlock({ content, isThinking = false, finalized = true }: MarkdownBlockProps) {
   if (!content.trim()) return null
-  const body = memoizeContent(markdownElementCache, [content], () => renderMarkdownTree(content))
+  const body = finalized
+    ? memoizeContent(markdownElementCache, [content], () => renderMarkdownTree(content, true))
+    : renderMarkdownTree(content, false)
   return (
     <div
       className={cn(

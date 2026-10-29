@@ -4,6 +4,8 @@ import { getSessionTurnRollbackPreview, rollbackSessionTurn } from '../session-f
 import { openPathInFileManager } from '../utils/platform.mjs'
 import { isCommandLogPath, readCommandLog } from '../utils/command-log.mjs'
 import { logger } from '../utils/logger.mjs'
+import { toSseWireEvent } from '../utils/sse-wire.mjs'
+import { projectEventForClient, projectMessagesForClient, projectStateForClient, sessionAttachmentUrlFor } from '../client-attachments.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import {
   createAgent,
@@ -360,7 +362,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
       messageCount: state.messages?.length ?? 0,
       durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
     })
-    sendJson(res, 200, stripSplitSessionState(state))
+    sendJson(res, 200, projectStateForClient(stripSplitSessionState(state), sessionAttachmentUrlFor(sessionId)))
     return
   }
 
@@ -378,7 +380,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
       error.statusCode = 404
       throw error
     }
-    sendJson(res, 200, stripSplitSessionState(state))
+    sendJson(res, 200, projectStateForClient(stripSplitSessionState(state), sessionAttachmentUrlFor(sessionId)))
     return
   }
 
@@ -411,7 +413,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
       after,
       count: messages.length,
       hasMore: after + page.length < messages.length,
-      messages: page,
+      messages: projectMessagesForClient(page, sessionAttachmentUrlFor(sessionId)),
     })
     return
   }
@@ -534,7 +536,11 @@ export async function handleAgentApi(req, res, url, context = {}) {
     assertSessionWriteAccess(req, sessionId)
     const body = await readJsonBody(req)
     const result = await rollbackSessionMessages(sessionId, body?.messageIndex)
-    sendJson(res, 200, { ok: true, rollbackIndex: result.rollbackIndex, session: result.session })
+    sendJson(res, 200, {
+      ok: true,
+      rollbackIndex: result.rollbackIndex,
+      session: projectStateForClient(result.session, sessionAttachmentUrlFor(sessionId)),
+    })
     return
   }
 
@@ -688,13 +694,15 @@ function handleGlobalStream(req, res) {
 
   const writeEvent = (event) => {
     try {
-      writeSseEvent(res, event.type || 'agent_event', event)
+      const eventSessionId = typeof event.sessionId === 'string' ? event.sessionId : ''
+      const payload = toSseWireEvent(projectEventForClient(event, sessionAttachmentUrlFor(eventSessionId)))
+      writeSseEvent(res, payload.type || 'agent_event', payload)
     } catch (error) {
       logFailure('event_write_failed', error)
       cleanup()
     }
   }
-  // 每个 token delta 一帧 message_update，帧内是完整累积消息：trailing 合并后再写出。
+  // 每个 token delta 一帧 message_update，帧内只带一份完整累积消息：trailing 合并后再写出。
   const updateThrottle = createSseUpdateThrottle({ write: writeEvent })
   const onAgentEvent = (event) => updateThrottle.push(event)
 
@@ -777,7 +785,7 @@ async function handleStream(req, res, sessionId) {
   const state = getSessionState(sessionId)
   if (state) {
     try {
-      writeSseEvent(res, 'state', stripSplitSessionState(state))
+      writeSseEvent(res, 'state', projectStateForClient(stripSplitSessionState(state), sessionAttachmentUrlFor(sessionId)))
     } catch (error) {
       logFailure('initial_state_write_failed', error)
       releaseConnection()
@@ -802,13 +810,14 @@ async function handleStream(req, res, sessionId) {
   // Handle agent events
   const writeEvent = (event) => {
     try {
-      writeSseEvent(res, event.type, event)
+      const payload = toSseWireEvent(projectEventForClient(event, sessionAttachmentUrlFor(sessionId)))
+      writeSseEvent(res, payload.type, payload)
     } catch (error) {
       logFailure('event_write_failed', error)
       cleanup()
     }
   }
-  // 每个 token delta 一帧 message_update，帧内是完整累积消息：trailing 合并后再写出。
+  // 每个 token delta 一帧 message_update，帧内只带一份完整累积消息：trailing 合并后再写出。
   const updateThrottle = createSseUpdateThrottle({ write: writeEvent })
   const onAgentEvent = (event) => updateThrottle.push(event)
 
@@ -851,8 +860,8 @@ const SSE_DROPPABLE_EVENTS = new Set(['message_update', 'tool_execution_update']
 /**
  * 合并 message_update 的 SSE 写入器。
  *
- * 每个 token delta 都会产生一帧 message_update（帧内同时带 message 与
- * assistantMessageEvent.partial 两份完整累积消息），一回合累计写出量 O(N²)；
+ * 每个 token delta 都会产生一帧 message_update（帧内只带一份完整累积消息，
+ * 见 `server/utils/sse-wire.mjs`），一回合累计写出量 O(N²)；
  * 窗口内只保留最后一帧，窗口到期后写出（trailing 合并）。
  *
  * 顺序保证：任何非 message_update 事件到达时先 flush pending 帧再写该事件，

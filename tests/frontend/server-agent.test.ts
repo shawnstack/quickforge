@@ -93,6 +93,7 @@ const sessionCacheMock = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/session-message-cache', () => ({
+  SESSION_MESSAGE_CACHE_TAIL_MESSAGES: 200,
   resolveServerCacheKey: (baseUrl = '') => baseUrl || 'unknown',
   readSessionMessageSnapshot: async () => sessionCacheMock.read ?? null,
   writeSessionMessageSnapshot: (serverKey: string, sessionId: string, build: () => unknown) => {
@@ -1320,11 +1321,12 @@ describe('ServerAgent', () => {
 
   function cachedEntry(overrides: Partial<Record<string, unknown>> = {}) {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       serverKey: 'unknown',
       sessionId: 'cached-session',
       stateVersion: 5,
       messageCount: 2,
+      windowOffset: 0,
       messages: [
         { role: 'user', content: 'cached q' },
         { role: 'assistant', content: 'cached a' },

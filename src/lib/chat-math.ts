@@ -149,15 +149,20 @@ const preprocessedMathCache = new ContentCache<PreprocessedMath>(500)
  * Preprocess chat message content for math rendering. `\(...\)` becomes an
  * inline placeholder token and `\[...\]` a display one; the returned map
  * holds the LaTeX for each token and must be passed to `rehypeQfMath`.
+ *
+ * `cacheable` is false for in-flight streaming content: every frame produces a
+ * new content string, and caching those intermediates would retain one token
+ * map per frame for the whole answer. Finalized content is cached once.
  */
-export function preprocessLatexDelimiters(content: string): PreprocessedMath {
-  return memoizeContent(preprocessedMathCache, [content], () => {
+export function preprocessLatexDelimiters(content: string, cacheable = true): PreprocessedMath {
+  const compute = () => {
     const tokens: MathTokenMap = new Map()
     const processed = classifyLines(content)
       .map((run) => (run.code ? run.lines.join('\n') : replaceDelimitersInRun(run.lines.join('\n'), tokens)))
       .join('\n')
     return { content: processed, tokens }
-  })
+  }
+  return cacheable ? memoizeContent(preprocessedMathCache, [content], compute) : compute()
 }
 
 /** 清空预处理缓存（测试隔离与内容规模突增后的手工回收）。 */

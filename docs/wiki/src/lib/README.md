@@ -446,3 +446,11 @@
 - `copyTextToClipboard()` — 剪贴板复制
 - `generateTitle()` / `titleNeedsGeneration()` — 标题生成（可取首条用户消息，46 字符预算）
 - `generateForkTitle()` / `FORK_TITLE_PREFIX` — 分支会话标题：`[fork] ` 前缀独立于 46 字符预算，不占用正文长度
+
+## 渲染缓存策略与附件客户端（2026-10-29）
+
+- 内容寻址缓存（`render-cache.ts`）只接收定稿内容：`preprocessLatexDelimiters(content, false)` 跳过缓存；`highlightCode(..., { cache: false })` 跳过高亮缓存。
+- `session-message-cache.ts` schema 2：只存尾部 200 条 + `windowOffset` + 服务端总条数；IndexedDB 预算 64MB；schema 升级覆盖旧条目，高水位守卫只比较同 schema。
+- `server-agent.ts#buildSessionMessageCachePayload` 切片，`restore` 缓存命中时恢复 `messageWindowOffset`。
+- 新增 `components/chat/surface/attachment-client.ts`：`getAttachmentThumbnail`（raw → canvas → blob URL LRU）、`resolveAttachmentPayload`、`resolveAttachmentsForDraft`、`resolveMessagesForUpload`。`Attachment.content` 变为可选，历史消息用 `assetUrl`。
+- `custom-model-selector.ts` 本地实现 `modelsAreEqual`，`pi-ai` 不再进入浏览器首屏。

@@ -98,7 +98,9 @@ export const AssistantMessage = memo(function AssistantMessage({
           // so grouped and ungrouped parts breathe the same.
           <div className="flex flex-col gap-1.5 px-4">
             {parts.map((part) => {
-              if (part.kind === 'text') return <MarkdownBlock key={part.key} content={part.text} />
+              if (part.kind === 'text') {
+                return <MarkdownBlock key={part.key} content={part.text} finalized={!isStreaming} />
+              }
               if (part.kind === 'thinking') {
                 return <ThinkingBlock key={part.key} content={part.thinking} isStreaming={isStreaming} />
               }

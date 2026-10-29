@@ -1339,13 +1339,22 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
       loadNewerMessages: () => {
         const container = scrollContainerRef.current
         if (!container || pageInFlightRef.current || !windowController.hasMoreNewer()) return Promise.resolve()
-        // Content is appended BELOW the viewport, so the reader's position is
-        // already correct — no anchor capture or scrollTop restore needed.
+        // Content is appended below the viewport, but the window cap can evict
+        // older turns above it in the same commit. Anchor the top-most visible
+        // row so that eviction does not shift the text the reader is looking at.
+        const anchor = readScrollAnchor(container, { requireMessageIndex: true })
+        const heightBefore = container.scrollHeight
         if (!windowController.loadNewer()) return Promise.resolve()
         pageInFlightRef.current = true
         return new Promise<void>((resolve) => {
           windowCommitCallbacksRef.current.push(() => {
             pageInFlightRef.current = false
+            const next = anchor ? anchoredScrollTop(container, anchor, { requireMessageIndex: true }) : null
+            // No resolvable anchor means "nothing moved above"; keep the old
+            // scrollTop instead of parking the viewport at the top.
+            container.scrollTop = next !== null
+              ? next
+              : (anchor?.scrollTop ?? container.scrollTop) + Math.max(0, container.scrollHeight - heightBefore)
             resolve()
           })
           publishWindow()

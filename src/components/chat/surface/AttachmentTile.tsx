@@ -1,7 +1,9 @@
-import { FileSpreadsheet, FileText, X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { FileImage, FileSpreadsheet, FileText, X } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import type { Attachment } from './ChatTypes'
 import { openAttachmentOverlay } from './AttachmentOverlay'
+import { getAttachmentThumbnail } from './attachment-client'
 
 /**
  * React replacement for the legacy `<attachment-tile>` custom element.
@@ -17,13 +19,32 @@ type AttachmentTileProps = {
 
 export function AttachmentTile({ attachment, showDelete = false, onDelete }: AttachmentTileProps) {
   const fileName = attachment.fileName ?? ''
-  const hasPreview = !!attachment.preview
   const isImage = attachment.type === 'image'
   const isPdf = attachment.mimeType === 'application/pdf'
   const isExcel =
     attachment.mimeType?.includes('spreadsheetml') ||
     fileName.toLowerCase().endsWith('.xlsx') ||
     fileName.toLowerCase().endsWith('.xls')
+  const inlinePreview = attachment.preview
+    ? `data:${isImage ? attachment.mimeType : 'image/png'};base64,${attachment.preview}`
+    : undefined
+  const [loadedThumbnail, setLoadedThumbnail] = useState<{ key: string; url: string } | null>(null)
+
+  useEffect(() => {
+    // Legacy image messages arrive without an inline thumbnail; render one from
+    // the stored bytes instead of keeping the multi-MB base64 in message state.
+    if (inlinePreview || !isImage || !attachment.assetUrl) return
+    const key = attachment.assetUrl
+    let cancelled = false
+    void getAttachmentThumbnail(key).then((url) => {
+      if (!cancelled) setLoadedThumbnail({ key, url })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [attachment.assetUrl, inlinePreview, isImage])
+
+  const thumbnailSrc = inlinePreview
+    ?? (loadedThumbnail && loadedThumbnail.key === attachment.assetUrl ? loadedThumbnail.url : undefined)
+  const hasPreview = Boolean(thumbnailSrc)
 
   return (
     <div className="qf-attachment-tile group relative inline-block max-h-16">
@@ -36,7 +57,7 @@ export function AttachmentTile({ attachment, showDelete = false, onDelete }: Att
             onClick={() => openAttachmentOverlay(attachment)}
           >
             <img
-              src={`data:${isImage ? attachment.mimeType : 'image/png'};base64,${attachment.preview}`}
+              src={thumbnailSrc}
               className="h-16 w-16 rounded-lg border border-input object-cover transition-opacity hover:opacity-80"
               alt={fileName}
             />
@@ -54,7 +75,13 @@ export function AttachmentTile({ attachment, showDelete = false, onDelete }: Att
           title={fileName}
           onClick={() => openAttachmentOverlay(attachment)}
         >
-          {isExcel ? <FileSpreadsheet className="size-5" /> : <FileText className="size-5" />}
+          {isImage ? (
+            <FileImage className="size-5" />
+          ) : isExcel ? (
+            <FileSpreadsheet className="size-5" />
+          ) : (
+            <FileText className="size-5" />
+          )}
           <div className="w-full truncate text-center text-[10px]">
             {fileName.length > 10 ? `${fileName.substring(0, 8)}...` : fileName}
           </div>

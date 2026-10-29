@@ -154,17 +154,20 @@ describe('session-message-cache', () => {
     mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({
       stateVersion: 3,
       messages: [{ role: 'user', content: 'hi' }],
+      messageCount: 9,
+      windowOffset: 8,
       snapshot: { stateVersion: 3, title: 'Chat' },
     }), 0)
     await mod.flushPendingSessionMessageWrites()
 
     const entry = await mod.readSessionMessageSnapshot('server-a', 'session-1')
     expect(entry).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       serverKey: 'server-a',
       sessionId: 'session-1',
       stateVersion: 3,
-      messageCount: 1,
+      messageCount: 9,
+      windowOffset: 8,
       messages: [{ role: 'user', content: 'hi' }],
       snapshot: { stateVersion: 3, title: 'Chat' },
     })
@@ -179,7 +182,7 @@ describe('session-message-cache', () => {
     const mod = await importSessionCacheModule()
 
     // Healthy write first so the DB and store exist.
-    mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({ stateVersion: 1, messages: [], snapshot: {} }), 0)
+    mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({ stateVersion: 1, messages: [], messageCount: 0, windowOffset: 0, snapshot: {} }), 0)
     await mod.flushPendingSessionMessageWrites()
 
     const store = storeOf(factory)
@@ -189,11 +192,12 @@ describe('session-message-cache', () => {
     // an array.
     const wrapper = store!.entries.get(key) as { value: unknown }
     wrapper.value = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       serverKey: 'server-a',
       sessionId: 'session-1',
       stateVersion: 2,
       messageCount: 2,
+      windowOffset: 0,
       messages: 'not-an-array',
       snapshot: {},
     }
@@ -211,11 +215,15 @@ describe('session-message-cache', () => {
     const buildStale = vi.fn(() => ({
       stateVersion: 1,
       messages: [{ role: 'user', content: 'stale' }],
+      messageCount: 1,
+      windowOffset: 0,
       snapshot: {},
     }))
     const buildLatest = vi.fn(() => ({
       stateVersion: 2,
       messages: [{ role: 'user', content: 'latest' }],
+      messageCount: 1,
+      windowOffset: 0,
       snapshot: { title: 'Latest' },
     }))
 
@@ -250,6 +258,8 @@ describe('session-message-cache', () => {
     mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({
       stateVersion: 5,
       messages: [{ role: 'user', content: 'v5' }],
+      messageCount: 1,
+      windowOffset: 0,
       snapshot: {},
     }), 0)
     await mod.flushPendingSessionMessageWrites()
@@ -260,6 +270,8 @@ describe('session-message-cache', () => {
     mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({
       stateVersion: 5,
       messages: [{ role: 'user', content: 'v5-edited' }],
+      messageCount: 1,
+      windowOffset: 0,
       snapshot: {},
     }), 0)
     await mod.flushPendingSessionMessageWrites()
@@ -270,6 +282,8 @@ describe('session-message-cache', () => {
     mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({
       stateVersion: 4,
       messages: [{ role: 'user', content: 'v4' }],
+      messageCount: 1,
+      windowOffset: 0,
       snapshot: {},
     }), 0)
     await mod.flushPendingSessionMessageWrites()
@@ -281,6 +295,8 @@ describe('session-message-cache', () => {
     mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({
       stateVersion: 6,
       messages: [{ role: 'user', content: 'v6' }],
+      messageCount: 1,
+      windowOffset: 0,
       snapshot: {},
     }), 0)
     await mod.flushPendingSessionMessageWrites()
@@ -294,7 +310,7 @@ describe('session-message-cache', () => {
     vi.stubGlobal('indexedDB', factory)
     const mod = await importSessionCacheModule()
 
-    const build = vi.fn(() => ({ stateVersion: 1, messages: [], snapshot: {} }))
+    const build = vi.fn(() => ({ stateVersion: 1, messages: [], messageCount: 0, windowOffset: 0, snapshot: {} }))
     mod.writeSessionMessageSnapshot('server-a', 'session-flush', build, 10_000)
     await mod.flushPendingSessionMessageWrites()
     await expect(mod.readSessionMessageSnapshot('server-a', 'session-flush')).resolves.toMatchObject({ stateVersion: 1 })
@@ -314,7 +330,7 @@ describe('session-message-cache', () => {
 
     expect(mod.getSessionMessageCache()).toBeNull()
     await expect(mod.readSessionMessageSnapshot('server-a', 'session-1')).resolves.toBeNull()
-    expect(() => mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({ stateVersion: 1, messages: [], snapshot: {} }))).not.toThrow()
+    expect(() => mod.writeSessionMessageSnapshot('server-a', 'session-1', () => ({ stateVersion: 1, messages: [], messageCount: 0, windowOffset: 0, snapshot: {} }))).not.toThrow()
     await mod.flushPendingSessionMessageWrites()
     await expect(mod.readSessionMessageSnapshot('server-a', 'session-1')).resolves.toBeNull()
   })

@@ -17,6 +17,18 @@ export const WINDOW_TURNS = 3
  * the scroll anchor and lands the viewport at the bottom of the swapped page.
  */
 export const WINDOW_PAGE_TURNS = 3
+/**
+ * Upper bound for the mounted window once the reader pages through history.
+ *
+ * The initial tail window and a turn-navigation jump keep their small fixed
+ * width; only paging widens the window, and it must not grow without bound:
+ * every turn is a full DOM subtree (tool cards, markdown, highlighted code), so
+ * scrolling a long conversation used to accumulate every visited turn. The cap
+ * evicts the far edge relative to the reading position instead.
+ */
+export const WINDOW_MAX_TURNS = 12
+/** Content budget for the paged window; bounds a few pathologically large turns. */
+export const WINDOW_MAX_CHARS = 160_000
 
 type MessageWindowOptions = {
   /** Disable windowing and pass the complete message array through unchanged. */
@@ -26,6 +38,8 @@ type MessageWindowOptions = {
   enableContentChars?: number
   windowTurns?: number
   pageTurns?: number
+  maxTurns?: number
+  maxChars?: number
 }
 
 export type MessageWindowController = {
@@ -165,6 +179,8 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
   const enableContentChars = options.enableContentChars ?? WINDOW_ENABLE_CONTENT_CHARS
   const windowTurns = options.windowTurns ?? WINDOW_TURNS
   const pageTurns = options.pageTurns ?? WINDOW_PAGE_TURNS
+  const maxTurns = Math.max(windowTurns, options.maxTurns ?? WINDOW_MAX_TURNS)
+  const maxChars = Math.max(1, options.maxChars ?? WINDOW_MAX_CHARS)
 
   let allMessages: AgentMessage[] = []
   let turnStarts: number[] = []
@@ -194,6 +210,34 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
     if (a.length !== b.length) return false
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
     return true
+  }
+
+  const contentChars = (start: number, end: number) => {
+    const startIndex = start === 0 ? 0 : turnStarts[start]
+    const endIndex = end < turnStarts.length ? turnStarts[end] : allMessages.length
+    // Count one character past the budget so the caller can distinguish
+    // "exactly at the cap" from "over the cap" without scanning huge bodies.
+    const limit = maxChars + 1
+    let chars = 0
+    for (let index = startIndex; index < endIndex && chars < limit; index += 1) {
+      chars += approximateContentChars((allMessages[index] as { content?: unknown }).content, limit - chars)
+    }
+    return chars
+  }
+
+  /**
+   * Trim the paged window back under the caps by dropping whole turns from one
+   * side. `'newer'` is used when paging older history (the dropped rows sit
+   * below the viewport), `'older'` when paging forward (the dropped rows sit
+   * above it and the caller re-anchors).
+   */
+  const trimPagedWindow = (side: 'older' | 'newer') => {
+    const dropOne = () => {
+      if (side === 'older') startOrdinal += 1
+      else endOrdinal -= 1
+    }
+    while (endOrdinal - startOrdinal > maxTurns) dropOne()
+    while (endOrdinal - startOrdinal > 1 && contentChars(startOrdinal, endOrdinal) > maxChars) dropOne()
   }
 
   const rebuild = () => {
@@ -282,15 +326,20 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
       if (!enabled || startOrdinal <= 0) return null
       pinned = true
       startOrdinal = Math.max(0, startOrdinal - pageTurns)
+      // Widening the start can exceed the caps; drop newer turns below the
+      // viewport so the reading position never moves.
+      trimPagedWindow('newer')
       rebuild()
       return windowMessages
     },
 
     loadNewer() {
       if (!enabled || endOrdinal >= turnStarts.length) return null
-      // Appended below the viewport: no anchor needed, the reader keeps their
-      // position and scrolls into the newly mounted turns.
+      // Content is appended below the viewport, but enforcing the cap can drop
+      // older turns above it; the caller captures/applies a reading anchor so
+      // that case does not move the visible text.
       endOrdinal = Math.min(turnStarts.length, endOrdinal + pageTurns)
+      trimPagedWindow('older')
       rebuild()
       return windowMessages
     },

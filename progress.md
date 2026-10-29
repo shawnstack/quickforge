@@ -11,6 +11,15 @@
 - 验证：`npx vitest run message-actions inline-message-editor` → 2 files / 53 passed；`npm run test` → 455 files / 5325 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功。未创建 Git commit，未手工改生成产物。
 - 范围：只改复制取值这一处 + 1 例测试；未动窗口化控制器、装饰短路 key、回滚/重试链路。
 
+## composer-pasted-text-attachment-remove（done，2026-10-29）
+
+- Goal：用户反馈「对话框粘贴附件无法删除」。
+- 根因：`decorateComposerTextAttachmentTile`（`src/components/chat/panel-decoration/editor-bindings.ts`）给粘贴文本附件 tile 挂的「在系统文件管理器中打开」点击劫持用的是**捕获阶段** + `stopPropagation()`。tile 在 React 事件根之下，事件被拦在捕获阶段后既不会到达 `.qf-attachment-tile-remove` 按钮 target，也不会冒泡回根节点，`onDelete` 永远不会执行；同一路径还会把点击转成「打开文件管理器」，体感就是点 × 没反应。图片/文件选择走 `MessageEditor.addFiles`，没有这层劫持，因此不受影响。
+- 改动：捕获监听在 `stopPropagation()` 之前加一层放行——`(event.target as Element).closest('.qf-attachment-tile-remove')` 命中即 return；tile 主体点击仍打开系统文件管理器。
+- 测试：`tests/frontend/editor-bindings.test.ts` 的 `FakeTile` 改为记录 click handler，新增 1 例断言「删除按钮的点击不被 stopPropagation、不触发打开文件管理器；tile 主体点击仍然如此」。
+- 验证：定向 vitest 5 files / 89 passed；`npx eslint` 两文件 0 problems；`npx tsc -b` 通过。
+- 范围：只改这一个 capture 监听；未动 composer store/draft/AttachmentTile 的删除逻辑；未触碰生成产物；纯前端交互修复，无 API/模块职责变化，wiki 无需更新。
+
 ## release-2-3-5（done，2026-10-29）
 
 - 触发：「发布一个小版本」。
@@ -1004,3 +1013,27 @@
   - 面板移出 details 后不再依赖浏览器原生折叠内容槽，改由 `:has(details[open])` 控制显隐；开合记忆、键盘操作、chevron 旋转仍由原生 summary/details 承担。
   - 停止按钮仍在 `<summary>` 外（延续 `0c782f81` 的 nested-interactive 修复）；无按钮的普通工具行 header 仍占满整行，点击热区不变。
   - 未创建 Git commit / tag / push；未手工修改生成产物。
+
+## render-memory-and-attachment-boundary（done，2026-10-29）
+
+- Goal：按 P0–P3 消除浏览器打开 QuickForge 页面时的内存放大与卡顿，不改变交互；禁止打补丁。P0 流式链路、P1 首屏依赖与压缩、P2 有界窗口与快照、P3 附件传输边界一次做完。
+- 结论（一句话）：流式帧只传一份消息且只缓存定稿内容；渲染窗口有界并按锚点驱逐；会话快照只存尾部 200 条；历史附件只传 `assetUrl`，字节按需读取并在客户端生成缩略图；首屏移除 `pi-ai`/xterm 并启用 br/gzip。
+- 关键改动：
+  1. `server/utils/sse-wire.mjs`（新）+ `routes/agent.mjs` / `routes/shared-conversation.mjs`：SSE `message_update` 删除 `assistantMessageEvent.partial`，50ms 合并不变；进程内事件不收敛，ACP/Goal/Hooks 不受影响。
+  2. `MarkdownBlock` 增加 `finalized`（本行 `isStreaming` 传入）；`preprocessLatexDelimiters(content, cacheable)`；`highlightCode(..., { cache })`；流式不写 300/400 条中间缓存，`message_end` 写一次。
+  3. `windowed-messages.ts` 增加 `WINDOW_MAX_TURNS=12` / `WINDOW_MAX_CHARS=160000`：向上翻页超限丢较新轮次，向下翻页超限丢较旧轮次；`ChatSurface.loadNewerMessages` 用 `readScrollAnchor`/`anchoredScrollTop` 补偿。
+  4. `session-message-cache.ts` schema 2：仅尾部 200 条 + `windowOffset` + 服务端总数；IndexedDB 64MB 预算；`ServerAgent` 构建时切片、restore 缓存命中恢复 offset；旧 schema 直接 miss。
+  5. `server/client-attachments.mjs` + `message-attachment-lookup.mjs` + `routes/message-attachments.mjs`：出站删除 `content`/`extractedText`、保留 ≤128KB `preview`、追加 `assetUrl`；新增 session/share 附件端点（`?raw=1` 字节 / 默认 JSON）；热会话扫内存、冷会话 `instr(message_json, JSON.stringify(id))`；作用于 state/restore/messages/rollback/SSE/view/shared。
+  6. `attachment-client.ts` + `AttachmentTile` + `AttachmentOverlay` + `ChatTypes`：`content` 可选、`assetUrl` 新增；tile 用 160px canvas 生成 blob 缩略图（LRU 40，淘汰 revoke）；overlay 按需解析；`useChatActions` 回滚草稿与 fork 上传前解析附件；分享页回滚同样处理。
+  7. `custom-model-selector.ts` 本地 `modelsAreEqual`；删除三个浏览器 agent 类上无消费的 `streamSimple`；`WorkspaceInspector` 内 `TerminalDock` lazy；`scripts/precompress-assets.mjs`（新）+ `server/routes/static.mjs` 协商 br/gzip；`package.json` build 末尾执行预压缩。
+  8. 文档：新增 `docs/architecture/render-memory-and-attachment-boundary.zh-CN.md`，同步 `docs/wiki/README.md`、`docs/wiki/server/README.md`、`docs/wiki/src/components/README.md`、`docs/wiki/src/lib/README.md`。
+- 验证 / Evidence：
+  - `npm run test` → 461 files / 5357 passed / 2 skipped（最后一次全量；随后仅改 test fixture 与附件 raw/preview 细节，定向测试全过）。
+  - `npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功，`[precompress] 224 files: 12.66MB → 6.48MB`。
+  - 首屏：`dist/index.html` preload 无 `pi-ai`/`xterm`；初始 JS/CSS 2.10MB 原始 / 0.53MB gzip（原 3.6MB 未压缩）。
+  - 隔离实例浏览器实测（临时数据目录，已删除）：1000 条消息会话打开峰值从 125MB 降至可控（6 行 13k DOM，深滚受 12 轮上限约束）；图片会话 view 响应 2KB 且附件仅 `id/assetUrl`，tile 以 `?raw=1` 生成 blob 缩略图，overlay 正常显示。
+- Notes / 已知取舍：
+  - 深度上翻超过 12 轮后滚动条长度会变化（正文位置不变）；旧图片首次渲染可能先显示图片占位图标再换缩略图；首次打开终端多一次本地 chunk 加载。
+  - 附件端点 `cache-control: immutable`，改了响应形状后旧浏览器缓存仍可能返回旧 JSON（多一个 `preview` 字段）；客户端解析不依赖它。未做 URL 版本化，避免为一个未消费字段引入缓存失效逻辑。
+  - 未做 SSE delta 协议、增量 Markdown、虚拟列表库、DB 压缩；939MB 会话库与服务端 idle retention 属独立议题。
+  - 未创建 Git commit/tag/push；`dist/` 由 build 产出，未手工修改。

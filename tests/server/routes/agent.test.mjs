@@ -882,6 +882,38 @@ describe('SSE streaming throttle and backpressure', () => {
 
     req.emit('close')
   })
+
+  it('projects attachment bytes out of wire frames', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = new TestEventEmitter()
+    req.method = 'GET'
+    req.headers = {}
+    const chunks = []
+    const res = new TestEventEmitter()
+    res.writableEnded = false
+    res.writableLength = 0
+    res.writeHead = vi.fn()
+    res.flushHeaders = vi.fn()
+    res.write = vi.fn((chunk) => { chunks.push(chunk) })
+    res.end = vi.fn(() => { res.writableEnded = true })
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/events'))
+    mocks.agentEvents.emit('agent_event', {
+      type: 'message_end',
+      sessionId: 'session-1',
+      message: {
+        role: 'user-with-attachments',
+        content: 'look',
+        attachments: [{ id: 'a1', type: 'image', mimeType: 'image/png', content: 'AAAA', preview: 'AAAA' }],
+      },
+    })
+
+    const frame = chunks.join('')
+    expect(frame).toContain('/api/sessions/session-1/attachments/a1')
+    expect(frame).not.toContain('"content":"AAAA"')
+
+    req.emit('close')
+  })
 })
 
 describe('agent create route', () => {

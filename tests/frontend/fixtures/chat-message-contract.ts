@@ -13,7 +13,8 @@ export type MessageContract = [
     fileName: string
     mimeType: string
     size: number
-    content: string
+    content?: string
+    assetUrl?: string
     extractedText?: string
     preview?: string
   }>>,

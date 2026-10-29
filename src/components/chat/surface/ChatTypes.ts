@@ -34,11 +34,20 @@ export interface Attachment {
   fileName: string
   mimeType: string
   size: number
-  /** Original bytes encoded as base64, without a data URL prefix (also for documents). */
-  content: string
+  /**
+   * Original bytes encoded as base64, without a data URL prefix.
+   *
+   * Local composer attachments always carry it. Historical messages arrive
+   * without it: the server keeps the bytes and exposes them through
+   * `assetUrl`, which the overlay / draft restore / fork paths resolve on
+   * demand.
+   */
+  content?: string
+  /** Server URL that streams this attachment (`/api/sessions/.../attachments/...`). */
+  assetUrl?: string
   /** Extracted document text, separate from the original bytes. */
   extractedText?: string
-  /** Base64 image preview, without a data URL prefix. */
+  /** Base64 image preview, without a data URL prefix (small thumbnails only). */
   preview?: string
 }
 

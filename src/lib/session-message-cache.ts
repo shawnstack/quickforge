@@ -8,15 +8,27 @@
 import { getDirectBackendBaseUrl } from '@/lib/backend-url'
 import { computeCacheKey, IndexedDbCache } from '@/lib/indexeddb-cache'
 
-const SESSION_MESSAGE_SNAPSHOT_SCHEMA_VERSION = 1
+/**
+ * Schema 2 stores the same tail window the read-only view returns, not the
+ * whole conversation: restoring a snapshot must never deserialize a 10MB+
+ * session on the main thread. Old entries fail validation and are dropped.
+ */
+const SESSION_MESSAGE_SNAPSHOT_SCHEMA_VERSION = 2
 const DEFAULT_WRITE_DEBOUNCE_MS = 1500
+/** Tail messages retained per snapshot (matches `DEFAULT_VIEW_TAIL_MESSAGES`). */
+export const SESSION_MESSAGE_CACHE_TAIL_MESSAGES = 200
+/** Total cache budget across all cached sessions. */
+const SESSION_MESSAGE_CACHE_MAX_BYTES = 64 * 1024 * 1024
 
 export type SessionMessageSnapshotEntry = {
   schemaVersion: number
   serverKey: string
   sessionId: string
   stateVersion: number
+  /** Server-side total message count (window offset + stored messages). */
   messageCount: number
+  /** Server index of the first stored message. */
+  windowOffset: number
   messages: unknown[]
   snapshot: Record<string, unknown>
   savedAt: number
@@ -25,6 +37,8 @@ export type SessionMessageSnapshotEntry = {
 type SessionMessageWritePayload = {
   stateVersion: number
   messages: unknown[]
+  messageCount: number
+  windowOffset: number
   snapshot: Record<string, unknown>
 }
 
@@ -46,7 +60,11 @@ let sessionMessageCache: IndexedDbCache | null = null
 /** 模块级惰性单例；IndexedDB 不可用时返回 null。 */
 export function getSessionMessageCache(): IndexedDbCache | null {
   if (!sessionMessageCache) {
-    const cache = new IndexedDbCache({ storeName: 'session-messages', maxEntries: 40 })
+    const cache = new IndexedDbCache({
+      storeName: 'session-messages',
+      maxEntries: 40,
+      maxBytes: SESSION_MESSAGE_CACHE_MAX_BYTES,
+    })
     if (!cache.available()) return null
     sessionMessageCache = cache
   }
@@ -61,6 +79,7 @@ function isValidSnapshotEntry(entry: unknown): entry is SessionMessageSnapshotEn
     && typeof candidate.sessionId === 'string'
     && typeof candidate.stateVersion === 'number' && Number.isFinite(candidate.stateVersion) && candidate.stateVersion >= 0
     && typeof candidate.messageCount === 'number' && Number.isFinite(candidate.messageCount) && candidate.messageCount >= 0
+    && typeof candidate.windowOffset === 'number' && Number.isFinite(candidate.windowOffset) && candidate.windowOffset >= 0
     && Array.isArray(candidate.messages)
     && candidate.snapshot !== null && typeof candidate.snapshot === 'object' && !Array.isArray(candidate.snapshot)
 }
@@ -123,8 +142,10 @@ async function flushSessionMessageWrite(key: string): Promise<void> {
     const payload = pending.build()
     if (!payload) return
     // stateVersion 高水位守卫：服务器版本没有前进就不回写（防御旧帧/回滚）。
+    // Schema 升级必须能覆盖旧条目——旧条目的 stateVersion 属于旧格式，不可比较。
     const previous = await cache.get<unknown>(key)
     if (previous && typeof previous === 'object'
+      && (previous as SessionMessageSnapshotEntry).schemaVersion === SESSION_MESSAGE_SNAPSHOT_SCHEMA_VERSION
       && typeof (previous as SessionMessageSnapshotEntry).stateVersion === 'number'
       && payload.stateVersion <= (previous as SessionMessageSnapshotEntry).stateVersion) {
       return
@@ -134,7 +155,8 @@ async function flushSessionMessageWrite(key: string): Promise<void> {
       serverKey: pending.serverKey,
       sessionId: pending.sessionId,
       stateVersion: payload.stateVersion,
-      messageCount: payload.messages.length,
+      messageCount: payload.messageCount,
+      windowOffset: payload.windowOffset,
       messages: payload.messages,
       snapshot: payload.snapshot,
       savedAt: Date.now(),

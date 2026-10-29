@@ -1,4 +1,4 @@
-import { type Api, type Model, modelsAreEqual } from '@earendil-works/pi-ai'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { agentAccessCheckIcon } from '@/components/chat/panel-decoration/icons'
 import { t } from '@/lib/i18n'
 import { modelDisplayLabel as modelLabel } from '@/lib/model-display-label'
@@ -10,6 +10,16 @@ import {
 import { thinkingLevelLabel } from '@/lib/thinking-levels'
 
 type AnyModel = Model<Api>
+
+/**
+ * Model identity check (same contract as pi-ai's `modelsAreEqual`).
+ *
+ * Kept local on purpose: importing that helper pulled the entire multi-provider
+ * runtime into the browser entry chunk, while the menu only needs identity.
+ */
+function modelsAreEqual(a: AnyModel | null | undefined, b: AnyModel | null | undefined): boolean {
+  return Boolean(a && b && a.id === b.id && a.provider === b.provider)
+}
 
 type ModelSelectorOptions = {
   anchor?: HTMLElement | null

@@ -7,6 +7,7 @@ import { Download, X } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import type { Attachment } from './ChatTypes'
 import { resolveAttachmentKind } from './attachment-loader'
+import { resolveAttachmentPayload } from './attachment-client'
 import { DocxAttachmentPreview, ExcelAttachmentPreview, PdfAttachmentPreview } from './AttachmentPreview'
 
 /**
@@ -76,10 +77,30 @@ export class AttachmentPreviewErrorBoundary extends Component<AttachmentPreviewE
 
 export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProps) {
   const [showExtractedText, setShowExtractedText] = useState(false)
-  const kind = resolveAttachmentKind(attachment.fileName, attachment.mimeType)
+  const [loaded, setLoaded] = useState<{ source: Attachment; attachment: Attachment } | null>(null)
+  const [failed, setFailed] = useState<{ source: Attachment; message: string } | null>(null)
+
+  useEffect(() => {
+    if (attachment.content !== undefined || !attachment.assetUrl) return
+    let cancelled = false
+    void resolveAttachmentPayload(attachment).then((next) => {
+      if (!cancelled) setLoaded({ source: attachment, attachment: next })
+    }).catch((error) => {
+      if (!cancelled) setFailed({ source: attachment, message: errorMessage(error) })
+    })
+    return () => { cancelled = true }
+  }, [attachment])
+
+  const resolved = attachment.content !== undefined
+    ? attachment
+    : loaded?.source === attachment ? loaded.attachment : null
+  const loadError = failed?.source === attachment ? failed.message : ''
+  const loading = attachment.content === undefined && Boolean(attachment.assetUrl) && resolved === null && !loadError
+  const active = resolved ?? attachment
+  const kind = resolveAttachmentKind(active.fileName, active.mimeType)
   const isImage = kind === 'image'
   const hasDocumentPreview = kind === 'pdf' || kind === 'docx' || kind === 'excel'
-  const canToggleText = !isImage && !!attachment.extractedText
+  const canToggleText = !isImage && !!active.extractedText
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
@@ -96,13 +117,14 @@ export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProp
   const [downloadError, setDownloadError] = useState('')
   const handleDownload = () => {
     try {
-      const byteCharacters = atob(attachment.content)
+      if (active.content === undefined) throw new Error(t('attachmentPreviewUnavailable'))
+      const byteCharacters = atob(active.content)
       const byteArray = Uint8Array.from(byteCharacters, (char) => char.charCodeAt(0))
-      const blob = new Blob([byteArray], { type: attachment.mimeType })
+      const blob = new Blob([byteArray], { type: active.mimeType })
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = attachment.fileName
+      anchor.download = active.fileName
       document.body.appendChild(anchor)
       anchor.click()
       document.body.removeChild(anchor)
@@ -113,37 +135,41 @@ export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProp
     }
   }
 
+  const unavailable = () => (
+    <div className="max-w-2xl rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
+      {t('attachmentPreviewUnavailable')}
+      {loadError ? <div className="mt-2 break-words text-xs text-destructive">{loadError}</div> : null}
+    </div>
+  )
+
   const renderPreview = () => {
+    if (loading) return null
+    const content = active.content
     if (isImage) {
+      if (content === undefined) return unavailable()
       return (
         <img
-          src={`data:${attachment.mimeType};base64,${attachment.content}`}
-          alt={attachment.fileName}
+          src={`data:${active.mimeType};base64,${content}`}
+          alt={active.fileName}
           className="max-h-full max-w-full object-contain"
         />
       )
     }
-    if (showExtractedText || !hasDocumentPreview) {
-      if (!attachment.extractedText) {
-        return (
-          <div className="max-w-2xl rounded-lg border border-border bg-background p-4 text-sm text-muted-foreground">
-            {t('attachmentPreviewUnavailable')}
-          </div>
-        )
-      }
+    if (showExtractedText || !hasDocumentPreview || content === undefined) {
+      if (!active.extractedText) return unavailable()
       return showExtractedText ? (
         <pre className="max-h-full w-full max-w-4xl overflow-auto rounded-lg border border-border bg-background p-4 text-sm text-foreground">
-          <code>{attachment.extractedText}</code>
+          <code>{active.extractedText}</code>
         </pre>
       ) : (
         <div className="max-h-full w-full max-w-4xl overflow-auto rounded-lg border border-border bg-background p-4 text-sm text-foreground">
-          {attachment.extractedText}
+          {active.extractedText}
         </div>
       )
     }
-    if (kind === 'pdf') return <PdfAttachmentPreview content={attachment.content} />
-    if (kind === 'docx') return <DocxAttachmentPreview content={attachment.content} />
-    return <ExcelAttachmentPreview content={attachment.content} />
+    if (kind === 'pdf') return <PdfAttachmentPreview content={content} />
+    if (kind === 'docx') return <DocxAttachmentPreview content={content} />
+    return <ExcelAttachmentPreview content={content} />
   }
 
   return createPortal(

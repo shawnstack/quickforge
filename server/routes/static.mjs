@@ -52,6 +52,49 @@ function cacheControlFor(filePath) {
   return 'public, max-age=31536000, immutable'
 }
 
+/** Text-like assets that `scripts/precompress-assets.mjs` emits `.br`/`.gz` for. */
+const COMPRESSIBLE_EXTENSIONS = new Set(['.html', '.js', '.mjs', '.css', '.json', '.webmanifest', '.svg', '.txt'])
+
+function isCompressible(filePath) {
+  return COMPRESSIBLE_EXTENSIONS.has(path.extname(filePath).toLowerCase())
+}
+
+function isEncodingAccepted(acceptEncoding, token) {
+  return acceptEncoding.split(',').some((part) => {
+    const [name, ...params] = part.trim().split(';')
+    if (name !== token) return false
+    const quality = params.map((param) => param.trim()).find((param) => param.startsWith('q='))
+    return quality === undefined || Number.parseFloat(quality.slice(2)) > 0
+  })
+}
+
+/**
+ * Pick a precompressed variant for the request. `available` holds the encodings
+ * whose sibling files exist (`'br'` / `'gz'`); brotli wins when both are viable.
+ */
+export function selectContentEncoding(acceptEncoding, available) {
+  const header = String(acceptEncoding ?? '').toLowerCase()
+  if (!header) return null
+  if (available.includes('br') && isEncodingAccepted(header, 'br')) return 'br'
+  if (available.includes('gz') && isEncodingAccepted(header, 'gzip')) return 'gz'
+  return null
+}
+
+async function availableEncodings(filePath) {
+  if (!isCompressible(filePath)) return []
+  const checks = await Promise.all(
+    ['br', 'gz'].map(async (encoding) => {
+      try {
+        const stat = await fs.stat(`${filePath}.${encoding}`)
+        return stat.isFile() ? encoding : null
+      } catch {
+        return null
+      }
+    }),
+  )
+  return checks.filter(Boolean)
+}
+
 export async function serveStatic(req, res, url) {
   if (url.pathname === '/downloads/quickforge-android.apk') {
     try {
@@ -96,11 +139,19 @@ export async function serveStatic(req, res, url) {
   }
 
   try {
-    const data = await fs.readFile(filePath)
-    res.writeHead(200, {
+    const encoding = selectContentEncoding(
+      req.headers['accept-encoding'],
+      await availableEncodings(filePath),
+    )
+    const data = await fs.readFile(encoding ? `${filePath}.${encoding}` : filePath)
+    const headers = {
       'content-type': getContentType(filePath),
       'cache-control': cacheControlFor(filePath),
-    })
+      'content-length': String(data.length),
+    }
+    if (encoding) headers['content-encoding'] = encoding === 'br' ? 'br' : 'gzip'
+    if (isCompressible(filePath)) headers.vary = 'Accept-Encoding'
+    res.writeHead(200, headers)
     res.end(data)
   } catch {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })

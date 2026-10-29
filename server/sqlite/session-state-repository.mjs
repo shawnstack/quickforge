@@ -556,6 +556,25 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     }, { mode: 'immediate' })
   }
 
+  /**
+   * Find stored messages whose JSON contains `needle` (attachment id lookup).
+   * Used only by the on-demand attachment endpoint: the client holds an
+   * attachment id, not a message index, and attachment ids are not promoted to
+   * a column. `instr` keeps the scan in SQLite without parsing every row; the
+   * caller verifies the parsed attachment id (needle may be a substring).
+   */
+  function findMessageContaining({ scope, projectId, sessionId, needle, limit = 20 } = {}) {
+    const normalizedBucket = bucket(scope, projectId)
+    nonEmptyString(sessionId, 'sessionId')
+    nonEmptyString(needle, 'needle')
+    const pageLimit = Math.min(Math.max(1, Math.floor(limit)), 50)
+    const rows = cachedStatement(storage, `SELECT seq, message_json FROM session_messages
+      WHERE scope = ? AND project_id = ? AND session_id = ? AND instr(message_json, ?) > 0
+      ORDER BY seq DESC LIMIT ?`)
+      .all(normalizedBucket.scope, normalizedBucket.projectId, sessionId, needle, pageLimit)
+    return rows.map((row) => ({ seq: Number(row.seq), message: JSON.parse(row.message_json) }))
+  }
+
   function readMessagesPage({ scope, projectId, sessionId, limit = 100, offset = 0, afterSeq = null } = {}) {
     const normalizedBucket = bucket(scope, projectId)
     nonEmptyString(sessionId, 'sessionId')
@@ -866,6 +885,7 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     replaceMessages,
     appendMessages,
     readMessagesPage,
+    findMessageContaining,
     messageCount,
     readLastMessage,
     readMessageDigestAt,

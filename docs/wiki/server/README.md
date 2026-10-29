@@ -634,3 +634,12 @@ Dreaming 的 `/api/dreaming/*` 同样采用前缀分发（`server/index.mjs` 的
 ## 工具函数 (utils/)
 
 参见 [utils/ 文档](utils/)。
+
+## 流式帧与附件出站投影（2026-10-29）
+
+- `server/utils/sse-wire.mjs#toSseWireEvent` 在 SSE 写出边界删除 `message_update` 的 `assistantMessageEvent.partial` 副本；进程内事件（ACP / Goal / Hooks）不受影响。50ms trailing 合并不变。
+- `server/client-attachments.mjs` 统一投影出站消息：附件删除 `content` 与 `extractedText`、仅保留 ≤128KB 的 `preview`、追加 `assetUrl`。作用于 `/state`、`/restore`、`/messages`、`/rollback` 的 session、agent SSE、`/api/sessions/:id/view`、shared payload 与 shared SSE。
+- 新增 `GET /api/sessions/:sessionId/attachments/:attachmentId` 与 `GET /api/shared/:shareId/attachments/:attachmentId`（share 走既有 cookie/token 鉴权）；`?raw=1` 返回字节，默认 JSON 返回 `content` / `extractedText` / 元数据。
+- 查找：热会话扫 `getSessionState`；冷会话用 `session_messages` 的 `instr(message_json, JSON.stringify(attachmentId))`，命中后再校验精确 id（`server/message-attachment-lookup.mjs`、`session-state-service#findSessionAttachmentRecord`）。
+- 存储与 `serverConvertToLlm` 不变：模型请求仍从已存储的 base64 组多模态内容。
+- `server/routes/static.mjs` 按 `Accept-Encoding` 协商 `.br` / `.gz`；压缩文件由 `scripts/precompress-assets.mjs` 在 `npm run build` 末尾生成。

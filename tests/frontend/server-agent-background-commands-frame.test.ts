@@ -24,6 +24,7 @@ vi.mock('../../src/lib/global-agent-sse-client', () => ({
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 vi.mock('@/lib/logger', () => ({ logger: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() } }))
 vi.mock('@/lib/session-message-cache', () => ({
+  SESSION_MESSAGE_CACHE_TAIL_MESSAGES: 200,
   resolveServerCacheKey: () => 'test',
   readSessionMessageSnapshot: async () => null,
   writeSessionMessageSnapshot: vi.fn(),

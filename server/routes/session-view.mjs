@@ -1,6 +1,9 @@
 import { sendJson, decodeSegment } from '../utils/response.mjs'
 import { getSessionState } from '../agent-manager.mjs'
 import { readSessionStateTail } from '../session-state-service.mjs'
+import { findSessionAttachment } from '../message-attachment-lookup.mjs'
+import { projectStateForClient, sessionAttachmentUrlFor } from '../client-attachments.mjs'
+import { sendMessageAttachment } from './message-attachments.mjs'
 import { normalizeAccessMode, yoloModeFromAccessMode } from '../agent-access-mode.mjs'
 import { logger } from '../utils/logger.mjs'
 
@@ -110,14 +113,37 @@ export async function handleSessionViewApi(req, res, url) {
   const sessionId = decodeSegment(parts[2])
   const action = parts[3]
 
-  if (action !== 'view') {
-    const error = new Error('Not found')
-    error.statusCode = 404
-    throw error
-  }
   if (!sessionId) {
     const error = new Error('Missing session ID')
     error.statusCode = 400
+    throw error
+  }
+
+  if (action === 'attachments') {
+    if (req.method !== 'GET') {
+      const error = new Error('Method not allowed')
+      error.statusCode = 405
+      throw error
+    }
+    const attachmentId = decodeSegment(parts[4])
+    if (!attachmentId) {
+      const error = new Error('Missing attachment ID')
+      error.statusCode = 400
+      throw error
+    }
+    const attachment = await findSessionAttachment(sessionId, attachmentId)
+    if (!attachment) {
+      const error = new Error('Attachment not found')
+      error.statusCode = 404
+      throw error
+    }
+    sendMessageAttachment(req, res, attachment)
+    return
+  }
+
+  if (action !== 'view') {
+    const error = new Error('Not found')
+    error.statusCode = 404
     throw error
   }
 
@@ -142,7 +168,7 @@ export async function handleSessionViewApi(req, res, url) {
           readonly: true,
         }
       : { ...active, readonly: true }
-    sendJson(res, 200, view)
+    sendJson(res, 200, projectStateForClient(view, sessionAttachmentUrlFor(sessionId)))
     return
   }
 
@@ -178,5 +204,5 @@ export async function handleSessionViewApi(req, res, url) {
     totalMessageCount: stored.total,
     durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
   })
-  sendJson(res, 200, view)
+  sendJson(res, 200, projectStateForClient(view, sessionAttachmentUrlFor(sessionId)))
 }

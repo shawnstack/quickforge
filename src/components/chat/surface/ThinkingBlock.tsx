@@ -69,7 +69,7 @@ export function ThinkingBlock({ content, isStreaming = false }: ThinkingBlockPro
           {t('thinkingBlockLabel')}
         </span>
       </button>
-      {isExpanded ? <MarkdownBlock content={content} isThinking /> : null}
+      {isExpanded ? <MarkdownBlock content={content} isThinking finalized={!isStreaming} /> : null}
     </div>
   )
 }

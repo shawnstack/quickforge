@@ -1,7 +1,11 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
+import { toSseWireEvent } from '../utils/sse-wire.mjs'
 import { readSessionValue } from '../storage.mjs'
 import { listModelCatalog, resolveModelBinding } from '../model-catalog.mjs'
 import { sendSessionAsset } from './session-assets.mjs'
+import { sendMessageAttachment } from './message-attachments.mjs'
+import { findSessionAttachment } from '../message-attachment-lookup.mjs'
+import { projectEventForClient, projectMessagesForClient, shareAttachmentUrlFor } from '../client-attachments.mjs'
 import { abortRun, restoreAgent, runPrompt, getSessionState, getSessionEventBus, updateSessionModel, updateSessionThinkingLevel } from '../agent-manager.mjs'
 import {
   assertShareActive,
@@ -90,7 +94,8 @@ function sanitizeContextCompaction(compaction) {
 }
 
 function sanitizeSession(session, record) {
-  const messages = Array.isArray(session?.messages) ? session.messages.map(sanitizeMessage).filter(Boolean) : []
+  const sanitized = Array.isArray(session?.messages) ? session.messages.map(sanitizeMessage).filter(Boolean) : []
+  const messages = projectMessagesForClient(sanitized, shareAttachmentUrlFor(record.id))
   return {
     id: record.id,
     shareId: record.id,
@@ -189,7 +194,7 @@ async function handleSharedEvents(req, res, record) {
 
   const onAgentEvent = (event) => {
     try {
-      const payload = sanitizeEvent(event)
+      const payload = toSseWireEvent(projectEventForClient(sanitizeEvent(event), shareAttachmentUrlFor(record.id)))
       writeSseEvent(res, payload.type || 'agent_event', payload)
     } catch {
       cleanup()
@@ -355,6 +360,17 @@ export async function handleSharedConversationApi(req, res, url, context = {}) {
         ? { scope: 'project', projectId: record.projectId }
         : { scope: 'global' }
       await sendSessionAsset(res, bucket, record.sessionId, decodeSegment(actionId))
+      return
+    }
+
+    if (req.method === 'GET' && action === 'attachments' && actionId) {
+      const attachment = await findSessionAttachment(record.sessionId, decodeSegment(actionId))
+      if (!attachment) {
+        const error = new Error('Attachment not found')
+        error.statusCode = 404
+        throw error
+      }
+      sendMessageAttachment(req, res, attachment)
       return
     }
 

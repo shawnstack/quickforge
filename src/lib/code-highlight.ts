@@ -219,12 +219,20 @@ const PLAINTEXT_LANGUAGES = new Set(['plaintext', 'text', 'txt'])
  * would re-tokenize every historical code block again. The returned segment
  * arrays are shared and must be treated as read-only.
  */
-export function highlightCode(code: string, language: string | undefined): CodeHighlightSegment[] {
+export function highlightCode(
+  code: string,
+  language: string | undefined,
+  options: { cache?: boolean } = {},
+): CodeHighlightSegment[] {
   if (!code) return []
   if (code.length > MAX_HIGHLIGHT_LENGTH) return [{ text: code, token: 'plain' }]
   const name = (language ?? '').trim().toLowerCase()
   if (!name || PLAINTEXT_LANGUAGES.has(name)) return [{ text: code, token: 'plain' }]
-  return memoizeContent(highlightCache, [name, code], () => tokenizeForLanguage(code, name))
+  const compute = () => tokenizeForLanguage(code, name)
+  // Streaming frames produce a new source every pass; caching each intermediate
+  // would retain one segment array per frame. Callers opt out until the block
+  // is finalized, then cache once.
+  return options.cache === false ? compute() : memoizeContent(highlightCache, [name, code], compute)
 }
 
 function tokenizeForLanguage(code: string, name: string): CodeHighlightSegment[] {

@@ -86,9 +86,12 @@ export function buildDreamingUserPrompt({
   allowSensitive = true,
   contentLanguage = null,
 }) {
+  // The list can be empty for two reasons now: a first run, or automatic pruning
+  // removed everything. Do not claim "first run" — the model only needs to know
+  // there is nothing to carry over.
   const snapshot = existingNotes.length > 0
     ? existingNotes.map((note) => `- ${note}`).join('\n')
-    : '(the list is empty - this is the first run)'
+    : '(the list is empty)'
   const rewriteNote = LANGUAGE_LABEL[contentLanguage]
     ? `Notes already written in another language: rewrite them into ${LANGUAGE_LABEL[contentLanguage]} in place rather than adding a translated duplicate.`
     : ''

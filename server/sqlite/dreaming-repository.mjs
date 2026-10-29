@@ -28,11 +28,14 @@ function toRun(row) {
   // are normalized here so the page never has to branch on the run's age.
   const rawOperations = JSON.parse(row.operations_json ?? '[]')
   const operations = Array.isArray(rawOperations) || !rawOperations || typeof rawOperations !== 'object'
-    ? { added: [], removed: [], dropped: [], notesAfter: null }
+    ? { added: [], removed: [], dropped: [], pruned: [], notesAfter: null }
     : {
         added: Array.isArray(rawOperations.added) ? rawOperations.added : [],
         removed: Array.isArray(rawOperations.removed) ? rawOperations.removed : [],
         dropped: Array.isArray(rawOperations.dropped) ? rawOperations.dropped : [],
+        // Notes the pruning rule deleted before the model ran. Not part of
+        // `removed`, because that diff is measured against what the model saw.
+        pruned: Array.isArray(rawOperations.pruned) ? rawOperations.pruned : [],
         // Full notes list at the end of that run. Missing on runs written before
         // this field existed, which is why restore checks for it explicitly.
         notesAfter: Array.isArray(rawOperations.notesAfter) ? rawOperations.notesAfter : null,

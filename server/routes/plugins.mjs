@@ -96,11 +96,19 @@ export async function handlePluginsApi(req, res, url, context = {}) {
     const name = decodeSegment(parts[2])
     const relativePath = parts.slice(4).map((segment) => decodeSegment(segment)).join('/')
     const asset = await readPluginAsset(name, relativePath, await projectContext())
-    res.writeHead(200, {
+    // Defense in depth: if plugin HTML is ever opened in a top-level window
+    // instead of the sandboxed iframe, CSP forces it into a unique origin so
+    // it cannot reach host localStorage or same-origin /api endpoints.
+    const headers = {
       'content-type': asset.contentType,
       'cache-control': 'no-store',
       'content-length': asset.data.length,
-    })
+      'x-content-type-options': 'nosniff',
+    }
+    if (asset.contentType.startsWith('text/html')) {
+      headers['content-security-policy'] = 'sandbox allow-scripts'
+    }
+    res.writeHead(200, headers)
     res.end(asset.data)
     return
   }

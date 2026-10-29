@@ -110,6 +110,25 @@ describe('ordinary local tool running sweep CSS', () => {
     expect(reducedMotion).not.toMatch(/box-shadow|filter:\s|text-shadow/)
   })
 
+  it('keeps the terminate button after the summary in both collapsed and expanded states', () => {
+    // 标题行在存在终止按钮时按内容收缩，按钮作为 header 的第二个 flex 子项
+    // 紧跟摘要末尾；面板在 details 外，展开日志不会把按钮重新推回行尾。
+    expect(ruleFor('.quickforge-tool-header').body).toMatch(/display:\s*flex/)
+    expect(ruleFor('.quickforge-tool-header').body).toMatch(/gap:\s*0\.375rem/)
+    expect(ruleFor('.quickforge-tool-header:has(> .quickforge-tool-actions > button)').body).toMatch(/width:\s*fit-content/)
+    expect(ruleFor('.quickforge-tool-header:has(> .quickforge-tool-actions > button) > .quickforge-local-tool').body).toMatch(/flex:\s*0 1 auto/)
+    expect(ruleFor('.quickforge-tool-header > .quickforge-tool-actions').body).toMatch(/flex:\s*0 0 auto/)
+
+    // 无按钮的普通工具行仍占满整行，收起态下保持原点击热区。
+    expect(ruleFor('.quickforge-tool-header > .quickforge-local-tool').body).toMatch(/flex:\s*1 1 auto/)
+
+    // 面板移出 details 后由 open 属性驱动可见性，展开时仍保持整行宽度。
+    expect(ruleFor('.quickforge-local-tool-shell > .quickforge-tool-panel').body).toMatch(/display:\s*none/)
+    expect(ruleFor('.quickforge-local-tool-shell:has(> .quickforge-tool-header > .quickforge-local-tool[open]) > .quickforge-tool-panel').body).toMatch(/display:\s*block/)
+    expect(renderer).toContain('quickforge-tool-header')
+    expect(renderer).toContain('quickforge-tool-panel')
+  })
+
   it('preserves ordinary title flex sizing and label ellipsis', () => {
     expect(css).toMatch(/\.quickforge-tool-title\s*\{[^}]*flex:\s*0 1 auto/s)
 

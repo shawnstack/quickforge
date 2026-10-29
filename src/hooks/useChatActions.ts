@@ -140,17 +140,15 @@ export function useChatActions({
     }
 
     const rollbackIndex = rollbackStartIndexFromMessage(currentAgent.state.messages, messageIndex)
-    const rollbackMessage = rollbackIndex >= 0 ? currentAgent.state.messages[rollbackIndex] : undefined
-    if (rollbackIndex < 0 || !rollbackMessage) {
-      void showAlert(t('noConversationTurnToRollback'))
-      return false
-    }
+    // -1 仅在空会话时出现：没有可删的消息，静默失败（不弹「没有可回滚」）。
+    if (rollbackIndex < 0) return false
+    const rollbackMessage = currentAgent.state.messages[rollbackIndex]
 
     const restoredRollbackDraft = {
       id: Date.now(),
       sessionId: currentAgent.sessionId,
-      text: draftTextFromUserMessage(rollbackMessage),
-      attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+      text: rollbackMessage ? draftTextFromUserMessage(rollbackMessage) : '',
+      attachments: rollbackMessage?.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
     }
 
     let nextMessages = currentAgent.state.messages.slice(0, rollbackIndex)

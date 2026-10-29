@@ -11,6 +11,14 @@ export type DreamingSettings = {
   modelRef: { source: string; providerId?: string; modelId?: string } | null
   allowSensitive: boolean
   contentLanguage: 'auto' | 'zh' | 'en'
+  /** Minimum note count before unused notes are offered to the model for deletion. */
+  pruneMinNotes: number
+  /** A note older than this many days counts as stale. */
+  pruneUnusedDays: number
+  /** A stale note recalled more than this many times is kept. */
+  pruneMaxRecalls: number
+  /** Delete stale notes in code before the model sees the list (no model vote). */
+  pruneStaleNotes: boolean
   nextRunAt: number | null
   lastRunAt: number | null
 }
@@ -26,6 +34,8 @@ export type DreamingRunDiff = {
   added: string[]
   removed: string[]
   dropped?: { reason: string; content: string }[]
+  /** Stale notes deleted by the pruning rule before the model ran. */
+  pruned?: string[]
   /** Full notes list at the end of that run; null on runs recorded before it. */
   notesAfter?: string[] | null
 }

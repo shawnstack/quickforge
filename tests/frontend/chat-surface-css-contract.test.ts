@@ -437,6 +437,8 @@ describe('chat row font scale contract', () => {
 
     const chain = declarationBlock('.qf-chat-panel .qf-tool-message,')
     expect(chain).toContain('.qf-chat-panel .quickforge-local-tool > .mt-3')
+    // 本地工具卡的展开面板已移出 details（quickforge-tool-panel），同样要锁在对话列宽内。
+    expect(chain).toContain('.qf-chat-panel .quickforge-tool-panel')
     expect(chain).toContain('min-width: 0;')
     expect(chain).toContain('max-width: 100%;')
 

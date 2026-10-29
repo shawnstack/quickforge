@@ -23,20 +23,36 @@ export function assistantText(message: AgentMessage) {
   return textFromContentBlocks(message.content, '\n\n').trim()
 }
 
+/**
+ * 回滚起点：删除该索引处的消息及其之后的所有消息。
+ *
+ * 回滚永远可用，不做「找不到锚点就拒绝」的限制：
+ * - 点击 user 消息 → 以它自身为锚点；
+ * - 点击其他角色（assistant / toolResult / 孤立轮）→ 回退到本轮开头的 user，
+ *   找不到（例如报错产生的孤立轮）就以该消息自身为截断点。
+ * 索引会 clamp 到有效范围（UI 窗口数组与权威消息数组可能瞬时错位），
+ * 仅当会话没有任何消息或输入不是有限数时返回 -1（无操作）。
+ */
 export function rollbackStartIndexFromMessage(messages: AgentMessage[], messageIndex: number) {
-  let rollbackIndex = messageIndex
+  if (!Array.isArray(messages) || messages.length === 0) return -1
 
-  if (messages[messageIndex]?.role === 'assistant') {
-    for (let index = messageIndex - 1; index >= 0; index--) {
-      if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
-        rollbackIndex = index
-        break
-      }
-    }
+  const requested = Number(messageIndex)
+  if (!Number.isFinite(requested)) return -1
+
+  const rollbackIndex = Math.max(0, Math.min(Math.trunc(requested), messages.length - 1))
+  const message = messages[rollbackIndex]
+  if (!message) return -1
+
+  if (message.role === 'user' || message.role === 'user-with-attachments') {
+    return rollbackIndex
   }
 
-  const message = messages[rollbackIndex]
-  if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
+  for (let index = rollbackIndex - 1; index >= 0; index--) {
+    const candidate = messages[index]
+    if (candidate.role === 'user' || candidate.role === 'user-with-attachments') {
+      return index
+    }
+  }
   return rollbackIndex
 }
 

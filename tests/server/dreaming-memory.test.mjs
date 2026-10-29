@@ -134,6 +134,31 @@ describe('dreaming settings', () => {
     expect(normalizeDreamingSettings({ executeTime: '99:99' }).executeTime).toBe('03:00')
     expect(normalizeDreamingSettings({ executeTime: 'nonsense' }).executeTime).toBe('03:00')
   })
+
+  it('defaults pruning to off with 40 notes / 60 days / 0 recalls', () => {
+    const defaults = normalizeDreamingSettings(null)
+    expect(defaults).toMatchObject({ pruneStaleNotes: false, pruneMinNotes: 40, pruneUnusedDays: 60, pruneMaxRecalls: 0 })
+    expect(normalizeDreamingSettings(undefined).pruneMinNotes).toBe(40)
+  })
+
+  it('clamps pruning thresholds instead of rejecting them', () => {
+    expect(normalizeDreamingSettings({ pruneMinNotes: -5, pruneUnusedDays: 0, pruneMaxRecalls: 99_999 })).toMatchObject({
+      pruneMinNotes: 1,
+      pruneUnusedDays: 1,
+      pruneMaxRecalls: 1000,
+    })
+    expect(normalizeDreamingSettings({ pruneMinNotes: 900 }).pruneMinNotes).toBe(500)
+    // Garbage falls back to the default rather than to a boundary value: a typo
+    // must not turn into "delete everything older than one day".
+    expect(normalizeDreamingSettings({ pruneUnusedDays: 'abc' }).pruneUnusedDays).toBe(60)
+    expect(normalizeDreamingSettings({ pruneUnusedDays: 12.6 }).pruneUnusedDays).toBe(13)
+  })
+
+  it('only treats the literal boolean as enabling automatic deletion', () => {
+    expect(normalizeDreamingSettings({ pruneStaleNotes: true }).pruneStaleNotes).toBe(true)
+    expect(normalizeDreamingSettings({ pruneStaleNotes: 'yes' }).pruneStaleNotes).toBe(false)
+    expect(normalizeDreamingSettings({ pruneStaleNotes: 1 }).pruneStaleNotes).toBe(false)
+  })
 })
 
 describe('dreaming window', () => {

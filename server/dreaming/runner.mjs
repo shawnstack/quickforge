@@ -21,15 +21,6 @@ export const DREAMING_MAX_TOKENS = 4096
 export const NOTE_CHURN_WARN_RATIO = 0.8
 /** Below this, every run would look like churn just because the list is tiny. */
 export const NOTE_CHURN_MIN_NOTES = 5
-/** A note nobody ever recalled after this many days is a deletion candidate. */
-export const NOTE_UNUSED_DAYS = 60
-/**
- * Only ask the model to prune once the list is actually long. Memory notes are
- * injected into every prompt and `recall_experience` is rarely called at all, so
- * on a short list every note looks "never recalled" — proposing deletion there
- * would be noise, not signal.
- */
-export const NOTE_PRUNE_MIN_NOTES = 40
 const DAY_MS = 24 * 60 * 60 * 1000
 
 let runnerTimer = null
@@ -118,6 +109,25 @@ async function getApiKey(provider) {
 
 /** Current bullets from DREAMING.md — the model's own previous output. */
 export { readAutoNotes }
+
+/**
+ * Notes that automatic pruning would delete: old enough (by `minAgeDays`) and
+ * recalled at most `maxRecalls` times.
+ *
+ * Age comes from `dreaming_note_stats.created_at`, i.e. when Dreaming first saw
+ * the wording, not when the note was "conceived". A note without a stat row was
+ * added outside Dreaming (hand edit) — its age is unknown, so it is never
+ * returned here: guessing would delete things nobody can date.
+ */
+export function selectStaleNotes({ notes, stats, minAgeDays, maxRecalls, now }) {
+  const minAgeMs = minAgeDays * DAY_MS
+  return notes.filter((line) => {
+    const stat = stats.get(noteIdOf(line))
+    if (!stat) return false
+    if (stat.recallCount > maxRecalls) return false
+    return now - stat.createdAt >= minAgeMs
+  })
+}
 
 async function callDreamingModel({ model, settings, transcript, existingNotes = [], unusedNotes = [], periodFrom, periodTo, contentLanguage }) {
   const apiKey = await getApiKey(model.provider)
@@ -225,29 +235,68 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
     })
 
     const existingNotes = await readAutoNotes()
-    // Recall feedback: notes that were never recalled and are old enough are
-    // handed to the model as deletion candidates. This is the whole "strength
-    // decay" mechanism — it informs the decision instead of overriding it.
-    let unusedNotes = []
+    // Usage stats feed two things: the "deletion candidates" section (model
+    // decides) and, when the user enabled it, automatic pruning (a rule with no
+    // model vote). A stats failure must degrade to "nothing looks stale", never
+    // to "delete something".
+    let stats = new Map()
     try {
-      if (existingNotes.length >= NOTE_PRUNE_MIN_NOTES) {
-        const stats = repo.listNoteStats()
-        unusedNotes = existingNotes.flatMap((line) => {
-          const stat = stats.get(noteIdOf(line))
-          if (!stat || stat.recallCount > 0) return []
-          const ageDays = Math.floor((now - stat.createdAt) / DAY_MS)
-          return ageDays >= NOTE_UNUSED_DAYS ? [{ text: line, ageDays }] : []
-        })
-      }
+      stats = repo.listNoteStats()
     } catch (error) {
       logger.warn('Dreaming could not read note usage stats:', error instanceof Error ? error.message : String(error))
+    }
+
+    // Automatic pruning removes stale notes *before* the model runs: the user
+    // asked for a rule, so a note the model would have kept is still gone. The
+    // file is rewritten first — if that write fails nothing was pruned and the
+    // model must see the untouched list.
+    let notesForModel = existingNotes
+    let prunedNotes = []
+    let pruneWarning = null
+    if (settings.pruneStaleNotes) {
+      const stale = selectStaleNotes({
+        notes: existingNotes,
+        stats,
+        minAgeDays: settings.pruneUnusedDays,
+        maxRecalls: settings.pruneMaxRecalls,
+        now,
+      })
+      if (stale.length > 0) {
+        const staleSet = new Set(stale)
+        const remaining = existingNotes.filter((line) => !staleSet.has(line))
+        try {
+          await writeDreamingNotes(composeAutoSection(remaining), { allowSensitive: settings.allowSensitive })
+          notesForModel = remaining
+          prunedNotes = stale
+          try {
+            repo.syncNoteStats(remaining.map((line) => ({ id: noteIdOf(line), text: line })), now)
+          } catch (error) {
+            logger.warn('Dreaming could not sync note usage stats after pruning:', error instanceof Error ? error.message : String(error))
+          }
+        } catch (error) {
+          pruneWarning = `到期笔记删除失败：${error instanceof Error ? error.message : String(error)}`
+          logger.warn('Dreaming could not prune stale notes:', pruneWarning)
+        }
+      }
+    }
+
+    // With pruning on, everything stale is already gone, so the candidate list
+    // would only repeat "these are old" for notes the user chose to keep.
+    let unusedNotes = []
+    if (!settings.pruneStaleNotes && notesForModel.length >= settings.pruneMinNotes) {
+      unusedNotes = notesForModel.flatMap((line) => {
+        const stat = stats.get(noteIdOf(line))
+        if (!stat || stat.recallCount > 0) return []
+        const ageDays = Math.floor((now - stat.createdAt) / DAY_MS)
+        return ageDays >= settings.pruneUnusedDays ? [{ text: line, ageDays }] : []
+      })
     }
     const reply = await callDreamingModel({
       model,
       settings,
       contentLanguage,
       transcript: collected.transcript,
-      existingNotes,
+      existingNotes: notesForModel,
       unusedNotes,
       periodFrom,
       periodTo,
@@ -264,21 +313,24 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
         inputChars: collected.chars,
         sessions: collected.sessions,
         rawResponse: String(reply).slice(0, 8000),
-        error: '模型回复里没有任何笔记条目',
+        error: '模型回复里没有任何笔记条目'
+          + (prunedNotes.length > 0 ? `；本轮已先自动删除 ${prunedNotes.length} 条到期笔记（见 DREAMING.md 与上一次快照）` : ''),
         finishedAt: Date.now(),
         durationMs: Date.now() - now,
       })
       return { skipped: false, reason: 'no_notes_in_reply', run }
     }
-    const diff = diffNoteLines(existingNotes, normalized.lines)
+    // Measured against what the model was actually shown: pruning happens before
+    // the call, so its removals must not inflate the drift signal.
+    const diff = diffNoteLines(notesForModel, normalized.lines)
     const changedCount = diff.added.length + diff.removed.length
     // Churn is measured against the larger of "what was there" and "what is there
     // now", so both a wholesale rewrite and a sudden shrink trip it.
-    const churnRatio = existingNotes.length === 0
+    const churnRatio = notesForModel.length === 0
       ? 0
-      : changedCount / Math.max(existingNotes.length, normalized.lines.length)
-    const churnWarning = existingNotes.length >= NOTE_CHURN_MIN_NOTES && churnRatio >= NOTE_CHURN_WARN_RATIO
-      ? `本次改动了 ${changedCount}/${existingNotes.length} 条笔记，可能发生了记忆漂移`
+      : changedCount / Math.max(notesForModel.length, normalized.lines.length)
+    const churnWarning = notesForModel.length >= NOTE_CHURN_MIN_NOTES && churnRatio >= NOTE_CHURN_WARN_RATIO
+      ? `本次改动了 ${changedCount}/${notesForModel.length} 条笔记，可能发生了记忆漂移`
       : null
     const autoSection = composeAutoSection(normalized.lines)
 
@@ -298,7 +350,7 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
         logger.warn('Dreaming could not sync note usage stats:', error instanceof Error ? error.message : String(error))
       }
     }
-    const warning = [memoryWarning, churnWarning].filter(Boolean).join('; ') || null
+    const warning = [memoryWarning, churnWarning, pruneWarning].filter(Boolean).join('; ') || null
 
     const finishedAt = Date.now()
     run = repo.finishRun(run.id, {
@@ -309,12 +361,20 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
       sessionCount: collected.sessionCount,
       createdCount: diff.added.length,
       updatedCount: 0,
-      retiredCount: diff.removed.length,
+      // Pruned notes left the file in this same run, so they count as retired.
+      retiredCount: diff.removed.length + prunedNotes.length,
       rejectedCount: normalized.dropped.length,
-      summary: `${normalized.lines.length} 条笔记（+${diff.added.length} / -${diff.removed.length}）`,
+      summary: `${normalized.lines.length} 条笔记（+${diff.added.length} / -${diff.removed.length + prunedNotes.length}）`
+        + (prunedNotes.length > 0 ? `，其中到期自动删除 ${prunedNotes.length} 条` : ''),
       // The run detail page shows "what it learned / what it forgot"; `notesAfter`
       // is the full list at that point, which is what makes restore possible.
-      operations: { added: diff.added, removed: diff.removed, dropped: normalized.dropped, notesAfter: normalized.lines },
+      operations: {
+        added: diff.added,
+        removed: diff.removed,
+        dropped: normalized.dropped,
+        pruned: prunedNotes,
+        notesAfter: normalized.lines,
+      },
       error: warning,
       finishedAt,
       durationMs: finishedAt - now,

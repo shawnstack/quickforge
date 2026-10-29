@@ -50,7 +50,8 @@
 .qf-chat-panel .quickforge-process-body,
 .qf-chat-panel .quickforge-process-body-inner,
 .qf-chat-panel .quickforge-local-tool,
-.qf-chat-panel .quickforge-local-tool > .mt-3 {
+.qf-chat-panel .quickforge-local-tool > .mt-3,
+.qf-chat-panel .quickforge-tool-panel {
   min-width: 0;
   max-width: 100%;
 }

@@ -2,6 +2,64 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## dreaming-prune-settings-and-auto-delete（done，2026-10-29）
+
+- 反馈：「`NOTE_PRUNE_MIN_NOTES=40 / NOTE_UNUSED_DAYS=60` 希望可以在梦境的高级配置里面设置，然后增加到期自动删除的功能」。
+- 需求确认（用户选择）：判定口径 = 召回次数 ≤ M 次 + 存在 ≥ N 天；自动删除发生在**模型重写之前**；**不设任何保护**（无单轮条数上限、无 kind 白名单），满足条件就删。
+- 设置层（`server/dreaming/settings.mjs`）：
+  1. `DEFAULT_DREAMING_SETTINGS` 新增 `pruneMinNotes: 40` / `pruneUnusedDays: 60` / `pruneMaxRecalls: 0` / `pruneStaleNotes: false`。
+  2. 新增本地 `clampNumber`（与 `goal-settings.mjs` 同形，取整 + 上下界），范围 1–500 / 1–3650 / 0–1000。非法值回默认而不是回边界值——打错字不能变成「删掉所有超过 1 天的笔记」。
+  3. `pruneStaleNotes` 只认 `=== true`，与 `enabled` 同风格；默认关闭，因为写进 `DREAMING.md` 的删除不可逆。
+- 运行层（`server/dreaming/runner.mjs`）：
+  1. 删除 `NOTE_PRUNE_MIN_NOTES` / `NOTE_UNUSED_DAYS` 常量（源码零残留，`grep` 确认）。
+  2. 新增并导出纯函数 `selectStaleNotes({ notes, stats, minAgeDays, maxRecalls, now })`：`recallCount ≤ maxRecalls` 且 `now - createdAt ≥ minAgeDays` → 选中；**没有 stat 行的手写笔记永远不选中**（年龄未知，按猜测删比留着更坏）。
+  3. 开关开启时先算 stale → 先 `writeDreamingNotes(composeAutoSection(remaining))` 再 `syncNoteStats(remaining)`，然后才调模型；写盘失败则回滚为「什么都没删」，把 `notesForModel` 保持为原列表，并把错误挂到 `pruneWarning`。
+  4. 统计不再包在「候选段」分支里：`listNoteStats()` 一次读取两处共用，读失败只 warn（降级为「没有冷笔记」）。
+  5. 开关开启后不再生成 `## Never recalled` 候选段（已删过，重复语义）；关闭时保留原门槛，但阈值改读设置。
+  6. 漂移告警的基准改为 `notesForModel`（模型真正看到的列表），避免「先删 20 条」把 churn 比推到 100% 误报。
+  7. 记录口径：`operations.pruned`（被规则删掉的原文）、`retiredCount = removed + pruned`、summary 追加「，其中到期自动删除 N 条」；`模型回复里没有任何笔记条目` 的失败分支也标注本轮已先删 N 条（文件已改写，要让人知道）。
+- 仓储（`server/sqlite/dreaming-repository.mjs`）：`toRun()` 的 operations 白名单补 `pruned`（不补会被静默丢弃，这是本轮实测踩到的——测试拿到的是 `undefined`）。
+- 前端：
+  1. `dreaming-data.ts` 的 `DreamingSettings` 补四个字段，`DreamingRunDiff` 补 `pruned?: string[]`。
+  2. `DreamingSettingsTab.tsx` 设置卡内新增「高级配置」折叠区（inline 展开按钮，不另起卡片），依次是开关 + 冷笔记天数 / 召回次数上限 / 候选列表启用条数。数字输入抽成本地 `NumberField`：草稿态 + 失焦/Enter/步进提交 + 与服务端同范围 clamp；外部值变化用「渲染期调整 state」而不是 effect（`react-hooks/set-state-in-effect` 不允许 effect 里同步 setState）。
+  3. 运行详情新增 `DiffList` 分组「到期自动删除」，每行备注「由到期规则在模型运行前删除，不是模型的判断」；`hasChanges` 一并计入。
+  4. i18n 新增 11 个 key（en/zh 成对）：`dreamingAdvanced`、四个 `dreamingPrune*` 及其 `Info`、`dreamingRunPruned`、`dreamingRunPrunedNote`。
+  5. `dreaming.css` 新增 `.quickforge-dreaming-advanced-toggle`（语义 token + 复用 `.quickforge-dreaming-chevron` 的旋转，含 reduced-motion 分支）。
+- 测试：`dreaming-memory` 加 3 例（默认值 / clamp 与非法值回默认 / 布尔只认字面 true）；`dreaming-runner` 加 5 例（模型前删除 + 空列表 + 两次写盘 / 召回次数超限保留 / 无 stat 的手写笔记不删 / 可配天数双向验证 / 关闭时用可配候选门槛）；`routes/dreaming` 加 1 例 PUT 往返与 clamp；`tests/frontend/dreaming-prune-settings.test.ts` 新增 4 例源码契约（en/zh 成对、字段名与 patch 对齐、折叠区、run diff 分组）。`routes/dreaming{-detail}` 三处 operations 精确断言补 `pruned: []`；`tests/server/dreaming.test.mjs` 的 `finishRun` 整对象断言（最初漏改，被全量测试抓出）同步补 `pruned: []`。
+- 文档：`docs/architecture/dreaming-memory.zh-CN.md` 的 5.4 反馈闭环（两种模式 + 年龄语义）、§6 API、§7 设置 JSON 与 clamp 说明、§8 前端、§9 质量信号行、§10 已知取舍全部改写；`docs/wiki/server/README.md` 的反馈闭环条目同步。
+- 验证：见下方 Notes（全量结果在本次会话末尾补入）。
+- Notes：
+  - **自动删除与「信息而不是规则」冲突，是本轮用户明确裁定的取舍**：默认仍关闭（保持原设计取向），开启后模型没有否决权。恢复路径只剩「更早一次 run 的 `notesAfter` 快照」——被删条目不在本轮 `notesAfter` 里，`POST /runs/:id/restore` 恢复的是删除之后的状态。
+  - `created_at` 是 Dreaming 首次见到该措辞的时间，不是笔记真实年龄：老版本升级后第一轮会给现存笔记写入「今天」的 stat，所以 60 天后才会成批到期。
+  - 界面与前几轮一致：`enabled: false` 时高级配置只读（与执行时间/敏感内容同规则），要先开启 Dreaming 才能调。
+
+## rollback-orphan-assistant-turn（done，2026-10-29）
+
+- 反馈：「对话回滚的时候报错：没有可回滚的对话轮次。应该不用这么限制，可能中间有报错的对话，所以去掉这个限制」；放宽孤立 assistant 后用户真机仍报错，二次反馈「就不应该有这个限制」。
+- 根因：回滚按钮挂在 user 行并传全量 index，但 `performRollback` 读取的是 `agentRef.current.state.messages`（权威数组）；UI 窗口数组（`getWindowMessages()`，可含 append-only extras）与权威数组瞬时错位（压缩替换、乐观尾插、会话切换等）时，index 落在 toolResult 或越界 → 返回 -1 → 弹「没有可回滚的对话轮次」。
+- 最终方案（回滚永远可用，拒绝路径清零）：
+  1. `rollbackStartIndexFromMessage`（前端 `message-utils.ts` + 服务端 `agent-manager.mjs` 同构）：索引 clamp 到 `[0, length-1]`；user → 自身；其他角色（assistant/toolResult/孤立轮）→ 向前找本轮 user，找不到以自身截断；仅空会话或非有限数返回 -1（无操作）。
+  2. 服务端 `rollbackSessionMessages`：删除 400 "There is no conversation turn to roll back." 分支，-1 clamp 为 0（空会话幂等无操作）。
+  3. 前端 `performRollback`（`useChatActions.ts`）与 `SharedConversationPage.tsx` 两处：去掉「没有可回滚」弹窗，-1 静默返回；`rollbackMessage` 可为 undefined 时草稿回填空串。
+  4. i18n：删除 `noConversationTurnToRollback`（en/zh）死 key。
+- 验证：`npx vitest run`（message-utils / rollback-start-index / exports-contract / rollback-compaction / share-store.rollback-atomic / chat-surface-render）6 files / 50 tests 全过；i18n 快照 2 files / 15 tests 全过；`npx tsc -b` 0 错误；eslint 改动文件 0 problems；`npm run build` 成功。未创建 Git commit，未触碰生成产物。
+- Notes：历史第一轮只放宽了「assistant 无前置 user」一种形态，未覆盖 index 错位 / toolResult / 越界，本轮已全部收敛为 clamp + 统一轮锚定。`tests/server/share-store.rollback-atomic.test.mjs` 内嵌旧实现副本用于 mock share-store 原子性路径，不校验锚点语义，未改动。
+
+## dreaming-run-detail-shadcn-ui（done，2026-10-28）
+
+- 反馈：「优化一下梦境记忆的详情 UI，参考 shadcn ui」。
+- 改动（只动前端，无 API/数据变更）：
+  1. `DreamingSettingsTab.tsx` 的 `RunDetail` 从「一张卡平铺」重构为 shadcn 卡片结构：页头（`dreamingRunBack` 返回按钮带 ArrowLeft 图标 + 标题 + 时间/字符 meta + 右侧状态/触发/模型/语言徽标）→ 统计瓦片条 → 正文（错误告警 / 结论 / 变更 diff / 原始响应折叠）→ 页脚（恢复按钮 + 提示）。统计瓦片与总览卡共用新抽取的 `StatStrip`；tone 只作用于数值（`+2/-1/✕1` 复用 metrics 语义色配方），丢弃为 0 时不占格。
+  2. 新增 `DiffList`：`+/−/✕` 行 diff，tone 落在标记与分组标题、正文保持 foreground；`dropped` 的 `reason` 从「内容（原因）」拼接串拆成独立 muted 小字。无变更时显示 `dreamingRunNoOperations` 空态。
+  3. 详情此前根本不显示 `run.summary`——补「结论」段（复用 `dreamingRunSummary`）。
+  4. 修死类名：`<pre className="quickforge-dreaming-raw">` 在 CSS 里不存在（原始响应一直无样式），改用 `.quickforge-dreaming-code`（等宽/滚动/22rem 限高），`SectionToggle` 接入 `description`（`dreamingRunRawResponseDescription`）并给展开区补 `px-5` 对齐；`.quickforge-dreaming-code` 自身删掉旧的 1.25rem 侧边距。
+  5. `run.error` 在详情里升级为浅色 destructive 告警条（AlertTriangle 图标 + `role="alert"`，7% 背景 + 24% 边框，符合「危险克制但真失败可用」）；列表行内的 error 仍是原纯文本样式。
+  6. i18n 零新增：全部复用既有 key（含此前未消费的 `dreamingRunBack` / `dreamingRunSummary` / `dreamingRunNoOperations`）。
+  7. `dreaming.css` 新增 `.quickforge-dreaming-alert`（+`-text`）与 `.quickforge-dreaming-diff*` 六个类、`stat[data-tone]` 三个着色规则；全部留在 settings 域，无跨模块 selector。
+- 静态预览：`docs/design/dreaming-run-detail.html`（token/组件样式同源拷贝，深浅色切换，成功/失败两变体）。
+- 验证：`npx tsc -b` 0 错误；`npx eslint src/components/dreaming/DreamingSettingsTab.tsx` 0 problems；`npx vitest run tests/frontend` 全量 267 files / 3220 passed；`npm run build` 成功。未创建 Git commit，未触碰 `dist/`（build 产物）等生成目录。
+- Notes：`quickforge-recall-list`（chat 域）在 Dreaming 笔记页签仍被复用，本次未动；若以后要按域收紧 CSS 归属，需先把 settings 对它的消费迁到本域类。
+
 ## compaction-remove-skip-gates（done，2026-10-28）
 
 - 反馈：「源 <1600 字符 / 距上次 <30s / 10 分钟内拒绝过——这些奇怪的约束都应该去掉，上下文不够就该压缩」。
@@ -98,6 +156,7 @@
   - `ui-schema.mjs` 与 `PluginSlot.tsx` 在编辑过程中被工具重复追加过代码，已截断修复并复跑测试确认；后续改这两个文件建议整体重写而不是局部替换。
   - **共享文件并发写入事故**：`progress.md` / `session-handoff.md` / `feature_list.json` 在同期被多会话反复覆盖（含一次非 UTF-8 写入把换行压平成单行、`feature_list.json` 回滚掉约 10 条未提交条目）。已重编码为合法 UTF-8 并重建本 feature 的段落/条目；权威验证明细另记在 `docs/architecture/plugin-ui-extension.zh-CN.md` §15.1，因为那份文件只由本会话维护。
   - 仍未做：`contributes.hooks`（下一个最划算的扩展点，`hook-engine` 已有事件模型）、`contributes.mcpServers` / `agents`、权限授权弹窗、`settings.tabs` slot、marketplace 安装器。
+  - P0 自查（2026-10-29 复核，针对已实现代码）：无 P0。落地两个 P2 加固：① `GET /api/plugins/:name/assets/*` 对 `text/html` 响应补 `Content-Security-Policy: sandbox allow-scripts` + `x-content-type-options: nosniff`（防插件 HTML 被顶层窗口打开时获得宿主同源权限），定向 10 files / 112 tests 复跑全过；② 文档 §6.3 改为如实描述鉴权基线——GET 只读端点（`/api/plugins/ui`、`/api/plugins/audit`、assets）与仓库既有风格一致不单独鉴权，POST/PUT/KV 写走 `assertAppClient`。已知存量面（非本 feature 引入）：本机模式下 `/api` POST 端点对「本机恶意网页的 no-preflight `text/plain` POST」无 Origin 校验（`isAuthenticatedAppClient` 只看源 IP），建议以后独立 feature 在 `server/index.mjs` 统一做 Origin/Host 校验。
 
 ## dreaming-beta-badge-and-review-fixes（done，2026-10-28）
 
@@ -891,3 +950,23 @@
   - `src/lib/i18n.ts` 只有 `contextWindow: 'Context Window'` 标签文案（en/zh 两处），没有写死 `200000` 或 “200K” 的表述，因此未改。
   - 遗留风险（未修改，仅记录）：`server/conversation-compaction.mjs:203-206` 的压缩 transcript 上限为 `Math.min(160000, Math.max(12000, Math.floor(contextWindow * 1.6)))`，即使 `contextWindow` 提升到 1M 也被 160000 字符硬顶，长会话压缩摘要的输入广度不会随 1M 窗口放大；另外 `maxTokens` 仍为 32768，1M 窗口下单次输出上限不变（本次按最小改动原则不动）。
   - 未创建 Git commit，未触碰 `dist/`、`package-dist/`、`package-offline/`；`feature_list.json` 当前为空（`{"features":[]}`），无对应 feature 条目，未改动。
+
+## run-command-stop-button-inline（done，2026-10-29）
+
+- Goal：运行中的 `run_command` 工具行，停止 icon 不再被顶到整行最右，而是从左到右紧跟摘要/箭头排列；向下展开日志时按钮也不能回到行尾。
+- 结论（一句话）：本地工具卡改为「标题行 + 展开面板」两层——`.quickforge-tool-header` 只包 `<details><summary></details>` 和终止按钮，`.quickforge-tool-panel` 移到 details 外铺满整行，可见性由 `details[open]` 驱动。有按钮时标题行按内容收缩，按钮始终紧跟摘要末尾，展开/收起/超长命令都不会改变按钮位置。
+- 改动文件：
+  1. `src/lib/tool-renderers/local-workspace-tool-renderer.tsx` — 新增 `.quickforge-tool-header` 包装层，展开面板改为兄弟节点 `.quickforge-tool-panel`。
+  2. `src/styles/chat/tool-summary.css` — 移除按钮绝对定位/行宽收紧规则，改为 header 收缩、按钮正常流式、面板 `:has(details[open])` 显隐。
+  3. `src/styles/chat/tool-output.css` — 对话列宽约束补充 `.quickforge-tool-panel`。
+  4. `tests/frontend/local-tool-running-sweep.test.ts`、`tests/frontend/chat-surface-css-contract.test.ts` — 更新布局契约。
+  5. `feature_list.json`、`progress.md`、`session-handoff.md` — 记录本 feature 状态与验证。
+- 验证 / Evidence：
+  - `npx vitest run` 工具渲染器与 CSS 契约 8 个文件 → 187 passed。
+  - `npx eslint src/lib/tool-renderers/local-workspace-tool-renderer.tsx tests/frontend/local-tool-running-sweep.test.ts tests/frontend/chat-surface-css-contract.test.ts` → 无输出。
+  - `npm run build` → 成功（`tsc -b && vite build`）。
+  - 真实渲染实测（复用 5176 dev server + 临时预览页，已删除）：收起态与展开态 header 均 200px（整行 624px），按钮距箭头 5px、位置不随展开变化；展开面板 624px；完成态无按钮、header 占满整行。
+- Notes：
+  - 面板移出 details 后不再依赖浏览器原生折叠内容槽，改由 `:has(details[open])` 控制显隐；开合记忆、键盘操作、chevron 旋转仍由原生 summary/details 承担。
+  - 停止按钮仍在 `<summary>` 外（延续 `0c782f81` 的 nested-interactive 修复）；无按钮的普通工具行 header 仍占满整行，点击热区不变。
+  - 未创建 Git commit / tag / push；未手工修改生成产物。

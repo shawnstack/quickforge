@@ -103,6 +103,7 @@ describe('dreaming run detail', () => {
       added: ['新的笔记'],
       removed: ['旧的笔记'],
       dropped: [{ reason: 'sensitive', content: 'sk-live' }],
+      pruned: [],
       notesAfter: ['新的笔记'],
     })
     // The raw reply stays available for "why did it say that" debugging.
@@ -117,7 +118,7 @@ describe('dreaming run detail', () => {
       .run(JSON.stringify([{ action: 'create', id: 'mem_1' }]), run.id)
 
     const { json } = await call('GET', `/api/dreaming/runs/${run.id}`)
-    expect(json.run.operations).toEqual({ added: [], removed: [], dropped: [], notesAfter: null })
+    expect(json.run.operations).toEqual({ added: [], removed: [], dropped: [], pruned: [], notesAfter: null })
   })
 
   it('keeps working when a run never finished', async () => {

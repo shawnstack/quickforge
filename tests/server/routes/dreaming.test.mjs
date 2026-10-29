@@ -124,6 +124,26 @@ describe('dreaming API', () => {
     expect(after.json.allowSensitive).toBe(false)
   })
 
+  it('persists the pruning settings and clamps out-of-range values', async () => {
+    const saved = await call('PUT', '/api/dreaming/settings', {
+      pruneStaleNotes: true,
+      pruneMinNotes: 10,
+      pruneUnusedDays: 14,
+      pruneMaxRecalls: 0,
+    })
+    expect(saved.status).toBe(200)
+    expect(saved.json).toMatchObject({ pruneStaleNotes: true, pruneMinNotes: 10, pruneUnusedDays: 14, pruneMaxRecalls: 0 })
+
+    const clamped = await call('PUT', '/api/dreaming/settings', { pruneUnusedDays: 0, pruneMinNotes: 900 })
+    expect(clamped.json.pruneUnusedDays).toBe(1)
+    expect(clamped.json.pruneMinNotes).toBe(500)
+    // Shallow merge: a field the page did not send keeps its current value.
+    expect(clamped.json.pruneStaleNotes).toBe(true)
+
+    const off = await call('PUT', '/api/dreaming/settings', { pruneStaleNotes: false })
+    expect(off.json.pruneStaleNotes).toBe(false)
+  })
+
   it('refuses a manual run while dreaming is disabled', async () => {
     await expect(call('POST', '/api/dreaming/run')).rejects.toMatchObject({ statusCode: 403 })
   })
@@ -150,7 +170,7 @@ describe('dreaming API', () => {
     expect(detail.status).toBe(200)
     expect(detail.json.run.id).toBe(run.id)
     // The diff IS the audit trail now: there are no per-entry rows to join.
-    expect(detail.json.run.operations).toEqual({ added: ['新的笔记'], removed: ['旧的笔记'], dropped: [], notesAfter: null })
+    expect(detail.json.run.operations).toEqual({ added: ['新的笔记'], removed: ['旧的笔记'], dropped: [], pruned: [], notesAfter: null })
   })
 
   it('returns 404 for an unknown run', async () => {

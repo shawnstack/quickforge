@@ -1,5 +1,57 @@
 # Current Session Handoff
 
+## dreaming-prune-settings-and-auto-delete（done，2026-10-29）
+
+- Current Objective（当前目标）：把 `NOTE_PRUNE_MIN_NOTES=40` / `NOTE_UNUSED_DAYS=60` 放进梦境记忆的「高级配置」，并新增「到期自动删除」。
+- 结论（一句话）：四个 `prune*` 设置字段（`pruneStaleNotes` / `pruneMinNotes` / `pruneUnusedDays` / `pruneMaxRecalls`）+ 设置页折叠的高级配置；开关关闭时冷笔记仍只是候选段，开启后在**模型运行前**按「距 `created_at` ≥ N 天 且 召回次数 ≤ M」直接删除并记入 `operations.pruned`。
+- 改动文件：`server/dreaming/settings.mjs`、`server/dreaming/runner.mjs`、`server/sqlite/dreaming-repository.mjs`（`toRun` 白名单补 `pruned`）、`src/components/dreaming/{DreamingSettingsTab.tsx,dreaming-data.ts}`、`src/styles/settings/dreaming.css`、`src/lib/i18n.ts`、`tests/server/{dreaming-memory,dreaming-runner}.test.mjs`、`tests/server/routes/dreaming{,-detail}.test.mjs`、`tests/frontend/dreaming-prune-settings.test.ts`（新）、`docs/architecture/dreaming-memory.zh-CN.md`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、本文件。
+- 关键约束（别踩）：
+  - `toRun()` 的 operations 是白名单，新增字段必须同时加在那里，否则 API 与前端都拿到 `undefined`（本轮真实踩过）。
+  - 无 stat 行的手写笔记绝不能自动删除：`created_at` 未知不等于「很老」。
+  - 漂移告警与 summary 的基准是 `notesForModel`（模型看到的列表），不是原始笔记数；否则「先删一批」会被误判成记忆漂移。
+  - 被删条目**不在**本轮 `notesAfter` 里，所以在「运行详情 → 恢复到该版本」对这个 run 无用；要找回只能恢复到更早一次 run。
+  - 前端数字输入的「外部值变化 → 重置草稿」必须用渲染期调整 state，不要写成 `useEffect` + `setDraft`（`react-hooks/set-state-in-effect` 会报错）。
+- Blockers（阻塞）：无。
+- Evidence（验证）：dreaming 服务端 4 files / 68 tests 全过；前端契约 4 tests 全过；`npx tsc -b` 0 错误；`npm run lint` 0 problems；`npm run build` 成功；`npm run test` 全量结果见本次会话收尾记录。未创建 Git commit。
+- Next Session（下一步）：
+  1. 真机：设置 → 梦境记忆 → 高级配置 → 开「到期自动删除」，把冷笔记天数临时调成 1，点「立即处理」，确认 `DREAMING.md` 里超过 1 天的笔记消失、运行详情出现「到期自动删除」分组且 summary 带「其中到期自动删除 N 条」。
+  2. 关掉开关再跑一次：确认候选段 `## Never recalled` 回来、笔记不再被自动删。
+  3. 手写一行笔记进 `DREAMING.md` 再跑：确认它不会被删（无 stat 行）。
+  4. 老用户升级后第一轮不会成批删除（`created_at` 从此轮开始算），若要提前验证可把 `pruneUnusedDays` 设为 1 并跑两次。
+
+## rollback-orphan-assistant-turn（done，2026-10-29）
+
+- Current Objective（当前目标）：去掉对话回滚「没有可回滚的对话轮次」的限制——任何情况下点回滚都必须能滚，不弹拒绝提示。
+- 结论（一句话）：回滚拒绝路径清零：`rollbackStartIndexFromMessage`（前后端同构）把索引 clamp 进有效范围、非 user 角色统一回退到本轮 user（找不到以自身截断），仅空会话返回 -1 静默无操作；服务端删 400 分支；前端三处调用点删弹窗守卫；i18n 死 key 删除。
+- 根因（第一轮没修完）：回滚按钮传的全量 index 来自 UI 窗口数组，点击瞬间读的权威数组可能与之瞬时错位（压缩替换 / 乐观尾插 / 会话切换），index 落在 toolResult 或越界 → -1 → 弹窗。
+- 改动文件：`src/lib/message-utils.ts`、`server/agent-manager.mjs`（含 `rollbackSessionMessages` 删 400）、`src/hooks/useChatActions.ts`、`src/components/share/SharedConversationPage.tsx`、`src/lib/i18n.ts`（删 `noConversationTurnToRollback` en/zh）、`tests/frontend/message-utils.test.ts`、`tests/server/rollback-start-index.test.mjs`、`feature_list.json`、`progress.md`、本文件。
+- 关键约束（别踩）：
+  - 前后端两份 `rollbackStartIndexFromMessage` 必须同构（服务端权威，前端先本地预览再调服务端）。
+  - `-1` 语义 = 空会话无操作（静默），不是错误；不要再往回加「没有可回滚」弹窗。
+  - 锚点非 user 时草稿回填空串是预期（无用户原文可恢复）。
+- Blockers（阻塞）：无。
+- Evidence（验证）：回滚相关 6 files / 50 tests 全过；i18n 快照 2 files / 15 tests 全过；`npx tsc -b` 0 错误；eslint 改动文件 0 problems；`npm run build` 成功。未创建 Git commit。
+- Next Session（下一步）：
+  1. 真机：原来报「没有可回滚的对话轮次」的那个对话再点一次回滚，应直接成功截断。
+  2. 回归：正常轮回滚、报错轮回滚、压缩后的会话回滚行为正常。
+
+## dreaming-run-detail-shadcn-ui（done，2026-10-28）
+
+- Current Objective（当前目标）：优化「梦境记忆」运行详情 UI，参考 shadcn ui。
+- 结论（一句话）：详情页重构为 shadcn 卡片结构（页头徽标区 → 语义色统计瓦片 → 错误告警 + 结论 + +/−/✕ 行 diff + 折叠原始响应 → 页脚恢复区），并顺手修掉原始响应 `<pre>` 引用不存在 CSS 类导致一直无样式的 bug；详情此前不显示 `run.summary`，本轮补上。
+- 改动文件：`src/components/dreaming/DreamingSettingsTab.tsx`（RunDetail 重构 + 新 `StatStrip`/`DiffList`，总览卡改用 StatStrip）、`src/styles/settings/dreaming.css`（alert/diff/stat-tone 新类 + `.quickforge-dreaming-code` 边距修正）、`docs/architecture/dreaming-memory.zh-CN.md`（前端节同步）、`docs/design/dreaming-run-detail.html`（静态预览，新）、`feature_list.json`、`progress.md`、本文件。
+- 关键约束（别踩）：
+  - tone 色只落在 diff 标记、分组标题和统计数值上，正文保持 `--foreground`——整行染色会伤长句可读性。
+  - `dropped` 行的 `reason` 是独立小字行，不要拼回「内容（原因）」字符串（那是旧实现）。
+  - 统计条与总览卡共用 `StatStrip`；`data-tone` 只接受 `added/removed/dropped`，配色复刻 `.quickforge-dreaming-metrics` 的三组 color-mix 配方，别另开新色。
+  - i18n 零新增：`dreamingRunBack` / `dreamingRunSummary` / `dreamingRunNoOperations` 等都是既有 key，别重复添加。
+- Blockers（阻塞）：无。
+- Evidence（验证）：`npx tsc -b` 0 错误；eslint 改动组件 0 problems；`npx vitest run tests/frontend` 全量 267 files / 3220 passed；`npm run build` 成功。未创建 Git commit。
+- Next Session（下一步）：
+  1. 真机：设置 → 梦境记忆 → 运行历史 → 点开一条成功 run：看页头徽标行、六个统计瓦片（新增绿 +N / 移除红 -N）、+/−/✕ 三组 diff（丢弃行应有原因小字）、折叠的原始响应展开后是等宽灰底代码块；页脚「恢复这些笔记」。
+  2. 点开一条失败 run：错误应为浅红告警条带三角图标，变更区显示「本次运行没有产生变更」。
+  3. `docs/design/dreaming-run-detail.html` 可直接浏览器打开目检深浅两色。
+
 ## compaction-remove-skip-gates（done，2026-10-28）
 
 - Current Objective（当前目标）：移除自动压缩的三道静默跳过门槛——`minSourceChars`(1600)、30 秒压缩间隔、拒绝后 10 分钟抑制；「上下文不够（过阈值）就该压缩」。
@@ -78,6 +130,7 @@
   - 测试：`tests/server/plugins/{ui-schema,ui-route,hello-ui-example}.test.mjs`、`tests/frontend/{plugin-slot,plugin-ui-bridge,plugin-frame}.test.ts`，更新 `tests/server/plugins/manifest.test.mjs`、`tests/frontend/plugins-page.test.ts` 与 `tests/server/skills.test.mjs`。
 - Evidence（验证）：`npx tsc -b` 0 错误；`npm run lint` 0 problems；`npm run build` 成功（`✓ built in 4.46s`）；本 feature 定向 11 files / 121 tests 全过；`npm run test` → 453 files / 5297 passed / 2 skipped，退出码 0（全量全绿，无排除）。为让全量转绿，`tests/frontend/chat-surface-css-contract.test.ts` 对 `.quickforge-process-stage-body` 的精确刻度断言改成了语义断言（连接线配方 + 缩进非零），因为刻度正被另一会话按用户反馈微调；其余三条断言原样保留。slot 快照缓存只缓存 `getSlots` 产出的节点（2s TTL，reload 与成功动作都失效），KV 状态每次现算。UI hook 超时在 `loader.mjs` 的调用边界（`handle` 5s → 504、`getSlots` 2s → 回退静态），registry 不重复计时。脚本手验 `validate-plugin.mjs plugins/hello-ui` 与 `scaffold-plugin.mjs --template panel` 均通过。未创建 Git commit，未手工改 `dist/`、`package-dist/`、`package-offline/`。
 - Blockers（阻塞）：无。
+- P0 自查（2026-10-29）：无 P0。补两个 P2 加固：assets 的 `text/html` 响应带 `Content-Security-Policy: sandbox allow-scripts` + `nosniff`（防插件 HTML 被顶层窗口打开时获得宿主同源权限），定向 10 files / 112 tests 复跑全过；文档 §6.3 改为如实描述（GET 只读端点不单独鉴权与仓库基线一致，POST/PUT/KV 写走 `assertAppClient`）。存量面（非本 feature）：本机 `/api` POST 无 Origin 校验，防 no-preflight CSRF 需独立 feature 在 `server/index.mjs` 统一处理。
 - Next Session（下一步）：
   1. 真机：设置 → 插件 → 启用 `Hello UI`，确认输入框左侧出现 Hello 按钮；点一次应弹 toast 且按钮变成 `Hello ×1`；在插件卡片上点面板 chip，打开沙箱面板点 Bump，刷新面板后计数保留（kv 走 `plugins.json` 的 `kv` 段）。这一步同时验证刷新链路：启用/禁用后按钮应**立即**出现或消失，不需要刷新页面；点「重新加载插件」后 slot 内容应按新 catalog 重建。
   2. 想验 `callTool`：在 `plugins/hello-ui` 里加一个 `contributes.tools`（如 `plugin__hello-ui__ping`），面板里 `call('callTool', 'plugin__hello-ui__ping', {})` —— 默认权限模式应回 403（宿主原话），切到 full-access 才成功；再试 `call('callTool', 'run_command', {})`，应被 `plugin-ui-bridge.ts` 直接拒绝。
@@ -472,3 +525,12 @@
 - Evidence（验证）：`npx vitest run tests/frontend/settings-workspace-react.test.ts tests/frontend/side-chat-agent.test.ts tests/frontend/context-usage.test.ts` → 36 passed；`npm run lint` → 0 errors / 4 既有 warnings；`npm run build` → 成功。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：如需放大长会话压缩广度，评估 `server/conversation-compaction.mjs:203-206` 的 160000 字符硬上限；`maxTokens` 仍为 32768。未创建 Git commit，未触碰生成产物。
+
+## run-command-stop-button-inline（done，2026-10-29）
+
+- Current Objective（当前目标）：运行中的 `run_command` 工具行，停止 icon 从整行最右改回紧跟摘要/箭头的从左排列，且向下展开日志时位置不变。
+- 结论（一句话）：本地工具卡改为「`.quickforge-tool-header`（details 仅包 summary + 终止按钮）+ `.quickforge-tool-panel` 展开面板」两层；有按钮时标题行按内容收缩，按钮始终紧跟摘要末尾，展开面板铺满整行且由 `details[open]` 驱动显隐。
+- 改动文件：`src/lib/tool-renderers/local-workspace-tool-renderer.tsx`；`src/styles/chat/tool-summary.css`；`src/styles/chat/tool-output.css`；`tests/frontend/local-tool-running-sweep.test.ts`；`tests/frontend/chat-surface-css-contract.test.ts`；`feature_list.json` / `progress.md` / 本文件。
+- Evidence（验证）：工具渲染器与 CSS 契约 8 files / 187 passed；`npx eslint` 改动源码/测试 0 problems；`npm run build` 成功；真实渲染实测收起/展开 header 均 200px（整行 624px），按钮距箭头 5px 且位置不随展开变化，展开面板 624px，完成态无按钮。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：面板已移出 details，开合由 `:has(details[open])` 驱动；如后续需要浏览器查找自动展开或更严格的披露语义，可再评估 `aria-controls`/自定义披露头。未创建 Git commit，未触碰生成产物。

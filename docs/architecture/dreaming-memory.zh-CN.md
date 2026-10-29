@@ -174,9 +174,11 @@ CREATE TABLE dreaming_note_stats (
 ```
 
 - **写入**：`recall_experience` 每次真正返回某条笔记，`recordNoteRecall()` 给那几条 `recall_count + 1` 并更新 `last_recalled_at`。用不上存储时（工具在 server 外被调用）静默跳过。
-- **读取**：`listNoteStats()` 在下一轮 dreaming 里算出「存在 ≥ 60 天且从未被召回」的笔记。
-- **两个门槛，缺一不可**：笔记数 ≥ 40 条才启用筛选，且单条要 ≥ 60 天没被召回。原因很直接——笔记本来就全量注入 prompt，`recall_experience` 很少被调用，短列表上「从没被召回」是普遍现象而不是信号；在这个前提下提出删除建议只是噪声。
-- **怎么用**：这批冷笔记**不直接删**，而是作为 `## Never recalled (deletion candidates)` 段交给模型，并明确「进入这个列表是因为没人搜过它，不是因为它错了」。这正是「强度衰减」在这里的形态——**信息，而不是规则**：删不删仍然由模型结合本轮会话判断，避免代码把一条少用但关键的安全红线淘汰掉。
+- **读取**：`listNoteStats()` 在下一轮 dreaming 里算出冷笔记。判定条件是「距 `created_at` ≥ `pruneUnusedDays` 天，且 `recall_count` ≤ `pruneMaxRecalls`」；两个阈值都在设置的「高级配置」里可改（默认 60 天 / 0 次，即只算从未被召回的）。
+- **两种用法，由 `pruneStaleNotes` 决定**：
+  - **关闭（默认）**——这批冷笔记**不直接删**，而是作为 `## Never recalled (deletion candidates)` 段交给模型，并明确「进入这个列表是因为没人搜过它，不是因为它错了」。这是「强度衰减」在这里的形态——**信息，而不是规则**：删不删仍由模型结合本轮会话判断，避免代码把一条少用但关键的安全红线淘汰掉。此时还有 `pruneMinNotes`（默认 40 条）门槛：短列表上「从没被召回」是普遍现象而不是信号，提删除只是噪声。
+  - **开启**——冷笔记在**模型运行之前**就按规则从 `DREAMING.md` 删除（模型没有否决权），随后模型只面对剩下的列表重写。被删的条目写进本次 run 的 `operations.pruned`，`retiredCount` 与 summary 一并计入，运行详情里单列一组「到期自动删除」。此时不再生成候选段（已经删过了）。
+- **年龄的语义**：`created_at` 是 Dreaming 第一次记录这条措辞的时间，不是笔记「诞生」时间。手工写进 `DREAMING.md` 的行没有 stat 行，年龄未知，**永不参与自动删除**——按猜测删掉无法定年的内容是更坏的错误。
 - **清理**：每轮写回后 `syncNoteStats()` 对齐文件，消失的笔记连同统计一起删除。
 
 注：没有「按 strength 排序召回」这一步，因为召回是全量注入 + 子串过滤，本来就没有排序空间。
@@ -186,7 +188,7 @@ CREATE TABLE dreaming_note_stats (
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/dreaming` | 设置 + 生效模型 + 最近一次 run + 笔记条数 |
-| PUT | `/api/dreaming/settings` | 更新开关 / 定时 / 模型 / 敏感信息策略 |
+| PUT | `/api/dreaming/settings` | 更新开关 / 定时 / 模型 / 敏感信息策略 / 冷笔记阈值（`prune*`） |
 | POST | `/api/dreaming/run` | 立即处理；运行中 409 |
 | GET | `/api/dreaming/runs?page&pageSize` | 运行历史（分页） |
 | GET | `/api/dreaming/runs/:id` | 运行详情（含行 diff、完整快照与模型原始回复） |
@@ -207,12 +209,18 @@ CREATE TABLE dreaming_note_stats (
   "modelRef": null,
   "allowSensitive": true,
   "contentLanguage": "auto",
+  "pruneStaleNotes": false,
+  "pruneMinNotes": 40,
+  "pruneUnusedDays": 60,
+  "pruneMaxRecalls": 0,
   "nextRunAt": null,
   "lastRunAt": null
 }
 ```
 
 默认 `enabled: false`——后台任务默认关闭，由用户在设置页显式打开。**开启即定时**：没有独立的“定时处理”开关，每天 `executeTime` 自动跑一次；「立即处理」只是手动提前触发。
+
+四个 `prune*` 字段是「冷笔记淘汰」的全部开关，`normalizeDreamingSettings()` 对数字做 clamp（`pruneMinNotes` 1–500、`pruneUnusedDays` 1–3650、`pruneMaxRecalls` 0–1000），非法值回默认而不是回边界值——打错字不能变成「删掉所有超过 1 天的笔记」。`pruneStaleNotes` 默认 `false`：写入 `DREAMING.md` 的删除是不可逆的（只有更早一次的 run 快照里还留着这些行），所以由用户显式开启。
 
 `modelRef` 的解析优先级：指定的模型 → 最近对话模型 → 目录第一条。指定的模型失效时降级到下一优先级而不中断 run。
 
@@ -225,8 +233,9 @@ CREATE TABLE dreaming_note_stats (
 - 状态点 + 「立即处理」+ 开关；
 - 统计：下次运行 / 上次运行 / 笔记条数 / 运行次数；
 - 设置：模型（可搜索下拉）、执行时间、输出语言、敏感内容；
+- 「高级配置」（默认折叠）：到期自动删除开关 + 三个数字（冷笔记天数、召回次数上限、候选列表启用条数），数字输入在失焦 / Enter / 步进时才提交，越界值按服务端同样的范围 clamp；
 - 「笔记」页签：`DREAMING.md` 的只读列表（kind 徽标 + 正文 + 召回次数 + 首次记录时间）、关键词搜索、kind 筛选、分页、单条删除；明确标注「这个文件由 dreaming 整份重写，要自己加内容请写在 MEMORY.md」；
-- 「运行历史」页签：每次运行的会话数 / 新增 / 移除 / 丢弃 / 耗时，点开看行 diff 与模型原始回复，并有「恢复到此版本」按钮。
+- 「运行历史」页签：每次运行的会话数 / 新增 / 移除 / 丢弃 / 耗时；点开进入运行详情（shadcn 卡片结构：页头「返回历史」+ 标题与状态/触发/模型/语言徽标，统计瓦片条（新增/移除/丢弃按语义色着色，丢弃为 0 时不占格），失败原因为浅色 destructive 告警条，结论段，变更明细为 `+ / − / ✕` 行 diff（丢弃行附原因小字，`operations.pruned` 另起一组「到期自动删除」并注明不是模型的判断），模型原始响应折叠且带说明与等宽代码块，页脚「恢复到此版本」）。
 
 设置 → 记忆：只编辑 `MEMORY.md`；当 `DREAMING.md` 有内容时多一行说明（它的笔记在另一个文件里，不在此处编辑）。
 
@@ -238,7 +247,7 @@ CREATE TABLE dreaming_note_stats (
 | 写入 | 模型输出 JSON 操作清单 → 逐条硬校验 → 单事务落库 | 模型输出新列表 → 格式校验 → 整份覆盖 |
 | 与用户文件的关系 | 同一文件里靠标记划界，保存时要重拼 | 两个文件，互不读写 |
 | 去重 | `fingerprint` 唯一索引 | 模型自己合并（提示词里要求） |
-| 质量信号 | `confidence` / `strength` / 衰减 / 召回计数 | 只保留召回计数（一张 6 列表），作为删除候选提示 |
+| 质量信号 | `confidence` / `strength` / 衰减 / 召回计数 | 只保留召回计数（一张 6 列表），默认作为删除候选提示，可选用作到期自动删除规则 |
 | 召回 | FTS5 bm25（曾加向量 + RRF） | 全量注入 + 子串过滤 |
 | 审计 | `memory_events` 逐条 | 每次运行的 added / removed / notesAfter |
 | 来源 | `evidence_json` 每条 | 每条笔记首次出现的 run（扫 run 快照得出） |
@@ -251,7 +260,7 @@ CREATE TABLE dreaming_note_stats (
 ## 10. 已知取舍
 
 - **没有语义召回**：笔记几十条全量注入，不需要。真需要时再加"查询改写 + LLM 挑选候选"，而不是引入向量库。
-- **反馈闭环是"提示式"的**：召回计数只用来生成冷笔记候选，删不删仍由模型决定，没有代码强制的强度衰减/自动淘汰。用一张 6 列表存计数，不是恢复旧的 `strength` 评分体系。
+- **反馈闭环默认是"提示式"的，自动删除是可选规则**：召回计数默认只用来生成冷笔记候选，删不删由模型决定；打开「到期自动删除」后，代码才按天数 / 召回次数直接删除，模型没有否决权。用一张 6 列表存计数，不是恢复旧的 `strength` 评分体系。
 - **来源只到 run 粒度**：能看到「这条笔记首次出现在哪次运行」，看不到「它由哪几句对话支撑」。要更细就得让模型写 `evidence`，那会把 300 字符预算吃掉。
 - **模型可以一次重写全部笔记**：提示词要求保守修改 + 排序，代码只在改动率 ≥ 80% 时告警，不阻断。掉线保护（非空但无 bullet → failed）是硬兜底。
 - **旧记忆不迁移**：v17 直接 drop 表，下一次运行从会话历史重建。

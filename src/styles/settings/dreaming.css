@@ -210,6 +210,129 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Semantic tones reuse the exact metrics palette so "what grew / what went
+   away" reads the same in the list rows and the detail tiles. */
+.quickforge-dreaming-stat[data-tone='added'] .quickforge-dreaming-stat-value {
+  color: color-mix(in oklab, #047857 80%, var(--foreground));
+}
+
+.quickforge-dreaming-stat[data-tone='removed'] .quickforge-dreaming-stat-value {
+  color: color-mix(in oklab, #b91c1c 72%, var(--foreground));
+}
+
+.quickforge-dreaming-stat[data-tone='dropped'] .quickforge-dreaming-stat-value {
+  color: color-mix(in oklab, #b45309 78%, var(--foreground));
+}
+
+/* Failure reason: a shadcn-style destructive alert, kept as a light tint so it
+   stays within the "danger is restrained unless it is a real failure" rule. */
+.quickforge-dreaming-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid color-mix(in oklab, var(--destructive) 24%, transparent);
+  background: color-mix(in oklab, var(--destructive) 7%, transparent);
+  padding: 0.625rem 0.75rem;
+  color: color-mix(in oklab, var(--destructive) 88%, var(--foreground));
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.quickforge-dreaming-alert > svg {
+  flex: 0 0 auto;
+  margin-top: 0.0625rem;
+}
+
+.quickforge-dreaming-alert-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Line diff of one run: the marker carries the tone, the note text stays in
+   foreground so long lines remain readable. Row recipe mirrors the recall list
+   (no borders, muted hover only). */
+.quickforge-dreaming-diff {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.quickforge-dreaming-diff-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.quickforge-dreaming-diff-label[data-tone='added'] {
+  color: color-mix(in oklab, #047857 80%, var(--foreground));
+}
+
+.quickforge-dreaming-diff-label[data-tone='removed'] {
+  color: color-mix(in oklab, #b91c1c 72%, var(--foreground));
+}
+
+.quickforge-dreaming-diff-label[data-tone='dropped'] {
+  color: color-mix(in oklab, #b45309 78%, var(--foreground));
+}
+
+.quickforge-dreaming-diff-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  padding: 0.375rem 0.5rem;
+  line-height: 1.5;
+  transition: background-color 140ms ease;
+}
+
+.quickforge-dreaming-diff-item:hover {
+  background: color-mix(in oklab, var(--muted) 45%, transparent);
+}
+
+.quickforge-dreaming-diff-mark {
+  flex: 0 0 auto;
+  width: 0.875rem;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickforge-dreaming-diff-item[data-tone='added'] .quickforge-dreaming-diff-mark {
+  color: color-mix(in oklab, #047857 80%, var(--foreground));
+}
+
+.quickforge-dreaming-diff-item[data-tone='removed'] .quickforge-dreaming-diff-mark {
+  color: color-mix(in oklab, #b91c1c 72%, var(--foreground));
+}
+
+.quickforge-dreaming-diff-item[data-tone='dropped'] .quickforge-dreaming-diff-mark {
+  color: color-mix(in oklab, #b45309 78%, var(--foreground));
+}
+
+.quickforge-dreaming-diff-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.quickforge-dreaming-diff-text {
+  font-size: 0.8125rem;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.quickforge-dreaming-diff-note {
+  font-size: 0.75rem;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+  overflow-wrap: anywhere;
+}
+
 .quickforge-dreaming-toggle-row {
   display: flex;
   align-items: center;
@@ -258,8 +381,36 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Inline reveal inside the settings card: the section already has a card border,
+   so this must not introduce a second one. */
+.quickforge-dreaming-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-inline-start: -0.25rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: color-mix(in oklab, var(--muted-foreground) 92%, transparent);
+  font-size: 0.8125rem;
+  font-weight: 520;
+  cursor: pointer;
+  transition: color 160ms ease-out, background-color 160ms ease-out;
+}
+
+.quickforge-dreaming-advanced-toggle:hover {
+  background: color-mix(in oklab, var(--muted) 52%, transparent);
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quickforge-dreaming-advanced-toggle {
+    transition: none;
+  }
+}
+
 .quickforge-dreaming-code {
-  margin: 0 1.25rem 1rem;
+  margin: 0;
   max-height: 22rem;
   overflow: auto;
   border-radius: 0.5rem;

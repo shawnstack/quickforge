@@ -184,19 +184,17 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     }
 
     const rollbackIndex = rollbackStartIndexFromMessage(agent.state.messages, messageIndex)
-    const rollbackMessage = rollbackIndex >= 0 ? agent.state.messages[rollbackIndex] : undefined
-    if (!rollbackMessage) {
-      void showAlert(t('noConversationTurnToRollback'))
-      return
-    }
+    // -1 仅在空会话时出现：没有可删的消息，静默返回。
+    if (rollbackIndex < 0) return
+    const rollbackMessage = agent.state.messages[rollbackIndex]
 
     try {
       await agent.rollback(messageIndex)
       setRestoredDraft({
         id: Date.now(),
         sessionId: agent.sessionId,
-        text: draftTextFromUserMessage(rollbackMessage),
-        attachments: rollbackMessage.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
+        text: rollbackMessage ? draftTextFromUserMessage(rollbackMessage) : '',
+        attachments: rollbackMessage?.role === 'user-with-attachments' ? rollbackMessage.attachments : undefined,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to roll back')
@@ -216,10 +214,8 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
     }
 
     const rollbackIndex = rollbackStartIndexFromMessage(agent.state.messages, messageIndex)
-    if (rollbackIndex < 0) {
-      void showAlert(t('noConversationTurnToRollback'))
-      return false
-    }
+    // -1 仅在空会话时出现：没有可删的消息，静默返回。
+    if (rollbackIndex < 0) return false
 
     try {
       await agent.rollback(messageIndex)

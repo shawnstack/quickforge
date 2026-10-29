@@ -46,9 +46,10 @@ function runCommandLogContext(params: Record<string, unknown> | undefined, resul
  * edit_file / run_command / present_files / activate_skill /
  * read_skill_resource）的通用渲染器，T4 由 原 html`` 模板迁为 React。
  *
- * class 链与 DOM 结构逐字复刻原模板：quickforge-local-tool-shell > details >
- * summary（图标 + 标题 + 折叠箭头 + diff 统计 + 状态）+ 展开区（input/output/
- * diff/details），外加 quickforge-tool-actions（终止命令按钮）。
+ * class 链：quickforge-local-tool-shell > quickforge-tool-header（details > summary
+ * + quickforge-tool-actions 终止命令按钮）+ quickforge-tool-panel 展开区
+ * （input/output/diff/details）。面板放在 details 外，标题行才能按内容收缩，
+ * 展开日志时终止按钮仍紧跟摘要末尾。
  */
 export class LocalWorkspaceToolRenderer {
   private toolName: string
@@ -98,30 +99,34 @@ export class LocalWorkspaceToolRenderer {
       isCustom: true,
       content: (
         <div className="quickforge-local-tool-shell">
-          <ToolDetails
-            className="group/tool quickforge-local-tool"
-            initiallyOpen={false}
-            aria-busy={status === 'running' ? 'true' : undefined}
-          >
-            <summary className={this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-summary quickforge-background-command flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none' : 'quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none'}>
-              {renderToolIcon(this.toolName)}
-              <span className="quickforge-tool-title min-w-0">
-                <span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-label line-through' : 'quickforge-tool-label'}>{t(this.labelKey)}{summary ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {summary}</span> : null}</span>
-                {renderToolChevron()}
-                {(this.toolName === 'write_file' || this.toolName === 'edit_file') ? renderInlineDiffStats(diff) : null}
-                {status === 'running' ? null : renderStatus(status, timing)}
-              </span>
-            </summary>
-            <div className="mt-3 min-w-0 max-w-full space-y-3">
-              {input ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>{renderCodeBlock(input, 'json')}</div> : null}
-              {output ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>{this.toolName === 'run_command' ? renderConsoleBlock(output, variant, runCommandLogContext(params, result)) : renderCodeBlock(output, 'text')}</div> : null}
-              {typeof diff?.text === 'string' ? renderDiff(diff, isNewFile) : null}
-              {details ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('details')}</div>{renderCodeBlock(details, 'json')}</div> : null}
-            </div>
-          </ToolDetails>
-          <span className="quickforge-tool-actions inline-flex shrink-0 items-center gap-1">
-            {renderTerminateCommandButton(this.toolName, status, result?.details)}
-          </span>
+          {/* 标题行与展开面板分层：details 只包 summary，展开区作为兄弟节点铺满整行。
+              标题行才能按内容收缩，让运行中的终止按钮始终紧跟摘要末尾（包括展开看日志时）。 */}
+          <div className="quickforge-tool-header">
+            <ToolDetails
+              className="group/tool quickforge-local-tool"
+              initiallyOpen={false}
+              aria-busy={status === 'running' ? 'true' : undefined}
+            >
+              <summary className={this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-summary quickforge-background-command flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none' : 'quickforge-tool-summary flex cursor-pointer list-none items-center gap-2 text-sm text-muted-foreground select-none'}>
+                {renderToolIcon(this.toolName)}
+                <span className="quickforge-tool-title min-w-0">
+                  <span className={status === 'running' ? 'quickforge-tool-label quickforge-tool-running-sweep' : this.toolName === 'run_command' && isRecord(result?.details) && result.details.background === true ? 'quickforge-tool-label line-through' : 'quickforge-tool-label'}>{t(this.labelKey)}{summary ? <span className="quickforge-tool-summary-detail text-muted-foreground"> · {summary}</span> : null}</span>
+                  {renderToolChevron()}
+                  {(this.toolName === 'write_file' || this.toolName === 'edit_file') ? renderInlineDiffStats(diff) : null}
+                  {status === 'running' ? null : renderStatus(status, timing)}
+                </span>
+              </summary>
+            </ToolDetails>
+            <span className="quickforge-tool-actions inline-flex shrink-0 items-center gap-1">
+              {renderTerminateCommandButton(this.toolName, status, result?.details)}
+            </span>
+          </div>
+          <div className="quickforge-tool-panel mt-3 min-w-0 max-w-full space-y-3">
+            {input ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('input')}</div>{renderCodeBlock(input, 'json')}</div> : null}
+            {output ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('output')}</div>{this.toolName === 'run_command' ? renderConsoleBlock(output, variant, runCommandLogContext(params, result)) : renderCodeBlock(output, 'text')}</div> : null}
+            {typeof diff?.text === 'string' ? renderDiff(diff, isNewFile) : null}
+            {details ? <div><div className="mb-1 text-xs font-medium text-muted-foreground">{t('details')}</div>{renderCodeBlock(details, 'json')}</div> : null}
+          </div>
         </div>
       ),
     }

@@ -1139,21 +1139,36 @@ export async function createAgent(sessionId, config = {}) {
   return session
 }
 
+/**
+ * 回滚起点：删除该索引处的消息及其之后的所有消息。
+ *
+ * 回滚永远可用，不做「找不到锚点就拒绝」的限制：
+ * - 点击 user 消息 → 以它自身为锚点；
+ * - 点击其他角色（assistant / toolResult / 孤立轮）→ 回退到本轮开头的 user，
+ *   找不到（例如报错产生的孤立轮）就以该消息自身为截断点。
+ * 索引会 clamp 到有效范围（UI 窗口数组与权威消息数组可能瞬时错位），
+ * 仅当会话没有任何消息或输入不是有限数时返回 -1（无操作）。
+ * 与前端 src/lib/message-utils.ts 保持同构。
+ */
 export function rollbackStartIndexFromMessage(messages, messageIndex) {
-  let rollbackIndex = Number(messageIndex)
-  if (!Number.isInteger(rollbackIndex) || rollbackIndex < 0 || rollbackIndex >= messages.length) return -1
+  if (!Array.isArray(messages) || messages.length === 0) return -1
 
-  if (messages[rollbackIndex]?.role === 'assistant') {
-    for (let index = rollbackIndex - 1; index >= 0; index--) {
-      if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
-        rollbackIndex = index
-        break
-      }
-    }
+  const requested = Number(messageIndex)
+  if (!Number.isFinite(requested)) return -1
+
+  const rollbackIndex = Math.max(0, Math.min(Math.trunc(requested), messages.length - 1))
+  const message = messages[rollbackIndex]
+  if (!message) return -1
+
+  if (message.role === 'user' || message.role === 'user-with-attachments') {
+    return rollbackIndex
   }
 
-  const message = messages[rollbackIndex]
-  if (!message || (message.role !== 'user' && message.role !== 'user-with-attachments')) return -1
+  for (let index = rollbackIndex - 1; index >= 0; index--) {
+    if (messages[index].role === 'user' || messages[index].role === 'user-with-attachments') {
+      return index
+    }
+  }
   return rollbackIndex
 }
 
@@ -1179,10 +1194,10 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
   }
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
-  const rollbackIndex = rollbackStartIndexFromMessage(messages, rollbackMessageIndex)
-  if (rollbackIndex < 0) {
-    throw Object.assign(new Error('There is no conversation turn to roll back.'), { statusCode: 400 })
-  }
+  // 回滚不再有「没有可回滚的对话轮次」的拒绝路径：索引已由
+  // rollbackStartIndexFromMessage clamp 到有效范围；空会话（-1）视为无操作，
+  // 保持幂等成功（客户端只是与权威数组瞬时错位，静默收敛）。
+  const rollbackIndex = Math.max(0, rollbackStartIndexFromMessage(messages, rollbackMessageIndex))
 
   const nextMessages = messages.slice(0, rollbackIndex)
   updateSessionMessages(session, nextMessages)

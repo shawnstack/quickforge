@@ -1,6 +1,61 @@
 {
   "features": [
     {
+      "id": "dreaming-prune-settings-and-auto-delete",
+      "title": "梦境记忆：冷笔记阈值进高级配置，新增到期自动删除",
+      "status": "done",
+      "summary": "把原来硬编码在 runner.mjs 的 NOTE_PRUNE_MIN_NOTES=40 / NOTE_UNUSED_DAYS=60 提升为 dreaming 设置的四个字段（pruneMinNotes 1–500、pruneUnusedDays 1–3650、pruneMaxRecalls 0–1000、pruneStaleNotes 布尔），并在设置的「高级配置」折叠区里暴露为开关 + 三个数字输入（失焦/Enter/步进提交，越界按服务端同范围 clamp）。判定口径：created_at 距今 ≥ pruneUnusedDays 且 recall_count ≤ pruneMaxRecalls。两种模式：pruneStaleNotes=false（默认）时冷笔记仍只作为 ## Never recalled 候选段交给模型裁决，且需笔记数 ≥ pruneMinNotes；开启后改为规则先删——在模型调用之前把冷笔记从 DREAMING.md 移除（模型无否决权），被删条目记入 run 的 operations.pruned、计入 retiredCount 与 summary（「其中到期自动删除 N 条」），运行详情单列一组「到期自动删除」并注明不是模型判断，同时不再生成候选段。没有 stat 行的手写笔记年龄未知，永不自动删除；stats 读取失败降级为「没有冷笔记」，不会误删。",
+      "files": [
+        "server/dreaming/settings.mjs",
+        "server/dreaming/runner.mjs",
+        "server/sqlite/dreaming-repository.mjs",
+        "src/components/dreaming/DreamingSettingsTab.tsx",
+        "src/components/dreaming/dreaming-data.ts",
+        "src/styles/settings/dreaming.css",
+        "src/lib/i18n.ts",
+        "tests/server/dreaming-memory.test.mjs",
+        "tests/server/dreaming-runner.test.mjs",
+        "tests/server/routes/dreaming.test.mjs",
+        "tests/server/routes/dreaming-detail.test.mjs",
+        "tests/frontend/dreaming-prune-settings.test.ts",
+        "docs/architecture/dreaming-memory.zh-CN.md",
+        "docs/wiki/server/README.md"
+      ],
+      "verification": "npx vitest run（dreaming-memory / dreaming-runner / routes/dreaming / routes/dreaming-detail）→ 4 files / 68 tests 全过；npx vitest run tests/frontend/dreaming-prune-settings.test.ts → 4 tests 全过；npx tsc -b → 0 错误；npm run lint → 0 problems；npm run build → 成功",
+      "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "rollback-orphan-assistant-turn",
+      "title": "回滚拒绝路径清零：任何索引都能回滚，不再弹「没有可回滚的对话轮次」",
+      "status": "done",
+      "summary": "彻底去掉对话回滚的「没有可回滚的对话轮次」限制。根因：回滚按钮挂 user 行并传全量 index，但 performRollback 读的权威消息数组与 UI 窗口数组可能瞬时错位（压缩替换/乐观尾插/会话切换），index 落到 toolResult 或越界时 rollbackStartIndexFromMessage 返回 -1 被当作拒绝。最终实现：前后端两份 rollbackStartIndexFromMessage 同构改写——索引 clamp 到 [0, length-1]，user 以自身为锚点，其他角色（assistant/toolResult/孤立报错轮）统一向前找本轮 user、找不到以自身截断，仅空会话或非有限数返回 -1（无操作语义，调用方静默返回，不弹窗）；服务端 rollbackSessionMessages 删除 400 拒绝分支（-1 clamp 为 0，空会话幂等）；前端 performRollback 与分享页两处删掉弹窗守卫并防御 rollbackMessage 为 undefined；i18n 删除 noConversationTurnToRollback 死 key（en/zh）。",
+      "files": [
+        "src/lib/message-utils.ts",
+        "server/agent-manager.mjs",
+        "src/hooks/useChatActions.ts",
+        "src/components/share/SharedConversationPage.tsx",
+        "src/lib/i18n.ts",
+        "tests/frontend/message-utils.test.ts",
+        "tests/server/rollback-start-index.test.mjs"
+      ],
+      "verification": "npx vitest run（message-utils / rollback-start-index / agent-manager-exports-contract / agent-manager.rollback-compaction / share-store.rollback-atomic / chat-surface-render）→ 6 files / 50 tests 全过；i18n 快照 2 files / 15 tests 全过；npx tsc -b → 0 错误；eslint 改动文件 → 0 problems；npm run build → 成功",
+      "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "dreaming-run-detail-shadcn-ui",
+      "title": "梦境记忆「运行详情」UI 重构（参考 shadcn）",
+      "status": "done",
+      "summary": "运行详情从「一张卡里平铺徽标+行内指标+纯文本列表+无样式 pre」重构为 shadcn 卡片结构：页头（返回历史 + 标题 + 时间/字符 meta + 右侧状态/触发/模型/语言徽标）、统计瓦片条（读取会话/新增/移除/丢弃/耗时/字符数，新增-移除-丢弃复用 metrics 语义色着色，丢弃为 0 不占格；与总览卡共用新抽取的 StatStrip 组件）、正文（失败原因为浅色 destructive 告警条带 AlertTriangle 图标；新增 run.summary 结论段——此前详情页根本不显示结论；变更明细改为 +/−/✕ 行 diff，每行 tone 只落在标记与分组标题上、正文保持 foreground 可读，丢弃行把 reason 从正文括号里拆成独立 muted 小字；无变更显示空态文案）、折叠的模型原始响应（补上死类名 quickforge-dreaming-raw → 复用 .quickforge-dreaming-code 等宽代码块，并把 rawResponseDescription 说明接入 SectionToggle，SectionToggle 展开区补 px-5 对齐）、页脚 hairline 区放「恢复这些笔记」与提示。i18n 全部复用既有 key（含此前未用的 dreamingRunBack/dreamingRunSummary/dreamingRunNoOperations），无新增文案。附静态高保真预览 docs/design/dreaming-run-detail.html（token 与组件样式同源拷贝，深浅色可切换，成功/失败两个变体）。",
+      "files": [
+        "src/components/dreaming/DreamingSettingsTab.tsx",
+        "src/styles/settings/dreaming.css",
+        "docs/architecture/dreaming-memory.zh-CN.md",
+        "docs/design/dreaming-run-detail.html"
+      ],
+      "verification": "npx tsc -b → 0 错误；npx eslint src/components/dreaming/DreamingSettingsTab.tsx → 0 problems；npx vitest run tests/frontend（全量）→ 267 files / 3220 passed；npm run build → 成功",
+      "updatedAt": "2026-10-28"
+    },
+    {
       "id": "chat-message-windowing",
       "title": "对话消息渲染窗口化默认开启（长会话只挂载最近 3 轮）",
       "status": "done",
@@ -930,6 +985,24 @@
       ],
       "verification": "npx tsc -b → 0 错误；npx eslint 改动文件 → 0 problems；npx vitest run 压缩+设置 8 个测试文件 → 84 passed（auto-compaction 20、auto-compaction-history 4、auto-compaction-notice 7、agent-compaction 15、conversation-compaction 11、settings-normalizers 9、default-options-settings-tab 5、default-options-settings-react 13）。",
       "updatedAt": "2026-10-28"
+    },
+    {
+      "id": "run-command-stop-button-inline",
+      "title": "运行中命令卡停止按钮跟随摘要行内排列",
+      "status": "done",
+      "summary": "本地工具卡改为 quickforge-tool-header（details 仅包 summary + 终止按钮）与 quickforge-tool-panel 分层：有终止按钮时标题行按内容收缩，按钮始终紧跟摘要末尾；展开面板作为兄弟节点铺满整行，可见性由 details[open] 驱动，因此展开日志、超长命令都不会把按钮推回行尾。无按钮的普通工具行与收起态点击热区保持原样。",
+      "files": [
+        "src/lib/tool-renderers/local-workspace-tool-renderer.tsx",
+        "src/styles/chat/tool-summary.css",
+        "src/styles/chat/tool-output.css",
+        "tests/frontend/local-tool-running-sweep.test.ts",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run 工具渲染器与 CSS 契约 8 个文件 → 187 passed；npx eslint 改动源码/测试 → 0 problems；npm run build → 成功。真实渲染实测：收起态与展开态 header 均 200px（整行 624px），停止按钮距箭头 5px、位置不随展开变化；展开面板 624px；完成态无按钮、header 占满整行。未创建 Git commit。",
+      "updatedAt": "2026-10-29"
     }
   ]
 }

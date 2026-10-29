@@ -187,6 +187,8 @@ slot props 契约（前端传给节点求值上下文）：
 
 前端启动拉一次，之后靠事件响应的 `slots` 做局部覆盖；`POST /api/plugins/reload` 后强制重拉。
 
+`GET /api/plugins/ui` 是只读快照端点，与仓库基线一致（`/api/plugins`、`/api/tools` 等 GET 均不单独鉴权）；有副作用或写状态的端点必须鉴权：`POST /api/plugins/:name/ui`、`GET|PUT /api/plugins/:name/kv` 走 `assertAppClient`（`isAuthenticatedAppClient`），远端未授权返回 403。
+
 ---
 
 ## 7. 插件侧运行时契约
@@ -236,6 +238,7 @@ export function createPlugin(ctx) {
 - 只返回 `html/js/css/json/png/jpg/svg/woff2` 白名单类型，其它 404。
 - 禁止目录列表；`..`、绝对路径、`\0` 一律 400。
 - 只在插件 `enabled && status === 'loaded'` 时可用。
+- `text/html` 响应必须带 `Content-Security-Policy: sandbox allow-scripts` 响应头：即使插件 HTML 被顶层窗口直接打开（而非 iframe），也会被强制进入 unique origin，拿不到宿主同源权限（P2 纵深防御）。
 
 ### 8.2 iframe 约束
 

@@ -65,7 +65,7 @@ describe('dreaming schema v18', () => {
       durationMs: 1000,
     })
     expect(finished).toMatchObject({ status: 'succeeded', sessionCount: 2, createdCount: 3, retiredCount: 1 })
-    expect(finished.operations).toEqual({ added: ['a'], removed: ['b'], dropped: [], notesAfter: null })
+    expect(finished.operations).toEqual({ added: ['a'], removed: ['b'], dropped: [], pruned: [], notesAfter: null })
     expect(repository.latestSucceededPeriodTo()).toBe(1000)
     expect(repository.countRuns()).toBe(1)
     expect(repository.listRuns()).toHaveLength(1)

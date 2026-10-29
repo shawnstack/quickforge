@@ -11,6 +11,7 @@ import {
   runDreaming,
 } from '../../server/dreaming/runner.mjs'
 import { normalizeDreamingSettings } from '../../server/dreaming/settings.mjs'
+import { composeAutoSection, noteIdOf } from '../../server/dreaming/notes.mjs'
 
 // Hermetic settings: the real module writes `~/.quickforge/config/settings.json`.
 const settingsState = { current: normalizeDreamingSettings(null) }
@@ -287,6 +288,114 @@ describe('dreaming runner', () => {
     // Every note looks "never recalled" on a short list, so the section is omitted
     // rather than asking the model to consider deleting everything.
     expect(modelReply.prompt).not.toContain('Never recalled')
+  })
+
+  it('deletes stale notes before the model runs when automatic pruning is on', async () => {
+    const day = 24 * 60 * 60 * 1000
+    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneStaleNotes: true })
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = '- 一\n- 二'
+    await runDreaming({ trigger: 'manual', now: 10_000, repository })
+
+    const later = 10_000 + 61 * day
+    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
+    memoryWrites.length = 0
+    // The model would have kept both; the rule removed them first, so it decides
+    // on an empty list and cannot veto the deletion.
+    modelReply.text = '- 一\n- 二'
+    const second = await runDreaming({ trigger: 'manual', now: later, repository })
+
+    expect(second.run.status).toBe('succeeded')
+    expect(second.run.operations.pruned).toEqual(['一', '二'])
+    expect(second.run.retiredCount).toBe(2)
+    expect(second.run.summary).toContain('到期自动删除 2 条')
+    expect(modelReply.prompt).toContain('the list is empty')
+    // Pruning is a rule: the candidate section would only restate it.
+    expect(modelReply.prompt).not.toContain('Never recalled')
+    // Two writes: the prune, then the model's rewrite of the emptied list.
+    expect(memoryWrites).toHaveLength(2)
+    expect(memoryWrites[0]).not.toContain('一')
+  })
+
+  it('keeps a stale note that was recalled more often than allowed', async () => {
+    const day = 24 * 60 * 60 * 1000
+    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneStaleNotes: true, pruneMaxRecalls: 0 })
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = '- 一\n- 二'
+    await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    repository.recordNoteRecall([{ id: noteIdOf('一'), text: '一' }], 12_000)
+
+    const later = 10_000 + 61 * day
+    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
+    modelReply.text = '- 一\n- 二'
+    const second = await runDreaming({ trigger: 'manual', now: later, repository })
+
+    expect(second.run.operations.pruned).toEqual(['二'])
+    expect(modelReply.prompt).toContain('- 一')
+  })
+
+  it('never auto-deletes a note whose age is unknown', async () => {
+    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneStaleNotes: true })
+    // A hand-edited line: no stats row exists, so "how old is it" has no answer.
+    // Deleting on a guess is worse than keeping a stale note.
+    notesState.content = composeAutoSection(['手写笔记'])
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = '- 手写笔记'
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+
+    expect(result.run.operations.pruned).toEqual([])
+    expect(result.run.retiredCount).toBe(0)
+    expect(modelReply.prompt).toContain('手写笔记')
+  })
+
+  it('honours the configured day threshold instead of a hardcoded 60', async () => {
+    const day = 24 * 60 * 60 * 1000
+    settingsState.current = normalizeDreamingSettings({
+      enabled: true,
+      pruneStaleNotes: true,
+      pruneUnusedDays: 7,
+      pruneMinNotes: 2,
+    })
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = '- 一\n- 二'
+    await runDreaming({ trigger: 'manual', now: 10_000, repository })
+
+    const later = 10_000 + 8 * day
+    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
+    modelReply.text = '- 一\n- 二'
+    const second = await runDreaming({ trigger: 'manual', now: later, repository })
+
+    expect(second.run.operations.pruned).toEqual(['一', '二'])
+
+    // Below the configured threshold nothing is old enough yet.
+    settingsState.current = normalizeDreamingSettings({
+      enabled: true,
+      pruneStaleNotes: true,
+      pruneUnusedDays: 7,
+      pruneMinNotes: 2,
+    })
+    insertSession({ sessionId: 's3', messages: SAMPLE_MESSAGES, updatedAtMs: later + 5 * day - 1000 })
+    modelReply.text = '- 一\n- 二'
+    const third = await runDreaming({ trigger: 'manual', now: later + 5 * day, repository })
+    expect(third.run.operations.pruned).toEqual([])
+  })
+
+  it('uses the configured candidate threshold when pruning is off', async () => {
+    const day = 24 * 60 * 60 * 1000
+    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneMinNotes: 2, pruneUnusedDays: 30 })
+    insertSession({ messages: SAMPLE_MESSAGES })
+    modelReply.text = '- 一\n- 二'
+    await runDreaming({ trigger: 'manual', now: 10_000, repository })
+
+    const later = 10_000 + 31 * day
+    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
+    modelReply.text = '- 一\n- 二'
+    await runDreaming({ trigger: 'manual', now: later, repository })
+
+    // Two notes clear a threshold of 2, and 31 days clears 30 — both configurable,
+    // where the old hardcoded 40/60 would have omitted the section entirely.
+    expect(modelReply.prompt).toContain('Never recalled')
+    expect(modelReply.prompt).toContain('(31 days) 一')
   })
 
   it('keeps the notes usage table in step with the file', async () => {

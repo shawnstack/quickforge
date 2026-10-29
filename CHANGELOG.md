@@ -4,13 +4,53 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [2.3.5] - 2026-10-29
+
+### Added
+
+- Dreaming (background memory consolidation): a daily run reads a window of recent sessions and rewrites `~/.quickforge/DREAMING.md` wholesale as one bullet list (`- [kind] text`, ≤300 characters per line, ≤60 lines, ≤3800 bytes, truncated from the tail and counted as `dropped`). Notes are injected into every system prompt as their own `<dreaming_memory>` block next to `<global_user_memory>`, `recall_experience` filters them by substring and `[kind]`, and every run is recorded with a line diff (`added`/`removed`/`dropped`), an optional full snapshot for rollback, and a churn warning when more than 80% of a list of at least five notes changed. A reply that contains no bullet at all fails the run and writes nothing, while a genuinely empty reply is allowed to clear the list.
+- Dreaming settings page with an overview (status, next/last run, notes in effect), a notes tab (recall counts, delete a single note, run history) and settings (model, execution time, memory language, sensitive content), plus a per-run detail view that renders the diff in groups alongside the model's raw reply and a restore action.
+- Dreaming pruning is user-configurable: `pruneMinNotes` (1–500), `pruneUnusedDays` (1–3650), `pruneMaxRecalls` (0–1000) and `pruneStaleNotes` sit under an "advanced" disclosure. With the switch off, stale notes are only offered to the model as `## Never recalled` candidates; with it on, notes older than N days and recalled at most M times are removed from the file before the model runs, recorded as `operations.pruned` and shown as their own diff group. Hand-written notes without a usage row are never auto-deleted, a failed stats read degrades to "nothing is stale", and a failed write leaves the list untouched.
+- Plugin UI extension (plugin API v2): manifests can declare `contributes.ui` with slots, restricted node trees (13 whitelisted types, `$slot`/`$state` references, depth/count/size limits, unknown types dropped rather than thrown), declarative actions whose `ui:*` permission is derived from the declared slots, `getSlots` runtime overrides with a 2 s timeout, key/value storage per plugin (64 KB total, 8 KB per value) and iframe panels served from a whitelisted assets route (`sandbox="allow-scripts"` without `allow-same-origin`, `no-referrer`, iframe-src pinned by test, CSP `sandbox` on HTML). Plugins can insert UI, never rewrite it: no overrides, no CSS injection, no host React.
+- Built-in `plugin-creator` skill (manifest, ui-slots and examples references plus scaffold and validate scripts) and a disabled `hello-ui` example plugin covering both a DSL slot and a sandboxed panel.
+- Message rendering is windowed by default: a long session mounts three turns per window and pages in both directions (`loadMore` above, `loadNewer` below). The window only grows — `endOrdinal` moves forward — so the row being read stays in the DOM and the scroll anchor always resolves instead of snapping to the end.
+- Every context compaction now leaves its own marker: `contextCompaction.history[]` keeps up to 20 entries with the exact `occurredAtIndex`, source message count, usage before and threshold. Markers outside the rendered window are clamped to the nearest row instead of disappearing, and older markers are labelled as merged into a later summary.
+- Rolling a turn back is in-place editing: the message becomes an editor, the messages that would be removed fade out behind a divider, and sending truncates and resends in one step without a confirmation dialog.
+- `recall_experience` results render as a dedicated tool card (matched notes, kind tags, counts) instead of raw JSON.
+
 ### Changed
 
+- `MEMORY.md` (hand-written) and `DREAMING.md` (Dreaming-owned) are two independent files, each injected as its own prompt block. The `<!-- dreaming:auto:begin/end -->` marker section, the read-merge-write path and the class of bugs that came with it are gone; saving `MEMORY.md` can no longer touch Dreaming's notes.
+- The structured memory experiment was removed rather than grown: the `memories`, `memories_fts`, `memory_events` and `memory_embeddings` tables (migration v17 drops them, old rows are not migrated), the embedding client and vector store, fingerprints, confidence/strength decay, the 30-day half-life, `memory_events` auditing, FTS5 bm25 plus RRF fusion and the embeddings backfill route. Recall is substring filtering over a list short enough to be injected whole.
+- Automatic compaction lost its non-structural gates: the 1600-character minimum source, the 30-second minimum interval and the 10-minute suppression after a rejection are gone from both the server and the settings normaliser. What remains is structural — at least two compressible messages and new content since the last compaction. Declining a compaction now only skips that one attempt, and `/summary` no longer silently does nothing on short sessions.
+- Settings navigation follows shadcn conventions: `h-8 rounded-md px-2 text-sm` menu rows, a `--sidebar-accent` selection without a shadow, `text-xs` group titles, and segmented in-page switches instead of a second underline tab row.
+- Local tool cards are two layers now: a header holding `<details><summary>` and the stop button, and a full-width panel outside `details`. The stop button follows the summary inline and stays there while the panel is open, instead of being pushed to the far right of the row.
+- Dreaming model options no longer repeat the provider when the model name already contains it, and models with a null ref are not listed (their empty value collided with the "follow the conversation model" option).
 - The composer task list is expanded by default, and a running round now shows a "working on" line above the list instead of a single `2/5` summary that only appeared after a click. Per-status counts are deliberately not rendered: every row already carries its own status, so a separate tally (including the useless "0 pending / 0 in progress") was only noise.
 - A fully completed task list no longer auto-collapses. It stays expanded so the finish is readable, and leaves the composer as soon as the agent is idle, after one exit fade. Retirement keys off `isStreaming === false` rather than the one-shot `agent_end` event, so a finished list is also gone after a reload, a session switch or a resume — not just in the session where the round ended. The `todo_write` results themselves stay in the conversation, so the per-call history card still shows the final list. Any round with unfinished items keeps the capsule.
 - The three todo states now share one definition (`src/lib/todo-status.ts` / `todo-status-icon.tsx`) across the composer capsule, the pinned summary task section, and the `todo_write` history card. The pinned summary previously used `CheckCircle2`/`Clock3` with an `amber-600` "in progress" colour that appeared nowhere else in the todo surfaces.
 - Todo summary motion now uses the shared `--quickforge-dur-*` / `--quickforge-ease-out` tokens, and the per-item `nth-child` fade stagger is gone (the design language forbids per-item waterfalls; only opacity fades are allowed).
 - The "in progress" glyph is now a quarter arc spinning on a dimmed track ring instead of a static half-filled circle that breathed. The half-filled circle read as a fixed 50% progress, and the breathing scaled the whole glyph so the row's text pulsed with it. Only the arc rotates; the `todo_write` history card keeps the static shape because an in-progress row in a past snapshot is history, not work in flight. Under `prefers-reduced-motion` the spin stops and the track lightens to a 3/4 ring, so the state never collapses into the hollow "pending" circle.
+
+### Fixed
+
+- Rollback no longer returns "There is no conversation turn to roll back". The start index is clamped to the message range and every role anchors to its own turn (or to itself when it has no preceding user message), so a UI window that is momentarily out of step with the authoritative array truncates instead of refusing; an empty session is a no-op on both sides.
+- Windowed scrolling no longer bounces to the bottom on the way up or jumps to the end on the way down: `loadMore` widens the window instead of sliding it, `resumeTail` no longer shrinks it, and the fallback for an unresolved anchor compensates for the height added above the viewport.
+- Writing session metadata (title, pin, and the like) no longer overwrites `contextCompaction` with a flat record and drops its summary and history; metadata is merged field by field.
+- Shared conversation snapshots sanitise every compaction summary in the history, not just the top-level one, and events are sanitised whenever a compaction exists.
+- `run_workflow` failures collapse to an icon-only toggle (with the failure-step locator inside the expanded panel) and phase logs stay collapsed by default, instead of the error text pushing the phases out of view.
+- "Show more" in a project section shares the session row class, so its left edge lines up with the session titles in both the expanded and collapsed sidebar.
+- Deleting the last note on a page no longer leaves the pager on an empty page, and Dreaming list buttons no longer wrap onto two lines when the row content is long.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.5` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.5.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.5.tgz
+  ```
 
 ## [2.3.4] - 2026-10-27
 

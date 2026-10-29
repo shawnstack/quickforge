@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## release-2-3-5（done，2026-10-29）
+
+- Current Objective（当前目标）：执行「发布一个小版本」，把 dev 上未发布的内容发成 patch 版本。
+- 结论（一句话）：2.3.5 已就绪并推送 `origin/dev` + tag `v2.3.5`，npm tarball 已生成，只差用户手动 `npm publish`。
+- 改动文件：`package.json`、`package-lock.json`（2.3.5）、`CHANGELOG.md`（新增 [2.3.5]，[Unreleased] 条目并入）、`README.md`（当前版本 2.3.5）、`feature_list.json`、`progress.md`、本文件。生成产物 `dist/`、`package-dist/`、`package-offline/`（含 `shawnstack-quickforge-2.3.5.tgz`）未纳入提交。
+- 验证：`npm run test` → 455 files / 5323 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功（6.37s）；`npm pack` → 7.9 MB packed / 24.0 MB unpacked / 578 files。
+- 下一步：`cd package-offline && npm publish --access public`（需先 `npm login`）；发布后 `npm view @shawnstack/quickforge version`。
+- Note：未同步 `master`（仍停在 v2.0.0），与 2.3.4 发布时一致。
+
 ## dreaming-prune-settings-and-auto-delete（done，2026-10-29）
 
 - Current Objective（当前目标）：把 `NOTE_PRUNE_MIN_NOTES=40` / `NOTE_UNUSED_DAYS=60` 放进梦境记忆的「高级配置」，并新增「到期自动删除」。

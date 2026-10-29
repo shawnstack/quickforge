@@ -2,6 +2,31 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## release-2-3-5（done，2026-10-29）
+
+- 触发：「发布一个小版本」。
+- 结论（一句话）：把 v2.3.4 之后 dev 上的 7 个提交以 **2.3.5** 发布——版本递增、CHANGELOG/README 更新、test/lint/build 硬门禁通过、runtime/offline 包与 tarball 生成、release commit + tag `v2.3.5` 推送 `origin/dev`；`npm publish` 按 runbook 留给用户手动执行。
+- 发布内容概要：
+  1. Dreaming 记忆沉淀（`~/.quickforge/DREAMING.md` 单一 bullet 列表、每日定时、运行历史与 line diff、快照回滚、`recall_experience`、设置页概览/笔记/设置三段）。
+  2. Dreaming 冷笔记阈值进「高级配置」+ 到期自动删除（`pruneStaleNotes` / `pruneMinNotes` / `pruneUnusedDays` / `pruneMaxRecalls`，`operations.pruned`）。
+  3. 插件 UI 扩展（plugin API v2 `contributes.ui`、13 种白名单节点 DSL、slot/action/KV/audit、iframe 沙箱面板与 assets 路由 CSP、`plugin-creator` skill、`hello-ui` 示例）。
+  4. 消息渲染窗口化默认开启 + 双向分页（窗口只增不减）。
+  5. 每次压缩一条留痕线（`contextCompaction.history[]`、`occurredAtIndex` 锚定、窗口外双向钳制）。
+  6. 回滚改为就地编辑并直接重发；回滚拒绝路径清零（索引 clamp + 轮锚定）。
+  7. 本地工具卡 header + panel 两层，停止按钮紧跟摘要；设置导航 shadcn 重排；自动压缩非结构性门槛移除。
+- 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证 / Evidence：
+  - `npm run test` → 455 files / 5323 passed / 2 skipped（串行复跑，退出码 0）。首次与 lint 并行跑出现 1 例时序抖动（vitest 只报计数、未打印到 tail 段），串行复跑全绿，按既有 flaky 处理。
+  - `npm run lint` → `eslint .` 无输出（0 problems）。
+  - `npm run build` → 成功（`✓ built in 6.37s`，仅既有 >500kB chunk 提示）。
+  - `node scripts/prepare-runtime-package.cjs` → `package-dist/`（package.json 版本 2.3.5）。
+  - `node scripts/prepare-offline-package.cjs` → `package-offline/`（package.json 版本 2.3.5）。
+  - `cd package-offline && npm pack` → `shawnstack-quickforge-2.3.5.tgz`（7.9 MB packed / 24.0 MB unpacked / 578 files、shasum `df210d9b…`）。
+- Notes：
+  - `[Unreleased]` 里原有的 5 条 Composer 任务清单改动在 2.3.4 之前就已写入但未转正，本次一并并入 2.3.5 的 Changed。
+  - 未推送 `master`（本地 master 仍停在 `9ded6c0 chore(release): v2.0.0`），与 2.3.4 的发布方式一致，只推 `origin/dev` 与 tag。
+  - 未执行 `npm publish`；离线包与 tarball 均在 `.gitignore` 覆盖的生成目录内，不进入提交。
+
 ## dreaming-prune-settings-and-auto-delete（done，2026-10-29）
 
 - 反馈：「`NOTE_PRUNE_MIN_NOTES=40 / NOTE_UNUSED_DAYS=60` 希望可以在梦境的高级配置里面设置，然后增加到期自动删除的功能」。

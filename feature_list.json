@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "release-2-3-5",
+      "title": "v2.3.5 小版本发布",
+      "status": "done",
+      "summary": "按 docs/architecture/patch-release-runbook.zh-CN.md 把 v2.3.4 之后 dev 上的 7 个提交发布为 2.3.5：package.json / package-lock.json 递增到 2.3.5；CHANGELOG 新增 [2.3.5] 章节（把 [Unreleased] 的 5 条任务清单条目并入 Changed，并按 v2.3.4..HEAD 实际内容补齐 Added/Changed/Fixed/Released）；README 当前版本徽章同步；test/lint/build 硬门禁通过；生成 runtime 包、离线包与 npm tarball；release commit + tag v2.3.5 推送 origin/dev。默认不执行 npm publish，留给用户在 package-offline 下手动发布。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 455 files / 5323 passed / 2 skipped（串行复跑；首次与 lint 并行时出现 1 例时序抖动，单跑复跑全绿）；npm run lint → 0 problems；npm run build → 成功（built in 6.37s，仅既有 >500kB chunk 提示）；node scripts/prepare-runtime-package.cjs、node scripts/prepare-offline-package.cjs → package-dist / package-offline 版本 2.3.5；cd package-offline && npm pack → shawnstack-quickforge-2.3.5.tgz（7.9 MB packed / 24.0 MB unpacked / 578 files）。",
+      "updatedAt": "2026-10-29"
+    },
+    {
       "id": "dreaming-prune-settings-and-auto-delete",
       "title": "梦境记忆：冷笔记阈值进高级配置，新增到期自动删除",
       "status": "done",

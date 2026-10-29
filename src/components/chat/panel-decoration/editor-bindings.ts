@@ -46,6 +46,11 @@ export function decorateComposerTextAttachmentTile(
       // 持久劫持点击（不能 once：第二次点击会落回自带的附件预览），
       // 每 tile 只安装一个读取当前路径的监听。
       tile.addEventListener('click', (clickEvent) => {
+        // 删除按钮必须保留自己的点击语义：这里是捕获阶段，tile 又在 React
+        // 事件根之下，一旦 stopPropagation，事件既到不了按钮 target 也冒泡
+        // 不回根节点，`onDelete` 永远不会执行（表现为粘贴的文本附件删不掉）。
+        const target = clickEvent.target as Element | null
+        if (target?.closest?.('.qf-attachment-tile-remove')) return
         clickEvent.stopPropagation()
         const currentPath = tile.dataset.quickforgeTextAttachmentPath
         if (currentPath) onOpenLocalFilePath?.(currentPath)

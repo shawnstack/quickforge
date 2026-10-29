@@ -58,17 +58,21 @@ describe('editor bindings', () => {
   })
 })
 
+type FakeTileClickEvent = { target: Element | null; stopPropagation: () => void }
+
 class FakeTile {
   dataset: Record<string, string> = {}
   attributes = new Map<string, string>()
   listeners: string[] = []
+  handlers: Array<(event: FakeTileClickEvent) => void> = []
 
   setAttribute(name: string, value: string) {
     this.attributes.set(name, value)
   }
 
-  addEventListener(type: string) {
+  addEventListener(type: string, handler: (event: FakeTileClickEvent) => void) {
     this.listeners.push(type)
+    this.handlers.push(handler)
   }
 }
 
@@ -139,6 +143,32 @@ describe('composer text attachment tile decoration', () => {
     expect(timeouts).toHaveLength(0)
     expect(frames).toHaveLength(0)
     expect(windowStub.cancelAnimationFrame).not.toHaveBeenCalled()
+  })
+
+  it('leaves clicks on the remove button alone so the attachment can be deleted', () => {
+    const tile = new FakeTile()
+    stubTimers()
+    const onOpenLocalFilePath = vi.fn()
+    decorateComposerTextAttachmentTile(editorWith(tile, () => true), '/tmp/pasted.txt', onOpenLocalFilePath)
+
+    const [handler] = tile.handlers
+    // 捕获阶段的 stopPropagation 会让按钮永远收不到点击，这里必须放行。
+    const removeTarget = {
+      closest: (selector: string) => (selector === '.qf-attachment-tile-remove' ? {} : null),
+    } as unknown as Element
+    const stopOnRemove = vi.fn()
+    handler({ target: removeTarget, stopPropagation: stopOnRemove })
+
+    expect(stopOnRemove).not.toHaveBeenCalled()
+    expect(onOpenLocalFilePath).not.toHaveBeenCalled()
+
+    // 点 tile 主体仍然是「在文件管理器中打开」。
+    const previewTarget = { closest: () => null } as unknown as Element
+    const stopOnPreview = vi.fn()
+    handler({ target: previewTarget, stopPropagation: stopOnPreview })
+
+    expect(stopOnPreview).toHaveBeenCalled()
+    expect(onOpenLocalFilePath).toHaveBeenCalledWith('/tmp/pasted.txt')
   })
 })
 

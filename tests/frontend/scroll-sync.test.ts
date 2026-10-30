@@ -112,6 +112,51 @@ describe('scroll sync programmatic navigation', () => {
     end()
   })
 
+  it('pages at the bottom without re-arming the follow while newer turns are unmounted', () => {
+    // Regression: reaching the bottom edge both re-armed the follow AND asked
+    // for the next page. Inside a windowed list the "bottom" is the end of the
+    // MOUNTED rows, so re-arming pinned the viewport there and chained page
+    // after page — "scroll down" ran straight to the newest message.
+    const env = createEnv()
+    const onReachBottom = vi.fn()
+    const sync = createScrollSync({
+      panel: env.panel,
+      setAutoScroll: env.setAutoScroll,
+      canFollowTail: () => false,
+      onReachBottom,
+    })
+    sync.setup()
+    sync.disable()
+    env.setAutoScroll.mockClear()
+
+    env.scrollContainer.scrollTop = 900
+    env.dispatch('scroll')
+
+    expect(onReachBottom).toHaveBeenCalledTimes(1)
+    expect(env.setAutoScroll).not.toHaveBeenCalledWith(true)
+    expect(sync.isEnabled).toBe(false)
+  })
+
+  it('re-arms the follow once the window covers the tail', () => {
+    const env = createEnv()
+    const onReachBottom = vi.fn()
+    const sync = createScrollSync({
+      panel: env.panel,
+      setAutoScroll: env.setAutoScroll,
+      canFollowTail: () => true,
+      onReachBottom,
+    })
+    sync.setup()
+    sync.disable()
+    env.setAutoScroll.mockClear()
+
+    env.scrollContainer.scrollTop = 900
+    env.dispatch('scroll')
+
+    expect(onReachBottom).toHaveBeenCalledTimes(1)
+    expect(env.setAutoScroll).toHaveBeenLastCalledWith(true)
+  })
+
   describe('reading intent (fold disclosure toggles)', () => {
     it('detaches tail-following when a fold disclosure signals reading intent', () => {
       const env = createEnv()

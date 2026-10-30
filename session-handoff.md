@@ -1,5 +1,24 @@
 # Current Session Handoff
 
+## window-scroll-transaction（done，2026-10-29）
+
+- Current Objective（当前目标）：修掉「从下往上翻页回弹到底部、从上往下翻页直接到最下面」，按最优设计落地（视口保护裁剪 + 滚动事务），不做局部补丁。
+- 结论（一句话）：窗口上限降级为**目标值**且裁剪只落在 `setViewport()` 上报的可见区间之外；`scrollTop` 写入收敛到新增的 `scroll-owner.ts`（锚点行消失即 `blocked`，不再写旧值/回退 ordinal；`tail` 仅在 `coversTail()` 时生效）；四条分页/跳转路径统一走 `runWindowTransaction`，clamp 时回滚本次裁剪；`scroll-sync` 降级为意图探测（`getFollowing` / `canFollowTail` 由 surface 提供，触底只在窗口到末尾时恢复跟随）。
+- 改动文件：`src/components/chat/windowed-messages.ts`、`src/components/chat/scroll-owner.ts`（新）、`src/components/chat/scroll-sync.ts`、`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/ChatPanelHost.tsx`、`tests/frontend/{windowed-messages,scroll-owner(新),scroll-sync,chat-surface-behavior-alignment}.test.ts`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npm run test` → 462 files / 5372 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功。未创建 Git commit，未手工改生成产物。
+- 关键约束（别踩）：
+  - 裁剪**只允许**落在 `setViewport()` 上报区间之外；视口占满预算时允许超限。卸载在屏行必然丢锚点。
+  - `anchor` 意图只按绝对 `data-message-index` 解析；行消失 → `blocked`，**不要**回退 ordinal、**不要**写回旧 `scrollTop`（旧公式在内容变矮时退化为写旧值 → 被 clamp 到新底部）。
+  - 贴底条件只认 `coversTail()`（`endOrdinal >= turnCount`）；`isAtTail()` 回答的是「是否尾部窗口」，`atTail` 回答的是「最新轮是否在窗口内」，都不是贴底条件。
+  - `scroll-sync` 不得再自己决定跟随：触底只有在 `canFollowTail()` 时才 `setPanelAutoScroll(true)`，否则只 `onReachBottom()`。
+  - 分页必须走 `runWindowTransaction`（上报视口 → 冻结/保持跟随 → 捕获锚点 → 变更 → commit 内恢复 → resolve），不要在事件回调里直接写 `scrollTop`。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机长会话（>12 轮）连续上翻 10+ 页：每页都应停在同一阅读行，不出现回弹/跳底；再反向向下逐页翻回，不应一路滑到最新消息。
+  2. 流式回答期间上翻到历史（pinned）再滚回底部：应恢复跟随且只补一页，不应把中间轮次一次性挂载。
+  3. 轮次导航点最早一轮 → 向下翻页：逐页补出中间内容，落点不偏。
+  4. 若仍出现跳动，先在 DevTools 里看 `scroll-owner.apply` 的返回值（`blocked` / `clamped`）：`clamped` 说明裁剪仍过头，检查 `setViewport` 是否拿到可见行（`data-message-index` 是否已提交）。
+
 ## render-memory-and-attachment-boundary（done，2026-10-29）
 
 - Current Objective（当前目标）：按 P0–P3 治理浏览器内存与卡顿，不改变交互、不打补丁；一次性完成流式、首屏、窗口/快照、附件传输边界。

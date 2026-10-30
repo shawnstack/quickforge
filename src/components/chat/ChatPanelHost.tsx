@@ -996,6 +996,12 @@ export function ChatPanelHost({
     const scrollSync = createScrollSync({
       panel,
       setAutoScroll: (enabled) => surfaceRef.current?.setAutoScroll(enabled),
+      // The surface owns the follow flag and the window's right edge; scroll-sync
+      // only detects intent. Two copies of either fact drifted apart before and
+      // produced both reported symptoms (up-paging bouncing to the bottom, and
+      // down-paging running straight to the newest message).
+      getFollowing: () => surfaceRef.current?.isFollowing() ?? true,
+      canFollowTail: () => surfaceRef.current?.coversTail() ?? true,
       onReachTop: () => {
         // End the guard after loadMoreMessages restores scrollTop in the
         // window-commit layout callback, or immediately if it no-ops.

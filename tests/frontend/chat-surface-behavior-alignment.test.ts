@@ -71,12 +71,28 @@ describe('auto-scroll ownership', () => {
   it('does not keep a ChatSurface scroll listener; host scroll-sync owns follow', () => {
     expect(chatSurfaceSource).not.toContain('distanceFromBottom < 10')
     expect(chatSurfaceSource).not.toContain('lastScrollTopRef')
-    expect(chatSurfaceSource).toContain('autoScrollRef.current && messageWindow.atTail')
+    // Bottom pinning goes through the single scroll writer, gated on the
+    // window's right edge covering the conversation tail (not on "the window
+    // contains the newest user turn", which is also true for a paged-back
+    // window and used to yank the viewport to the bottom).
+    expect(chatSurfaceSource).toContain("scrollOwnerRef.current?.apply({ kind: 'tail' })")
+    expect(chatSurfaceSource).not.toContain('messageWindow.atTail &&')
     expect(hostSource).toMatch(
       /onReachTop:\s*\(\)\s*=>\s*\{[\s\S]*?beginProgrammaticScroll\(\)[\s\S]*?loadMoreMessages\(\)[\s\S]*?\.finally\(/,
     )
     expect(hostSource).not.toContain('requestAnimationFrame(endProgrammaticScroll)')
     expect(chatSurfaceSource).toContain('loadMoreMessages: () => Promise<void>')
+  })
+
+  it('lets the surface own the follow flag and the tail edge', () => {
+    // Two copies of either fact drifted apart: scroll-sync re-armed its own
+    // follow flag on any bottom-edge scroll (which pinned the viewport and
+    // chained pages to the newest message), and the surface pinned on a window
+    // that still had unmounted turns below it.
+    expect(chatSurfaceSource).toContain('isFollowing: () => autoScrollRef.current')
+    expect(chatSurfaceSource).toContain('coversTail: () => windowController.coversTail()')
+    expect(hostSource).toContain('getFollowing: () => surfaceRef.current?.isFollowing() ?? true')
+    expect(hostSource).toContain('canFollowTail: () => surfaceRef.current?.coversTail() ?? true')
   })
 })
 
@@ -184,7 +200,15 @@ describe('reading anchor across background history hydration', () => {
     const anchorSource = readFileSync(new URL('../../src/components/chat/scroll-anchor.ts', import.meta.url), 'utf8')
     expect(anchorSource).toContain('offsetFromTop: anchor.getBoundingClientRect().top - containerTop')
     expect(anchorSource).toContain('const delta = (retained.getBoundingClientRect().top - containerTop) - anchor.offsetFromTop')
-    expect(chatSurfaceSource).toContain('anchoredScrollTop(container, anchor)')
+    // The restore now lives in the single scroll writer, and a failed anchor
+    // resolution must NOT fall back to a stale `scrollTop` (that fallback is what
+    // parked the viewport at the bottom of the evicted window).
+    const scrollOwnerSource = readFileSync(new URL('../../src/components/chat/scroll-owner.ts', import.meta.url), 'utf8')
+    expect(scrollOwnerSource).toContain('anchoredScrollTop(container, anchor, { requireMessageIndex: true })')
+    expect(scrollOwnerSource).toContain('if (!retained) return \'blocked\'')
+    expect(scrollOwnerSource).toContain('if (anchor.messageIndex !== undefined && !indexedRow) return \'blocked\'')
+    expect(chatSurfaceSource).toContain("apply({ kind: 'anchor', anchor })")
+    expect(chatSurfaceSource).not.toContain('container.scrollHeight - heightBefore')
   })
 
   it('identifies the anchor by absolute message index, falling back to ordinal', () => {

@@ -23,11 +23,21 @@ export const WINDOW_PAGE_TURNS = 3
  * The initial tail window and a turn-navigation jump keep their small fixed
  * width; only paging widens the window, and it must not grow without bound:
  * every turn is a full DOM subtree (tool cards, markdown, highlighted code), so
- * scrolling a long conversation used to accumulate every visited turn. The cap
- * evicts the far edge relative to the reading position instead.
+ * scrolling a long conversation used to accumulate every visited turn.
+ *
+ * It is a TARGET, not a hard limit: eviction is only allowed outside the
+ * reported viewport (see `setViewport`). When the viewport alone fills the
+ * budget the window is allowed to exceed it — dropping a row the reader is
+ * looking at unloads the scroll anchor and bounces the viewport, which is far
+ * worse than mounting a few more subtrees.
  */
 export const WINDOW_MAX_TURNS = 12
-/** Content budget for the paged window; bounds a few pathologically large turns. */
+/**
+ * Content budget for the paged window; bounds a few pathologically large turns.
+ *
+ * Same rule as `WINDOW_MAX_TURNS`: a soft target, never paid for with a row
+ * that is currently on screen.
+ */
 export const WINDOW_MAX_CHARS = 160_000
 
 type MessageWindowOptions = {
@@ -50,6 +60,15 @@ export type MessageWindowController = {
    * decides whether a paged window keeps tracking the tail on its right edge.
    */
   setFullMessages(messages: AgentMessage[], followTail?: boolean): AgentMessage[]
+  /**
+   * Report the messages currently intersecting the scroll viewport.
+   *
+   * Eviction is only legal outside this range (see `WINDOW_MAX_TURNS`). The
+   * surface measures it from the DOM right before a window mutation, because
+   * that is the only moment the answer is needed and the measurement is cheap
+   * (one rect read per mounted row).
+   */
+  setViewport(range: { startMessageIndex: number; endMessageIndex: number } | null): void
   /** Full-array index of the first rendered message (used to offset rollback/retry indices). */
   getWindowStart(): number
   /** The window array currently rendered by `MessageList` (turn slice + required toolResults). */
@@ -67,6 +86,15 @@ export type MessageWindowController = {
    * anything would be dropped by re-slicing must ask this, not `atTail`.
    */
   isAtTail(): boolean
+  /**
+   * Whether the window's right edge reaches the end of the message array.
+   *
+   * This — not `isAtTail()` and not "contains the newest user turn" — is the
+   * only safe condition for pinning the viewport to the bottom: below this
+   * edge there are still unmounted turns, so `scrollHeight` is not the end of
+   * the conversation.
+   */
+  coversTail(): boolean
   /** Extend the window one page of turns back; returns the new window array (or null when nothing to load). */
   loadMore(): AgentMessage[] | null
   /** Whether newer turns exist beyond the window's right edge. */
@@ -80,6 +108,15 @@ export type MessageWindowController = {
    * the conversation that follows.
    */
   loadNewer(): AgentMessage[] | null
+  /**
+   * Put back the turns the last `loadMore`/`loadNewer` evicted.
+   *
+   * The surface calls this when restoring the reading anchor would have to
+   * clamp: that means the eviction removed more height than the new page added
+   * and the position is no longer reachable. Correctness (no jump) wins over
+   * the DOM budget, so the eviction is undone instead of accepting the jump.
+   */
+  restoreEviction(): boolean
   /** Move the rendered window so the turn containing the full-array message index is visible. */
   showMessageIndex(messageIndex: number): AgentMessage[] | null
   /** Un-pin the window so it follows the tail again (e.g. user scrolled back to the bottom). */
@@ -201,6 +238,19 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
   let windowMessages: AgentMessage[] = []
   let pinned = false
   let enabled = false
+  /** Turn ordinals intersecting the viewport, reported by the surface (`end` exclusive). */
+  let viewport: { start: number; end: number } | null = null
+  /** Turns the last paging call evicted, so the surface can undo it when it would clamp. */
+  let lastEviction: { side: 'older' | 'newer'; start: number; end: number } | null = null
+  /**
+   * Per-message character count, keyed by message identity.
+   *
+   * The window budget used to be recomputed by scanning every message of the
+   * window for each evicted turn (`O(window × messages)` on every page). Message
+   * objects are immutable snapshots, so their size can be memoized once and the
+   * window total maintained incrementally.
+   */
+  const messageChars = new WeakMap<AgentMessage, number>()
 
   const tailOrdinal = (turnCount: number) => Math.max(0, turnCount - activeWindowTurns)
 
@@ -212,32 +262,81 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
     return true
   }
 
-  const contentChars = (start: number, end: number) => {
-    const startIndex = start === 0 ? 0 : turnStarts[start]
-    const endIndex = end < turnStarts.length ? turnStarts[end] : allMessages.length
-    // Count one character past the budget so the caller can distinguish
-    // "exactly at the cap" from "over the cap" without scanning huge bodies.
-    const limit = maxChars + 1
-    let chars = 0
-    for (let index = startIndex; index < endIndex && chars < limit; index += 1) {
-      chars += approximateContentChars((allMessages[index] as { content?: unknown }).content, limit - chars)
+  const messageCharCount = (message: AgentMessage) => {
+    let chars = messageChars.get(message)
+    if (chars === undefined) {
+      chars = approximateContentChars((message as { content?: unknown }).content, Number.MAX_SAFE_INTEGER)
+      messageChars.set(message, chars)
     }
     return chars
+  }
+
+  /** Content characters of one whole turn (user message … before the next turn). */
+  const turnCharCount = (ordinal: number) => {
+    if (ordinal < 0 || ordinal >= turnStarts.length) return 0
+    const startIndex = ordinal === 0 ? 0 : turnStarts[ordinal]
+    const endIndex = ordinal + 1 < turnStarts.length ? turnStarts[ordinal + 1] : allMessages.length
+    let chars = 0
+    for (let index = startIndex; index < endIndex; index += 1) chars += messageCharCount(allMessages[index])
+    return chars
+  }
+
+  /** First turn ordinal that contains `messageIndex` (0 when the index precedes every turn). */
+  const ordinalForMessage = (messageIndex: number) => {
+    let ordinal = 0
+    for (let index = 0; index < turnStarts.length; index += 1) {
+      if (turnStarts[index] <= messageIndex) ordinal = index
+      else break
+    }
+    return ordinal
   }
 
   /**
    * Trim the paged window back under the caps by dropping whole turns from one
    * side. `'newer'` is used when paging older history (the dropped rows sit
    * below the viewport), `'older'` when paging forward (the dropped rows sit
-   * above it and the caller re-anchors).
+   * above it).
+   *
+   * Two rules make this safe:
+   * - Turns reported as visible are never evicted. Evicting a mounted row is
+   *   what broke anchor resolution and bounced the viewport to the bottom.
+   * - The caps are targets, not invariants: when the viewport alone exceeds
+   *   them, nothing is evicted.
    */
   const trimPagedWindow = (side: 'older' | 'newer') => {
-    const dropOne = () => {
-      if (side === 'older') startOrdinal += 1
-      else endOrdinal -= 1
+    lastEviction = null
+    if (endOrdinal - startOrdinal <= 1) return
+
+    let cursorStart = startOrdinal
+    let cursorEnd = endOrdinal
+    let chars = 0
+    for (let ordinal = cursorStart; ordinal < cursorEnd; ordinal += 1) chars += turnCharCount(ordinal)
+
+    let evictedFrom = -1
+    let evictedTo = -1
+    while (cursorEnd - cursorStart > 1) {
+      if (cursorEnd - cursorStart <= maxTurns && chars <= maxChars) break
+      if (side === 'newer') {
+        const floor = viewport ? Math.max(cursorStart, viewport.end) : cursorStart
+        if (cursorEnd - 1 < floor) break
+        cursorEnd -= 1
+        chars -= turnCharCount(cursorEnd)
+        if (evictedTo < 0) evictedTo = cursorEnd + 1
+        evictedFrom = cursorEnd
+      } else {
+        const ceiling = viewport ? Math.min(cursorEnd, viewport.start) : cursorEnd
+        if (cursorStart >= ceiling) break
+        chars -= turnCharCount(cursorStart)
+        if (evictedFrom < 0) evictedFrom = cursorStart
+        cursorStart += 1
+        evictedTo = cursorStart
+      }
     }
-    while (endOrdinal - startOrdinal > maxTurns) dropOne()
-    while (endOrdinal - startOrdinal > 1 && contentChars(startOrdinal, endOrdinal) > maxChars) dropOne()
+
+    if (evictedFrom < 0) return
+    startOrdinal = cursorStart
+    endOrdinal = cursorEnd
+    lastEviction = { side, start: evictedFrom, end: evictedTo }
   }
 
   const rebuild = () => {
@@ -277,8 +376,11 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
         windowStart = 0
         windowMessages = messages
         pinned = false
+        lastEviction = null
+        viewport = null
         return messages
       }
+      lastEviction = null
       if (!pinned) {
         startOrdinal = tailOrdinal(turnCount)
         endOrdinal = turnCount
@@ -301,6 +403,19 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
       return windowStart
     },
 
+    setViewport(range) {
+      if (!enabled || !range || turnStarts.length === 0) {
+        viewport = null
+        return
+      }
+      const lastIndex = allMessages.length - 1
+      const startIndex = Math.max(0, Math.min(range.startMessageIndex, lastIndex))
+      const endIndex = Math.max(startIndex, Math.min(range.endMessageIndex, lastIndex))
+      const first = ordinalForMessage(startIndex)
+      const last = ordinalForMessage(endIndex)
+      viewport = { start: first, end: Math.min(turnStarts.length, last + 1) }
+    },
+
     getWindowMessages() {
       return windowMessages
     },
@@ -320,6 +435,24 @@ export function createMessageWindow(options: MessageWindowOptions = {}): Message
     isAtTail() {
       // A disabled window renders the whole array, so it is always "at tail".
       return !enabled || startOrdinal >= tailOrdinal(turnStarts.length)
+    },
+
+    coversTail() {
+      // The right edge — not the left one — says whether anything is still
+      // unmounted below. `isAtTail()` answers a different question ("did the
+      // reader page back in?"), and using it as a bottom-pin condition is what
+      // made paging forward land on the newest message.
+      return !enabled || endOrdinal >= turnStarts.length
+    },
+
+    restoreEviction() {
+      const eviction = lastEviction
+      if (!eviction) return false
+      lastEviction = null
+      if (eviction.side === 'newer') endOrdinal = Math.min(turnStarts.length, Math.max(endOrdinal, eviction.end))
+      else startOrdinal = Math.max(0, Math.min(startOrdinal, eviction.start))
+      rebuild()
+      return true
     },
 
     loadMore() {

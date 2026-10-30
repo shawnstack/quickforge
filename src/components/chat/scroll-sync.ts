@@ -39,6 +39,24 @@ type ScrollSyncOptions = {
   panel: HTMLElement
   /** Forward the auto-scroll flag to the React ChatSurface handle. */
   setAutoScroll?: (enabled: boolean) => void
+  /**
+   * Read the follow flag from its owner (the chat surface).
+   *
+   * The surface is the single writer; this module only detects intent and
+   * reports it through `setAutoScroll`. Keeping a second copy here is what let
+   * the two flags drift (a programmatic scroll used to clear the surface's
+   * reading position as a side effect).
+   */
+  getFollowing?: () => boolean
+  /**
+   * Whether the rendered window's right edge reaches the conversation tail.
+   *
+   * While the window ends before the last turn, `scrollHeight` is not the end
+   * of the conversation: pinning to it hides the unmounted turns and makes
+   * "scroll down" jump straight to the newest message. Bottom-edge scrolling
+   * must then page the window forward instead of re-arming the follow.
+   */
+  canFollowTail?: () => boolean
   onReachTop?: () => void
   /**
    * The viewport reached the bottom edge. The surface uses it to page the
@@ -51,7 +69,7 @@ type ScrollSyncOptions = {
   onReachBottom?: () => void
 }
 
-export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBottom }: ScrollSyncOptions) {
+export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollowTail, onReachTop, onReachBottom }: ScrollSyncOptions) {
   let autoScrollEnabled = true
   let autoScrollFrame: number | undefined
   let lastScrollTop = 0
@@ -77,7 +95,19 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBott
 
   const isNearBottom = (element: HTMLElement) => distanceFromBottom(element) <= 80
 
+  /**
+   * Follow state: read from its owner (the surface), never decided here.
+   *
+   * The local `autoScrollEnabled` is only a fallback for tests that drive this
+   * module without a surface attached.
+   */
+  const isFollowing = () => getFollowing?.() ?? autoScrollEnabled
+
+  /** Bottom-pinning is legal only when the window's right edge is the tail. */
+  const canPinToTail = () => canFollowTail?.() ?? true
+
   const setPanelAutoScroll = (enabled: boolean) => {
+    autoScrollEnabled = enabled
     setAutoScroll?.(enabled)
   }
 
@@ -119,7 +149,12 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBott
 
   const scrollToBottom = () => {
     const scrollContainer = findScrollContainer()
-    if (!scrollContainer || !autoScrollEnabled) return
+    if (!scrollContainer || !isFollowing()) return
+    // A window whose right edge is not the conversation tail has unmounted
+    // turns below: its `scrollHeight` is not "the bottom", and pinning to it is
+    // what made paging down land on the newest message. The reader is scrolling
+    // through pages, not following the tail.
+    if (!canPinToTail()) return
     // Skip the layout-invalidating write when already pinned to the bottom.
     // On very large chat DOMs a redundant `scrollTop =` forces a synchronous
     // reflow each frame even though the position does not change.
@@ -329,17 +364,23 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBott
     }
     const distance = distanceFromBottom(scrollContainer)
     const userInitiatedScrollUp = scrollingUp && recentlyUserScrolled()
-    if (scrollingUp && autoScrollEnabled && !userInitiatedScrollUp && !isNearBottom(scrollContainer)) {
+    if (scrollingUp && isFollowing() && !userInitiatedScrollUp && !isNearBottom(scrollContainer)) {
       lastScrollTop = currentScrollTop
-      scheduleScrollToBottom()
+      // Only re-pin when the rendered window really ends at the tail. Otherwise
+      // the height change came from a page being mounted/evicted, and pinning
+      // would undo the position the reader is at.
+      if (canPinToTail()) scheduleScrollToBottom()
       return
     }
     if (distance < repinFollowDistancePx) {
-      // pi-web-ui parity: touching the tail re-arms the follow immediately,
-      // even when the scroll carried no recent user-scroll intent.
-      if (!autoScrollEnabled) {
-        autoScrollEnabled = true
+      // Touching the bottom re-arms the follow — but only when the bottom of the
+      // rendered window IS the bottom of the conversation. While newer turns are
+      // still unmounted, reaching the edge only means "mount the next page";
+      // re-arming there pinned the viewport to the end of the mounted rows and
+      // chained page after page until the newest message.
+      if (canPinToTail() && !isFollowing()) {
         setPanelAutoScroll(true)
+        scheduleScrollToBottom()
       }
       // Ask for the next page every time the bottom edge is touched: a window
       // that was moved back to an early turn ends there, and only this gets the
@@ -358,8 +399,7 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBott
     } else if (currentScrollTop > lastScrollTop + 1 && recentlyUserScrolled() && isNearBottom(scrollContainer)) {
       // Scroll-down near the tail re-arms the follow. Only on the transition:
       // calling the host setter every frame of a scroll-down is pure churn.
-      if (!autoScrollEnabled) {
-        autoScrollEnabled = true
+      if (canPinToTail() && !isFollowing()) {
         setPanelAutoScroll(true)
       }
     }
@@ -480,7 +520,7 @@ export function createScrollSync({ panel, setAutoScroll, onReachTop, onReachBott
   }
 
   return {
-    get isEnabled() { return autoScrollEnabled },
+    get isEnabled() { return isFollowing() },
     beginProgrammaticScroll,
     enable: enableAutoScroll,
     enableWithAnchor,

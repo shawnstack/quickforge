@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- exports the ChatSurface component plus the pure send flow, agent snapshot and release-gate helpers covered by tests. */
 import { Component, forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createMessageWindow, type MessageWindowController } from '../windowed-messages'
+import { createScrollOwner, type ScrollOwner } from '../scroll-owner'
 import { isInsideHiddenView } from '@/lib/session-view-activity'
 import { releaseProcessGroups } from '../panel-decoration/process-folding'
 import { getAppStorage } from '@/storage'
@@ -794,16 +795,33 @@ const MessageArea = memo(function MessageArea({
 
 export type WindowedChatSurfaceHandle = ChatSurfaceHandle & {  getWindowMessages: () => AgentMessage[]
   getWindowStart: () => number
+  /**
+   * Whether the surface currently follows the conversation tail.
+   *
+   * The follow flag lives here (one writer: this surface) and the host's
+   * scroll-sync reads it instead of keeping a second copy that could drift.
+   */
+  isFollowing: () => boolean
+  /** Whether the rendered window's right edge reaches the conversation tail. */
+  coversTail: () => boolean
+  /**
+   * Extend the rendered window one page back (towards older turns).
+   *
+   * Runs as a window transaction: the viewport is reported first (eviction can
+   * never unload a visible row), tail-following is frozen, and the reading
+   * anchor is restored in the commit that mounts the new rows. A restore that
+   * would clamp undoes the eviction instead. Re-entrant calls resolve
+   * immediately (one page at a time).
+   */
   loadMoreMessages: () => Promise<void>
   /**
    * Extend the rendered window one page FORWARD (towards the newest turn).
    *
-   * The mirror of `loadMoreMessages`: a window that was moved back to an early
-   * turn (turn navigation, or paging history in) stops at its right edge, so
-   * scrolling down would hit the end of the rendered rows with the rest of the
-   * conversation missing. Content is appended BELOW the viewport, so this needs
-   * no scroll anchor — the reader keeps their position and scrolls into the
-   * newly mounted turns.
+   * The mirror of `loadMoreMessages`: content is appended BELOW the viewport, so
+   * the reading position normally does not move. An anchor is still captured,
+   * because enforcing the window target can evict turns above the viewport in
+   * the same commit; if the resulting restore would clamp, the eviction is
+   * undone so the reader never gets thrown to the bottom of the window.
    */
   loadNewerMessages: () => Promise<void>
   showMessageIndex: (index: number) => Promise<void>
@@ -911,7 +929,7 @@ type WindowSnapshot = {
  * carries one, else by rendered ordinal) plus its offset from the scroll
  * container's top edge, captured before a change that prepends content above.
  */
-import { readScrollAnchor, anchoredScrollTop, type ScrollAnchor } from '../scroll-anchor'
+import type { ScrollAnchor } from '../scroll-anchor'
 
 function readWindow(controller: MessageWindowController, messages: AgentMessage[]): WindowSnapshot {
   const visible = controller.getWindowMessages()
@@ -1160,10 +1178,12 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     // controller state and message identities.
     if (last.messages === next.messages && last.start === next.start && last.atTail === next.atTail) {
       // No commit will run the effect that resolves queued window callbacks
-      // (`loadMoreMessages` / `showMessageIndex` promises), and the DOM
-      // already reflects `next` — flush them here instead of leaving them
-      // queued until the next real commit.
-      windowCommitCallbacksRef.current.splice(0).forEach((callback) => callback())
+      // (`loadMoreMessages` / `showMessageIndex` promises). Flush them on a
+      // microtask instead of inline: the callbacks may write `scrollTop`, and
+      // running them inside `publishWindow` would do it before React has
+      // committed anything (and, worse, before the rows they measure exist).
+      const queued = windowCommitCallbacksRef.current.splice(0)
+      if (queued.length > 0) queueMicrotask(() => queued.forEach((callback) => callback()))
       return
     }
     publishedWindowRef.current = next
@@ -1186,59 +1206,111 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
   }, [publishWindow, windowController])
 
   /**
-   * Read the current reading anchor via the shared `scroll-anchor` module.
+   * Report the message rows currently intersecting the viewport to the window
+   * model. Eviction is only legal outside that range (see `windowed-messages`).
    *
-   * Pinned to the bottom returns null: keep following the tail rather than
-   * freezing the viewport on an old row.
-   *
-   * Prefers a row carrying `data-message-index`. When the top-most visible row is
-   * a folded process group, anchoring on it degrades to the ordinal fallback,
-   * which points at the wrong row once 100+ messages are prepended (browser-
-   * verified: the viewport kept `scrollTop` while the visible text was replaced).
-   * Anchoring on the first real message row below it keeps the reading position;
-   * only when no message row is visible at all do we fall back to any row.
+   * Measured on demand — right before a window mutation — instead of on every
+   * scroll event: one rect read per mounted row, and only paging needs the
+   * answer.
    */
-  const captureReadingAnchor = useCallback((): ScrollAnchor | null => {
+  const measureViewport = useCallback(() => {
     const container = scrollContainerRef.current
-    if (!container || autoScrollRef.current) return null
-    return readScrollAnchor(container, { requireMessageIndex: true }) ?? readScrollAnchor(container)
+    const list = container?.querySelector<HTMLElement>('.qf-message-list')
+    if (!container || !list) return null
+    const containerTop = container.getBoundingClientRect().top
+    const containerBottom = containerTop + container.clientHeight
+    let start: number | undefined
+    let end: number | undefined
+    for (const row of Array.from(list.querySelectorAll<HTMLElement>(':scope > [data-message-index]'))) {
+      const index = Number(row.dataset.messageIndex)
+      if (!Number.isFinite(index)) continue
+      const rect = row.getBoundingClientRect()
+      if (rect.bottom <= containerTop || rect.top >= containerBottom) continue
+      if (start === undefined || index < start) start = index
+      if (end === undefined || index > end) end = index
+    }
+    if (start === undefined || end === undefined) return null
+    return { startMessageIndex: start, endMessageIndex: end }
   }, [])
 
+  /** Single writer for `scrollTop` (anchor restore + tail pin live here). */
+  const scrollOwnerRef = useRef<ScrollOwner | null>(null)
+  if (!scrollOwnerRef.current) {
+    scrollOwnerRef.current = createScrollOwner({
+      getContainer: () => scrollContainerRef.current,
+      canFollowTail: () => windowController.coversTail(),
+    })
+  }
+
   /**
-   * Re-anchor the viewport after a change that inserted content ABOVE it.
-   * Returns true when the anchor was applied.
+   * Run one window mutation as a transaction.
+   *
+   * Invariants (see `windowed-messages` / `scroll-owner`):
+   * - the viewport is reported first, so eviction can never unload a visible row;
+   * - tail-following is frozen for the whole transaction, so a commit-time pin
+   *   cannot fight the anchor restore;
+   * - the restore runs in the commit that mounts the new rows, and a clamped
+   *   restore undoes the eviction instead of accepting the jump;
+   * - re-entry is rejected: one page at a time, and the promise resolves after
+   *   the position has been restored.
    */
-  const applyReadingAnchor = useCallback((anchor: ScrollAnchor | null) => {
+  const runWindowTransaction = useCallback((mutate: () => boolean, options: { anchor?: boolean; follow?: 'freeze' | 'keep' } = {}): Promise<void> => {
     const container = scrollContainerRef.current
-    if (!anchor || !container) return false
-    const next = anchoredScrollTop(container, anchor)
-    if (next === null) return false
-    container.scrollTop = next
-    return true
-  }, [])
+    if (!container || pageInFlightRef.current) return Promise.resolve()
+    // Paging up means the reader is in history: freeze following. Paging FORWARD
+    // only appends below the viewport, so a reader who was following the tail
+    // must keep following it.
+    if ((options.follow ?? 'freeze') === 'freeze') autoScrollRef.current = false
+    windowController.setViewport(measureViewport())
+    const anchor = options.anchor === false ? null : scrollOwnerRef.current?.capture() ?? null
+    if (!mutate()) return Promise.resolve()
+    pageInFlightRef.current = true
+    return new Promise<void>((resolve) => {
+      windowCommitCallbacksRef.current.push(() => {
+        const outcome = anchor ? scrollOwnerRef.current?.apply({ kind: 'anchor', anchor }) : 'noop'
+        if (outcome === 'clamped' && windowController.restoreEviction()) {
+          // The eviction took away more height than the new page added: the
+          // captured position no longer exists. Put the turns back and restore
+          // the anchor on the commit that remounts them.
+          pendingAnchorRef.current = anchor
+          publishWindow()
+        }
+        pageInFlightRef.current = false
+        resolve()
+      })
+      publishWindow()
+    })
+  }, [measureViewport, publishWindow, windowController])
 
   useLayoutEffect(() => {
     committedWindowRef.current = messageWindow
     const callbacks = windowCommitCallbacksRef.current.splice(0)
-    // Apply a reading anchor captured by `hydrateFullHistory` right before it
-    // replaced the list: this commit is where the prepended rows become real.
+    // Apply a reading anchor captured by `hydrateFullHistory` (or by a clamped
+    // paging restore) right before it replaced the list: this commit is where
+    // the prepended rows become real.
     const anchor = pendingAnchorRef.current
     if (anchor) {
       pendingAnchorRef.current = null
-      applyReadingAnchor(anchor)
+      scrollOwnerRef.current?.apply({ kind: 'anchor', anchor })
     }
     callbacks.forEach((callback) => callback())
-    // Skip the tail write while this surface is kept (hidden). A hidden subtree
-    // has no layout box, so `scrollHeight` reads 0 and writing it would park the
+    // Tail pin. The gate lives inside the scroll owner: it pins only when the
+    // window's right edge covers the conversation tail. The old condition here
+    // was `messageWindow.atTail` ("the window contains the newest user turn"),
+    // which is also true for a window that still has unmounted turns below it —
+    // pinning there is what made paging down land on the newest message.
+    //
+    // Skip the write while this surface is kept (hidden). A hidden subtree has
+    // no layout box, so `scrollHeight` reads 0 and writing it would park the
     // container at the top; the panel re-arms `autoScroll` and scrolls on
     // activation instead. The guard only consults the computed display of the
     // kept wrapper, so a visible surface takes the original code path unchanged.
-    if (autoScrollRef.current && messageWindow.atTail && scrollContainerRef.current
-      && !isInsideHiddenView(scrollContainerRef.current)) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    const container = scrollContainerRef.current
+    if (autoScrollRef.current && container && !isInsideHiddenView(container)) {
+      scrollOwnerRef.current?.apply({ kind: 'tail' })
     }
     onWindowChanged?.()
-  }, [applyReadingAnchor, messageWindow, onWindowChanged])
+  }, [messageWindow, onWindowChanged])
 
   /**
    * Window fill guard.
@@ -1264,13 +1336,16 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     if (container.clientHeight <= 0) return
     if (container.scrollHeight > container.clientHeight) return
     fillInFlightRef.current = true
+    // Same viewport protection as a scroll-driven page: the fill guard also
+    // widens the window, and it must not evict anything that is on screen.
+    windowController.setViewport(measureViewport())
     windowController.loadMore()
     // Released by the next window commit, exactly like a scroll-driven page.
     windowCommitCallbacksRef.current.push(() => {
       fillInFlightRef.current = false
     })
     publishWindow()
-  }, [messageWindow, publishWindow, windowController])
+  }, [measureViewport, messageWindow, publishWindow, windowController])
 
   useEffect(() => () => {
     windowCommitCallbacksRef.current.splice(0).forEach((callback) => callback())
@@ -1284,84 +1359,31 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         if (attachments !== undefined) applyEditorAttachments(attachments)
       },
       setAutoScroll: (enabled: boolean) => {
-        if (!enabled) {
-          autoScrollRef.current = false
-          return
-        }
-        autoScrollRef.current = true
-        // Re-armed when the reader comes back to the bottom. Page the window
-        // FORWARD instead of jumping to the tail: appended content lands below
-        // the viewport, so nothing moves under the reader. Jumping the right edge
-        // to the tail here is what made "scroll down from the first turn" land on
-        // the newest message with everything in between never mounted.
-        if (!windowController.hasMoreNewer()) return
-        if (!windowController.loadNewer()) return
-        publishWindow()
+        autoScrollRef.current = enabled
+        // Arming the follow flag is the ONLY thing this does. Paging the window
+        // forward is a separate decision, driven by the host's reach-bottom
+        // probe (`loadNewerMessages`). Doing both here mounted the rest of the
+        // conversation in one go and, because a freshly appended page keeps the
+        // viewport at the bottom, chained page after page until the newest
+        // message: "scroll down from the first turn" landed on the tail.
       },
+      isFollowing: () => autoScrollRef.current,
+      coversTail: () => windowController.coversTail(),
       getWindowMessages: () => committedWindowRef.current.messages,
       getWindowStart: () => committedWindowRef.current.start,
-      loadMoreMessages: () => {
-        const container = scrollContainerRef.current
-        if (!container || pageInFlightRef.current || !windowController.hasMore()) return Promise.resolve()
-        autoScrollRef.current = false
-        // Anchor on a real message row only: paging rebuilds folded process
-        // groups, so a group row is not a stable anchor across the load.
-        const anchor = readScrollAnchor(container, { requireMessageIndex: true })
-        const heightBefore = container.scrollHeight
-        if (!windowController.loadMore()) return Promise.resolve()
-        pageInFlightRef.current = true
-        return new Promise<void>((resolve) => {
-          windowCommitCallbacksRef.current.push(() => {
-            pageInFlightRef.current = false
-            const next = anchor ? anchoredScrollTop(container, anchor, { requireMessageIndex: true }) : null
-            // Never fall back to `scrollHeight - clientHeight` here: the older
-            // page was prepended ABOVE the viewport, so "the bottom" is the end
-            // of the conversation. Landing there is why paging read as "I scroll
-            // up and get thrown back to the newest message". Anchor resolution
-            // returning null means "nothing moved"; fall back to how much the
-            // content grew above instead, which is 0 in that case anyway.
-            container.scrollTop = next !== null
-              ? next
-              : (anchor?.scrollTop ?? 0) + Math.max(0, container.scrollHeight - heightBefore)
-            resolve()
-          })
-          publishWindow()
-        })
-      },
-      showMessageIndex: (index: number) => {
-        autoScrollRef.current = false
-        if (!windowController.showMessageIndex(index)) return Promise.resolve()
-        return new Promise<void>((resolve) => {
-          windowCommitCallbacksRef.current.push(resolve)
-          publishWindow()
-        })
-      },
-      loadNewerMessages: () => {
-        const container = scrollContainerRef.current
-        if (!container || pageInFlightRef.current || !windowController.hasMoreNewer()) return Promise.resolve()
-        // Content is appended below the viewport, but the window cap can evict
-        // older turns above it in the same commit. Anchor the top-most visible
-        // row so that eviction does not shift the text the reader is looking at.
-        const anchor = readScrollAnchor(container, { requireMessageIndex: true })
-        const heightBefore = container.scrollHeight
-        if (!windowController.loadNewer()) return Promise.resolve()
-        pageInFlightRef.current = true
-        return new Promise<void>((resolve) => {
-          windowCommitCallbacksRef.current.push(() => {
-            pageInFlightRef.current = false
-            const next = anchor ? anchoredScrollTop(container, anchor, { requireMessageIndex: true }) : null
-            // No resolvable anchor means "nothing moved above"; keep the old
-            // scrollTop instead of parking the viewport at the top.
-            container.scrollTop = next !== null
-              ? next
-              : (anchor?.scrollTop ?? container.scrollTop) + Math.max(0, container.scrollHeight - heightBefore)
-            resolve()
-          })
-          publishWindow()
-        })
-      },
+      loadMoreMessages: () => runWindowTransaction(() => windowController.loadMore() !== null),
+      showMessageIndex: (index: number) => runWindowTransaction(
+        () => windowController.showMessageIndex(index) !== null,
+        // The jump target is measured by the caller after this commit; there is
+        // no reading position to preserve.
+        { anchor: false },
+      ),
+      loadNewerMessages: () => runWindowTransaction(
+        () => windowController.loadNewer() !== null,
+        { follow: 'keep' },
+      ),
       captureScrollAnchor: () => {
-        const captured = captureReadingAnchor()
+        const captured = scrollOwnerRef.current?.capture() ?? null
         if (!captured) return () => undefined
         pendingAnchorRef.current = captured
         return () => {
@@ -1369,7 +1391,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
         }
       },
     }),
-    [applyEditorText, applyEditorAttachments, captureReadingAnchor, publishWindow, windowController],
+    [applyEditorText, applyEditorAttachments, runWindowTransaction, windowController],
   )
 
   /**

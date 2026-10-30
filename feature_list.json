@@ -1151,6 +1151,29 @@
       ],
       "verification": "隔离实例浏览器实测：view 响应 2KB 且附件仅 id/assetUrl；tile 以 ?raw=1 生成 blob 缩略图（68B）；overlay 正常显示图片。服务端投影/查找/端点与客户端解析共 37+ 例单测通过；npm run test → 461 files / 5357 passed / 2 skipped；lint/tsc/build 全绿。未创建 Git commit。",
       "updatedAt": "2026-10-29"
+    },
+    {
+      "id": "window-scroll-transaction",
+      "title": "P4 窗口裁剪视口保护 + 滚动事务（修复上下翻页跳底）",
+      "status": "done",
+      "summary": "窗口上限（12 轮 / 160k 字符）从硬限改为目标值：分页前测量并上报可见消息区间，裁剪只落在视口之外的整轮，视口占满预算时允许超限。字符统计改为按消息身份 WeakMap 缓存 + 逐轮累加。loadMore/loadNewer 记录逐出区间，restoreEviction() 供锚点恢复会 clamp 时回滚。新增 scroll-owner.ts 作为 scrollTop 唯一写者：anchor 只按绝对 data-message-index 解析（行消失即 blocked，不再回退 ordinal 或旧 scrollTop）、tail 仅在 coversTail() 时生效。四条分页/跳转路径统一走 runWindowTransaction（上报视口 → 冻结/保持跟随 → 捕获锚点 → 变更 → commit 内恢复 → resolve），publishWindow 无变化时改 microtask flush。scroll-sync 降级为意图探测：getFollowing()/canFollowTail() 由 surface 提供，触底只在窗口到末尾时恢复跟随，setAutoScroll(true) 不再顺带 loadNewer()。",
+      "files": [
+        "src/components/chat/windowed-messages.ts",
+        "src/components/chat/scroll-owner.ts",
+        "src/components/chat/scroll-sync.ts",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "tests/frontend/windowed-messages.test.ts",
+        "tests/frontend/scroll-owner.test.ts",
+        "tests/frontend/scroll-sync.test.ts",
+        "tests/frontend/chat-surface-behavior-alignment.test.ts",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "windowed-messages 30 例、scroll-owner 7 例、scroll-sync 21 例、scroll-anchor/turn-navigation/chat-surface-behavior-alignment 全过；npm run test → 462 files / 5372 passed / 2 skipped；npm run lint → 0 problems；npx tsc -b → 0 错误；npm run build → 成功。浏览器实机未复测（需人工确认上下翻页手感）。未创建 Git commit，未手工改生成产物。",
+      "updatedAt": "2026-10-29"
     }
   ]
 }

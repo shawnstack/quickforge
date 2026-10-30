@@ -429,4 +429,89 @@ describe('message windowing (by turns)', () => {
     expect(window.isAssignedWindow(page as ReturnType<typeof window.getWindowMessages>)).toBe(true)
     expect(window.isAssignedWindow(full)).toBe(false)
   })
+
+  it('never evicts a turn that is on screen', () => {
+    // The cap used to be a hard limit applied from the far edge, so paging up
+    // could drop the very rows the reader was looking at: the anchor row left
+    // the DOM, resolution fell back to a wrong ordinal, and the viewport was
+    // clamped to the bottom of the new window ("scroll up, get bounced down").
+    const window = createMessageWindow({ windowTurns: 2, pageTurns: 2, maxTurns: 3 })
+    const full = turns(50)
+    window.setFullMessages(full)
+
+    // The viewport covers the whole current window (the tail).
+    window.setViewport({ startMessageIndex: full.length - 4, endMessageIndex: full.length - 1 })
+    const paged = window.loadMore()
+
+    expect(paged).not.toBeNull()
+    // Nothing on screen was dropped, even though the window is over its target.
+    expect(paged).toContain(full[full.length - 4])
+    expect(paged).toContain(full[full.length - 1])
+    expect(paged!.length).toBeGreaterThan(3 * 2)
+  })
+
+  it('evicts only below the reported viewport when paging history', () => {
+    const window = createMessageWindow({ windowTurns: 2, pageTurns: 2, maxTurns: 4 })
+    const full = turns(50)
+    window.setFullMessages(full)
+    window.loadMore()
+
+    // Reader is looking at turns 44/45 (messages 88..91); paging up must not
+    // touch them, so the eviction has to come from the newer edge.
+    window.setViewport({ startMessageIndex: 88, endMessageIndex: 91 })
+    const paged = window.loadMore()
+
+    expect(paged).toContain(full[88])
+    expect(paged).toContain(full[91])
+    expect(paged!.length).toBeLessThanOrEqual(4 * 2)
+    // The newest turns were evicted, and can be paged back in.
+    expect(window.hasMoreNewer()).toBe(true)
+  })
+
+  it('undoes the last eviction on request', () => {
+    // The surface calls this when restoring the reading position would clamp:
+    // that means the eviction took away more height than the new page added.
+    const window = createMessageWindow({ windowTurns: 2, pageTurns: 2, maxTurns: 4 })
+    const full = turns(50)
+    window.setFullMessages(full)
+    window.loadMore()
+    window.loadMore()
+
+    const capped = window.getWindowMessages()
+    expect(window.hasMoreNewer()).toBe(true)
+
+    expect(window.restoreEviction()).toBe(true)
+    const restored = window.getWindowMessages()
+    expect(restored.length).toBeGreaterThan(capped.length)
+    expect(restored[restored.length - 1]).toBe(full[full.length - 1])
+    // The eviction is consumed once.
+    expect(window.restoreEviction()).toBe(false)
+  })
+
+  it('covers the tail only when the right edge reaches the last turn', () => {
+    // Bottom pinning must ask THIS, not `isAtTail()` ("did the reader page
+    // back in?") and not "does the window contain the newest user turn" — both
+    // are true for a window that still has unmounted turns below it.
+    const window = createMessageWindow()
+    const full = turns(50)
+    window.setFullMessages(full)
+    expect(window.coversTail()).toBe(true)
+
+    window.showMessageIndex(0)
+    expect(window.coversTail()).toBe(false)
+    expect(window.isAtTail()).toBe(false)
+
+    let guard = 0
+    while (window.hasMoreNewer() && guard < 100) {
+      window.loadNewer()
+      guard += 1
+    }
+    expect(window.coversTail()).toBe(true)
+  })
+
+  it('reports a disabled window as covering the tail', () => {
+    const window = createMessageWindow({ enabled: false })
+    window.setFullMessages(turns(2))
+    expect(window.coversTail()).toBe(true)
+  })
 })

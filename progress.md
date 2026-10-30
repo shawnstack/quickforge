@@ -2,6 +2,21 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## window-scroll-transaction（done，2026-10-29）
+
+- Goal：用户反馈「优化后，从下往上翻页会回弹到底部，从上往下翻页会直接到最下面」。
+- 根因（两条链，同一批状态漂移）：
+  1. 向上回弹：`trimPagedWindow` 把「12 轮 / 160k 字符」当硬限，`loadMore` 从窗口**下方**逐轮裁。字符预算在长对话里必然超标，可能一路裁到只剩 1 轮，连视口所在行一起卸载；`loadMoreMessages` 的旧兜底 `(anchor.scrollTop ?? 0) + max(0, scrollHeight - heightBefore)` 在内容变矮时把增量钳成 0，等于写回旧 `scrollTop`，被浏览器 clamp 到新的 `maxScrollTop`（新窗口底部）。随后 scroll 事件命中 `distance < 10` 分支，被当成「用户回到底部」→ 重新 arm 跟随 → 下一帧 `scrollTop = scrollHeight`。
+  2. 向下直达末尾：`distance < 10` 同一分支既 arm 跟随又 `onReachBottom`；`enableAutoScroll()` 无条件 `scheduleScrollToBottom()`，`setAutoScroll(true)` 又顺带 `loadNewer()`，而 `pageInFlight` 只在单次 Promise 内有效 → 「触底 → 贴底 → 再触底」逐页连播到 `endOrdinal === turnCount`，届时 `atTail` 变真，layout effect 再补一刀 `scrollTop = scrollHeight`。
+- 改动（架构级，不是补丁）：
+  - `windowed-messages.ts`：新增 `setViewport()` / `coversTail()` / `restoreEviction()`；`WINDOW_MAX_TURNS|CHARS` 降级为目标值，裁剪只允许发生在视口之外的整轮，视口占满预算时允许超限；字符统计改为按消息身份 `WeakMap` 缓存 + 逐轮累加（原来每次 drop 全量重扫），并记录逐出区间。
+  - 新增 `scroll-owner.ts`：`scrollTop` 唯一写者。`anchor` 只按绝对 `data-message-index` 解析，行消失返回 `blocked`（不回退 ordinal、不写旧值）；`tail` 仅在 `coversTail()` 时生效；写入一律 clamp-aware，`clamped` 作为「裁多了」的信号。
+  - `ChatSurface.tsx`：四条路径（loadMore / loadNewer / showMessageIndex / hydrate 锚点）统一 `runWindowTransaction`——上报视口 → 冻结（loadNewer 保持）跟随 → 捕获锚点 → 变更 → 在挂载新行的同一次 commit 里恢复（`clamped` 则 `restoreEviction()` 并重新发布）→ resolve；`publishWindow` 无变化时改 microtask flush；`setAutoScroll(true)` 只 arm 跟随；layout effect 贴底改走 owner。
+  - `scroll-sync.ts`：降级为意图探测，`getFollowing()` 读 surface 的跟随标志（单一真相），`canFollowTail()` 决定触底是「恢复跟随」还是「只补下一页」，`scrollToBottom` 同样受 `canFollowTail()` 约束；`ChatPanelHost` 注入这两个回调。
+- 测试：`windowed-messages` 新增 5 例（视口保护、只在视口下方逐出、`restoreEviction`、`coversTail`、disabled 覆盖尾部）→ 30 例；新增 `scroll-owner.test.ts` 7 例（含「锚点被逐出时一个字节都不写」回归）；`scroll-sync` 新增 2 例（窗口未到末尾时触底不 arm 跟随、到末尾才 arm）→ 21 例；`chat-surface-behavior-alignment` 的两处源码字符串断言改为行为断言（owner tail 意图 / blocked 语义）。
+- 验证：`npm run test` → 462 files / 5372 passed / 2 skipped；`npm run lint` → 0；`npx tsc -b` → 0；`npm run build` → 成功。未创建 Git commit，未手工改生成产物。
+- 遗留：浏览器实机的手感（连续上下翻页、流式中触底补页）未自动化覆盖，需人工确认；`turn-navigation` 与「回到底部」按钮的 `scrollTop` 写入仍各在自己的组件内（显式导航，不参与分页锚点事务），未纳入 `scroll-owner`。
+
 ## message-copy-window-index（done，2026-10-29）
 
 - Goal：用户反馈「对话里用户消息的复制用不了了——复制到空/错的内容，所有用户消息都这样」。

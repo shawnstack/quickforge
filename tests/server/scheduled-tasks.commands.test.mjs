@@ -88,6 +88,8 @@ let manager
 let sessions
 let storage
 let database
+let runsRepoModule
+let scheduledRunsRepository = null
 let routes
 let nextTaskId = 0
 const environment = ['QUICKFORGE_DATA_DIR', 'HOME', 'USERPROFILE']
@@ -108,6 +110,7 @@ beforeAll(async () => {
   await storage.ensureStorage()
   database = await import('../../server/sqlite/database.mjs')
   await database.initializeSqliteStorage()
+  runsRepoModule = await import('../../server/sqlite/scheduled-task-runs-repository.mjs')
   const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
   setDefaultWorkspaceRoot(path.join(fixtureRoot, 'data', 'workspace'))
   await storage.atomicUpdate('custom-providers', () => ({
@@ -185,8 +188,8 @@ async function start(instruction, options = {}) {
 async function finish(taskId) {
   let run
   await vi.waitFor(async () => {
-    run = (await storage.readStore('scheduled-tasks'))[taskId].runs[0]
-    expect(run.status).not.toBe('running')
+    run = runsFor(taskId)[0]
+    expect(run?.status).not.toBe('running')
   }, { timeout: 10000 })
   const session = sessions.get(run.sessionId)
   expect(session).toBeDefined()
@@ -232,7 +235,25 @@ async function completeGoal(agent) {
 }
 
 async function taskState(taskId) {
-  return (await storage.readStore('scheduled-tasks'))[taskId]
+  const task = (await storage.readStore('scheduled-tasks'))[taskId]
+  if (!task) return task
+  // Runs live in SQLite now: the JSON metadata stays runs-free, so merge the
+  // authoritative rows back in for assertions written against the old shape.
+  return { ...task, runs: runsFor(taskId) }
+}
+
+// currentRunIds lives in the JSON task metadata and is cleared once the run
+// settles, which can land a tick after the SQLite run row reaches its terminal
+// status; wait for the observed clear instead of sampling once.
+async function expectCurrentRunIdsCleared(taskId) {
+  await vi.waitFor(async () => {
+    expect((await taskState(taskId)).currentRunIds).toEqual([])
+  }, { timeout: 5000 })
+}
+
+function runsFor(taskId) {
+  scheduledRunsRepository ??= runsRepoModule.createScheduledTaskRunsRepository()
+  return scheduledRunsRepository.list({ taskId, page: 1, pageSize: 100 }).runs
 }
 
 async function goalSession(taskId, status) {
@@ -280,7 +301,7 @@ describe('scheduled goals through the real manager and runner', () => {
       expect(run).toMatchObject({ trigger: 'schedule', status: 'success' })
       expect(session.goal.status).toBe('completed')
       expect(seen).toEqual(['planning', 'running'])
-      expect((await taskState(id)).currentRunIds).toEqual([])
+      await expectCurrentRunIdsCleared(id)
     } finally {
       release.resolve()
       routes.stopScheduledTaskRunner()
@@ -371,7 +392,7 @@ describe('scheduled goals through the real manager and runner', () => {
     await runner.handleGoalAction(session, 'resume')
     const { run } = await finish(id)
     expect(run.status).toBe('success')
-    expect((await taskState(id)).currentRunIds).toEqual([])
+    await expectCurrentRunIdsCleared(id)
     expect(runner.hasGoalCompletionWaiter(session.sessionId)).toBe(false)
   })
 

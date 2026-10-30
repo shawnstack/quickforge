@@ -120,6 +120,7 @@ class GlobalAgentSseClient {
       'error', 'session_created', 'title_updated', 'session_forked', 'scheduled_task_notification', 'scheduled_task_started',
       'tool_approval_required', 'ask_user_required', 'ask_user_answered', 'auto_compact_state', 'auto_compact_approval_required', 'auto_compact_approval_settled', 'auto_compact_completed', 'auto_compact_failed', 'messages_replaced',
       'persist_degraded', 'model_stream_retry', 'goal_updated', 'background_commands', 'session_lease',
+      'resync',
     ]
 
     // [sse-rx] 帧接收流水（thinking→final-reply 丢失取证）：与服务端 [sse-frame]
@@ -150,6 +151,12 @@ class GlobalAgentSseClient {
         const data = JSON.parse(e.data) as Record<string, unknown>
         logSseRx(data, eventType)
         const sessionId = data.sessionId as string | undefined
+        // `resync` 是全局帧（没有 sessionId）：事件环出现缺口，所有活跃会话都要
+        // 重取一次快照。先于「无 sessionId 就丢弃」的守卫处理。
+        if (eventType === 'resync' || (!sessionId && data.type === 'resync')) {
+          for (const id of [...this.handlersBySession.keys()]) this.emit(id, { type: 'resync', ...data })
+          return
+        }
         if (!sessionId && eventType !== 'scheduled_task_notification') return
         const event = eventType ? { type: eventType, ...data } : data
         if (sessionId) this.emit(sessionId, event)

@@ -4,7 +4,6 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { closeSqliteStorage, initializeSqliteStorage } from '../sqlite/database.mjs'
 import { readScheduledTasksForBackup } from '../scheduled-runs-backup.mjs'
-import { readScheduledRunsState } from '../scheduled-runs-cutover.mjs'
 import { dataDir } from '../storage.mjs'
 
 function outputPath() {
@@ -20,8 +19,6 @@ const temporaryPath = `${finalPath}.${process.pid}.${randomUUID()}.tmp`
 try {
   const storage = await initializeSqliteStorage({ dataDir })
   storage.health({ quickCheck: true })
-  const state = readScheduledRunsState(storage)
-  if (state.phase === 'cutover_running') throw new Error('Scheduled runs cutover is still running; stop all QuickForge processes and retry')
   const scheduledTasks = await readScheduledTasksForBackup()
   const backup = {
     app: 'quickforge',

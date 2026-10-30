@@ -5,7 +5,6 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
-import { initializeScheduledRunsCutover } from '../../server/scheduled-runs-cutover.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const script = path.join(projectRoot, 'server', 'maintenance', 'export-scheduled-runs-v1.mjs')
@@ -43,23 +42,13 @@ describe('offline scheduled runs v1 export', () => {
   it('exports a complete backup without starting the server or runner', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'qf-offline-export-'))
     directories.push(directory)
-    await mkdir(path.join(directory, 'storage', 'conversations', 'global'), { recursive: true })
-    await writeFile(path.join(directory, 'storage', 'conversations', 'global', 'scheduled-tasks.json'), `${JSON.stringify({
-      'task-a': { id: 'task-a', title: 'A', runs: [run('a')] },
-    })}\n`, 'utf8')
-    const databasePath = path.join(directory, 'storage', 'quickforge.sqlite3')
-    const storage = await initializeSqliteStorage({ databasePath })
-    let metadata = { 'task-a': { id: 'task-a', title: 'A', runs: [run('a')] } }
-    await initializeScheduledRunsCutover({
-      storage,
-      repository: createScheduledTaskRunsRepository(storage),
-      backupDirectory: path.join(directory, 'storage', 'backups'),
-      readTasks: async () => structuredClone(metadata),
-      writeTasks: async (tasks) => {
-        metadata = structuredClone(tasks)
-        await writeFile(path.join(directory, 'storage', 'conversations', 'global', 'scheduled-tasks.json'), `${JSON.stringify(tasks)}\n`, 'utf8')
-      },
-    })
+    const metadataFile = path.join(directory, 'storage', 'conversations', 'global', 'scheduled-tasks.json')
+    await mkdir(path.dirname(metadataFile), { recursive: true })
+    // Task metadata stays in JSON, runs live in SQLite: the export tool must
+    // join both halves into the v1 `scheduledTasks` shape.
+    await writeFile(metadataFile, `${JSON.stringify({ 'task-a': { id: 'task-a', title: 'A' } })}\n`, 'utf8')
+    const storage = await initializeSqliteStorage({ databasePath: path.join(directory, 'storage', 'quickforge.sqlite3') })
+    createScheduledTaskRunsRepository(storage).upsert('task-a', run('a'), { source: 'runtime' })
     await closeSqliteStorage()
 
     const output = path.join(directory, 'export.json')

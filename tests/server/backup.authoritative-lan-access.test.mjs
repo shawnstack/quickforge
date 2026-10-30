@@ -4,13 +4,13 @@ import os from 'node:os'
 import { promises as fs } from 'node:fs'
 
 /**
- * F11 Phase 3: the backup route must export/restore the authoritative
- * lan-access state under the lan-access maintenance lock (quick_check +
- * verifyIntegrity + exportSnapshot, count/digest fail closed, token hashes
- * only), with replace/merge semantics, plan-file compensation, a 423 gate and
- * v1 lan-access.json normalization. The restore is scoped to the lan-access
- * tables and must never disturb F5 scheduled_task_runs, the storage-v2
- * session domain (sessions/session_messages) or F10 share_sessions.
+ * The backup route must export/restore the LAN access state over the
+ * authoritative SQLite store under the lan-access maintenance lock (quick_check
+ * + verifyIntegrity + exportSnapshot, count/digest fail closed, token hashes
+ * only), with replace/merge semantics, plan-file compensation, a 423 gate and v1
+ * lan-access.json normalization. The restore is scoped to the lan-access tables
+ * and must never disturb F5 scheduled_task_runs, the storage-v2 session domain
+ * (sessions/session_messages) or F10 share_sessions.
  */
 
 function lanConfig(overrides = {}) {
@@ -28,10 +28,10 @@ function lanConfig(overrides = {}) {
 }
 
 /**
- * Set up a real authoritative lan-access state environment (temp data dir +
- * SQLite schema v9 + lan-access cutover to authoritative from a seeded JSON
- * file) and freshly import the route so dataDir/storageDir/sqlite paths all
- * resolve inside the temp dir.
+ * Set up a real lan-access state environment (temp data dir + SQLite schema) and
+ * freshly import the route so dataDir/storageDir/sqlite paths all resolve inside
+ * the temp dir. The repository is the only storage: nothing is seeded through a
+ * JSON file.
  */
 async function withAuthoritativeLanAccessBackup(testFn) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-backup-lan-'))
@@ -45,24 +45,15 @@ async function withAuthoritativeLanAccessBackup(testFn) {
     database = await import('../../server/sqlite/database.mjs')
     const repoModule = await import('../../server/sqlite/lan-access-repository.mjs')
     const service = await import('../../server/lan-access-service.mjs')
-    const cutover = await import('../../server/lan-access-cutover.mjs')
+    const maintenance = await import('../../server/lan-access-maintenance.mjs')
     await storage.ensureStorage()
     const sqliteStorage = await database.initializeSqliteStorage({ dataDir: tmpDir })
     const repository = repoModule.createLanAccessRepository(sqliteStorage)
-    service.configureLanAccessService({ repository, mirror: null, phase: 'json_authoritative' })
-    const lanAccessFile = path.join(tmpDir, 'storage', 'security', 'lan-access.json')
-    await fs.mkdir(path.dirname(lanAccessFile), { recursive: true })
-    await fs.writeFile(lanAccessFile, `${JSON.stringify(lanConfig())}\n`, 'utf8')
-    const state = await cutover.initializeLanAccessCutover({
-      storage: sqliteStorage,
-      repository,
-      backupDirectory: path.join(tmpDir, 'storage', 'backups'),
-      mirror: { upsert: async () => {}, delete: async () => {} },
-      owner: { id: '700:test', pid: 700 },
-      pidAlive: () => false,
-    })
-    if (state.phase !== 'authoritative') throw new Error(`expected authoritative, got ${state.phase}`)
-    await testFn(backup, storage, service, repository, sqliteStorage, cutover)
+    service.configureLanAccessService({ repository })
+    // Mirror the real startup chain: the service materializes the singleton
+    // config row on a fresh database before any backup/restore runs.
+    service.initializeLanAccessService()
+    await testFn(backup, storage, service, repository, sqliteStorage, maintenance)
   } finally {
     await database.closeSqliteStorage().catch(() => {})
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
@@ -119,7 +110,7 @@ async function callInspect(backup, body) {
   return { res, json: JSON.parse(res._body || '{}') }
 }
 
-// Seed the authoritative state with an enabled config plus one issued token.
+// Seed the store with an enabled config plus one issued token.
 function enableWithToken(repository) {
   repository.updateSettings({
     enabled: true,
@@ -132,14 +123,15 @@ function enableWithToken(repository) {
 }
 
 describe('backup route — authoritative lan-access state', () => {
-  it('exports lanAccess with lanAccessState phase/count/digest including token hashes (scope=lan-access and scope=all)', async () => {
+  it('exports lanAccess with count/digest including token hashes (scope=lan-access and scope=all)', async () => {
     await withAuthoritativeLanAccessBackup(async (backup, storage, service, repository) => {
       const issued = enableWithToken(repository)
 
       const { res, json } = await callExport(backup)
       expect(res._status).toBe(200)
       expect(json.scope).toBe('lan-access')
-      expect(json.lanAccessState).toMatchObject({ phase: 'authoritative', count: 1 })
+      expect(json.lanAccessState).toMatchObject({ count: 1 })
+      expect(json.lanAccessState).not.toHaveProperty('phase')
       expect(json.lanAccessState.digest).toBe(repository.digest())
       expect(json.data.lanAccess.enabled).toBe(true)
       expect(json.data.lanAccess.authVersion).toBe(repository.getConfig().authVersion)
@@ -291,9 +283,9 @@ describe('backup route — authoritative lan-access state', () => {
   })
 
   it('rejects import with 423 while the lan-access maintenance lock is active', async () => {
-    await withAuthoritativeLanAccessBackup(async (backup, storage, service, repository, sqliteStorage, cutover) => {
+    await withAuthoritativeLanAccessBackup(async (backup, storage, service, repository, sqliteStorage, maintenance) => {
       enableWithToken(repository)
-      const lease = cutover.acquireLanAccessMaintenanceLock(sqliteStorage, {
+      const lease = maintenance.acquireLanAccessMaintenanceLock(sqliteStorage, {
         owner: { id: '999:test', pid: 999 },
         pidAlive: () => true,
         operation: 'other-maintenance',
@@ -310,7 +302,7 @@ describe('backup route — authoritative lan-access state', () => {
       await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url, backup.createInternalBackupContext()))
         .rejects.toMatchObject({ statusCode: 423, errorCode: 'lan_access_maintenance' })
       expect(repository.getConfig().tokens).toHaveLength(1)
-      cutover.releaseLanAccessMaintenanceLock(sqliteStorage, lease)
+      maintenance.releaseLanAccessMaintenanceLock(sqliteStorage, lease)
     })
   })
 

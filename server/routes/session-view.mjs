@@ -53,11 +53,16 @@ const DEFAULT_VIEW_TAIL_MESSAGES = 200
  * `messagesSummary`（与 split 会话的线上帧契约一致），前端据此知道后面还有多少，
  * 需要时再走 `/messages` 增量补齐。
  */
-function readonlySessionView(sessionId, state, messages, totalMessageCount) {
+function readonlySessionView(sessionId, state, messages, totalMessageCount, options = {}) {
   // Persisted bodies carry `accessMode` and/or legacy `yoloMode`; the live
   // session state always exposes both, so normalize here instead of letting the
   // renderer guess.
   const accessMode = normalizeAccessMode(state.accessMode, state.yoloMode ? 'full-access' : undefined)
+  const logVersion = Number.isInteger(options.logVersion) ? options.logVersion : 0
+  // 窗口内首条消息的绝对 seq：客户端据此把 `messages[0]` 对齐到正确下标。
+  const messagesAfter = Number.isInteger(options.messagesAfter)
+    ? options.messagesAfter
+    : Math.max(0, (Number.isInteger(totalMessageCount) ? totalMessageCount : messages.length) - messages.length)
   return {
     sessionId,
     scope: state.scope,
@@ -77,15 +82,19 @@ function readonlySessionView(sessionId, state, messages, totalMessageCount) {
     createdAt: state.createdAt ?? null,
     lastModified: state.lastModified ?? null,
     stateVersion: typeof state.stateVersion === 'number' ? state.stateVersion : 0,
+    // 消息日志版本：冷会话读存储时未知，按 0 处理（客户端不据此判新旧，
+    // 对齐靠 messagesAfter + total + 消息身份）。
+    logVersion,
     status: state.taskStatus ?? null,
     startedAt: state.taskStartedAt ?? null,
     finishedAt: state.taskFinishedAt ?? null,
     // 存储层不持有工具定义；工具卡渲染不依赖它（见文件头说明）。
     tools: [],
     messages,
+    messagesAfter,
     // Present only when the window is truncated, so the client can tell
     // "this is the whole conversation" from "there are older messages".
-    messagesSummary: typeof totalMessageCount === 'number' ? { count: totalMessageCount } : undefined,
+    messagesSummary: typeof totalMessageCount === 'number' ? { count: totalMessageCount, logVersion } : undefined,
     pendingToolCalls: [],
     backgroundCommands: [],
     contextCompaction: state.contextCompaction ?? null,
@@ -160,14 +169,18 @@ export async function handleSessionViewApi(req, res, url) {
     const tailParam = Number(new URLSearchParams(url.search).get('tail'))
     const tailCount = Number.isInteger(tailParam) && tailParam >= 1 ? tailParam : DEFAULT_VIEW_TAIL_MESSAGES
     const windowed = totalMessages > tailCount
-    const view = windowed
-      ? {
-          ...active,
-          messages: active.messages.slice(totalMessages - tailCount),
-          messagesSummary: { count: totalMessages },
-          readonly: true,
-        }
-      : { ...active, readonly: true }
+    // 窗口起点是**绝对 seq**：客户端据此把 messages[0] 对齐到正确下标，
+    // 不再用「本地长度」反推（窗口态下那个反推一直是错的）。
+    const messagesAfter = windowed ? totalMessages - tailCount : 0
+    const logVersion = Number.isInteger(active.logVersion) ? active.logVersion : 0
+    const view = {
+      ...active,
+      messages: windowed ? active.messages.slice(messagesAfter) : active.messages,
+      messagesAfter,
+      logVersion,
+      ...(windowed ? { messagesSummary: { count: totalMessages, logVersion } } : {}),
+      readonly: true,
+    }
     sendJson(res, 200, projectStateForClient(view, sessionAttachmentUrlFor(sessionId)))
     return
   }
@@ -197,7 +210,9 @@ export async function handleSessionViewApi(req, res, url) {
     throw error
   }
 
-  const view = readonlySessionView(sessionId, stored.state, stored.messages, stored.total)
+  const view = readonlySessionView(sessionId, stored.state, stored.messages, stored.total, {
+    logVersion: Number.isInteger(stored.state?.logVersion) ? stored.state.logVersion : 0,
+  })
   logger.debug(`Read session view ${sessionId} from storage`, {
     sessionId,
     messageCount: view.messages.length,

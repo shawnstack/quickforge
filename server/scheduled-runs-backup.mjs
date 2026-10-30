@@ -1,21 +1,96 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getSqliteStorage } from './sqlite/database.mjs'
 import { createScheduledTaskRunsRepository } from './sqlite/scheduled-task-runs-repository.mjs'
 import {
   currentScheduledRunsMaintenanceContext,
-  getScheduledRunsPhase,
-  isScheduledRunsAuthoritative,
   runScheduledRunsMaintenance,
-  splitScheduledTasksRuns,
-  verifyScheduledRunsRepository,
-} from './scheduled-runs-cutover.mjs'
+} from './scheduled-runs-maintenance.mjs'
 import { readStore, storageDir, writeStore } from './storage.mjs'
+
+// Scheduled-runs backup/restore. SQLite is the single authoritative store: the
+// v1 backup shape keeps task metadata in `scheduledTasks` and the runs in the
+// `scheduled_task_runs` table, so export reads a consistent snapshot through
+// the repository and restore rewrites both halves inside the maintenance lock.
 
 const RESTORE_PLAN_FILE = path.join(storageDir, 'scheduled-runs-restore-plan.json')
 const ROLL_FORWARD_STATUSES = new Set(['prepared', 'applying', 'target_applied'])
 const ROLL_BACK_STATUSES = new Set(['compensating', 'compensation_failed'])
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype
+}
+
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (!isPlainObject(value)) return value
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]))
+}
+
+export function scheduledRunsDigest(entries) {
+  const canonical = [...entries]
+    .map(({ taskId, run }) => {
+      const normalizedRun = { ...run }
+      delete normalizedRun.taskId
+      delete normalizedRun.source
+      delete normalizedRun.updatedAt
+      for (const field of ['agentId', 'agentLabel', 'agentSnapshot']) {
+        if (normalizedRun[field] === undefined) normalizedRun[field] = null
+      }
+      return { taskId, run: canonicalize(normalizedRun) }
+    })
+    .sort((a, b) => String(a.taskId).localeCompare(String(b.taskId)) || String(a.run.id).localeCompare(String(b.run.id)))
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
+}
+
+// Splits the v1 `scheduledTasks` payload into repository entries plus the
+// metadata-only task records that stay in the JSON store.
+export function splitScheduledTasksRuns(tasksValue) {
+  const tasks = isPlainObject(tasksValue) ? tasksValue : {}
+  const metadata = {}
+  const entries = []
+  for (const [recordId, task] of Object.entries(tasks)) {
+    if (!isPlainObject(task)) throw new TypeError(`Invalid scheduled task: ${recordId}`)
+    const taskId = typeof task.id === 'string' && task.id.trim() ? task.id : recordId
+    if (!taskId || taskId !== recordId) throw new TypeError(`Scheduled task id mismatch: ${recordId}`)
+    const seen = new Set()
+    const runs = task.runs === undefined ? [] : task.runs
+    if (!Array.isArray(runs)) throw new TypeError(`Scheduled task runs must be an array: ${taskId}`)
+    for (const run of runs) {
+      if (!isPlainObject(run)) throw new TypeError(`Invalid scheduled task run: ${taskId}`)
+      if (typeof run.id !== 'string' || !run.id.trim()) throw new TypeError(`Scheduled task run id is required: ${taskId}`)
+      if (seen.has(run.id)) throw new TypeError(`Duplicate scheduled task run: ${taskId}/${run.id}`)
+      if (!['running', 'success', 'failed'].includes(run.status)) throw new TypeError(`Invalid scheduled task run status: ${taskId}/${run.id}`)
+      if (typeof run.startedAt !== 'string' || !run.startedAt.trim() || Number.isNaN(new Date(run.startedAt).getTime())) {
+        throw new TypeError(`Invalid scheduled task run startedAt: ${taskId}/${run.id}`)
+      }
+      seen.add(run.id)
+      entries.push({ taskId, run: structuredClone(run), source: 'v1_import' })
+    }
+    const { runs: _runs, ...taskMetadata } = task
+    metadata[recordId] = taskMetadata
+  }
+  return { metadata, entries, count: entries.length, digest: scheduledRunsDigest(entries) }
+}
+
+export function verifyScheduledRunsRepository(repository, snapshot) {
+  const taskIds = Object.keys(snapshot.metadata)
+  const first = repository.list({ page: 1, pageSize: 100, taskIds })
+  let entries = first.runs.map((run) => {
+    const { taskId, source: _source, ...value } = run
+    return { taskId, run: value }
+  })
+  for (let page = 2; entries.length < first.total; page += 1) {
+    const next = repository.list({ page, pageSize: 100, taskIds })
+    entries = entries.concat(next.runs.map((run) => {
+      const { taskId, source: _source, ...value } = run
+      return { taskId, run: value }
+    }))
+  }
+  const digest = scheduledRunsDigest(entries)
+  if (entries.length !== snapshot.count || digest !== snapshot.digest) throw new Error('Scheduled runs SQLite count/digest verification failed')
+}
 
 function repositoryRequired() {
   try {
@@ -59,7 +134,6 @@ export async function readScheduledTasksForBackup({
 } = {}) {
   const operation = async () => {
     const tasks = await readTasks()
-    if (!isScheduledRunsAuthoritative()) return tasks
     const repository = repositoryOverride || repositoryRequired()
     const taskIds = Object.keys(tasks)
     const grouped = groupRuns(repository, taskIds)
@@ -75,7 +149,7 @@ export async function readScheduledTasksForBackup({
     verifyScheduledRunsRepository(repository, snapshot)
     return logical
   }
-  if (!maintenance || !isScheduledRunsAuthoritative() || currentScheduledRunsMaintenanceContext()) return operation()
+  if (!maintenance || currentScheduledRunsMaintenanceContext()) return operation()
   return runScheduledRunsMaintenance(operation, { operation: 'scheduled-runs-backup-export', pauseRuntime: false })
 }
 
@@ -148,14 +222,6 @@ export async function restoreScheduledTasks(tasks, {
   planFile = RESTORE_PLAN_FILE,
   storage,
 } = {}) {
-  if (!isScheduledRunsAuthoritative()) {
-    const current = readCurrent ? await readCurrent() : await readStore('scheduled-tasks')
-    const target = mode === 'merge' ? { ...current, ...tasks } : tasks
-    if (hasActiveRuns(current, { count: () => 0 })) throw activeRestoreError()
-    await writeStore('scheduled-tasks', target)
-    return target
-  }
-
   const repository = repositoryOverride || repositoryRequired()
   return runScheduledRunsMaintenance(async () => {
     const current = readCurrent
@@ -221,9 +287,6 @@ export async function recoverScheduledRunsRestorePlan({
   } catch (error) {
     if (error?.code === 'ENOENT') return false
     throw new Error(`Scheduled runs restore plan is unreadable or invalid: ${error?.message || error}`, { cause: error })
-  }
-  if (!['sqlite_authoritative_json_pending', 'authoritative'].includes(getScheduledRunsPhase())) {
-    throw new Error('Scheduled runs restore plan exists outside authoritative mode')
   }
   const repository = repositoryOverride || repositoryRequired()
   return runScheduledRunsMaintenance(async () => {

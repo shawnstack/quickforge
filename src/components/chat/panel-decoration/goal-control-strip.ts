@@ -84,11 +84,6 @@ export type GoalControlStripView = {
   stateTone: GoalControlStripTone
   /** The goal card tone, kept for callers that mirror the card's palette. */
   tone: GoalCardTone
-  /**
-   * True only while the engine is actively working a step. Drives the rotating
-   * progress arc; static states never spin (a rotating clock read as "loading").
-   */
-  spinning: boolean
   /** Goal v2 phase/activation/runtime, when the server uses the v2 engine. */
   phase?: GoalPhase
   activation?: GoalActivation
@@ -270,16 +265,6 @@ function stateToneFor(goal: GoalState, word: AppTextKey): GoalControlStripTone {
   return 'working'
 }
 
-/**
- * The rotating arc is reserved for "a step is actually being worked on". Waiting
- * and pausing are alive but not progressing, so they do not spin — the amber dot
- * already says "look at me".
- */
-function isWorkingSpin(goal: GoalState): boolean {
-  if (isGoalV2(goal)) return goal.runtime === 'executing' || goal.runtime === 'planning' || goal.runtime === 'verifying'
-  return goal.status === 'running' || goal.status === 'verifying' || goal.status === 'planning'
-}
-
 function baseView(goal: GoalState) {
   const tally = criteriaTally(goal)
   const extension = goalBudgetExtension(goal)
@@ -307,7 +292,6 @@ function buildGoalControlStripViewV2(goal: GoalState): GoalControlStripView | nu
     ...baseView(goal),
     statusKey: v2StatusKey(goal),
     tone: v2Tone(goal),
-    spinning: isWorkingSpin(goal),
     phase: goal.phase,
     activation: goal.activation,
     runtime: goal.runtime,
@@ -348,7 +332,6 @@ export function buildGoalControlStripView(goal: GoalState): GoalControlStripView
     ...baseView(goal),
     statusKey: STATUS_KEY[goal.status],
     tone: toneForStatus(goal.status),
-    spinning: isWorkingSpin(goal),
     primaryAction,
     primaryLabelKey: primaryLabelFor(primaryAction, goalBudgetExtension(goal).exhausted),
     primaryOpensInspector: primaryAction === 'resume' && goalBudgetExtension(goal).exhausted,

@@ -70,44 +70,31 @@ function fakeRepository(initial = []) {
   return { repository, rows }
 }
 
-function serviceFor(tasks, repository, authoritative = false, logger = { warn: vi.fn() }) {
+function serviceFor(tasks, repository, logger = { warn: vi.fn() }) {
   return createScheduledTaskRunsService({
     readTasks: vi.fn(async () => structuredClone(tasks)),
     getRepository: vi.fn(() => repository),
-    isAuthoritative: () => authoritative,
     logger,
   })
 }
 
-describe('scheduled task runs hybrid service', () => {
-  it('keeps JSON authoritative for reads, metadata, filtering, and pagination', async () => {
-    const tasks = [
-      task('task-a', 'Needle Alpha', [run('same', { startedAt: '2026-01-03T00:00:00.000Z' }), run('older')]),
-      task('task-z', 'Needle Zeta', [run('same', { startedAt: '2026-01-03T00:00:00.000Z' })]),
-    ]
-    const { repository } = fakeRepository([{ ...run('sqlite-only'), taskId: 'task-a' }])
-    const result = await serviceFor(tasks, repository).listRuns({ keyword: 'needle', page: 2, pageSize: 1 })
-    expect(result).toMatchObject({ total: 3, page: 2, pageSize: 1 })
-    expect(result.runs[0]).toMatchObject({ taskId: 'task-a', id: 'same', taskTitle: 'Needle Alpha' })
-    expect(repository.list).not.toHaveBeenCalled()
-  })
-
-  it('best-effort upserts composite IDs and never throws persistence failures', async () => {
+describe('scheduled task runs service', () => {
+  it('records persistence failures in diagnostics without leaking error details', async () => {
     const { repository, rows } = fakeRepository()
     const logger = { warn: vi.fn() }
-    const service = serviceFor([], repository, false, logger)
-    await expect(service.syncRun('task-a', run('same'), { phase: 'created' })).resolves.toBeTruthy()
-    await expect(service.syncRun('task-b', run('same'), { phase: 'created' })).resolves.toBeTruthy()
+    const service = serviceFor([], repository, logger)
+    await expect(service.syncRun('task-a', run('same'), { stage: 'created' })).resolves.toBeTruthy()
+    await expect(service.syncRun('task-b', run('same'), { stage: 'created' })).resolves.toBeTruthy()
     expect(rows.size).toBe(2)
 
     repository.upsert.mockImplementationOnce(() => { throw new Error('secret') })
-    await expect(service.syncRun('task-c', run('failed'))).resolves.toBeNull()
-    expect(service.getDiagnostics()).toMatchObject({ dirtyTaskIds: ['task-c'], failureCounts: { sync: 1 } })
+    await expect(service.syncRun('task-c', run('failed'), { stage: 'terminal' })).rejects.toThrow('secret')
+    expect(service.getDiagnostics()).toMatchObject({ readDegraded: false, failureCounts: { sync: 1 } })
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret')
   })
 })
 
-describe('scheduled task runs authoritative service', () => {
+describe('scheduled task runs repository reads', () => {
   it('uses one SQL count/page query, current taskIds, and task-title keyword OR text', async () => {
     const tasks = [task('task-a', 'Alpha'), task('task-z', 'Needle title')]
     const { repository } = fakeRepository([
@@ -115,7 +102,8 @@ describe('scheduled task runs authoritative service', () => {
       { ...run('text', { errorMessage: 'needle text' }), taskId: 'task-a' },
       { ...run('orphan'), taskId: 'deleted' },
     ])
-    const result = await serviceFor(tasks, repository, true).listRuns({ keyword: 'needle', page: 1, pageSize: 1 })
+    const service = serviceFor(tasks, repository)
+    const result = await service.listRuns({ keyword: 'needle', page: 1, pageSize: 1 })
     expect(result).toMatchObject({ total: 2, page: 1, pageSize: 1 })
     expect(result.runs[0]).toHaveProperty('taskTitle')
     expect(repository.list).toHaveBeenCalledOnce()
@@ -124,21 +112,21 @@ describe('scheduled task runs authoritative service', () => {
 
   it('strictly persists upserts/deletes, returns recent runs, and propagates failures', async () => {
     const { repository, rows } = fakeRepository()
-    const service = serviceFor([], repository, true)
-    await service.syncRun('task-a', run('same'), { phase: 'created' })
-    await service.syncRun('task-b', run('same'), { phase: 'created' })
+    const service = serviceFor([], repository)
+    await service.syncRun('task-a', run('same'), { stage: 'created' })
+    await service.syncRun('task-b', run('same'), { stage: 'created' })
     expect(rows.size).toBe(2)
     expect(await service.recentRuns('task-a', 5)).toHaveLength(1)
     await expect(service.deleteRun('task-a', 'same')).resolves.toBe(true)
     expect(rows.has(key('task-b', 'same'))).toBe(true)
 
     repository.upsert.mockImplementationOnce(() => { throw new Error('sqlite down') })
-    await expect(service.syncRun('task-c', run('x'))).rejects.toThrow('sqlite down')
+    await expect(service.syncRun('task-c', run('x'), { stage: 'created' })).rejects.toThrow('sqlite down')
     repository.deleteByTask.mockImplementationOnce(() => { throw new Error('cleanup down') })
     await expect(service.deleteTaskRuns('task-b')).rejects.toThrow('cleanup down')
   })
 
-  it('serializes same-task phases', async () => {
+  it('serializes same-task stages', async () => {
     const { repository } = fakeRepository()
     let release
     const original = repository.upsert.getMockImplementation()
@@ -146,9 +134,9 @@ describe('scheduled task runs authoritative service', () => {
       await new Promise((resolve) => { release = resolve })
       return original(...args)
     })
-    const service = serviceFor([], repository, true)
-    const first = service.syncRun('task-a', run('one', { status: 'running' }))
-    const second = service.syncRun('task-a', run('one', { status: 'success' }))
+    const service = serviceFor([], repository)
+    const first = service.syncRun('task-a', run('one', { status: 'running' }), { stage: 'created' })
+    const second = service.syncRun('task-a', run('one', { status: 'success' }), { stage: 'terminal' })
     await vi.waitFor(() => expect(release).toBeTypeOf('function'))
     release()
     await Promise.all([first, second])

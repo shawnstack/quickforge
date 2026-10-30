@@ -4,8 +4,12 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
-import { initializeScheduledRunsCutover, splitScheduledTasksRuns } from '../../server/scheduled-runs-cutover.mjs'
-import { readScheduledTasksForBackup, recoverScheduledRunsRestorePlan, restoreScheduledTasks } from '../../server/scheduled-runs-backup.mjs'
+import {
+  readScheduledTasksForBackup,
+  recoverScheduledRunsRestorePlan,
+  restoreScheduledTasks,
+  splitScheduledTasksRuns,
+} from '../../server/scheduled-runs-backup.mjs'
 
 function run(id, overrides = {}) {
   return { id, status: 'success', trigger: 'manual', startedAt: '2026-01-01T00:00:00.000Z', result: id, ...overrides }
@@ -28,14 +32,10 @@ describe('authoritative scheduled runs backup and restore', () => {
     planFile = path.join(directory, 'restore-plan.json')
     storage = await initializeSqliteStorage({ databasePath: path.join(directory, 'quickforge.sqlite3') })
     repository = createScheduledTaskRunsRepository(storage)
-    metadata = { 'task-a': { id: 'task-a', title: 'A', runs: [run('old')] } }
-    await initializeScheduledRunsCutover({
-      storage,
-      repository,
-      backupDirectory: path.join(directory, 'backups'),
-      readTasks: async () => structuredClone(metadata),
-      writeTasks: async (tasks) => { metadata = structuredClone(tasks) },
-    })
+    // SQLite is the single authoritative runs store, so the fixture seeds the
+    // task metadata and its runs directly instead of running a JSON cutover.
+    metadata = { 'task-a': { id: 'task-a', title: 'A' } }
+    repository.upsert('task-a', run('old'), { source: 'runtime' })
   })
 
   afterEach(async () => {

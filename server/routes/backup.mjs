@@ -2,19 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { isAuthenticatedAppClient } from '../access-policy.mjs'
-import { isScheduledRunsMaintenanceActive } from '../scheduled-runs-cutover.mjs'
+import { isScheduledRunsMaintenanceActive } from '../scheduled-runs-maintenance.mjs'
 import { readScheduledTasksForBackup, restoreScheduledTasks } from '../scheduled-runs-backup.mjs'
 import { isSessionStateAuthoritative } from '../session-state-service.mjs'
 import { isSessionStateMaintenanceActive } from '../session-state-maintenance.mjs'
 import { exportSessionStateForBackup, restoreSessionStateSnapshot } from '../session-state-backup.mjs'
-import { isShareStorageAuthoritative } from '../share-service.mjs'
-import { isShareMaintenanceActive } from '../share-cutover.mjs'
+import { isShareMaintenanceActive } from '../share-maintenance.mjs'
 import { exportShareStateForBackup, restoreShareStateSnapshot } from '../share-backup.mjs'
-import { readSharesJsonFile, writeSharesJsonFile } from '../share-json-file.mjs'
-import { isLanAccessStorageAuthoritative } from '../lan-access-service.mjs'
-import { isLanAccessMaintenanceActive } from '../lan-access-cutover.mjs'
+import { isLanAccessMaintenanceActive } from '../lan-access-maintenance.mjs'
 import { exportLanAccessStateForBackup, restoreLanAccessStateSnapshot } from '../lan-access-backup.mjs'
-import { readLanAccessJsonFile, writeLanAccessJsonFile } from '../lan-access-json-file.mjs'
 import { destroyAgent, listSessions, refreshAllSessionModels } from '../agent-manager.mjs'
 import { logger } from '../utils/logger.mjs'
 import { sendJson, readJsonBody } from '../utils/response.mjs'
@@ -307,31 +303,24 @@ async function buildBackup(scope = 'all', options = {}) {
   }
 
   if (includeShares) {
-    if (isShareStorageAuthoritative()) {
-      // Authoritative export: integrity verified under the share maintenance
-      // lock; the envelope carries phase + count + digest so the restore path
-      // can verify the snapshot round-trips exactly. Records include tokens
-      // (hashes only — the raw secrets never leave the issuer).
-      const snapshot = await exportShareStateForBackup()
-      Object.assign(data, { shares: snapshot.shares })
-      shareState = { phase: snapshot.phase, count: snapshot.count, digest: snapshot.digest }
-    } else {
-      data.shares = await readSharesJsonFile()
-    }
+    // Shares are exported from the single authoritative SQLite store:
+    // integrity verified under the share maintenance lock, envelope carries
+    // count + digest so the restore path can verify the snapshot round-trips
+    // exactly. Records include tokens (hashes only — the raw secrets never
+    // leave the issuer).
+    const snapshot = await exportShareStateForBackup()
+    Object.assign(data, { shares: snapshot.shares })
+    shareState = { count: snapshot.count, digest: snapshot.digest }
   }
 
   if (includeLanAccess) {
-    if (isLanAccessStorageAuthoritative()) {
-      // Authoritative export: integrity verified under the lan-access
-      // maintenance lock; the envelope carries phase + count + digest so the
-      // restore path can verify the snapshot round-trips exactly. The config
-      // keeps token hashes only and strips the repository-internal revision.
-      const snapshot = await exportLanAccessStateForBackup()
-      Object.assign(data, { lanAccess: snapshot.lanAccess })
-      lanAccessState = { phase: snapshot.phase, count: snapshot.count, digest: snapshot.digest }
-    } else {
-      data.lanAccess = await readLanAccessJsonFile()
-    }
+    // Authoritative export: integrity verified under the lan-access
+    // maintenance lock; the envelope carries count + digest so the restore path
+    // can verify the snapshot round-trips exactly. The config keeps token
+    // hashes only and strips the repository-internal revision.
+    const snapshot = await exportLanAccessStateForBackup()
+    Object.assign(data, { lanAccess: snapshot.lanAccess })
+    lanAccessState = { count: snapshot.count, digest: snapshot.digest }
   }
 
   return {
@@ -750,46 +739,34 @@ async function restoreValidatedBackup(backup, mode = 'replace') {
   }
 
   if (sections.shares !== undefined) {
-    if (isShareStorageAuthoritative()) {
-      // Authoritative restore: a single maintenance-locked, compensated SQLite
-      // transaction via replaceAll. Merge keeps local-only records and lets the
-      // backup override same-key entries; replace wipes local shares first. The
-      // restore is scoped to the share tables only and never touches the
-      // scheduled-runs, session-index or message-storage data.
-      try {
-        const restored = await restoreShareStateSnapshot({ shares: sections.shares }, { mode })
-        summary.shares = restored.shares
-      } catch (error) {
-        if (error instanceof TypeError) error.statusCode = 400
-        throw error
-      }
-    } else {
-      const value = merge ? mergeRecordStore(await readSharesJsonFile(), sections.shares) : sections.shares
-      await writeSharesJsonFile(value)
-      summary.shares = countKeys(value)
+    // Restore into the single authoritative SQLite store: a maintenance-locked,
+    // compensated transaction via replaceAll. Merge keeps local-only records and
+    // lets the backup override same-key entries; replace wipes local shares
+    // first. The restore is scoped to the share tables only and never touches
+    // the scheduled-runs, session-index or message-storage data.
+    try {
+      const restored = await restoreShareStateSnapshot({ shares: sections.shares }, { mode })
+      summary.shares = restored.shares
+    } catch (error) {
+      if (error instanceof TypeError) error.statusCode = 400
+      throw error
     }
   }
 
   if (sections.lanAccess !== undefined) {
-    if (isLanAccessStorageAuthoritative()) {
-      // Authoritative restore: a single maintenance-locked, compensated SQLite
-      // transaction via replaceAll. Merge keeps local config fields (including
-      // local tokens) while the backup overrides same-key fields; replace wipes
-      // the whole config first. The restore overwrites the `enabled` switch
-      // when the backup carries one (inspect warns), and is scoped to the
-      // lan-access tables only — never touching scheduled-runs, session-index,
-      // message-storage or share data.
-      try {
-        const restored = await restoreLanAccessStateSnapshot({ lanAccess: sections.lanAccess }, { mode })
-        summary.lanAccess = restored.lanAccess
-      } catch (error) {
-        if (error instanceof TypeError) error.statusCode = 400
-        throw error
-      }
-    } else {
-      const value = merge ? mergeRecordStore(await readLanAccessJsonFile(), sections.lanAccess) : sections.lanAccess
-      await writeLanAccessJsonFile(value)
-      summary.lanAccess = countKeys(value)
+    // Restore: a single maintenance-locked, compensated SQLite transaction via
+    // replaceAll. Merge keeps local config fields (including local tokens)
+    // while the backup overrides same-key fields; replace wipes the whole
+    // config first. The restore overwrites the `enabled` switch when the backup
+    // carries one (inspect warns), and is scoped to the lan-access tables only
+    // — never touching scheduled-runs, session-index, message-storage or share
+    // data.
+    try {
+      const restored = await restoreLanAccessStateSnapshot({ lanAccess: sections.lanAccess }, { mode })
+      summary.lanAccess = restored.lanAccess
+    } catch (error) {
+      if (error instanceof TypeError) error.statusCode = 400
+      throw error
     }
   }
 
@@ -863,13 +840,13 @@ export async function handleBackupApi(req, res, url, context = { isLocalRequest:
       error.errorCode = 'session_state_maintenance'
       throw error
     }
-    if (restoringShares && isShareStorageAuthoritative() && isShareMaintenanceActive()) {
+    if (restoringShares && isShareMaintenanceActive()) {
       const error = new Error('Share storage maintenance is in progress')
       error.statusCode = 423
       error.errorCode = 'share_maintenance'
       throw error
     }
-    if (restoringLanAccess && isLanAccessStorageAuthoritative() && isLanAccessMaintenanceActive()) {
+    if (restoringLanAccess && isLanAccessMaintenanceActive()) {
       const error = new Error('LAN access storage maintenance is in progress')
       error.statusCode = 423
       error.errorCode = 'lan_access_maintenance'

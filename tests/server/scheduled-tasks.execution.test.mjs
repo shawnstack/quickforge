@@ -9,42 +9,105 @@ const mocks = vi.hoisted(() => ({
   sessions: new Map(),
   eventBuses: new Map(),
   stores: new Map(),
+  // `scheduled_task_runs` in-memory stand-in: the task JSON store now keeps
+  // metadata only, so run rows are written/read through this table.
+  runs: new Map(),
+  runSeq: 0,
   nextAgentMode: 'timeout',
   abortRun: vi.fn(),
   agentEvents: null,
-  shadowSyncRun: vi.fn(async () => null),
-  shadowDeleteTaskRuns: vi.fn(async () => false),
-  shadowListRuns: vi.fn(async () => ({ runs: [], total: 0, page: 1, pageSize: 10 })),
+  syncRun: vi.fn(async () => null),
+  deleteTaskRuns: vi.fn(async () => 0),
+  listRuns: vi.fn(async () => ({ runs: [], total: 0, page: 1, pageSize: 10 })),
   recentRuns: vi.fn(async () => []),
   deleteRun: vi.fn(async () => true),
   runtimeHooks: null,
-  authoritative: false,
 }))
+
+function runRowKey(taskId, runId) {
+  return `${taskId}\u0000${runId}`
+}
+
+// Mirrors repository.upsert: a run is keyed by (taskId, id), and a repeated
+// stage update keeps its original insertion order so the newest run stays first.
+function saveMockRun(taskId, run) {
+  const key = runRowKey(taskId, run.id)
+  const existing = mocks.runs.get(key)
+  const seq = existing ? existing.seq : (mocks.runSeq += 1)
+  mocks.runs.set(key, { taskId, seq, run: structuredClone(run) })
+  return structuredClone(run)
+}
+
+function mockRunsFor(taskId, { limit } = {}) {
+  const rows = [...mocks.runs.values()]
+    .filter((row) => row.taskId === taskId)
+    .sort((a, b) => b.seq - a.seq)
+  return (limit ? rows.slice(0, limit) : rows).map((row) => structuredClone(row.run))
+}
+
+function removeMockRun(taskId, runId) {
+  return mocks.runs.delete(runRowKey(taskId, runId))
+}
+
+function removeMockTaskRuns(taskId) {
+  let removed = 0
+  for (const [key, row] of mocks.runs) {
+    if (row.taskId !== taskId) continue
+    mocks.runs.delete(key)
+    removed += 1
+  }
+  return removed
+}
+
+function mockListRuns({ taskId, taskIds, status, page, pageSize } = {}) {
+  const currentPage = Math.max(1, Number(page) || 1)
+  const currentPageSize = Math.max(1, Number(pageSize) || 10)
+  let rows = [...mocks.runs.values()]
+  if (taskId) rows = rows.filter((row) => row.taskId === taskId)
+  if (taskIds) rows = rows.filter((row) => taskIds.includes(row.taskId))
+  if (status) rows = rows.filter((row) => row.run.status === status)
+  rows.sort((a, b) => b.seq - a.seq)
+  const start = (currentPage - 1) * currentPageSize
+  return {
+    runs: rows.slice(start, start + currentPageSize).map((row) => ({ ...structuredClone(row.run), taskId: row.taskId })),
+    total: rows.length,
+    page: currentPage,
+    pageSize: currentPageSize,
+  }
+}
+
+// Route code reads task metadata with readStore and hydrates `runs` through the
+// runs service; tests still assert on `task.runs`, so the store mock joins both
+// halves the same way the API layer does.
+function storeSnapshot(name) {
+  const data = structuredClone(mocks.stores.get(name) || {})
+  if (name === 'scheduled-tasks') {
+    for (const [taskId, task] of Object.entries(data)) task.runs = mockRunsFor(taskId)
+  }
+  return data
+}
 
 vi.mock('../../server/scheduled-task-runs-service.mjs', () => ({
   createScheduledTaskRunsService: vi.fn(() => ({
-    syncRun: mocks.shadowSyncRun,
-    deleteTaskRuns: mocks.shadowDeleteTaskRuns,
+    syncRun: mocks.syncRun,
+    deleteTaskRuns: mocks.deleteTaskRuns,
     deleteRun: mocks.deleteRun,
-    listRuns: mocks.shadowListRuns,
+    listRuns: mocks.listRuns,
     recentRuns: mocks.recentRuns,
     getDiagnostics: vi.fn(() => ({})),
   })),
 }))
 
-vi.mock('../../server/scheduled-runs-cutover.mjs', () => ({
+vi.mock('../../server/scheduled-runs-maintenance.mjs', () => ({
   assertScheduledRunsAvailable: vi.fn(),
   canStartScheduledRun: vi.fn(() => true),
   configureScheduledRunsRuntimeHooks: vi.fn((hooks) => { mocks.runtimeHooks = hooks }),
-  isScheduledRunsAuthoritative: vi.fn(() => mocks.authoritative),
-  isScheduledRunsMaintenanceActive: vi.fn(() => false),
-  recordScheduledRunsDiagnostic: vi.fn(),
 }))
 
 vi.mock('../../server/storage.mjs', () => ({
   storageDir: path.join(process.env.QUICKFORGE_DATA_DIR, 'storage'),
   ensureStorage: vi.fn(async () => {}),
-  readStore: vi.fn(async (name) => structuredClone(mocks.stores.get(name) || {})),
+  readStore: vi.fn(async (name) => storeSnapshot(name)),
   atomicUpdate: vi.fn(async (name, updater) => {
     const current = structuredClone(mocks.stores.get(name) || {})
     const next = await updater(current)
@@ -230,20 +293,21 @@ beforeEach(async () => {
   mocks.sessions.clear()
   mocks.eventBuses.clear()
   mocks.stores.clear()
+  mocks.runs.clear()
+  mocks.runSeq = 0
   mocks.nextAgentMode = 'timeout'
-  mocks.authoritative = false
   mocks.runtimeHooks = null
   mocks.recentRuns.mockReset()
-  mocks.recentRuns.mockImplementation(async () => [])
+  mocks.recentRuns.mockImplementation(async (taskId, limit = 5) => mockRunsFor(taskId, { limit }))
   mocks.deleteRun.mockReset()
-  mocks.deleteRun.mockImplementation(async () => true)
+  mocks.deleteRun.mockImplementation(async (taskId, runId) => removeMockRun(taskId, runId))
   mocks.abortRun.mockReset()
-  mocks.shadowSyncRun.mockReset()
-  mocks.shadowSyncRun.mockImplementation(async () => null)
-  mocks.shadowDeleteTaskRuns.mockReset()
-  mocks.shadowDeleteTaskRuns.mockImplementation(async () => false)
-  mocks.shadowListRuns.mockReset()
-  mocks.shadowListRuns.mockImplementation(async () => ({ runs: [], total: 0, page: 1, pageSize: 10 }))
+  mocks.syncRun.mockReset()
+  mocks.syncRun.mockImplementation(async (taskId, run) => saveMockRun(taskId, run))
+  mocks.deleteTaskRuns.mockReset()
+  mocks.deleteTaskRuns.mockImplementation(async (taskId) => removeMockTaskRuns(taskId))
+  mocks.listRuns.mockReset()
+  mocks.listRuns.mockImplementation(async (filters) => mockListRuns(filters))
   mocks.abortRun.mockImplementation(async (sessionId) => {
     const session = mocks.sessions.get(sessionId)
     session.agent.abort()
@@ -376,7 +440,10 @@ describe('scheduled task scheduler ticks', () => {
   const minuteMs = 60000
   const anchor = new Date('2026-01-01T00:00:00.000Z').getTime()
   const taskId = 'tick-cadence'
-  const currentTask = () => mocks.stores.get('scheduled-tasks')[taskId]
+  // Mutations go to the raw JSON store; assertions read the hydrated view where
+  // `runs` is joined from the runs table.
+  const rawTask = () => mocks.stores.get('scheduled-tasks')[taskId]
+  const currentTask = () => storeSnapshot('scheduled-tasks')[taskId]
 
   beforeEach(async () => {
     // These tests advance wall time as well as timers, unlike the manual-run suite.
@@ -418,7 +485,7 @@ describe('scheduled task scheduler ticks', () => {
   }
 
   it('advances parallel schedule slots at start and preserves cadence across overlapping completions', async () => {
-    currentTask().executionMode = 'parallel'
+    rawTask().executionMode = 'parallel'
     routes.startScheduledTaskRunner()
     const first = await waitForRun(1)
     expect(first).toMatchObject({ trigger: 'schedule', scheduledAt: new Date(anchor).toISOString(), status: 'running' })
@@ -459,8 +526,8 @@ describe('scheduled task scheduler ticks', () => {
   })
 
   it.each(['serial', 'parallel'])('does not replay missed %s interval slots on pause/resume', async (executionMode) => {
-    currentTask().executionMode = executionMode
-    currentTask().nextRunAt = new Date(anchor + minuteMs).toISOString()
+    rawTask().executionMode = executionMode
+    rawTask().nextRunAt = new Date(anchor + minuteMs).toISOString()
     await action('pause')
     routes.startScheduledTaskRunner()
     await vi.advanceTimersByTimeAsync(150000)
@@ -479,7 +546,7 @@ describe('scheduled task scheduler ticks', () => {
   it('continues scheduling historical clipped cron ranges after execution and resume', async () => {
     const due = new Date(2026, 0, 5, 9)
     vi.setSystemTime(due)
-    Object.assign(currentTask(), { scheduleType: 'cron', cronExpression: '0 9 * * 0-7', nextRunAt: due.toISOString() })
+    Object.assign(rawTask(), { scheduleType: 'cron', cronExpression: '0 9 * * 0-7', nextRunAt: due.toISOString() })
     routes.startScheduledTaskRunner()
     const run = await waitForRun(1)
     await finish(run)
@@ -692,67 +759,16 @@ describe('scheduled task execution lifecycle', () => {
       aiResult: '正常完成结果',
       result: '正常完成结果',
     })
-    expect(mocks.shadowSyncRun.mock.calls.map(([taskId, authoritativeRun, options]) => ({
+    expect(mocks.syncRun.mock.calls.map(([taskId, persistedRun, options]) => ({
       taskId,
-      status: authoritativeRun.status,
-      phase: options.phase,
+      status: persistedRun.status,
+      stage: options.stage,
     }))).toEqual([
-      { taskId: 'task-success', status: 'running', phase: 'created' },
-      { taskId: 'task-success', status: 'running', phase: 'resolved' },
-      { taskId: 'task-success', status: 'success', phase: 'terminal' },
+      { taskId: 'task-success', status: 'running', stage: 'created' },
+      { taskId: 'task-success', status: 'running', stage: 'resolved' },
+      { taskId: 'task-success', status: 'success', stage: 'terminal' },
     ])
     expect(mocks.eventBuses.get(task.lastSessionId).listenerCount('agent_event')).toBe(0)
-  })
-
-  it('does not change successful execution when every SQLite shadow write fails', async () => {
-    mocks.nextAgentMode = 'success'
-    mocks.shadowSyncRun.mockRejectedValue(new Error('shadow failure'))
-    const storage = await import('../../server/storage.mjs')
-    const routes = await import('../../server/routes/scheduled-tasks.mjs')
-    await storage.ensureStorage()
-    await createRecurringTask(storage, 'task-shadow-failure')
-
-    const response = await runTask(routes, 'task-shadow-failure')
-    expect(response.status).toBe(200)
-    const completed = await waitFor(async () => {
-      const current = (await storage.readStore('scheduled-tasks'))['task-shadow-failure']
-      return current?.runs?.[0]?.status === 'success' ? current : null
-    }, 'successful JSON task despite shadow failure')
-    expect(completed.runs[0].result).toBe('正常完成结果')
-  })
-
-  it('keeps DELETE successful when SQLite cleanup fails after JSON deletion', async () => {
-    mocks.shadowDeleteTaskRuns.mockRejectedValue(new Error('cleanup failed'))
-    const storage = await import('../../server/storage.mjs')
-    const routes = await import('../../server/routes/scheduled-tasks.mjs')
-    await storage.ensureStorage()
-    await createRecurringTask(storage, 'task-delete')
-    const response = mockResponse()
-
-    await expect(routes.handleScheduledTasksApi(
-      { method: 'DELETE' },
-      response,
-      new URL('http://localhost/api/scheduled-tasks/task-delete'),
-    )).resolves.toBeUndefined()
-
-    expect(response.status).toBe(200)
-    expect((await storage.readStore('scheduled-tasks'))['task-delete']).toBeUndefined()
-  })
-
-  it('does not clean SQLite when the authoritative JSON delete fails', async () => {
-    const storage = await import('../../server/storage.mjs')
-    const routes = await import('../../server/routes/scheduled-tasks.mjs')
-    await storage.ensureStorage()
-    await createRecurringTask(storage, 'task-delete-json-failure')
-    storage.atomicUpdate.mockRejectedValueOnce(new Error('JSON delete failed'))
-
-    await expect(routes.handleScheduledTasksApi(
-      { method: 'DELETE' },
-      mockResponse(),
-      new URL('http://localhost/api/scheduled-tasks/task-delete-json-failure'),
-    )).rejects.toThrow('JSON delete failed')
-
-    expect(mocks.shadowDeleteTaskRuns).not.toHaveBeenCalled()
   })
 
   it('does not rewrite the task store when recurring statuses need no repair', async () => {
@@ -768,10 +784,8 @@ describe('scheduled task execution lifecycle', () => {
     expect(storage.atomicUpdate).not.toHaveBeenCalled()
   })
 
-  it('keeps authoritative JSON metadata-only and returns recent runs through the API', async () => {
-    mocks.authoritative = true
+  it('keeps the task JSON metadata-only and returns recent runs through the API', async () => {
     mocks.nextAgentMode = 'success'
-    mocks.shadowSyncRun.mockImplementation(async (_taskId, value) => value)
     mocks.recentRuns.mockImplementation(async () => [{
       id: 'recent',
       status: 'success',
@@ -788,14 +802,12 @@ describe('scheduled task execution lifecycle', () => {
 
     const response = await runTask(routes, 'task-authoritative')
     expect(response.status).toBe(200)
-    await waitFor(() => mocks.shadowSyncRun.mock.calls.some(([, value, options]) => value.status === 'success' && options.phase === 'terminal'), 'authoritative terminal persistence')
-    const persisted = (await storage.readStore('scheduled-tasks'))['task-authoritative']
-    expect(persisted).not.toHaveProperty('runs')
+    await waitFor(() => mocks.syncRun.mock.calls.some(([, value, options]) => value.status === 'success' && options.stage === 'terminal'), 'terminal persistence')
+    expect(mocks.stores.get('scheduled-tasks')['task-authoritative']).not.toHaveProperty('runs')
     expect(response.body.task.runs).toEqual([expect.objectContaining({ id: 'recent' })])
   })
 
-  it('compensates the created authoritative run when active metadata persistence fails', async () => {
-    mocks.authoritative = true
+  it('compensates the created run when active metadata persistence fails', async () => {
     const storage = await import('../../server/storage.mjs')
     const routes = await import('../../server/routes/scheduled-tasks.mjs')
     await storage.ensureStorage()
@@ -806,11 +818,10 @@ describe('scheduled task execution lifecycle', () => {
     expect(mocks.deleteRun).toHaveBeenCalledWith('task-created-compensation', expect.any(String))
   })
 
-  it('does not report a successful authoritative execution when terminal SQLite persistence fails', async () => {
-    mocks.authoritative = true
+  it('does not report a successful execution when terminal SQLite persistence fails', async () => {
     mocks.nextAgentMode = 'success'
-    mocks.shadowSyncRun.mockImplementation(async (_taskId, value, options) => {
-      if (options.phase === 'terminal') throw new Error('terminal sqlite failed')
+    mocks.syncRun.mockImplementation(async (_taskId, value, options) => {
+      if (options.stage === 'terminal') throw new Error('terminal sqlite failed')
       return value
     })
     const storage = await import('../../server/storage.mjs')
@@ -822,12 +833,11 @@ describe('scheduled task execution lifecycle', () => {
 
     const response = await runTask(routes, 'task-terminal-failure')
     expect(response.status).toBe(200)
-    await waitFor(() => mocks.shadowSyncRun.mock.calls.some(([, value, options]) => value.status === 'failed' && options.phase === 'exception-terminal'), 'failed terminal persistence')
+    await waitFor(() => mocks.syncRun.mock.calls.some(([, value, options]) => value.status === 'failed' && options.stage === 'exception-terminal'), 'failed terminal persistence')
   })
 
-  it('recovers stale authoritative running rows and clears serial active metadata', async () => {
-    mocks.authoritative = true
-    mocks.shadowListRuns.mockResolvedValue({
+  it('recovers stale running rows and clears serial active metadata', async () => {
+    mocks.listRuns.mockResolvedValue({
       runs: [{ id: 'stale-run', taskId: 'task-stale', status: 'running', trigger: 'schedule', startedAt: '2025-12-31T23:59:00.000Z' }],
       total: 1,
       page: 1,
@@ -842,9 +852,9 @@ describe('scheduled task execution lifecycle', () => {
     })
     const routes = await import('../../server/routes/scheduled-tasks.mjs')
     await routes.recoverStaleScheduledTaskRuns({ now: () => new Date('2026-01-01T00:00:00.000Z') })
-    expect(mocks.shadowSyncRun).toHaveBeenCalledWith('task-stale', expect.objectContaining({
+    expect(mocks.syncRun).toHaveBeenCalledWith('task-stale', expect.objectContaining({
       id: 'stale-run', status: 'failed', errorMessage: 'Interrupted by previous process shutdown', durationMs: 60_000,
-    }), { phase: 'startup-recovery' })
+    }), { stage: 'startup-recovery' })
     expect(mocks.stores.get('scheduled-tasks')['task-stale']).toMatchObject({
       status: 'enabled', currentRunId: null, currentRunIds: [],
     })

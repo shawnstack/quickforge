@@ -353,9 +353,11 @@ describe('goal card i18n and styling', () => {
     expect(block).toContain('.quickforge-goal-strip-action:focus-visible')
     expect(block).toMatch(/@media \(max-width: 560px\)/)
     expect(block).toMatch(/@media \(prefers-reduced-motion: reduce\)/)
-    // 方案 A: neutral constant identity glyph, attention color driven by the state
-    // tone, rotating arc instead of a spinning status icon.
-    expect(block).toContain('.quickforge-goal-strip-spinner')
+    // 方案 A: neutral constant identity glyph, attention color driven by the
+    // state tone. The breathing dot is the only "alive" signal — no second
+    // rotating arc next to it.
+    expect(block).not.toContain('.quickforge-goal-strip-spinner')
+    expect(block).not.toContain('quickforge-goal-spin')
     expect(block).toContain('[data-tone="attention"]')
     expect(block).toContain('[data-tone="idle"]')
     expect(block).not.toContain('quickforge-goal-strip-icon--spinning')

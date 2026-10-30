@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { pendingAsks } from '../../server/ask-store.mjs'
+import { pendingAsks, clearAskQueues, ASK_QUEUE_MAX_WAITING } from '../../server/ask-store.mjs'
 import { APPROVAL_TIMEOUT_MS, pendingApprovals, pendingAutoCompactApprovals } from '../../server/approval-store.mjs'
 
 const mocks = vi.hoisted(() => ({
@@ -48,6 +48,7 @@ afterEach(() => {
   pendingApprovals.clear()
   pendingAutoCompactApprovals.clear()
   pendingAsks.clear()
+  clearAskQueues()
 })
 
 describe('createApprovalPromise', () => {
@@ -309,6 +310,113 @@ describe('createAskUserPromise', () => {
     expect(result.details).toMatchObject({ skipped: true, skipReason: 'aborted' })
     expect(result.content[0].text).toContain('运行被停止')
     expect(pendingAsks.size).toBe(0)
+  })
+
+  it('queues a second ask of the same session behind the visible one', async () => {
+    const session = makeSession({ sessionId: 'session-queue' })
+    const first = createAskUserPromise(session, 'call-1', { question: 'First?' })
+    const second = createAskUserPromise(session, 'call-2', { question: 'Second?' })
+
+    // Single-slot UI: only the first ask may register / emit.
+    expect(pendingAsks.size).toBe(1)
+    expect(mocks.emitSessionEvent).toHaveBeenCalledTimes(1)
+    const [firstAskId, firstEntry] = pendingAsks.entries().next().value
+    expect(firstEntry.toolCallId).toBe('call-1')
+
+    firstEntry.finish({ answers: [{ choices: ['A'] }] })
+    await first
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The queued ask becomes visible once the first one settled.
+    expect(pendingAsks.size).toBe(1)
+    const [secondAskId, secondEntry] = pendingAsks.entries().next().value
+    expect(secondAskId).not.toBe(firstAskId)
+    expect(secondEntry.toolCallId).toBe('call-2')
+    expect(mocks.emitSessionEvent).toHaveBeenCalledWith(session, {
+      type: 'ask_user_required',
+      sessionId: 'session-queue',
+      askId: secondAskId,
+      toolCallId: 'call-2',
+      questions: secondEntry.questions,
+    })
+
+    secondEntry.finish({ skipped: true })
+    const secondResult = await second
+    expect(secondResult.details).toMatchObject({ askId: secondAskId, skipped: true })
+    expect(pendingAsks.size).toBe(0)
+  })
+
+  it('starts the timeout of a queued ask only when it becomes visible', async () => {
+    const session = makeSession({ sessionId: 'session-timeout' })
+    const first = createAskUserPromise(session, 'call-1', { question: 'First?' })
+    let secondSettled = false
+    const second = createAskUserPromise(session, 'call-2', { question: 'Second?' }).then((result) => {
+      secondSettled = true
+      return result
+    })
+
+    // Waiting behind another ask must not burn this ask's own 30 minutes.
+    await vi.advanceTimersByTimeAsync(29 * 60 * 1000)
+    expect(secondSettled).toBe(false)
+
+    const [, firstEntry] = pendingAsks.entries().next().value
+    firstEntry.finish({ skipped: true })
+    await first
+    await vi.advanceTimersByTimeAsync(0)
+    expect(secondSettled).toBe(false)
+
+    // Visible now: a full 30 minutes from this point.
+    await vi.advanceTimersByTimeAsync(29 * 60 * 1000)
+    expect(secondSettled).toBe(false)
+    await vi.advanceTimersByTimeAsync(60 * 1000)
+    const secondResult = await second
+    expect(secondResult.details).toMatchObject({ skipped: true, skipReason: 'timeout' })
+    expect(pendingAsks.size).toBe(0)
+  })
+
+  it('settles a queued ask as aborted instead of leaking it into the next run', async () => {
+    const controller = new AbortController()
+    const session = makeSession({ sessionId: 'session-abort', agent: { signal: controller.signal } })
+    const first = createAskUserPromise(session, 'call-1', { question: 'First?' })
+    const second = createAskUserPromise(session, 'call-2', { question: 'Second?' })
+
+    controller.abort()
+    await expect(first).resolves.toMatchObject({ details: { skipReason: 'aborted' } })
+    await vi.advanceTimersByTimeAsync(0)
+    await expect(second).resolves.toMatchObject({ details: { skipReason: 'aborted' } })
+    expect(pendingAsks.size).toBe(0)
+  })
+
+  it('answers the model with a busy result when the ask queue is full', async () => {
+    const session = makeSession({ sessionId: 'session-full' })
+    const asks = Array.from({ length: ASK_QUEUE_MAX_WAITING + 2 }, (_, index) => (
+      createAskUserPromise(session, `call-${index + 1}`, { question: `Q${index + 1}?` })
+    ))
+
+    // 1 active + ASK_QUEUE_MAX_WAITING waiting; the rest are rejected outright.
+    expect(pendingAsks.size).toBe(1)
+    expect(mocks.emitSessionEvent).toHaveBeenCalledTimes(1)
+    const overflow = await asks[asks.length - 1]
+    expect(overflow.details).toMatchObject({ askId: null, skipped: true, skipReason: 'busy' })
+    expect(overflow.content[0].text).toContain('没有显示给用户')
+
+    // Drain the accepted asks so nothing is left waiting on a timer.
+    for (let index = 0; index < ASK_QUEUE_MAX_WAITING + 1; index += 1) {
+      const entry = pendingAsks.values().next().value
+      if (!entry) break
+      entry.finish({ skipped: true })
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    await Promise.all(asks.slice(0, ASK_QUEUE_MAX_WAITING + 1))
+    expect(pendingAsks.size).toBe(0)
+  })
+
+  it('keeps the ask queue per session', () => {
+    const first = makeSession({ sessionId: 'session-a' })
+    const second = makeSession({ sessionId: 'session-b' })
+    createAskUserPromise(first, 'call-a', { question: 'A?' })
+    createAskUserPromise(second, 'call-b', { question: 'B?' })
+    expect(pendingAsks.size).toBe(2)
   })
 })
 

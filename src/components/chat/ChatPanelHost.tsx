@@ -24,6 +24,7 @@ import {
   createScrollToBottomButton,
   createTurnErrorTracker,
   removeSubagentRunningIndicator,
+  submitAskTextToPendingAsk,
   type ComposerDraftRestoreHandle,
 } from './panel-decoration'
 import { t } from '@/lib/i18n'
@@ -870,6 +871,24 @@ export function ChatPanelHost({
      */
     let pendingHistoryHydration = false
     let historyHydrated = false
+    /**
+     * 页面重新可见 / 网络恢复时再收敛一次。
+     *
+     * 手机被系统挂起后，退避重试的定时器可能已经跑完并放弃，也可能根本没跑；
+     * 但窗口仍然是尾部 200 条。`ensureFullHistory` 是幂等的（`baseSeq === 0`
+     * 直接返回），所以这里可以无脑触发，不会重复拉取。
+     */
+    const rehydrateOnVisible = () => {
+      if (disposed) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      const ensure = (agent as { ensureFullHistory?: (beforeReplace?: () => (() => void) | void) => Promise<boolean> }).ensureFullHistory
+      if (typeof ensure !== 'function') return
+      void ensure.call(agent, () => surfaceRef.current?.captureScrollAnchor()).catch(() => {})
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', rehydrateOnVisible)
+      window.addEventListener('online', rehydrateOnVisible)
+    }
     const publishViewReady = () => {
       if (disposed) return
       // A newer publish supersedes one that has not painted yet. It must not
@@ -894,7 +913,11 @@ export function ChatPanelHost({
         // 让浏览器先处理输入和绘制；`timeout` 兜底保证补齐最终一定发生。
         // 注意用独立句柄：`cancelInitialRenderReady` 是首帧通知的取消函数，
         // 覆盖它会让就绪通知无法在卸载时取消。
-        const hydrate = (agent as { hydrateFullHistory?: (beforeReplace?: () => (() => void) | void) => Promise<void> }).hydrateFullHistory
+        //
+        // 走 `ensureFullHistory`（幂等 + 退避重试），不再直接调一次
+        // `hydrateFullHistory`：手机经 Tailscale 拉全量经常超时/被挂起，一次性
+        // 调用失败就等于该端永久停在尾部 200 条。
+        const hydrate = (agent as { ensureFullHistory?: (beforeReplace?: () => (() => void) | void) => Promise<boolean> }).ensureFullHistory
         if (typeof hydrate !== 'function') return
         const runHydration = () => {
           if (disposed) return
@@ -1109,6 +1132,12 @@ export function ChatPanelHost({
       readOnly,
       isDisposed: () => disposed,
       getCapabilities: () => propsRef.current.capabilities,
+      // A pending ask_user owns the composer while it waits: its text is the
+      // answer to the card, not a steer message (steering is drained at the
+      // next turn boundary, which the blocked tool call never reaches).
+      isAskPending: () => Boolean(pendingAskRef.current
+        ?? (agent as unknown as { state: { pendingAsk?: unknown } }).state.pendingAsk),
+      submitAskText: (text) => submitAskTextToPendingAsk(panel, text),
       onComposerCleared: () => {
         taskLauncher?.cancel()
         cmdSuggestions.remove()
@@ -1667,6 +1696,10 @@ export function ChatPanelHost({
 
     return () => {
       disposed = true
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', rehydrateOnVisible)
+        window.removeEventListener('online', rehydrateOnVisible)
+      }
       draftRestoreGuard.invalidate()
       cancelRestoredDraftRestore()
       cancelPendingDraftSave()

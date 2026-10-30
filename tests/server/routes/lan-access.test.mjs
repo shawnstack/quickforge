@@ -34,9 +34,16 @@ beforeEach(async () => {
   tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-lan-access-route-'))
   process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
   vi.resetModules()
+  // LAN access state lives in SQLite only.
+  const databaseModule = await import('../../../server/sqlite/database.mjs')
+  await databaseModule.initializeSqliteStorage({ databasePath: path.join(tmpDir, 'state.sqlite3') })
+  const service = await import('../../../server/lan-access-service.mjs')
+  service.initializeLanAccessService()
 })
 
 afterEach(async () => {
+  const { closeSqliteStorage } = await import('../../../server/sqlite/database.mjs')
+  await closeSqliteStorage()
   if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
   else process.env.QUICKFORGE_DATA_DIR = previousDataDir
   await rm(tmpDir, { recursive: true, force: true })

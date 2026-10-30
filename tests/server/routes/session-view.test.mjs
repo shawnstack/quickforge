@@ -150,7 +150,9 @@ describe('GET /api/sessions/:sessionId/view', () => {
       expect(body.messages[0].content).toBe('m20')
       expect(body.messages[9].content).toBe('m29')
       // The total count tells the client how much history exists behind it.
-      expect(body.messagesSummary).toEqual({ count: 30 })
+      expect(body.messagesSummary).toEqual({ count: 30, logVersion: 0 })
+      // 窗口起点是绝对 seq：客户端据此对齐下标，不需要用本地长度反推。
+      expect(body.messagesAfter).toBe(20)
     })
   })
 
@@ -209,7 +211,8 @@ describe('GET /api/sessions/:sessionId/view', () => {
       expect(body.messages).toHaveLength(50)
       // The window is the TAIL, not the head.
       expect(body.messages[49].content).toBe('live-299')
-      expect(body.messagesSummary).toEqual({ count: 300 })
+      expect(body.messagesSummary).toEqual({ count: 300, logVersion: 0 })
+      expect(body.messagesAfter).toBe(250)
       // Runtime-only fields survive: a live session knows things storage does not.
       expect(body.tools).toEqual([{ name: 'read_file' }])
     })

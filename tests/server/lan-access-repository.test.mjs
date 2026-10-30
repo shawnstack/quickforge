@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations, BASELINE_VERSION, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
 import {
   createLanAccessRepository,
   LAN_TOKEN_MAX_COUNT,
@@ -58,7 +58,7 @@ function share(overrides = {}) {
   }
 }
 
-describe('lan-access repository and schema v9', () => {
+describe('lan-access repository and baseline schema', () => {
   let directory
   let database
   let repository
@@ -76,57 +76,40 @@ describe('lan-access repository and schema v9', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('creates schema v9 lan-access tables and rolls a failing v8→v9 migration back without losing F5/F7/F9/F10 data', () => {
-    for (const table of ['lan_access_state', 'lan_access_tokens', 'lan_access_storage_state', 'lan_access_maintenance_lock', 'lan_access_json_mirror_queue']) {
+  it('creates the baseline lan-access tables and rolls a failing append-only migration back without losing data', () => {
+    for (const table of ['lan_access_state', 'lan_access_tokens', 'lan_access_maintenance_lock']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
     }
     expect(database.prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND name='lan_access_tokens_issued_idx'").get()).toBeDefined()
+    // The JSON mirror queue and storage-state compat tables belong to the
+    // retired v1..v18 chain and must never be recreated.
+    for (const gone of ['lan_access_json_mirror_queue', 'lan_access_storage_state']) {
+      expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(gone)).toBeUndefined()
+    }
 
-    // v8 database with F5 (scheduled runs), F7 (session index), F9 (session
-    // states + messages) and F10 (shares + tokens) data; a failing v9 must
-    // roll back fully without touching any of them.
-    database.close()
-    const rollbackPath = path.join(directory, 'rollback.sqlite3')
-    database = new DatabaseSync(rollbackPath)
-    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 8) })
-    database.prepare(`INSERT INTO scheduled_task_runs (task_id, id, status, started_at, extra_json, source, updated_at)
-      VALUES ('task', 'run', 'success', '2026-01-01T00:00:00.000Z', '{}', 'test', '2026-01-01T00:00:00.000Z')`).run()
-    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-      VALUES ('global', '', 'legacy', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
-    // Seed the v8-era session domain directly (the v2 session repository
-    // speaks schema v11 only); a failing v9 must roll back without touching
-    // any of these rows.
-    database.prepare(`INSERT INTO session_states
-      (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
-      VALUES ('global', '', 'legacy-session', 1, 1, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`)
-      .run(
-        JSON.stringify({ id: 'legacy-session', scope: 'global', stateVersion: 1 }),
-        'a'.repeat(64),
-        JSON.stringify({ id: 'legacy-session', scope: 'global', stateVersion: 1, messageCount: 0 }),
-        'b'.repeat(64),
-      )
-    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-      VALUES ('global', '', 'legacy-session', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('c'.repeat(64))
-    database.prepare(`INSERT INTO share_sessions (
-      share_id, session_id, permission, scope, auth_version, allow_cloud_usage,
-      created_at, updated_at, access_count, revision, record_digest, extra_json
-    ) VALUES (?, ?, 'read', 'global', 1, 0, ?, ?, 0, 1, ?, '{}')`)
-      .run(shareId(), 'share-session', now(), now(), 'd'.repeat(64))
-
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 9
-      ? { ...migration, up(db) { migration.up(db); throw new Error('after-v9') } }
-      : migration)
-    expect(() => applySqliteMigrations(database, { migrations: failing })).toThrow(/migration 9.*after-v9/)
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(8)
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='lan_access_state'").get()).toBeUndefined()
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='lan_access_tokens'").get()).toBeUndefined()
-    expect(database.prepare('SELECT task_id, id FROM scheduled_task_runs').all()).toEqual([{ task_id: 'task', id: 'run' }])
-    expect(database.prepare('SELECT session_id FROM session_index ORDER BY session_id').all()).toEqual([
-      { session_id: 'legacy' },
-      { session_id: 'legacy-session' },
-    ])
-    expect(database.prepare('SELECT session_id, revision FROM session_states').all()).toEqual([{ session_id: 'legacy-session', revision: 1 }])
-    expect(database.prepare('SELECT COUNT(*) AS count FROM share_sessions').get().count).toBe(1)
+    // A failing append-only migration must roll back completely: the existing
+    // lan-access config survives and no partial schema objects are left behind.
+    const created = repository.updateSettings(
+      { enabled: true, passwordHash: 'hash', passwordSalt: 'salt', passwordVersion: 1, sessionTtlHours: 12 },
+      { expectedRevision: 0 },
+    )
+    const failing = [
+      ...SQLITE_MIGRATIONS,
+      {
+        version: BASELINE_VERSION + 1,
+        name: 'probe',
+        up(db) {
+          db.exec('CREATE TABLE migration_probe (id INTEGER PRIMARY KEY)')
+          throw new Error('after-probe')
+        },
+      },
+    ]
+    expect(() => applySqliteMigrations(database, { migrations: failing }))
+      .toThrow(new RegExp(`migration ${BASELINE_VERSION + 1}.*after-probe`))
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
+    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='migration_probe'").get()).toBeUndefined()
+    expect(database.prepare('SELECT revision, enabled FROM lan_access_state WHERE singleton = 1').get()).toEqual({ revision: created.revision, enabled: 1 })
+    expect(repository.getConfig()).toMatchObject({ enabled: true, sessionTtlHours: 12, revision: created.revision })
   })
 
   it('applies settings changes and clears tokens atomically in one transaction', () => {
@@ -286,33 +269,23 @@ describe('lan-access repository and schema v9', () => {
     expect(() => repository.replaceAll(second.config, { expectedDigest: 'a'.repeat(64) })).toThrow(/digest verification failed/)
   })
 
-  it('keeps mirror queue entries in sync with transactions and rolls them back on failure', () => {
+  it('keeps transactions atomic on failure and never materializes compat mirror tables', () => {
+    const mirrorTableExists = () => Boolean(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='lan_access_json_mirror_queue'").get())
     const created = repository.updateSettings(
       { enabled: true, passwordHash: 'hash', passwordSalt: 'salt', passwordVersion: 1, sessionTtlHours: 12 },
       { expectedRevision: 0 },
     )
-    let entries = repository.listMirrorQueue()
-    expect(entries).toHaveLength(1)
-    expect(entries[0].operation).toBe('upsert')
-    expect(entries[0].config).toMatchObject({ enabled: true })
-    expect(entries[0].config).not.toHaveProperty('revision')
+    expect(repository.getConfig()).toMatchObject({ enabled: true, sessionTtlHours: 12, revision: created.revision })
+    expect(mirrorTableExists()).toBe(false)
 
-    // A failed transaction must not leave a newer mirror entry behind.
-    try {
-      repository.updateSettings({ sessionTtlHours: 99 }, { expectedRevision: 5 })
-      throw new Error('expected CAS conflict')
-    } catch {
-      /* expected */
-    }
-    expect(repository.listMirrorQueue()).toHaveLength(1)
-    expect(repository.listMirrorQueue()[0].config.sessionTtlHours).toBe(12)
-
-    expect(repository.acknowledgeMirror(entries[0])).toBe(true)
-    expect(repository.listMirrorQueue()).toEqual([])
+    // A failed transaction must not change the stored config.
+    expect(() => repository.updateSettings({ sessionTtlHours: 99 }, { expectedRevision: 5 })).toThrow()
+    expect(repository.getConfig()).toMatchObject({ sessionTtlHours: 12, revision: created.revision })
+    expect(mirrorTableExists()).toBe(false)
 
     const issued = repository.issueToken({}, { expectedRevision: created.revision })
-    repository.failMirror(repository.listMirrorQueue()[0], new Error('disk full'))
-    expect(repository.listMirrorQueue()).toMatchObject([{ attempts: 1, lastError: 'disk full', config: { tokens: [{ id: issued.config.tokens[0].id }] } }])
+    expect(repository.getConfig()).toMatchObject({ revision: issued.revision, tokens: [{ id: issued.config.tokens[0].id }] })
+    expect(mirrorTableExists()).toBe(false)
   })
 
   it('exposes count and a stable digest that includes tokens', () => {

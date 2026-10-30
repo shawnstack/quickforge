@@ -1,6 +1,6 @@
 # 定时任务运行记录 SQLite Repository（F3）
 
-> 状态：本文记录 F3 migration v2 与当时的独立 repository 边界。F4 增加 hybrid，F5 已升级 migration v3 与 repository API 并切换 SQLite authoritative；当前设计见 [`scheduled-task-runs-authoritative-cutover.zh-CN.md`](./scheduled-task-runs-authoritative-cutover.zh-CN.md)。
+> 状态：本文记录 F3 migration v2 与当时的独立 repository 边界。F4 增加 hybrid，F5 已升级 schema 与 repository API 并切换 SQLite authoritative；随后 hybrid/phase 分支整体删除，scheduled-runs 现为单路径 SQLite 权威（`scheduled_task_runs` 由 baseline v19 建出，维护锁在 `server/scheduled-runs-maintenance.mjs`）。总体协议见 [`sqlite-storage-foundation.zh-CN.md`](./sqlite-storage-foundation.zh-CN.md) §4，F5 的切换过程见归档文档 [`scheduled-task-runs-authoritative-cutover.zh-CN.md`](./scheduled-task-runs-authoritative-cutover.zh-CN.md)。
 
 ## 1. 范围与权威数据边界
 

@@ -1,11 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { access, mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// F10 Phase 2: share-store write/read paths route through the share repository
-// while the share storage is pending/authoritative; the JSON file degrades to a
-// best-effort mirror. Every test uses an isolated dataDir + SQLite database.
+// Single authoritative path: every share-store read/write goes through the
+// share repository (SQLite). The historical JSON file path and its mirror queue
+// drain are gone, so no conversation-shares.json is ever written.
 describe('share-store authoritative lifecycle', () => {
   let tmpDir
   let previousDataDir
@@ -27,13 +27,10 @@ describe('share-store authoritative lifecycle', () => {
     repository = createShareRepository(database)
     service = await import('../../server/share-service.mjs')
     shareStore = await import('../../server/share-store.mjs')
-    // The default mirror materializes queue entries into conversation-shares.json.
-    service.configureShareService({ repository, mirror: service.createDefaultShareMirror(), phase: 'authoritative' })
+    service.configureShareService({ repository })
   })
 
   afterEach(async () => {
-    service.configureShareService({ repository: null, json: null, mirror: null, phase: 'json_authoritative' })
-    service.stopShareService()
     await databaseModule.closeSqliteStorage()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
@@ -67,7 +64,7 @@ describe('share-store authoritative lifecycle', () => {
     const firstToken = await shareStore.issueConversationShareToken(share.id)
     expect(shareStore.verifyShareToken(await shareStore.readConversationShare(share.id), firstToken.token)).toBe(true)
 
-    // A second active legacy record for the same session is superseded (single
+    // A second active record for the same session is superseded (single
     // transaction) by the next create, and its tokens are cleared.
     const legacy = {
       id: 'qfs_legacy_000000000000000001',
@@ -105,7 +102,7 @@ describe('share-store authoritative lifecycle', () => {
     expect(shareStore.verifyShareToken(repository.get(share.id), firstToken.token)).toBe(false)
 
     // Re-share without a password keeps the existing password and newly issued
-    // tokens (JSON semantics); inherited password fields are not a password change.
+    // tokens; inherited password fields are not a password change.
     const postPasswordToken = await shareStore.issueConversationShareToken(share.id)
     expect(shareStore.verifyShareToken(await shareStore.readConversationShare(share.id), postPasswordToken.token)).toBe(true)
     const authVersionBeforeReshare = repository.get(share.id).authVersion
@@ -141,6 +138,44 @@ describe('share-store authoritative lifecycle', () => {
     removeListener()
   })
 
+  it('rejects expiration times that are not in the future', async () => {
+    const share = await shareStore.createConversationShare({ sessionId: 'session-exp', permission: 'read', scope: 'global' })
+    const past = new Date(Date.now() - 1000).toISOString()
+    const future = new Date(Date.now() + 120_000).toISOString()
+
+    await expect(shareStore.restoreConversationShare(share.id, past)).rejects.toMatchObject({ statusCode: 400 })
+    await expect(shareStore.updateConversationShareExpiration(share.id, past)).rejects.toMatchObject({ statusCode: 400 })
+
+    const extended = await shareStore.updateConversationShareExpiration(share.id, future)
+    expect(extended.expiresAt).toBe(future)
+    expect(repository.get(share.id).expiresAt).toBe(future)
+
+    const revoked = await shareStore.revokeConversationShare(share.id)
+    expect(revoked.revokedAt).toBeTruthy()
+    const restored = await shareStore.restoreConversationShare(share.id, future)
+    expect(restored.revokedAt).toBeUndefined()
+  })
+
+  it('rejects an editable share without a password and keeps password semantics on update', async () => {
+    const share = await shareStore.createConversationShare({ sessionId: 'session-pass', permission: 'read', scope: 'global' })
+    await expect(shareStore.createConversationShare({ sessionId: 'session-pass-operate', permission: 'operate', scope: 'global' }))
+      .rejects.toMatchObject({ statusCode: 400 })
+
+    const token = await shareStore.issueConversationShareToken(share.id)
+    const secured = await shareStore.updateConversationShare(share.id, { permission: 'operate', password: 'secret123' })
+    expect(secured).toMatchObject({ permission: 'operate', hasPassword: true })
+    expect(shareStore.verifyShareToken(repository.get(share.id), token.token)).toBe(false)
+
+    await expect(shareStore.updateConversationShare(share.id, { permission: 'operate', password: '' }))
+      .rejects.toMatchObject({ statusCode: 400 })
+
+    const passwordless = await shareStore.updateConversationShare(share.id, { permission: 'read', password: '' })
+    expect(passwordless.hasPassword).toBe(false)
+    const kept = await shareStore.updateConversationShare(share.id, { permission: 'read' })
+    expect(kept).toMatchObject({ hasPassword: false, permission: 'read' })
+    await expect(shareStore.readConversationShare('not-a-share-id')).rejects.toMatchObject({ statusCode: 400 })
+  })
+
   it('maps CAS conflicts to 409 and blocks writes under the maintenance lock with 423', async () => {
     const share = await shareStore.createConversationShare({
       sessionId: 'cas-session',
@@ -155,7 +190,7 @@ describe('share-store authoritative lifecycle', () => {
       expect(error).toMatchObject({ statusCode: 409, errorCode: 'SHARE_STATE_CONFLICT', actualRevision: current.revision })
     }
 
-    const { acquireShareMaintenanceLock, releaseShareMaintenanceLock } = await import('../../server/share-cutover.mjs')
+    const { acquireShareMaintenanceLock, releaseShareMaintenanceLock } = await import('../../server/share-maintenance.mjs')
     const lease = acquireShareMaintenanceLock(database, {
       owner: { id: 'lock:test', pid: process.pid },
       now: () => Date.now(),
@@ -166,35 +201,9 @@ describe('share-store authoritative lifecycle', () => {
     expect(releaseShareMaintenanceLock(database, lease)).toBe(true)
   })
 
-  it('falls back to the legacy JSON store in json_authoritative/cutover_running without touching SQLite', async () => {
-    const { readSharesJsonFile } = await import('../../server/share-json-file.mjs')
-    service.configureShareService({ repository, mirror: service.createDefaultShareMirror(), phase: 'json_authoritative' })
-
-    const share = await shareStore.createConversationShare({ sessionId: 'json-session', permission: 'read', scope: 'global' })
-    expect(share.id).toMatch(/^qfs_/)
-    expect(repository.list({ sessionId: 'json-session' })).toEqual([])
-    expect((await readSharesJsonFile())[share.id]).toMatchObject({ sessionId: 'json-session', permission: 'read' })
-    expect(await shareStore.readConversationShare(share.id)).toMatchObject({ sessionId: 'json-session' })
-
-    service.configureShareService({ repository, mirror: service.createDefaultShareMirror(), phase: 'cutover_running' })
-    const duringCutover = await shareStore.createConversationShare({ sessionId: 'json-session-2', permission: 'read', scope: 'global' })
-    expect(duringCutover.id).not.toBe(share.id)
-    expect((await readSharesJsonFile())[duringCutover.id]).toBeDefined()
-    expect(repository.list({ sessionId: 'json-session-2' })).toEqual([])
-  })
-
-  it('materializes authoritative writes into conversation-shares.json after the mirror drains', async () => {
-    const { readSharesJsonFile } = await import('../../server/share-json-file.mjs')
-    const share = await shareStore.createConversationShare({
-      sessionId: 'mirror-session',
-      permission: 'read',
-      scope: 'global',
-    })
-    expect(await readSharesJsonFile()).toEqual({})
-    const drained = await service.drainShareJsonMirror()
-    expect(drained).toMatchObject({ pending: 0, drained: 1, failed: 0 })
-    const file = await readSharesJsonFile()
-    expect(file[share.id]).toMatchObject({ id: share.id, sessionId: 'mirror-session', permission: 'read' })
-    expect(file[share.id]).not.toHaveProperty('revision')
+  it('never writes the retired conversation-shares.json store', async () => {
+    const share = await shareStore.createConversationShare({ sessionId: 'fileless-session', permission: 'read', scope: 'global' })
+    expect(repository.get(share.id)).toBeTruthy()
+    await expect(access(path.join(tmpDir, 'data', 'shares', 'conversation-shares.json'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 })

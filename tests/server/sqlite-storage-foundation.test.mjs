@@ -12,10 +12,30 @@ import {
   resolveSqliteDatabasePath,
 } from '../../server/sqlite/database.mjs'
 import { applySqliteMigrations, inspectSqliteMigrationState, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
-import { LATEST_SCHEMA_VERSION, NEXT_SCHEMA_VERSION } from '../helpers/sqlite-schema.mjs'
+import { BASE_SCHEMA_VERSION, LATEST_SCHEMA_VERSION, NEXT_SCHEMA_VERSION } from '../helpers/sqlite-schema.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const workerScript = path.join(projectRoot, 'tests', 'fixtures', 'sqlite-init-worker.mjs')
+
+// The retired compat-era objects (v1..v18 migration chain, JSON mirror queues and
+// *_v10_backup rollback tables). The baseline must not recreate any of them.
+const LEGACY_COMPAT_TABLES = [
+  'lan_access_json_mirror_queue',
+  'lan_access_storage_state',
+  'scheduled_runs_state',
+  'session_index_v10_backup',
+  'session_json_mirror_queue',
+  'session_json_mirror_queue_v10_backup',
+  'session_messages_v10_backup',
+  'session_state_tombstones_v10_backup',
+  'session_states_v10_backup',
+  'session_storage_state',
+  'session_storage_state_v10_backup',
+  'share_json_mirror_queue',
+  'share_storage_state',
+]
+
+const LEGACY_COMPAT_INDEXES = ['session_states_metadata_cover_idx']
 
 function closeDatabase(database) {
   try { database.close() } catch { /* already closed */ }
@@ -120,194 +140,58 @@ describe('SQLite storage foundation', () => {
     const reopened = await initializeSqliteStorage({ databasePath })
     const rowsAfter = reopened.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()
     const tables = reopened.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all()
+    const indexes = reopened.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex%' ORDER BY name").all()
 
     expect(rowsAfter).toEqual(rowsBefore)
     // The database must record exactly the migration list, in order: this
     // guards against partially applied or duplicated rows without restating
     // the version number in the test.
     expect(rowsAfter).toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
-    // The memories / memories_fts / memory_events / memory_embeddings rows are
-    // gone as of v17: Dreaming now owns a notes block inside MEMORY.md and keeps
-    // only its run log in SQLite.
-    expect(tables).toEqual([
-      { name: 'dreaming_note_stats' },
-      { name: 'dreaming_runs' },
-      { name: 'lan_access_json_mirror_queue' },
-      { name: 'lan_access_maintenance_lock' },
-      { name: 'lan_access_state' },
-      { name: 'lan_access_storage_state' },
-      { name: 'lan_access_tokens' },
-      { name: 'scheduled_runs_maintenance_lock' },
-      { name: 'scheduled_runs_state' },
-      { name: 'scheduled_task_runs' },
-      { name: 'schema_migrations' },
-      { name: 'session_index_v10_backup' },
-      { name: 'session_json_mirror_queue_v10_backup' },
-      { name: 'session_messages' },
-      { name: 'session_messages_v10_backup' },
-      { name: 'session_state_maintenance_lock' },
-      { name: 'session_state_tombstones_v10_backup' },
-      { name: 'session_states_v10_backup' },
-      { name: 'session_storage_state_v10_backup' },
-      { name: 'session_tombstones' },
-      { name: 'sessions' },
-      { name: 'share_json_mirror_queue' },
-      { name: 'share_maintenance_lock' },
-      { name: 'share_sessions' },
-      { name: 'share_storage_state' },
-      { name: 'share_tokens' },
+
+    // Exactly the baseline business tables. The memories* tables are gone (v17:
+    // Dreaming keeps only its run log in SQLite), and the compat-era
+    // *_v10_backup / *_storage_state / *_json_mirror_queue / scheduled_runs_state
+    // tables were retired together with the v1..v18 chain.
+    expect(tables.map((row) => row.name)).toEqual([
+      'dreaming_note_stats',
+      'dreaming_runs',
+      'lan_access_maintenance_lock',
+      'lan_access_state',
+      'lan_access_tokens',
+      'scheduled_runs_maintenance_lock',
+      'scheduled_task_runs',
+      'schema_migrations',
+      'session_messages',
+      'session_state_maintenance_lock',
+      'session_tombstones',
+      'sessions',
+      'share_maintenance_lock',
+      'share_sessions',
+      'share_tokens',
     ])
-  })
 
-  it('creates the session_states metadata covering index and keeps metadata reads index-only with identical data', () => {
-    const database = new DatabaseSync(path.join(temporaryDirectory, 'metadata-covering.sqlite3'))
-    try {
-      // Historical v10 schema: v11 renames session_states to
-      // session_states_v10_backup, so this regression test pins the v10-era
-      // migration output (and its covering-index behavior) explicitly.
-      const applied = applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 10) })
-      expect(applied.userVersion).toBe(10)
-      expect(applied.applied.at(-1)).toMatchObject({ version: 10, name: 'session_states_metadata_covering_index' })
-      expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name = 'session_states_metadata_cover_idx'").get())
-        .toEqual({ name: 'session_states_metadata_cover_idx' })
+    // The 13 indexes declared by BASELINE_SQL.
+    expect(indexes.map((row) => row.name)).toEqual([
+      'idx_dreaming_note_stats_recall',
+      'idx_dreaming_runs_started',
+      'idx_session_messages_session_id',
+      'idx_sessions_list',
+      'idx_sessions_pinned',
+      'idx_sessions_session_id',
+      'lan_access_tokens_issued_idx',
+      'lan_access_tokens_seq_idx',
+      'scheduled_task_runs_started_idx',
+      'scheduled_task_runs_status_started_idx',
+      'scheduled_task_runs_task_started_idx',
+      'scheduled_task_runs_trigger_started_idx',
+      'share_sessions_session_id_idx',
+    ])
 
-      // Rows shaped like production: multi-KB state_json sits between the PK
-      // prefix and the metadata columns inside the WITHOUT ROWID record.
-      const insert = database.prepare(`
-        INSERT INTO session_states (
-          scope, project_id, session_id, revision, state_version,
-          state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at
-        ) VALUES (?, ?, ?, 1, 0, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
-      `)
-      const digest = 'a'.repeat(64)
-      const expected = []
-      for (const [scope, projectId, sessionId] of [
-        ['global', '', 'global-1'],
-        ['project', 'p1', 'project-1'],
-        ['project', 'p1', 'project-2'],
-        ['project', 'p2', 'project-3'],
-      ]) {
-        const metadataJson = JSON.stringify({ id: sessionId, title: `Title ${sessionId}`, taskStatus: 'idle' })
-        const stateJson = JSON.stringify({ id: sessionId, blob: 'x'.repeat(20_000) })
-        insert.run(scope, projectId, sessionId, stateJson, digest, metadataJson, 'b'.repeat(64))
-        expected.push({ scope, project_id: projectId, session_id: sessionId, metadata_json: metadataJson })
-      }
-
-      // Real SQL from server/session-state-service.mjs readSessionMetadataBuckets —
-      // the single projection behind it, metadataBucketChanges,
-      // readSessionStateStore('sessions-metadata'), auto-archive and the
-      // session-index bucket source. The scoped WHERE variants match the
-      // scope / scope+projectId filters readSessionStateStore applies (in JS
-      // today); they guard that any future SQL pushdown stays index-only too.
-      const queryPlans = database.prepare('EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states ORDER BY scope, project_id, session_id').all()
-      expect(queryPlans.map((row) => row.detail).join(' | ')).toContain('USING COVERING INDEX session_states_metadata_cover_idx')
-      expect(database.prepare("EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE scope = 'project'").all().map((row) => row.detail).join(' | '))
-        .toContain('USING COVERING INDEX session_states_metadata_cover_idx')
-      expect(database.prepare("EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE scope = 'project' AND project_id = 'p1'").all().map((row) => row.detail).join(' | '))
-        .toContain('USING COVERING INDEX session_states_metadata_cover_idx')
-
-      // Data equivalence: the index-only projection (verified above) must
-      // return exactly the metadata_json stored in the table records. The
-      // revision >= 1 filter cannot be served by the covering index (revision
-      // is not an index column), forcing a plain table scan as ground truth.
-      const tableScanPlan = database.prepare('EXPLAIN QUERY PLAN SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE revision >= 1 ORDER BY scope, project_id, session_id').all()
-      expect(tableScanPlan.map((row) => row.detail).join(' | ')).not.toContain('session_states_metadata_cover_idx')
-      const viaCoveringIndex = database.prepare('SELECT scope, project_id, session_id, metadata_json FROM session_states ORDER BY scope, project_id, session_id').all()
-      const viaTableRecords = database.prepare('SELECT scope, project_id, session_id, metadata_json FROM session_states WHERE revision >= 1 ORDER BY scope, project_id, session_id').all()
-      expect(viaCoveringIndex).toEqual(expected)
-      expect(viaCoveringIndex).toEqual(viaTableRecords)
-    } finally {
-      closeDatabase(database)
-    }
-  })
-
-  it('migrates v11 Share/LAN data to v12 without losing tokens, foreign keys, indexes, or database integrity', () => {
-    const database = new DatabaseSync(path.join(temporaryDirectory, 'v11-to-v12.sqlite3'))
-    try {
-      database.exec('PRAGMA foreign_keys = ON')
-      applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 11) })
-      database.prepare(`INSERT INTO share_sessions (
-        share_id, session_id, permission, scope, auth_version, allow_cloud_usage,
-        created_at, updated_at, access_count, revision, record_digest, extra_json
-      ) VALUES (?, ?, 'read', 'global', 1, 0, ?, ?, 3, 4, ?, ?)`)
-        .run('qfs_migration_000000000001', 'share-session', '2026-01-01T00:00:00.000Z', '2026-01-02T00:00:00.000Z', 'a'.repeat(64), JSON.stringify({ future: true }))
-      database.prepare(`INSERT INTO share_tokens (share_id, token_hash, issued_at, expires_at, auth_version)
-        VALUES (?, ?, ?, ?, 1)`)
-        .run('qfs_migration_000000000001', 'share-token-hash', '2026-01-02T00:00:00.000Z', '2027-01-02T00:00:00.000Z')
-      database.prepare(`INSERT INTO lan_access_state (
-        singleton, enabled, password_hash, password_salt, password_version, auth_version,
-        session_ttl_hours, updated_at, revision, record_digest, extra_json
-      ) VALUES (1, 1, 'lan-hash', 'lan-salt', 1, 2, 24, ?, 5, ?, ?)`)
-        .run('2026-01-03T00:00:00.000Z', 'b'.repeat(64), JSON.stringify({ future: 'kept' }))
-      database.prepare(`INSERT INTO lan_access_tokens (
-        token_id, seq, token_hash, issued_at, expires_at, auth_version, remote_address, user_agent
-      ) VALUES ('lan-token', 0, 'lan-token-hash', ?, ?, 2, '192.168.1.9', 'Migration Test')`)
-        .run('2026-01-03T00:00:00.000Z', '2027-01-03T00:00:00.000Z')
-
-      applySqliteMigrations(database)
-
-      expect(database.prepare('PRAGMA table_info(share_sessions)').all().map((column) => column.name)).not.toContain('record_digest')
-      expect(database.prepare('PRAGMA table_info(lan_access_state)').all().map((column) => column.name)).not.toContain('record_digest')
-      expect(database.prepare(`SELECT share_id, session_id, access_count, revision, extra_json FROM share_sessions`).get()).toEqual({
-        share_id: 'qfs_migration_000000000001',
-        session_id: 'share-session',
-        access_count: 3,
-        revision: 4,
-        extra_json: JSON.stringify({ future: true }),
-      })
-      expect(database.prepare('SELECT share_id, token_hash, auth_version FROM share_tokens').get()).toEqual({
-        share_id: 'qfs_migration_000000000001', token_hash: 'share-token-hash', auth_version: 1,
-      })
-      expect(database.prepare('SELECT enabled, auth_version, session_ttl_hours, revision, extra_json FROM lan_access_state').get()).toEqual({
-        enabled: 1, auth_version: 2, session_ttl_hours: 24, revision: 5, extra_json: JSON.stringify({ future: 'kept' }),
-      })
-      expect(database.prepare('SELECT token_id, token_hash, auth_version FROM lan_access_tokens').get()).toEqual({
-        token_id: 'lan-token', token_hash: 'lan-token-hash', auth_version: 2,
-      })
-      expect(database.prepare('PRAGMA foreign_key_list(share_tokens)').all()).toEqual(expect.arrayContaining([
-        expect.objectContaining({ table: 'share_sessions', from: 'share_id', to: 'share_id', on_delete: 'CASCADE' }),
-      ]))
-      expect(database.prepare('PRAGMA foreign_key_check').all()).toEqual([])
-      expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND name IN ('share_sessions_session_id_idx', 'lan_access_tokens_issued_idx', 'lan_access_tokens_seq_idx') ORDER BY name").all().map((row) => row.name)).toEqual([
-        'lan_access_tokens_issued_idx',
-        'lan_access_tokens_seq_idx',
-        'share_sessions_session_id_idx',
-      ])
-      expect(database.prepare('PRAGMA quick_check').get().quick_check).toBe('ok')
-    } finally {
-      closeDatabase(database)
-    }
-  })
-
-  it('rolls back migration 12 atomically when it fails after dropping the first digest column', () => {
-    const database = new DatabaseSync(path.join(temporaryDirectory, 'v12-rollback.sqlite3'))
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 12
-      ? { ...migration, up(db) { db.exec('ALTER TABLE share_sessions DROP COLUMN record_digest'); throw new Error('after-share-drop') } }
-      : migration)
-    try {
-      database.exec('PRAGMA foreign_keys = ON')
-      applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 11) })
-      database.prepare(`INSERT INTO share_sessions (
-        share_id, session_id, permission, scope, auth_version, allow_cloud_usage,
-        created_at, updated_at, access_count, revision, record_digest, extra_json
-      ) VALUES ('qfs_rollback_0000000000001', 'share-session', 'read', 'global', 1, 0, ?, ?, 0, 1, ?, '{}')`)
-        .run('2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', 'c'.repeat(64))
-      database.prepare(`INSERT INTO lan_access_state (
-        singleton, enabled, auth_version, session_ttl_hours, updated_at, revision, record_digest, extra_json
-      ) VALUES (1, 0, 1, 12, ?, 1, ?, '{}')`)
-        .run('2026-01-01T00:00:00.000Z', 'd'.repeat(64))
-
-      expect(() => applySqliteMigrations(database, { migrations: failing })).toThrow(/migration 12.*after-share-drop/)
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(11)
-      expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all().at(-1)).toEqual({ version: 11, name: 'session_state_v2_storage' })
-      expect(database.prepare('PRAGMA table_info(share_sessions)').all().map((column) => column.name)).toContain('record_digest')
-      expect(database.prepare('PRAGMA table_info(lan_access_state)').all().map((column) => column.name)).toContain('record_digest')
-      expect(database.prepare('SELECT record_digest FROM share_sessions').get()).toEqual({ record_digest: 'c'.repeat(64) })
-      expect(database.prepare('SELECT record_digest FROM lan_access_state').get()).toEqual({ record_digest: 'd'.repeat(64) })
-      expect(database.prepare('PRAGMA quick_check').get().quick_check).toBe('ok')
-    } finally {
-      closeDatabase(database)
-    }
+    // Reverse guard: no retired compat-era object may come back.
+    const tableNames = tables.map((row) => row.name)
+    const indexNames = indexes.map((row) => row.name)
+    expect(tableNames.filter((name) => LEGACY_COMPAT_TABLES.includes(name))).toEqual([])
+    expect(indexNames.filter((name) => LEGACY_COMPAT_INDEXES.includes(name))).toEqual([])
   })
 
   it('commits, rolls back, and supports nested savepoints', async () => {
@@ -358,37 +242,30 @@ describe('SQLite storage foundation', () => {
   it('rolls back all migration effects when a migration fails', () => {
     const databasePath = path.join(temporaryDirectory, 'failed-migration.sqlite3')
     const database = new DatabaseSync(databasePath)
-    const migrations = [
-      ...SQLITE_MIGRATIONS,
-      {
-        version: NEXT_SCHEMA_VERSION,
-        name: 'failing_migration',
-        up(db) {
-          db.exec('CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)')
-          throw new Error('deliberate failure')
-        },
+    const baselineMigration = SQLITE_MIGRATIONS[0]
+    const failingMigration = {
+      version: NEXT_SCHEMA_VERSION,
+      name: 'failing_migration',
+      up(db) {
+        db.exec('CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)')
+        throw new Error('deliberate failure')
       },
-    ]
-
-    try {
-      expect(() => applySqliteMigrations(database, { migrations })).toThrow(new RegExp(`migration ${NEXT_SCHEMA_VERSION}.*deliberate failure`))
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(0)
-      expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name IN ('schema_migrations', 'must_rollback')").all()).toEqual([])
-    } finally {
-      closeDatabase(database)
     }
-  })
 
-  it('makes a v11 runtime reject a newer database before it can write', () => {
-    const database = new DatabaseSync(path.join(temporaryDirectory, 'v11-runtime-v12-db.sqlite3'))
     try {
-      const { userVersion } = applySqliteMigrations(database)
-      database.exec('CREATE TABLE write_guard (value TEXT NOT NULL)')
-      database.prepare('INSERT INTO write_guard (value) VALUES (?)').run('unchanged')
+      // The baseline is already committed, so the failed append must leave the
+      // database exactly at the baseline version instead of unwinding the schema.
+      applySqliteMigrations(database, { migrations: [baselineMigration] })
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASE_SCHEMA_VERSION)
 
-      expect(() => applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 11) }))
-        .toThrow(new RegExp(`schema version ${userVersion} is newer than supported version 11`))
-      expect(database.prepare('SELECT value FROM write_guard').all()).toEqual([{ value: 'unchanged' }])
+      expect(() => applySqliteMigrations(database, { migrations: [baselineMigration, failingMigration] }))
+        .toThrow(new RegExp(`migration ${NEXT_SCHEMA_VERSION}.*deliberate failure`))
+
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASE_SCHEMA_VERSION)
+      expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'must_rollback'").all()).toEqual([])
+      expect(database.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all())
+        .toEqual([{ version: baselineMigration.version, name: baselineMigration.name }])
+      expect(database.prepare('PRAGMA quick_check').get().quick_check).toBe('ok')
     } finally {
       closeDatabase(database)
     }
@@ -397,21 +274,60 @@ describe('SQLite storage foundation', () => {
   it('rejects newer and inconsistent schema metadata', () => {
     const tooNew = new DatabaseSync(path.join(temporaryDirectory, 'too-new.sqlite3'))
     const missingTable = new DatabaseSync(path.join(temporaryDirectory, 'missing-table.sqlite3'))
+    const zeroUserVersion = new DatabaseSync(path.join(temporaryDirectory, 'zero-user-version.sqlite3'))
     const mismatchedRows = new DatabaseSync(path.join(temporaryDirectory, 'mismatched-rows.sqlite3'))
     try {
       tooNew.exec(`PRAGMA user_version = ${NEXT_SCHEMA_VERSION}`)
-      expect(() => inspectSqliteMigrationState(tooNew)).toThrow(new RegExp(`schema version ${NEXT_SCHEMA_VERSION} is newer than supported version ${LATEST_SCHEMA_VERSION}`))
+      expect(() => inspectSqliteMigrationState(tooNew))
+        .toThrow(new RegExp(`schema version ${NEXT_SCHEMA_VERSION} is newer than supported version ${LATEST_SCHEMA_VERSION}`))
 
-      missingTable.exec('PRAGMA user_version = 1')
+      missingTable.exec(`PRAGMA user_version = ${BASE_SCHEMA_VERSION}`)
       expect(() => inspectSqliteMigrationState(missingTable)).toThrow(/schema_migrations is missing/)
 
+      applySqliteMigrations(zeroUserVersion)
+      zeroUserVersion.exec('PRAGMA user_version = 0')
+      expect(() => inspectSqliteMigrationState(zeroUserVersion)).toThrow(/schema_migrations exists while user_version is 0/)
+
       applySqliteMigrations(mismatchedRows)
-      mismatchedRows.exec('PRAGMA user_version = 0')
-      expect(() => inspectSqliteMigrationState(mismatchedRows)).toThrow(/schema_migrations exists while user_version is 0/)
+      mismatchedRows.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(NEXT_SCHEMA_VERSION, 'phantom_migration', '2026-01-01T00:00:00.000Z')
+      expect(() => inspectSqliteMigrationState(mismatchedRows))
+        .toThrow(new RegExp(`user_version is ${BASE_SCHEMA_VERSION} but 2 migration rows exist`))
     } finally {
       closeDatabase(tooNew)
       closeDatabase(missingTable)
+      closeDatabase(zeroUserVersion)
       closeDatabase(mismatchedRows)
+    }
+  })
+
+  it('rejects a pre-baseline database that still carries schema_migrations', () => {
+    const databasePath = path.join(temporaryDirectory, 'pre-baseline.sqlite3')
+    const database = new DatabaseSync(databasePath)
+    const legacyVersion = BASE_SCHEMA_VERSION - 1
+    try {
+      // Shaped like the retired v18 layout: migration metadata exists, but the
+      // user_version predates the baseline this build understands.
+      database.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY CHECK (version > 0),
+          name TEXT NOT NULL UNIQUE,
+          applied_at TEXT NOT NULL
+        )
+      `)
+      database.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(legacyVersion, 'session_state_v2_storage', '2026-01-01T00:00:00.000Z')
+      database.exec(`PRAGMA user_version = ${legacyVersion}`)
+
+      expect(() => inspectSqliteMigrationState(database)).toThrow(/predates the supported baseline/)
+      expect(() => applySqliteMigrations(database)).toThrow(/predates the supported baseline/)
+
+      // Refusing to migrate must leave the legacy database untouched.
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(legacyVersion)
+      expect(database.prepare('SELECT version FROM schema_migrations').all()).toEqual([{ version: legacyVersion }])
+      expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'sessions'").all()).toEqual([])
+    } finally {
+      closeDatabase(database)
     }
   })
 
@@ -443,11 +359,10 @@ describe('SQLite storage foundation', () => {
     const database = new DatabaseSync(databasePath)
     try {
       // Concurrent first starts must converge on exactly one copy of each
-      // migration: contiguous versions starting at 1, no duplicates, and a
-      // user_version that agrees with the number of applied rows.
+      // migration (the baseline), with a user_version that agrees with it.
       const applied = database.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version)
-      expect(applied).toEqual(applied.map((_, index) => index + 1))
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(applied.length)
+      expect(applied).toEqual(SQLITE_MIGRATIONS.map((migration) => migration.version))
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASE_SCHEMA_VERSION)
     } finally {
       closeDatabase(database)
     }

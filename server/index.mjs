@@ -9,10 +9,8 @@ import { openBrowser } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, createPhysicalSessionStateFsAdapter } from './storage.mjs'
 import { initializeSessionStateService, stopSessionStateService } from './session-state-service.mjs'
 import { importSessionStateFromJson } from './session-state-import.mjs'
-import { initializeShareCutover } from './share-cutover.mjs'
-import { drainShareJsonMirror, initializeShareService, stopShareService } from './share-service.mjs'
-import { initializeLanAccessCutover } from './lan-access-cutover.mjs'
-import { drainLanAccessJsonMirror, initializeLanAccessService, stopLanAccessService } from './lan-access-service.mjs'
+import { initializeShareService, stopShareService } from './share-service.mjs'
+import { initializeLanAccessService, stopLanAccessService } from './lan-access-service.mjs'
 import { recoverSessionStateRestorePlan } from './session-state-backup.mjs'
 import { recoverShareRestorePlan } from './share-backup.mjs'
 import { recoverLanAccessRestorePlan } from './lan-access-backup.mjs'
@@ -62,12 +60,11 @@ import { shutdown as shutdownAgentManager, resetStaleTaskStatuses } from './agen
 import { refreshMcpConnections, shutdownMcpConnections } from './mcp/registry.mjs'
 import { shutdownTerminalSessions } from './terminal/terminal-manager.mjs'
 import { closeSqliteStorage, getSqliteStorage, getSqliteStorageSummary, initializeSqliteStorage } from './sqlite/database.mjs'
-import { initializeScheduledRunsCutover } from './scheduled-runs-cutover.mjs'
 import { recoverScheduledRunsRestorePlan } from './scheduled-runs-backup.mjs'
 import { getSessionIndexDiagnostics, initializeSessionIndex } from './session-index-service.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
 import { isAuthenticatedAppClient } from './access-policy.mjs'
-import { STARTUP_STATES, getStartupError, getStartupState, readMigrationStatus, resolveMaintenanceGate, setStartupState, withStartupRecoveryGuidance } from './startup-state.mjs'
+import { STARTUP_STATES, getStartupError, getStartupState, resolveMaintenanceGate, setStartupState, withStartupRecoveryGuidance } from './startup-state.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -378,10 +375,10 @@ async function handleApi(req, res, url, requestContext = {}) {
       sendJson(res, 200, { ok: false, startupError: getStartupError() })
       return
     }
-    if (startupState === STARTUP_STATES.MIGRATING) {
-      // Maintenance window: keep the existing fields (pid, sqlite summary,
-      // ...) so clients can bind early, plus maintenance:true for the UI.
-      // Fall back to the minimal shape if the full status is not readable.
+    if (startupState === STARTUP_STATES.STARTING) {
+      // Startup chain still running: keep the existing fields (pid, sqlite
+      // summary, ...) so clients can bind early, plus maintenance:true for the
+      // UI. Fall back to the minimal shape if the full status is not readable.
       try {
         sendJson(res, 200, { maintenance: true, ...(await getSystemStatus(requestContext)) })
         return
@@ -403,12 +400,6 @@ async function handleApi(req, res, url, requestContext = {}) {
     }
     const snapshot = await getRuntimeDiagnosticsSnapshot({ sockets: await countActiveSockets() })
     sendJson(res, 200, { ...snapshot, sse: { globalStreams: countGlobalStreams() } })
-    return
-  }
-
-  // Migration progress during the startup maintenance window
-  if (req.method === 'GET' && pathname === '/api/migration-status') {
-    sendJson(res, 200, readMigrationStatus())
     return
   }
 
@@ -834,12 +825,11 @@ server.on('upgrade', (req, socket, head) => {
   }
 })
 
-// --- Startup chain (P1: listen early + maintenance window) ---
+// --- Startup chain (listen early + gate while initializing) ---
 // Storage + SQLite initialization stay in front of listen (the maintenance
-// gate and /api/migration-status rely on the database). The remaining
-// migration/initialization chain runs in the background behind the gate
-// while /api/health and /api/migration-status already answer and the
-// frontend page is served, so the UI can display migration progress.
+// gate relies on the database). The remaining initialization chain runs in the
+// background behind the gate while /api/health already answers and the
+// frontend page is served, so the UI can show its startup splash.
 //
 // Fail-closed semantics changed from "abort the process" to "stay alive and
 // refuse business APIs": on failure the startup state becomes 'failed',
@@ -874,16 +864,14 @@ async function timedStartupStep(label, fn) {
 }
 
 async function runStartupInitialization() {
-  await timedStartupStep('scheduled-runs-cutover', () => initializeScheduledRunsCutover())
   await timedStartupStep('scheduled-runs-restore-plan', () => recoverScheduledRunsRestorePlan())
   await timedStartupStep('stale-scheduled-task-runs', () => recoverStaleScheduledTaskRuns())
   // Session state (storage v2): SQLite is authoritative by construction. The
   // only startup work is the one-shot JSON import — when the v2 store is empty
   // and legacy JSON session files exist, importSessionStateFromJson re-imports
   // them (idempotent, per-session transactions, WAL checkpoint at the end);
-  // otherwise the store is ready as-is. The import runs inside the maintenance
-  // window, so /api/* stays gated (process state 'migrating') until it
-  // completes; the sessionState domain reports 'authoritative' throughout.
+  // otherwise the store is ready as-is. The import runs inside the startup
+  // window, so /api/* stays gated until it completes.
   await timedStartupStep('session-state-service', () => initializeSessionStateService())
   await timedStartupStep('session-state-import', async () => {
     const { createSessionStateRepository } = await import('./sqlite/session-state-repository.mjs')
@@ -906,26 +894,13 @@ async function runStartupInitialization() {
     logger.info('Session state JSON import finished', { domain: 'session-state', imported, skipped })
   })
   await timedStartupStep('session-state-restore-plan', () => recoverSessionStateRestorePlan())
-  // Share storage cutover: share-store writes become SQLite-authoritative once
-  // pending/authoritative. First cutover validates the normalized snapshot and
-  // relationships strictly; routine pending/authoritative startup only drains
-  // the transactional JSON mirror outbox and preserves cutover state metadata.
-  // json_authoritative failures keep the legacy JSON path.
-  await timedStartupStep('share-cutover', () => initializeShareCutover())
+  // Share / LAN access storage: SQLite is the single authoritative store.
+  // Startup only initializes the service handles and recovers an interrupted
+  // restore plan (roll-forward/rollback).
   await timedStartupStep('share-service', () => initializeShareService())
   await timedStartupStep('share-restore-plan', () => recoverShareRestorePlan())
-  await timedStartupStep('share-json-mirror-drain', () => drainShareJsonMirror())
-  // LAN access storage cutover: JSON → SQLite with the same phase machine as
-  // share storage. First cutover validates the normalized snapshot and
-  // relationships strictly; routine pending/authoritative startup only drains
-  // the transactional JSON mirror outbox and preserves cutover state metadata.
-  // json_authoritative failures keep the legacy JSON store path. Interrupted
-  // lan-access restore plans are recovered (roll-forward/rollback) before the
-  // mirror drain.
-  await timedStartupStep('lan-access-cutover', () => initializeLanAccessCutover())
   await timedStartupStep('lan-access-service', () => initializeLanAccessService())
   await timedStartupStep('lan-access-restore-plan', () => recoverLanAccessRestorePlan())
-  await timedStartupStep('lan-access-json-mirror-drain', () => drainLanAccessJsonMirror())
   await timedStartupStep('default-global-skills', () => ensureDefaultGlobalSkills())
   await timedStartupStep('network-proxy', () => initializeNetworkProxy())
   installAiHttpLogger()

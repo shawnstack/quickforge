@@ -37,6 +37,12 @@ async function withAuthoritativeBackup(testFn) {
       'utf8',
     )
     const sqliteStorage = await database.initializeSqliteStorage({ dataDir: tmpDir })
+    // Real startup materializes the disabled LAN-access config row; the backup
+    // builder always exports that domain, so the fixture must look the same.
+    const lanAccessRepoModule = await import('../../server/sqlite/lan-access-repository.mjs')
+    const lanAccessService = await import('../../server/lan-access-service.mjs')
+    lanAccessService.configureLanAccessService({ repository: lanAccessRepoModule.createLanAccessRepository(sqliteStorage) })
+    await lanAccessService.initializeLanAccessService()
     const repository = repoModule.createSessionStateRepository(sqliteStorage)
     service.configureSessionStateService({ repository })
     const imported = await importer.importSessionStateFromJson({ storage })

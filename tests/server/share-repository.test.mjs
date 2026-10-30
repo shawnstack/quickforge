@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations, BASELINE_VERSION, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
 import {
   createShareRepository,
   shareSnapshotDigest,
@@ -56,7 +56,7 @@ function share(overrides = {}) {
   }
 }
 
-describe('share repository and schema v8', () => {
+describe('share repository and baseline schema', () => {
   let directory
   let database
   let repository
@@ -74,50 +74,37 @@ describe('share repository and schema v8', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('creates schema v8 share tables and rolls a failing v7 to v8 migration back without losing F5/F7/F9 data', () => {
-    for (const table of ['share_sessions', 'share_tokens', 'share_storage_state', 'share_maintenance_lock', 'share_json_mirror_queue']) {
+  it('creates the baseline share tables and rolls a failing append-only migration back without losing data', () => {
+    for (const table of ['share_sessions', 'share_tokens', 'share_maintenance_lock']) {
       expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(table)).toBeDefined()
     }
     expect(database.prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND name='share_sessions_session_id_idx'").get()).toBeDefined()
+    // The JSON mirror queue and storage-state compat tables belong to the
+    // retired v1..v18 chain and must never be recreated.
+    for (const gone of ['share_json_mirror_queue', 'share_storage_state']) {
+      expect(database.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`).get(gone)).toBeUndefined()
+    }
 
-    // v7 database with F5 (scheduled runs), F7 (session index) and F9
-    // (session states + messages) data; a failing v8 must roll back fully.
-    database.close()
-    const rollbackPath = path.join(directory, 'rollback.sqlite3')
-    database = new DatabaseSync(rollbackPath)
-    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 7) })
-    database.prepare(`INSERT INTO scheduled_task_runs (task_id, id, status, started_at, extra_json, source, updated_at)
-      VALUES ('task', 'run', 'success', '2026-01-01T00:00:00.000Z', '{}', 'test', '2026-01-01T00:00:00.000Z')`).run()
-    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-      VALUES ('global', '', 'legacy', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('a'.repeat(64))
-    // Seed the v7-era session domain directly (the v2 session repository
-    // speaks schema v11 only); a failing v8 must roll back without touching
-    // any of these rows.
-    database.prepare(`INSERT INTO session_states
-      (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
-      VALUES ('global', '', 'legacy-session', 1, 1, ?, ?, ?, ?, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`)
-      .run(
-        JSON.stringify({ id: 'legacy-session', scope: 'global', stateVersion: 1 }),
-        'a'.repeat(64),
-        JSON.stringify({ id: 'legacy-session', scope: 'global', stateVersion: 1, messageCount: 0 }),
-        'b'.repeat(64),
-      )
-    database.prepare(`INSERT INTO session_index (scope, project_id, session_id, is_pinned, is_archived, metadata_json, metadata_digest, indexed_at)
-      VALUES ('global', '', 'legacy-session', 0, 0, '{}', ?, '2026-01-01T00:00:00.000Z')`).run('c'.repeat(64))
-
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 8
-      ? { ...migration, up(db) { migration.up(db); throw new Error('after-v8') } }
-      : migration)
-    expect(() => applySqliteMigrations(database, { migrations: failing })).toThrow(/migration 8.*after-v8/)
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(7)
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='share_sessions'").get()).toBeUndefined()
-    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='share_tokens'").get()).toBeUndefined()
-    expect(database.prepare('SELECT task_id, id FROM scheduled_task_runs').all()).toEqual([{ task_id: 'task', id: 'run' }])
-    expect(database.prepare('SELECT session_id FROM session_index ORDER BY session_id').all()).toEqual([
-      { session_id: 'legacy' },
-      { session_id: 'legacy-session' },
-    ])
-    expect(database.prepare('SELECT session_id, revision FROM session_states').all()).toEqual([{ session_id: 'legacy-session', revision: 1 }])
+    // A failing append-only migration must roll back completely: existing
+    // share rows survive and no partial schema objects are left behind.
+    const created = repository.create(share({ sessionId: 'rollback-survivor' }), { expectedRevision: 0 })
+    const failing = [
+      ...SQLITE_MIGRATIONS,
+      {
+        version: BASELINE_VERSION + 1,
+        name: 'probe',
+        up(db) {
+          db.exec('CREATE TABLE migration_probe (id INTEGER PRIMARY KEY)')
+          throw new Error('after-probe')
+        },
+      },
+    ]
+    expect(() => applySqliteMigrations(database, { migrations: failing }))
+      .toThrow(new RegExp(`migration ${BASELINE_VERSION + 1}.*after-probe`))
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
+    expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='migration_probe'").get()).toBeUndefined()
+    expect(database.prepare('SELECT share_id, revision FROM share_sessions').all()).toEqual([{ share_id: created.id, revision: 1 }])
+    expect(repository.get(created.id)).toMatchObject({ id: created.id, revision: 1 })
   })
 
   it('creates atomically: supersedes older session shares, clears their tokens and issues new tokens in one transaction', () => {
@@ -192,7 +179,7 @@ describe('share repository and schema v8', () => {
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true, tokenAuthVersionMismatch: 0 })
   })
 
-  it('keeps token mutation timestamps aligned across return values, rows, and mirror records', () => {
+  it('keeps token mutation timestamps aligned across return values and rows', () => {
     const timestamps = [
       '2099-01-01T00:00:00.000Z',
       '2099-01-02T00:00:00.000Z',
@@ -200,20 +187,16 @@ describe('share repository and schema v8', () => {
     ]
     const timedRepository = createShareRepository(createHandle(database), { now: () => timestamps.shift() })
     const created = timedRepository.create(share({ sessionId: 'timestamp-sync' }), { expectedRevision: 0 })
-    timedRepository.acknowledgeMirror(timedRepository.listMirrorQueue()[0])
 
     const issued = timedRepository.issueToken(created.id, { expectedRevision: created.revision })
     expect(issued.share.updatedAt).toBe('2099-01-02T00:00:00.000Z')
     expect(database.prepare('SELECT updated_at FROM share_sessions WHERE share_id = ?').get(created.id).updated_at).toBe(issued.share.updatedAt)
-    expect(timedRepository.listMirrorQueue()[0].record.updatedAt).toBe(issued.share.updatedAt)
-    timedRepository.acknowledgeMirror(timedRepository.listMirrorQueue()[0])
 
     database.prepare('UPDATE share_tokens SET expires_at = ? WHERE share_id = ?').run('2099-01-02T12:00:00.000Z', created.id)
     expect(timedRepository.pruneTokens(created.id, { expectedRevision: issued.share.revision })).toBe(1)
     const pruned = timedRepository.get(created.id)
     expect(pruned.updatedAt).toBe('2099-01-03T00:00:00.000Z')
     expect(database.prepare('SELECT updated_at FROM share_sessions WHERE share_id = ?').get(created.id).updated_at).toBe(pruned.updatedAt)
-    expect(timedRepository.listMirrorQueue()[0].record.updatedAt).toBe(pruned.updatedAt)
     expect(timedRepository.verifyIntegrity()).toMatchObject({ ok: true })
   })
 
@@ -374,22 +357,23 @@ describe('share repository and schema v8', () => {
     expect(after.records[0]).toMatchObject({ customField: { nested: ['kept'] }, futureFlag: true, titleSnapshot: record.titleSnapshot })
   })
 
-  it('enqueues mirror upserts/deletes and rolls the whole transaction back on failure', () => {
+  it('materializes no compat mirror tables and rolls the whole transaction back on failure', () => {
+    const mirrorTableExists = () => Boolean(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='share_json_mirror_queue'").get())
     const created = repository.create(share(), { expectedRevision: 0 })
-    expect(repository.listMirrorQueue()).toMatchObject([{ shareId: created.id, operation: 'upsert', attempts: 0 }])
+    expect(repository.get(created.id)).toMatchObject({ id: created.id, revision: 1 })
+    expect(mirrorTableExists()).toBe(false)
     repository.delete(created.id, { expectedRevision: 1 })
-    expect(repository.listMirrorQueue()).toMatchObject([{ shareId: created.id, operation: 'delete' }])
+    expect(database.prepare('SELECT deleted_at FROM share_sessions WHERE share_id = ?').get(created.id).deleted_at).toBe(now())
+    expect(mirrorTableExists()).toBe(false)
 
-    // A failing create must leave no partial rows, tokens, or queue entries.
+    // A failing create must leave no partial rows or tokens.
     expect(() => repository.create(share({ sessionId: 'rollback-fail', titleSnapshot: 'X' }), {
       expectedRevision: 0,
-      beforeCommit(db) {
-        db.prepare('UPDATE share_json_mirror_queue SET attempts = 99 WHERE share_id = ?').run(created.id)
+      beforeCommit() {
         throw new Error('share failure')
       },
     })).toThrow('share failure')
     expect(repository.list({ sessionId: 'rollback-fail' })).toHaveLength(0)
-    expect(repository.listMirrorQueue().some((entry) => entry.shareId !== created.id)).toBe(false)
-    expect(repository.listMirrorQueue()).toMatchObject([{ shareId: created.id, operation: 'delete', attempts: 0 }])
+    expect(mirrorTableExists()).toBe(false)
   })
 })

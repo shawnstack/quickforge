@@ -1094,34 +1094,40 @@ describe('ServerAgent', () => {
     }
   })
 
-  it('merges incremental message tails positionally without duplication', async () => {
-    const { mergeIncrementalMessages } = await import('../../src/lib/server-agent')
+  it('merges incremental message tails through the message log (single window coordinate)', async () => {
+    const { applyMessageLogOp, createMessageLogWindow } = await import('../../src/lib/message-log')
     const base = [
       { role: 'user', content: 'a' },
       { role: 'assistant', content: 'b' },
     ] as AgentMessage[]
+    const append = (after: number, tail: AgentMessage[], window = createMessageLogWindow(0, base, 0)) =>
+      applyMessageLogOp(window, { kind: 'append' as const, after, messages: tail })
 
     // Pure append: positions beyond the current length are pushed.
-    expect(mergeIncrementalMessages(base, 2, [{ role: 'user', content: 'c' }]).map((message) => message.content))
+    expect(append(2, [{ role: 'user', content: 'c' }]).window.messages.map((message) => message.content))
       .toEqual(['a', 'b', 'c'])
 
     // Overlapping tail (already applied via message_end upserts) is skipped.
-    expect(mergeIncrementalMessages(base, 1, [
+    expect(append(1, [
       { role: 'assistant', content: 'b' },
       { role: 'user', content: 'c' },
-    ]).map((message) => message.content)).toEqual(['a', 'b', 'c'])
+    ]).window.messages.map((message) => message.content)).toEqual(['a', 'b', 'c'])
 
     // Same-position content change replaces the local version.
-    expect(mergeIncrementalMessages(base, 1, [{ role: 'assistant', content: 'b-edited' }]).map((message) => message.content))
+    expect(append(1, [{ role: 'assistant', content: 'b-edited' }]).window.messages.map((message) => message.content))
       .toEqual(['a', 'b-edited'])
 
     // Same message id but different content = the final assistant text arrived
     // after the streamed (thinking-only) version with the same id. The server's
     // version must replace the local partial or the final reply stays hidden
-    // until a full refresh (see sameMessageShape).
+    // until a full refresh.
     const withIds = [{ role: 'user', content: 'old', id: 'm1' }] as AgentMessage[]
-    expect(mergeIncrementalMessages(withIds, 0, [{ role: 'user', content: 'final text', id: 'm1' }]))
-      .toEqual([{ role: 'user', content: 'final text', id: 'm1' }])
+    const finalText = applyMessageLogOp(createMessageLogWindow(0, withIds, 0), {
+      kind: 'append',
+      after: 0,
+      messages: [{ role: 'user', content: 'final text', id: 'm1' }],
+    })
+    expect(finalText.window.messages).toEqual([{ role: 'user', content: 'final text', id: 'm1' }])
   })
 
   it('fills missing messages after a split-session reconnect through the messages channel', async () => {

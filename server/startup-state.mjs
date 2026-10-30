@@ -1,29 +1,23 @@
-import { readScheduledRunsState } from './scheduled-runs-cutover.mjs'
-import { readSessionStorageState } from './session-state-service.mjs'
-import { readShareStorageState } from './share-service.mjs'
-import { readLanAccessStorageState } from './lan-access-service.mjs'
-
-// P1 startup maintenance window: the HTTP server listens before the storage
-// migration/initialization chain completes. This module owns the process-wide
-// startup state shared by server/index.mjs (maintenance gate, /api/health and
-// /api/migration-status) and its tests.
+// Process-wide startup state shared by server/index.mjs (maintenance gate and
+// /api/health) and its tests.
+//
+// Storage is SQLite-authoritative by construction: there is no JSON→SQLite
+// migration window any more, so the only states are 'starting' (the startup
+// initialization chain is still running), 'ready' and 'failed'.
 
 export const STARTUP_STATES = Object.freeze({
-  MIGRATING: 'migrating',
+  STARTING: 'starting',
   READY: 'ready',
   FAILED: 'failed',
 })
 
-// Read-only endpoints that stay reachable while the maintenance gate refuses
-// every other /api/* route, so CLI/Desktop clients can observe progress.
+// Read-only endpoint that stays reachable while the maintenance gate refuses
+// every other /api/* route, so CLI/Desktop clients can observe startup.
 export const MAINTENANCE_API_WHITELIST = Object.freeze([
   '/api/health',
-  '/api/migration-status',
 ])
 
-// The server process starts in 'migrating' at module evaluation; the startup
-// chain moves it to 'ready' (all domains initialized) or 'failed'.
-let startupState = STARTUP_STATES.MIGRATING
+let startupState = STARTUP_STATES.STARTING
 let startupError = null
 
 export function getStartupState() {
@@ -35,6 +29,7 @@ export function getStartupError() {
 }
 
 export function setStartupState(state, errorMessage = null) {
+  if (!Object.values(STARTUP_STATES).includes(state)) throw new TypeError(`Invalid startup state: ${state}`)
   startupState = state
   startupError = state === STARTUP_STATES.FAILED
     ? (errorMessage || 'Startup failed')
@@ -49,8 +44,8 @@ export const STARTUP_RECOVERY_GUIDANCE = [
   'Recovery guidance:',
   '1. Stop all QuickForge processes so no data files are being changed or locked.',
   '2. Before recovery, make a complete copy of the entire QuickForge dataDir, including the SQLite database and any -wal/-shm files.',
-  '3. Review GET /api/migration-status and the server logs to identify the failing storage domain and operation.',
-  '4. Use the runbook or maintenance tool for that specific error domain; do not delete the database or blindly run a session-state downgrade command.',
+  '3. Review the server logs to identify the failing storage domain and operation.',
+  '4. Use the runbook or the maintenance export/restore tool for that domain; do not delete the database.',
 ].join('\n')
 
 export function withStartupRecoveryGuidance(errorMessage) {
@@ -59,49 +54,18 @@ export function withStartupRecoveryGuidance(errorMessage) {
 
 // Test helper: restore the module-evaluation defaults.
 export function resetStartupState() {
-  startupState = STARTUP_STATES.MIGRATING
+  startupState = STARTUP_STATES.STARTING
   startupError = null
 }
 
 // Maintenance gate for /api/* routes. Returns null when the request may be
 // dispatched, or the maintenance refusal payload ({status, state}) otherwise.
+// Non-/api paths (static assets, /share/) stay ungated so the frontend can
+// load and show its splash/error page.
 export function resolveMaintenanceGate(method, pathname) {
   const state = getStartupState()
   if (state === STARTUP_STATES.READY) return null
   if (!pathname || !pathname.startsWith('/api/')) return null
   if (method === 'GET' && MAINTENANCE_API_WHITELIST.includes(pathname)) return null
   return { status: 503, state }
-}
-
-function readDomain(read) {
-  try {
-    return read()
-  } catch (error) {
-    // A domain whose storage is not initialized yet (or whose state table
-    // cannot be read) must not fail the whole status endpoint; report the
-    // error name so the UI can still render the remaining domains.
-    return { phase: 'unknown', error: error?.name || 'Error' }
-  }
-}
-
-// Aggregated migration status across the four storage domains. `storage` is
-// optional (scheduled-runs accepts an injected handle; the other domains read
-// the process-wide SQLite storage internally).
-export function readMigrationStatus(storage) {
-  const state = getStartupState()
-  const status = {
-    ok: true,
-    state,
-    domains: {
-      scheduledRuns: readDomain(() => readScheduledRunsState(storage)),
-      // Storage v2: the session domain is SQLite-authoritative by
-      // construction; readSessionStorageState reports the constant
-      // authoritative phase with a live session count.
-      sessionState: readDomain(() => readSessionStorageState()),
-      share: readDomain(() => readShareStorageState()),
-      lanAccess: readDomain(() => readLanAccessStorageState()),
-    },
-  }
-  if (state === STARTUP_STATES.FAILED) status.startupError = getStartupError()
-  return status
 }

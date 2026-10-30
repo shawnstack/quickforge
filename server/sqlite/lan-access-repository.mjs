@@ -201,10 +201,6 @@ export function lanAccessConfigDigest(config) {
   return createHash('sha256').update(JSON.stringify(canonicalize(content))).digest('hex')
 }
 
-function configJson(record) {
-  return JSON.stringify(canonicalize({ ...record, revision: undefined }))
-}
-
 function mapConfigRow(row) {
   if (!row) return null
   let extra
@@ -288,24 +284,6 @@ function replaceTokens(database, tokens) {
   })
 }
 
-function enqueueLanAccessMirror(database, record, operation, updatedAt) {
-  const stored = record ? { ...record, revision: undefined } : null
-  database.prepare(`
-    INSERT INTO lan_access_json_mirror_queue (singleton, operation, config_json, attempts, last_error, updated_at)
-    VALUES (1, ?, ?, 0, NULL, ?)
-    ON CONFLICT(singleton) DO UPDATE SET
-      operation = excluded.operation,
-      config_json = excluded.config_json,
-      attempts = 0,
-      last_error = NULL,
-      updated_at = excluded.updated_at
-  `).run(
-    operation,
-    operation === 'upsert' ? (stored ? configJson(stored) : null) : null,
-    updatedAt,
-  )
-}
-
 function currentConfigRow(database) {
   return database.prepare(`SELECT ${CONFIG_COLUMNS} FROM lan_access_state WHERE singleton = 1`).get()
 }
@@ -320,19 +298,6 @@ function assertCas(database, expectedRevision) {
   if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw invalid('expectedRevision must be a non-negative integer')
   const current = actualRevision(database)
   if (current.revision !== expectedRevision) throw conflict(expectedRevision, current.revision)
-}
-
-function updateStorageState(database, values, timestamp) {
-  if (!values) return
-  database.prepare(`UPDATE lan_access_storage_state SET phase = ?, lan_token_count = ?, digest = ?, backup_file = ?, diagnostic_json = ?, updated_at = ?
-    WHERE singleton = 1`).run(
-    values.phase,
-    values.lanTokenCount ?? null,
-    values.digest ?? null,
-    values.backupFile ?? null,
-    values.diagnostic ? JSON.stringify(values.diagnostic) : null,
-    timestamp,
-  )
 }
 
 function tokenNotExpiredWhere(cutoffIso) {
@@ -392,7 +357,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       const nextRevision = (current.revision || 0) + 1
       insertConfigRow(database, normalized, nextRevision, timestamp)
       replaceTokens(database, normalized.tokens)
-      enqueueLanAccessMirror(database, { ...normalized, revision: nextRevision }, 'upsert', timestamp)
       return { config: { ...normalized, revision: nextRevision }, revision: nextRevision }
     }, { mode: 'immediate' })
   }
@@ -420,7 +384,7 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       }
       // Prune expired tokens and keep only the newest 100 by insertion order
       // (same `slice(-100)` semantics as the JSON store) in this same
-      // transaction along with the config update and mirror enqueue.
+      // transaction along with the config update.
       database.prepare(`DELETE FROM lan_access_tokens WHERE expires_at IS NOT NULL AND expires_at <= ?`)
         .run(new Date(Date.now()).toISOString())
       const nextSeq = Number(database.prepare('SELECT COALESCE(MAX(seq), -1) AS seq FROM lan_access_tokens').get().seq) + 1
@@ -430,7 +394,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       const merged = { ...existing, updatedAt: timestamp, tokens: attachTokens(existing, tokenRowsFor(database)).tokens }
       const nextRevision = Number(row.revision) + 1
       insertConfigRow(database, { ...merged, revision: undefined }, nextRevision, timestamp)
-      enqueueLanAccessMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return {
         token: `${existing.authVersion}.${secret}`,
         expiresAt,
@@ -458,7 +421,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       const merged = { ...existing, updatedAt: timestamp, tokens: attachTokens(existing, tokenRowsFor(database)).tokens }
       const nextRevision = Number(row.revision) + 1
       insertConfigRow(database, { ...merged, revision: undefined }, nextRevision, timestamp)
-      enqueueLanAccessMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return { config: { ...merged, revision: nextRevision }, revision: nextRevision }
     }, { mode: 'immediate' })
   }
@@ -479,7 +441,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       const merged = { ...existing, updatedAt: timestamp, tokens: attachTokens(existing, tokenRowsFor(database)).tokens }
       const nextRevision = Number(row.revision) + 1
       insertConfigRow(database, { ...merged, revision: undefined }, nextRevision, timestamp)
-      enqueueLanAccessMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return true
     }, { mode: 'immediate' })
   }
@@ -500,12 +461,11 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
       database.prepare('DELETE FROM lan_access_tokens').run()
       const nextRevision = Number(row.revision) + 1
       insertConfigRow(database, { ...merged, revision: undefined }, nextRevision, timestamp)
-      enqueueLanAccessMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return { config: { ...merged, revision: nextRevision }, revision: nextRevision }
     }, { mode: 'immediate' })
   }
 
-  function replaceAll(inputConfig, { expectedCount, expectedDigest, storageState, beforeCommit } = {}) {
+  function replaceAll(inputConfig, { expectedCount, expectedDigest, beforeCommit } = {}) {
     const record = normalizeLanAccessConfig(inputConfig, { now })
     const count = record.tokens.length
     const digest = lanAccessConfigDigest(record)
@@ -513,11 +473,9 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
     if (expectedDigest !== undefined && digest !== expectedDigest) throw new Error('LAN access replace digest verification failed')
     const timestamp = record.updatedAt || now()
     return storage.transaction((database) => {
-      database.exec('DELETE FROM lan_access_state; DELETE FROM lan_access_tokens; DELETE FROM lan_access_json_mirror_queue;')
+      database.exec('DELETE FROM lan_access_state; DELETE FROM lan_access_tokens;')
       insertConfigRow(database, record, 1, timestamp)
       replaceTokens(database, record.tokens)
-      enqueueLanAccessMirror(database, { ...record, revision: 1 }, 'upsert', timestamp)
-      updateStorageState(database, storageState ? { ...storageState, lanTokenCount: count, digest, updatedAt: timestamp } : null, timestamp)
       beforeCommit?.(database)
       return count
     }, { mode: 'immediate' })
@@ -584,27 +542,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
     }
   }
 
-  function listMirrorQueue() {
-    const row = storage.prepare('SELECT * FROM lan_access_json_mirror_queue WHERE singleton = 1').get()
-    if (!row) return []
-    return [{
-      operation: row.operation,
-      config: row.config_json ? JSON.parse(row.config_json) : null,
-      attempts: Number(row.attempts),
-      lastError: row.last_error,
-      updatedAt: row.updated_at,
-    }]
-  }
-
-  function acknowledgeMirror(_entry) {
-    return Number(storage.prepare('DELETE FROM lan_access_json_mirror_queue WHERE singleton = 1').run().changes) === 1
-  }
-
-  function failMirror(_entry, error) {
-    storage.prepare(`UPDATE lan_access_json_mirror_queue SET attempts = attempts + 1, last_error = ?, updated_at = ? WHERE singleton = 1`)
-      .run(String(error?.message || error).slice(0, 1000), now())
-  }
-
   return Object.freeze({
     getConfig,
     updateSettings,
@@ -620,9 +557,6 @@ export function createLanAccessRepository(storageHandle, { now = () => new Date(
     verifyIntegrity,
     count,
     digest,
-    listMirrorQueue,
-    acknowledgeMirror,
-    failMirror,
   })
 }
 

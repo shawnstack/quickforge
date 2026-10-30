@@ -314,7 +314,7 @@ export function createScheduledTaskRunsRepository(storageHandle, options = {}) {
     return database.prepare('SELECT * FROM scheduled_task_runs WHERE task_id = ? AND id = ?').get(taskId, runId)
   }
 
-  // The optional statement lets the cutover replaceAll reuse one precompiled insert.
+  // The optional statement lets replaceAll/restore-import paths reuse one precompiled insert.
   function insert(database, value, statement = null) {
     const insertStatement = statement ?? database.prepare(`INSERT INTO scheduled_task_runs (${INSERT_COLUMNS}) VALUES (${INSERT_PLACEHOLDERS})`)
     insertStatement.run(...insertParameters(value))

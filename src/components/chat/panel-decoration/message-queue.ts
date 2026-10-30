@@ -182,6 +182,8 @@ export function createMessageQueuePanelController({
   enabled,
   isStreaming,
   steeringEnabled,
+  isAskPending,
+  submitAskText,
   onChange,
   onComposerCleared,
   submitJump,
@@ -191,6 +193,10 @@ export function createMessageQueuePanelController({
   enabled: boolean
   isStreaming: () => boolean
   steeringEnabled: () => boolean
+  /** A pending `ask_user` card is waiting — the composer answers it, not the queue. */
+  isAskPending?: () => boolean
+  /** Hand composer text to the pending ask card. Returns true when consumed. */
+  submitAskText?: (text: string) => boolean
   /** Called after every state mutation so the host persists and re-decorates. */
   onChange: () => void
   /** The controller cleared the composer textarea; the host syncs drafts/menus. */
@@ -270,16 +276,7 @@ export function createMessageQueuePanelController({
     const textarea = editor?.querySelector<HTMLTextAreaElement>('textarea')
     if (!textarea || textarea === boundTextarea) return
     unbindTextarea()
-    keydownHandler = (event: KeyboardEvent) => {
-      if (!enabled) return
-      if (event.isComposing || event.key === 'Process') return
-      if (event.key !== 'Enter' || event.shiftKey) return
-      if (!isStreaming()) return
-      const value = textarea.value ?? ''
-      if (!value.trim()) return
-      event.preventDefault()
-      event.stopPropagation()
-      enqueueTextValue(value)
+    const consumeComposer = () => {
       textarea.value = ''
       const editorElement = getEditor()
       if (editorElement) {
@@ -287,6 +284,28 @@ export function createMessageQueuePanelController({
         ;(editorElement as { requestUpdate?: () => void }).requestUpdate?.()
       }
       onComposerCleared()
+    }
+    keydownHandler = (event: KeyboardEvent) => {
+      if (!enabled) return
+      if (event.isComposing || event.key === 'Process') return
+      if (event.key !== 'Enter' || event.shiftKey) return
+      if (!isStreaming()) return
+      const value = textarea.value ?? ''
+      if (!value.trim()) return
+      // A pending ask_user owns the composer: the text is the answer to the
+      // card, not a queued message. Steering would only be drained at the next
+      // turn boundary, which the blocked tool call never reaches on its own —
+      // the text would sit invisible until the 30-minute ask timeout.
+      if (isAskPending?.() && submitAskText?.(value)) {
+        event.preventDefault()
+        event.stopPropagation()
+        consumeComposer()
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      enqueueTextValue(value)
+      consumeComposer()
     }
     textarea.addEventListener('keydown', keydownHandler, true)
     boundTextarea = textarea
@@ -548,7 +567,8 @@ export function createMessageQueuePanelController({
     if (!textarea) return
     // decorateEditor resets the placeholder to the default every pass, this
     // runs later within the same decorate() so the queued variant wins.
-    if (isStreaming()) textarea.placeholder = t('messageQueuePlaceholder')
+    if (isAskPending?.()) textarea.placeholder = t('askUserComposerPlaceholder')
+    else if (isStreaming()) textarea.placeholder = t('messageQueuePlaceholder')
   }
 
   return {

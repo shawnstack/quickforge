@@ -71,6 +71,18 @@ export function buildAskDisplaySignature(ask: ServerAgentPendingAsk, disabled: b
   return JSON.stringify({ askId: ask.askId, count: ask.questions.length, disabled })
 }
 
+/**
+ * Live composer-text entry points, keyed by the injected card element.
+ *
+ * While an ask is pending the composer is the natural place to type the
+ * answer, but the wizard state (`answers` / `step` / `remark`) lives in this
+ * closure. The host therefore hands the typed text back to the card instead of
+ * steering it into the agent's message queue — see `submitAskTextToPendingAsk`.
+ * Keyed by element (not by module global) so a rebuilt card never answers with
+ * the previous card's state.
+ */
+const cardTextHandlers = new WeakMap<HTMLElement, (text: string) => boolean>()
+
 export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPendingAsk) {
   const { panel } = deps
   const disabled = deps.disabled === true
@@ -316,7 +328,7 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
 
   let advancing = false
   const advance = () => {
-    if (advancing) return
+    if (advancing) return false
     disarmSkip()
     advancing = true
     body.classList.add('quickforge-ask-body--leaving')
@@ -328,11 +340,51 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
       body.classList.add('quickforge-ask-body--enter')
       window.setTimeout(() => body.classList.remove('quickforge-ask-body--enter'), 220)
     }, 150)
+    return true
   }
 
   const showMessage = (text: string) => {
     message.textContent = text
     message.hidden = false
+  }
+
+  /**
+   * Consume composer text as if it had been typed into the card.
+   *
+   * Question step → the text becomes the free-form answer (advancing exactly
+   * like the card's own Enter handler), or an exact option label when the
+   * question only allows the given options. Review step → the text becomes the
+   * card-level remark. Returns false when the text cannot be applied, so the
+   * host falls back to its normal streaming behaviour instead of dropping it.
+   */
+  const applyComposerText = (text: string): boolean => {
+    const value = text.trim()
+    if (!value || disabled) return false
+    if (step >= questions.length) {
+      remark = remark.trim() ? `${remark.trim()}\n${value}` : value
+      renderStep()
+      body.querySelector<HTMLTextAreaElement>('.quickforge-ask-remark-input')?.focus()
+      return true
+    }
+    const question = questions[step]
+    if (question.allowCustom !== false) {
+      answers[step].custom = value
+      message.hidden = true
+      return advance()
+    }
+    const label = (question.options ?? []).find((option) => option.label.trim().toLowerCase() === value.toLowerCase())?.label
+    if (typeof label !== 'string') return false
+    const answer = answers[step]
+    answer.choices = answer.choices ?? []
+    if (question.multiSelect === true) {
+      if (!answer.choices.includes(label)) answer.choices.push(label)
+      message.hidden = true
+      renderStep()
+      return true
+    }
+    answer.choices = [label]
+    message.hidden = true
+    return advance()
   }
 
   // Bound once at injection — the closure reads the current step/answers; the
@@ -406,7 +458,19 @@ export function injectAskUserCard(deps: AskUserCardDeps, ask: ServerAgentPending
   const messageList = panel.querySelector('.qf-message-list')
   if (messageList) messageList.append(card)
   else panel.querySelector('.qf-chat-panel')?.append(card)
+  cardTextHandlers.set(card, applyComposerText)
   card.scrollIntoView({ behavior: 'smooth', block: 'end' })
+}
+
+/**
+ * Route composer text into the mounted ask card instead of the agent's steering
+ * queue. Returns false when there is no card (or it cannot take the text), so
+ * the caller keeps its normal behaviour.
+ */
+export function submitAskTextToPendingAsk(panel: HTMLElement, text: string): boolean {
+  const card = panel.querySelector<HTMLElement>(ASK_CARD_SELECTOR)
+  const handler = card ? cardTextHandlers.get(card) : undefined
+  return handler ? handler(text) : false
 }
 
 export function removeAskUserCard(panel: HTMLElement) {

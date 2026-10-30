@@ -21,7 +21,7 @@ src/styles/
 ├── foundation.css               # unlayered token、body 基线、滚动条、共享 keyframes
 ├── layout.css                   # 窗口工具栏、titlebar-safe 面板、设置宿主
 ├── motion.css                   # 共享动效原语（dialog / menu / list）
-├── startup.css                  # 启动 splash、迁移进度、会话加载过渡
+├── startup.css                  # 启动 splash、会话加载过渡（迁移进度页已删除，`quickforge-migration-dot-*` 为残留未引用样式）
 ├── markdown.css                 # 聊天正文排版（qf-markdown-block）
 ├── highlight.css                # 代码块语法高亮 token（qf-hl-*）
 ├── ui/

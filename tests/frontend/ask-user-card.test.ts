@@ -308,7 +308,7 @@ describe('ask-user card wiring', () => {
   })
 
   it('i18n carries every ask key in both locales', () => {
-    for (const key of ['askUserTitle', 'askUserProgress', 'askUserSubmit', 'askUserSkip', 'askUserSkipConfirm', 'askUserNext', 'askUserBack', 'askUserCustomToggle', 'askUserCustomPlaceholder', 'askUserEdit', 'askUserFailed', 'askUserUnanswered', 'askUserSkipReasonTimeout', 'askUserSkipReasonAborted', 'askUserSkipReasonNoQuestions', 'askUserSkipReasonUser', 'askUserExtraLabel', 'askUserNoChoiceLabel', 'askUserFilledHint']) {
+    for (const key of ['askUserTitle', 'askUserProgress', 'askUserSubmit', 'askUserSkip', 'askUserSkipConfirm', 'askUserNext', 'askUserBack', 'askUserCustomToggle', 'askUserCustomPlaceholder', 'askUserEdit', 'askUserFailed', 'askUserUnanswered', 'askUserComposerPlaceholder', 'askUserSkipReasonTimeout', 'askUserSkipReasonAborted', 'askUserSkipReasonNoQuestions', 'askUserSkipReasonUser', 'askUserExtraLabel', 'askUserNoChoiceLabel', 'askUserFilledHint']) {
       expect(i18n.match(new RegExp(`${key}:`, 'g'))?.length).toBeGreaterThanOrEqual(2)
     }
   })

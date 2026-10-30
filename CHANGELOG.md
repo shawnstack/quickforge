@@ -4,6 +4,12 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- The storage backward-compatibility layer: JSON→SQLite cutover and the per-domain phase state machines are gone from all four storage domains. `share-cutover.mjs`, `lan-access-cutover.mjs`, `scheduled-runs-cutover.mjs`, `share-json-file.mjs`, `lan-access-json-file.mjs`, `downgrade-share-v1.mjs` and `downgrade-lan-access-v1.mjs` are deleted; `*-service.mjs` now only holds the repository accessor and injection, `*-store.mjs` has a single SQLite path, `*-backup.mjs` no longer emits a `phase` field, and the repositories no longer enqueue a JSON mirror queue or update `*_storage_state` counters. Maintenance locks keep their tables through the new `share-maintenance.mjs` / `lan-access-maintenance.mjs` / `scheduled-runs-maintenance.mjs`, and the only maintenance tools left are `export-*-v1.mjs` (export to JSON as the escape hatch).
+- The startup migration window and its progress page: `server/startup-state.mjs` only has `starting`/`ready`/`failed` (`migrating`, the domain job projection and every whitelisted API except `/api/health` are gone), `GET /api/migration-status` is deleted, and the frontend drops `src/lib/migration-status.ts` and the migration progress view. The startup window shows only the splash; failure details come straight from `/api/health`'s `startupError`.
+- The migration chain is folded into a single baseline: `server/sqlite/migrations.mjs` holds one migration (`version 19`, `name: 'baseline'`) that creates 15 tables and 13 indexes. Compat-era objects (`session_states`, `session_index`, the JSON mirror queues, `*_storage_state`, `scheduled_runs_state` and every `*_v10_backup` table) no longer exist, and a database with `user_version` below 19 is refused with guidance to back up the data directory and restore from an export or start empty — there is no in-place upgrade path. New migrations stay append-only: continuous versions, applied in one immediate transaction together with their `schema_migrations` row and `PRAGMA user_version` bump.
+
 ## [2.3.5] - 2026-10-29
 
 ### Added

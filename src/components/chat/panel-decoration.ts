@@ -31,7 +31,7 @@ export type { ComposerDraftRestoreHandle } from './panel-decoration/drafts'
 export type { ApprovalCardDeps, ToolApprovalSource } from './panel-decoration/approval-card'
 export { injectApprovalCard, removeApprovalCard } from './panel-decoration/approval-card'
 export type { AskUserCardDeps } from './panel-decoration/ask-user-card'
-export { injectAskUserCard, removeAskUserCard } from './panel-decoration/ask-user-card'
+export { injectAskUserCard, removeAskUserCard, submitAskTextToPendingAsk } from './panel-decoration/ask-user-card'
 export type { GoalCardViewModel, GoalCardTone, GoalCardCriteriaView } from './panel-decoration/goal-card'
 export { buildGoalCardViewModel } from './panel-decoration/goal-card'
 export type {

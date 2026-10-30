@@ -170,6 +170,19 @@ describe('message queue source contracts', () => {
     expect(controllerSource).toContain('quickforge-msg-queue')
   })
 
+  it('answers the pending ask card instead of queueing while it waits', () => {
+    // 待答期间 Enter 必须落到提问卡片上：steer 只在轮边界被 drain，而 ask_user
+    // 阻塞的那一轮永远走不到轮边界，入队等于让用户的消息静默等 30 分钟超时。
+    expect(controllerSource).toContain('if (isAskPending?.() && submitAskText?.(value))')
+    expect(controllerSource).toContain("t('askUserComposerPlaceholder')")
+    // "立即" 同样走提问通道，而不是 steer。
+    expect(hostSource).toContain('if (deps.isAskPending() && deps.submitAskText(item.text))')
+    expect(hostSource).toContain('isAskPending: () => deps.isAskPending()')
+    expect(hostSource).toContain('submitAskText: (text) => deps.submitAskText(text)')
+    expect(hostSource).toContain('submitAskTextToPendingAsk(panel, text)')
+    expect(barrelSource).toContain('submitAskTextToPendingAsk')
+  })
+
   it('implements drag reorder with window-level pointer tracking', () => {
     expect(controllerSource).toContain('quickforge-msg-queue-handle')
     expect(controllerSource).toContain('dragSession = beginRowDragSession({')

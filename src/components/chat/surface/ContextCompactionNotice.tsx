@@ -45,6 +45,36 @@ export type ContextCompactionState = {
 }
 
 /**
+ * 把服务端的**会话绝对**压缩位置换算成本地窗口坐标。
+ *
+ * `compactedUpToIndex` 与 `history[].occurredAtIndex/boundaryIndex` 都是会话
+ * 绝对 seq；消息列表渲染的是从 `messageBaseSeq` 开始的窗口。两者混用会让分割
+ * 线落到错误行——窗口起点 > 0 时整条线要么消失（被判为"超过窗口末尾"），
+ * 要么贴到窗口顶部。窗口起点为 0 时是恒等变换，旧数据保持不变。
+ */
+export function shiftCompactionToLocal(
+  compaction: ContextCompactionState | null | undefined,
+  baseSeq: number,
+): ContextCompactionState | null {
+  if (!compaction) return null
+  if (!Number.isFinite(baseSeq) || baseSeq <= 0) return compaction
+  const shift = (value: number | undefined): number | undefined => (
+    typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value - baseSeq) : value
+  )
+  return {
+    ...compaction,
+    compactedUpToIndex: shift(compaction.compactedUpToIndex),
+    history: Array.isArray(compaction.history)
+      ? compaction.history.map((entry) => ({
+          ...entry,
+          occurredAtIndex: shift(entry.occurredAtIndex),
+          boundaryIndex: shift(entry.boundaryIndex),
+        }))
+      : compaction.history,
+  }
+}
+
+/**
  * Extract the human-readable summary body.
  *
  * Historical summaries are wrapped in `<compact_summary>…</compact_summary>`;

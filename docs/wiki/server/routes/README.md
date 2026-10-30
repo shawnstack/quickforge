@@ -2,12 +2,11 @@
 
 每个文件处理一组相关 API 端点。路由在 `server/index.mjs` 中分发。
 
-`server/index.mjs` 内置两个启动相关端点（不经 routes/ 文件）：
+`server/index.mjs` 内置一个启动相关端点（不经 routes/ 文件）：
 
-- `GET /api/health` — 健康检查；启动维护窗口内返回 `{ok:true, maintenance:true, ...}`，启动失败返回 `{ok:false, startupError}`（进程保持存活、业务 API 持续 503），就绪后返回完整系统状态。
-- `GET /api/migration-status` — 返回 `{ok:true, state:'migrating'|'ready'|'failed', startupError?, domains:{scheduledRuns,sessionState,share,lanAccess}}`（各域 phase/count/updatedAt，域不可读时为 `{phase:'unknown', error}`），供前端迁移进度 UI 轮询；`sessionState` 域在后台迁移任务启动后额外携带 `background` 内存态快照（`state`：importing/idle-waiting/switching/done/failed/aborted，含 `taskId`、`buckets`、`convergeRound`、`diffBuckets`、`backup`、`lastEventAt` 及 `failure`/`reason`/`lockOwner*` 失败诊断），任务启动前该键缺省。
+- `GET /api/health` — 健康检查；启动维护窗口内返回 `{ok:true, maintenance:true, ...}`，启动失败返回 `{ok:false, startupError}`（进程保持存活、业务 API 持续 503），就绪后返回完整系统状态。它是维护窗口内唯一放行的 API（`server/startup-state.mjs` 的 `MAINTENANCE_API_WHITELIST` 只含此项），前端的启动失败详情也直接读这里的 `startupError`。
 
-启动维护窗口（后台初始化链未完成或失败）内，除上述白名单外的所有 `/api/*` 请求统一返回 503 `{ok:false, maintenance:true, state}` + `Retry-After: 5`；非 `/api` 路径（静态资源、`/share/`）不受限，前端页面可先加载。会话域已后台迁移化：维护窗口通常仅剩 scheduled-runs/share/lan-access 三小域秒级切换，进度页可能一闪而过或不出现；READY 后仍可轮询 `sessionState.background` 观察会话域后台迁移进度。
+启动维护窗口（后台初始化链未完成或失败）内，除 `/api/health` 外的所有 `/api/*` 请求统一返回 503 `{ok:false, maintenance:true, state}` + `Retry-After: 5`；非 `/api` 路径（静态资源、`/share/`）不受限，前端页面可先加载并显示启动画面。进程状态只有 `starting`/`ready`/`failed`：没有 `migrating` 状态，也没有迁移进度页——`GET /api/migration-status` 与 `src/lib/migration-status.ts`、迁移进度 UI 已删除。
 
 ---
 
@@ -71,7 +70,7 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/goal` — Goal 模式用户动作：主聊天与定时任务支持；共享/ACP 来源仍返回 `GOAL_UNAVAILABLE`。定时任务复用 `runPrompt`→runner，不新增执行器；`waitForGoalCompletion` 仅在 `completed` 时报告 schedule 成功，paused/blocked/预算/awaiting 仍 running 并保留 serial，关联聊天可 resume/cancel，静止后的 cancelled/failed 才失败。v2 引擎（默认）下 `handleGoalAction` 额外接受 `clear`，并与 `cancel` 一样清空 goal/tombstone；`confirm`/`accept` 返回 410；所有动作在 v2 service 内按 `{goalId, expectedRevision}` CAS。legacy 引擎保留既有 `{action, objective?}` 支持 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅兼容旧 `needs_review`；当前 UI 不提供 confirm/accept，规划自动执行）；`extend_resume` 严格只接受 `{action:'extend_resume', goalId, expectedRevision}`，goalId 非空、expectedRevision 正 safe integer，不允许自定义预算或额外字段（400）。仅此追加动作做 goalId/revision CAS，旧请求 409 `GOAL_REVISION_CONFLICT` 不重复追加；未耗尽 409 `GOAL_BUDGET_NOT_EXHAUSTED`。只对耗尽轮次追加配置轮次（默认 20，settings 键 `goal-settings`），并移除旧时间上限，保留 usage/计划证据，同次 persist 成功后才恢复；仍不足保持 paused 不调度，足够后无计划→planning、有计划→running（不需要确认）。resume 移除旧时间上限，只有轮次耗尽仍 409 并提示 extend_resume。返回 `{goal}` 权威快照；非法 action 400，无会话/无 goal 404，状态不允许或会话忙 409（`GOAL_ACTION_INVALID` / `GOAL_SESSION_BUSY`），预算耗尽 `GOAL_BUDGET_EXHAUSTED`，共享/ACP/定时任务来源 `GOAL_UNAVAILABLE`。route 先按请求级 `context.source` 判定可用性，再动态 import engine，避免非 goal 请求承担持久化/存储链的加载成本
 - `POST /api/agents/:sessionId/title` — 手动重命名会话；同步更新服务端活跃状态与持久化数据，优先于待完成的 AI 标题
 - `POST /api/agents/:sessionId/abort` — 中止运行
-- `POST /api/agents/:sessionId/steer` — 引导 Agent
+- `POST /api/agents/:sessionId/steer` — 引导 Agent；只入队，由 agent loop 在**轮边界**（`getSteeringMessages`）消费。ask_user 待答期间这一轮永远走不到轮边界，此时发起的 steer 要等该提问结算（作答/跳过/超时）后模型才看得到；因此前端在待答时把输入框文本直接交给提问卡，不再走 steer（见 `src/components` wiki 的「待答期间的输入框归属」）
 - `POST /api/agents/:sessionId/continue` — 重试/续跑；无 body 时截断最后 user message 之后的内容原地重生成，带 `{message}` 时保留整段历史并在末尾追加该 user 消息后继续运行（只采用客户端的 role/content/timestamp/attachments，details 由服务端按 canonical capabilities/contextReferences 覆盖，非 user 或空正文返回 400），用于失败轮已产生 `toolResult` 的场景
 - `POST /api/agents/:sessionId/follow-up` — 后续处理
 - `DELETE /api/agents/:sessionId` — 销毁 Agent

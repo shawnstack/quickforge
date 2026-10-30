@@ -2,23 +2,18 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getSqliteStorage } from './sqlite/database.mjs'
-import { createShareRepository, shareSnapshotDigest } from './sqlite/share-repository.mjs'
-import {
-  buildShareJsonSnapshot,
-  currentShareMaintenanceContext,
-  runShareMaintenance,
-} from './share-cutover.mjs'
-import { getShareStoragePhase, isShareStorageAuthoritative } from './share-service.mjs'
+import { createShareRepository, normalizeShareRecord, shareSnapshotDigest } from './sqlite/share-repository.mjs'
+import { currentShareMaintenanceContext, runShareMaintenance } from './share-maintenance.mjs'
 import { storageDir } from './storage.mjs'
 
-// F10 Phase 3 share backup/restore: mirrors the session-state-backup pattern in
-// the independent share storage domain. Exports run under the share maintenance
-// lock with quick_check + verifyIntegrity + exportSnapshot (count/digest fail
-// closed). Restores run under the same lock, persist a crash-recoverable plan
-// file and compensate back to the exact before-state if the apply or its
-// verification fails. Only share_sessions/share_tokens/share_json_mirror_queue
-// are touched; scheduled_task_runs, session_index and session_messages are
-// never modified here.
+// Share backup/restore (SQLite is the single authoritative store). Exports run
+// under the share maintenance lock with quick_check + verifyIntegrity +
+// exportSnapshot (count/digest fail closed). Restores run under the same lock,
+// persist a crash-recoverable plan file and compensate back to the exact
+// before-state if the apply or its verification fails. Only
+// share_sessions/share_tokens are touched;
+// scheduled_task_runs, session_index and session_messages are never modified
+// here.
 const RESTORE_PLAN_FILE = path.join(storageDir, 'share-restore-plan.json')
 const ROLL_FORWARD_STATUSES = new Set(['prepared', 'applying', 'target_applied'])
 const ROLL_BACK_STATUSES = new Set(['compensating', 'compensation_failed'])
@@ -27,7 +22,7 @@ function repositoryRequired() {
   try {
     return createShareRepository(getSqliteStorage())
   } catch (error) {
-    throw new Error('SQLite storage is required for authoritative share state', { cause: error })
+    throw new Error('SQLite storage is required for share state', { cause: error })
   }
 }
 
@@ -37,6 +32,41 @@ function isPlainObject(value) {
 
 function isPlainPlanValue(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Validate and normalize a whole v1 `conversation-shares.json` style store
+ * (top-level object keyed by shareId) into canonical share records. Fails
+ * closed on: missing sessionId, invalid permission/scope, malformed `tokens`
+ * array, inconsistent password hash fields, key/id mismatch and duplicate
+ * shareIds across keys. The count/digest are computed with the exact repository
+ * digest algorithm so backups and restores can compare digests 1:1.
+ */
+export function buildShareJsonSnapshot(shares) {
+  if (!isPlainObject(shares)) throw new TypeError('Share store must be an object')
+  const records = []
+  const seen = new Set()
+  const diagnostics = { invalidRecords: [], duplicateShareIds: [] }
+  for (const [key, raw] of Object.entries(shares)) {
+    let record
+    try {
+      record = normalizeShareRecord(raw.id === undefined ? { ...raw, id: key } : raw)
+    } catch (error) {
+      diagnostics.invalidRecords.push(key)
+      throw error instanceof Error ? error : new TypeError(`Invalid share record: ${key}`)
+    }
+    if (seen.has(record.id)) {
+      diagnostics.duplicateShareIds.push(record.id)
+      throw new TypeError(`Duplicate share ids: ${record.id}`)
+    }
+    seen.add(record.id)
+    if (raw.id !== undefined && raw.id !== key) {
+      throw new TypeError(`Share record id mismatch: ${key}`)
+    }
+    records.push(record)
+  }
+  records.sort((left, right) => left.id.localeCompare(right.id))
+  return { records, count: records.length, digest: shareSnapshotDigest(records), diagnostics }
 }
 
 // Strip repository-internal fields before writing records into backups or plans
@@ -62,10 +92,9 @@ export function computeShareSnapshotDigest(values) {
 }
 
 /**
- * Authoritative share state export for the backup route and offline tools.
- * Runs under the share maintenance lock so a concurrent restore can never be
- * observed mid-transaction, and fail-closes when integrity or digest
- * verification fails.
+ * Share state export for the backup route and offline tools. Runs under the
+ * share maintenance lock so a concurrent restore can never be observed
+ * mid-transaction, and fail-closes when integrity or digest verification fails.
  */
 export async function exportShareStateForBackup(options = {}) {
   const operation = async () => {
@@ -81,7 +110,6 @@ export async function exportShareStateForBackup(options = {}) {
       records: snapshot.records,
       count: snapshot.count,
       digest: snapshot.digest,
-      phase: getShareStoragePhase(),
     }
   }
   if (!options.maintenance || currentShareMaintenanceContext()) return operation()
@@ -130,17 +158,14 @@ function validatePlan(plan) {
 }
 
 /**
- * Restore the authoritative share state from a backup snapshot. Always runs
- * under the share maintenance lock, persists a crash-recoverable plan file, and
- * compensates back to the exact before-state if the apply or its verification
- * fails. replace mode wipes local shares; merge mode keeps local-only records
- * while backup records override same-key entries. `values` is the v1
+ * Restore the share state from a backup snapshot. Always runs under the share
+ * maintenance lock, persists a crash-recoverable plan file, and compensates
+ * back to the exact before-state if the apply or its verification fails.
+ * replace mode wipes local shares; merge mode keeps local-only records while
+ * backup records override same-key entries. `values` is the v1
  * conversation-shares.json shape (`{ shares: { [shareId]: record } }`).
  */
 export async function restoreShareStateSnapshot(values, options = {}) {
-  if (!isShareStorageAuthoritative()) {
-    throw new Error('Share state restore requires authoritative SQLite storage')
-  }
   if (!isPlainPlanValue(values) || !isPlainObject(values.shares)) {
     throw new TypeError('Share restore values must be a shares object')
   }
@@ -232,9 +257,6 @@ export async function recoverShareRestorePlan({
   } catch (error) {
     if (error?.code === 'ENOENT') return false
     throw new Error(`Share restore plan is unreadable or invalid: ${error?.message || error}`, { cause: error })
-  }
-  if (!isShareStorageAuthoritative()) {
-    throw new Error('Share restore plan exists outside authoritative mode')
   }
   const repository = repositoryOverride || repositoryRequired()
   return runShareMaintenance(async () => {

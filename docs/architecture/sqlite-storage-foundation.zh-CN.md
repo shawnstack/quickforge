@@ -1,6 +1,6 @@
 # SQLite 存储基础层设计（F2）
 
-> 状态：F2 基础层已接入；F2 当时不迁移 JSON 业务数据且不创建业务表。F3 后续追加了空的 `scheduled_task_runs` 非权威表，详见 [`scheduled-task-runs-repository.zh-CN.md`](./scheduled-task-runs-repository.zh-CN.md)。
+> 状态：F2 基础层已接入；F2 当时不迁移 JSON 业务数据且不创建业务表。F3 后续追加了空的 `scheduled_task_runs` 非权威表，详见 [`scheduled-task-runs-repository.zh-CN.md`](./scheduled-task-runs-repository.zh-CN.md)。**当前 schema 为单条 baseline v19**：F3–F11 的 migration 链已整体折叠，历史对象不再存在（见 §4）。
 
 ## 1. 范围与稳定依赖方向
 
@@ -60,8 +60,8 @@ WAL 模式下两种取值的崩溃语义：
 |---|---|---|---|---|
 | 高频小事务（每条消息一次保存） | NORMAL | 1061.4 ms | 0.531 ms | 1.00x |
 | 高频小事务（每条消息一次保存） | FULL | 1977.8 ms | 0.989 ms | 1.86x |
-| 批量导入（cutover，单事务） | NORMAL | 1250.6 ms | 0.625 ms | 1.00x |
-| 批量导入（cutover，单事务） | FULL | 1196.4 ms | 0.598 ms | 0.96x |
+| 批量导入（一次性导入，单事务） | NORMAL | 1250.6 ms | 0.625 ms | 1.00x |
+| 批量导入（一次性导入，单事务） | FULL | 1196.4 ms | 0.598 ms | 0.96x |
 
 **定案结论：切换为 `FULL`。** 高频小事务负载下 FULL 的均次增量约 0.46 ms（远低于 2 ms 的可接受阈值），对每条消息一次保存的热路径不可感知；批量导入为单事务，fsync 成本被摊薄，倍率约 1.0。倍率 1.86x 看似偏高，但绝对成本极小，且换来断电/OS 崩溃场景下已提交事务零丢失，消除了 NORMAL 的 checkpoint 窗口丢数风险（该窗口内 mirror JSON 虽可兜底，但恢复链路复杂，不值得为 0.46 ms 保留）。
 
@@ -71,7 +71,21 @@ WAL 模式下两种取值的崩溃语义：
 
 ## 4. Migration 协议
 
-迁移是版本连续且名称唯一的 append-only 列表。F2 初始仅有 migration 1：
+迁移是版本连续、名称唯一的 append-only 列表。当前只有一条 **baseline** 迁移，一次建出全部现役表：
+
+```js
+export const BASELINE_VERSION = 19
+
+export const SQLITE_MIGRATIONS = Object.freeze([
+  Object.freeze({
+    version: BASELINE_VERSION, // 19
+    name: 'baseline',
+    up(database) { database.exec(BASELINE_SQL) },
+  }),
+])
+```
+
+`schema_migrations` 结构不变：
 
 ```sql
 CREATE TABLE schema_migrations (
@@ -81,18 +95,51 @@ CREATE TABLE schema_migrations (
 )
 ```
 
-F2 当时不创建任何业务表，应用版本使用 `PRAGMA user_version`。F3 后续以 migration 2 增加空的非权威 `scheduled_task_runs` 表，但未改变 F2 的基础层结论、生命周期或事务协议。
+baseline 建出 15 张表 + 13 个索引，按域归组：
 
-后续 migration 沿同一 append-only 协议追加至 v12。其中 migration 10（`session_states_metadata_covering_index`）在 `session_states` 上创建覆盖索引 `(scope, project_id, session_id, metadata_json, metadata_digest)`：该表 WITHOUT ROWID 且 GB 级 `state_json` 内联在记录前部，读靠后的元数据列必须遍历前者的溢出页链（隐式读全库，2.93GB 冷库实测一次元数据投影 ≈45s）；覆盖索引使元数据读取 index-only（EXPLAIN QUERY PLAN 显示 `USING COVERING INDEX session_states_metadata_cover_idx`），查询零改动由规划器自动命中。代价是首次升级时 `CREATE INDEX` 一次性全表扫描，发生在 `initializeSqliteStorage` 的 migration 事务内、listen 之前。
+| 域 | 表 |
+|---|---|
+| 元数据 | `schema_migrations` |
+| 会话 | `sessions`、`session_messages`、`session_tombstones`、`session_state_maintenance_lock` |
+| 分享 | `share_sessions`、`share_tokens`、`share_maintenance_lock` |
+| LAN 访问 | `lan_access_state`、`lan_access_tokens`、`lan_access_maintenance_lock` |
+| 定时任务运行 | `scheduled_task_runs`、`scheduled_runs_maintenance_lock` |
+| Dreaming | `dreaming_note_stats`、`dreaming_runs` |
 
-会话域存储 v2（migration 11，`session_state_v2_storage`）以上文新三表（`sessions`/`session_messages`/`session_tombstones`）取代了旧会话域表——包括 migration 10 覆盖索引所服务的 `session_states`（连同其余 5 张旧表 RENAME 为 `*_v10_backup` 保留）；连接 PRAGMA 追加 `auto_vacuum = INCREMENTAL`（仅新库生效）。现状与取舍见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)。
+索引：`idx_sessions_list`、`idx_sessions_pinned`、`idx_sessions_session_id`、`idx_session_messages_session_id`、`share_sessions_session_id_idx`、`lan_access_tokens_issued_idx`、`lan_access_tokens_seq_idx`、`scheduled_task_runs_started_idx`、`scheduled_task_runs_status_started_idx`、`scheduled_task_runs_task_started_idx`、`scheduled_task_runs_trigger_started_idx`、`idx_dreaming_note_stats_recall`、`idx_dreaming_runs_started`。
 
-migration 12（`remove_share_lan_record_digests`）物理删除历史 v8 `share_sessions.record_digest` 与 v9 `lan_access_state.record_digest`。Share/LAN 的 count/digest 仍按快照即时计算，只用于首次 cutover 提交、backup/restore/export 和离线维护边界；它们不是在线行权威。v11→v12 的两次 `ALTER TABLE ... DROP COLUMN`、migration 记录与 `PRAGMA user_version=12` 均在同一个 `BEGIN IMMEDIATE` 事务内，任一步失败整体回滚。
+兼容期对象全部不存在：`session_index_v10_backup`、`session_json_mirror_queue(_v10_backup)`、`session_messages_v10_backup`、`session_state_tombstones_v10_backup`、`session_states_v10_backup`、`session_storage_state(_v10_backup)`、`share_storage_state`、`lan_access_storage_state`、`share_json_mirror_queue`、`lan_access_json_mirror_queue`、`scheduled_runs_state`。四域（session / share / lan-access / scheduled-runs）都是单路径 SQLite 权威，JSON 只作为一次性导入源与导出逃生通道存在。
 
-初始化执行 `BEGIN IMMEDIATE` 获取写锁后重新读取并验证数据库状态。每个 migration 的 schema 变更、`schema_migrations` 记录与 `user_version` 更新都在同一事务内。以下情况会明确失败并回滚：
+### 4.1 历史迁移清单（已折叠进 baseline，仅作决策记录）
 
-- 数据库版本高于当前代码支持版本；该检查在 migration 或业务写入前完成，因此旧版打开 v12 数据库会在写入前拒绝；
-- `user_version`、migration 表和已应用行不一致；
+| 版本 | 当时内容 | 现状 |
+|---|---|---|
+| 1 | 创建 `schema_migrations`，无业务表 | 折叠进 baseline |
+| 2 | F3 空非权威 `scheduled_task_runs` 表 | 折叠进 baseline（`scheduled_task_runs`） |
+| 3 | F5 重建 runs 表为 `(task_id, id)` 复合主键，增加 unknown/legacy/source 字段与稳定索引，并引入 cutover 相位与维护锁 | 表结构与索引折叠进 baseline；相位状态机整体删除，维护锁留在 `scheduled_runs_maintenance_lock` |
+| 4 | F6 可重建 `session_index` 派生表 | 会话域 v2 起退役，不建表 |
+| 5 | F7 列表查询索引 | 折叠进 baseline（`idx_sessions_*`） |
+| 6 | F8 巨列 `session_states` + tombstone + `session_storage_state` + JSON mirror outbox + 维护锁 | 会话域 v2 起退役，不建表 |
+| 7 | F9 按会话分片增量消息表 | 折叠进 baseline（`session_messages`） |
+| 8 | F10 share 三表 + phase + mirror 队列 + 维护锁 | 只有 `share_sessions`/`share_tokens`/`share_maintenance_lock` 折叠进 baseline |
+| 9 | F11 lan-access 三表 + phase + mirror 队列 + 维护锁 | 只有 `lan_access_state`/`lan_access_tokens`/`lan_access_maintenance_lock` 折叠进 baseline |
+| 10 | `session_states_metadata_covering_index`：`session_states` 元数据覆盖索引（GB 级巨列隐式全扫的缓解） | 随 `session_states` 退役；v2 小行布局不需要该索引 |
+| 11 | `session_state_v2_storage`：会话域 v2 三表，旧 6 表 RENAME 为 `*_v10_backup` | 三表折叠进 baseline；`*_v10_backup` 全部删除 |
+| 12 | `remove_share_lan_record_digests`：删除 v8/v9 在线 `record_digest` 列 | 新库天生没有该列 |
+| 13–18 | 结构化记忆实验表（`memories`/`memory_events` 等） | 表已删除；新库不建 |
+
+历史演进细节见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)、F5/F10/F11 三份存档文档与 `progress.md`。
+
+### 4.2 版本门禁与事务语义
+
+初始化执行 `BEGIN IMMEDIATE` 获取写锁后重新读取并验证数据库状态；全部待执行迁移在该事务内按序应用，每条迁移的 schema 变更、`schema_migrations` 记录与 `PRAGMA user_version` 更新同事务提交，任一步失败整体回滚。追加新迁移时只需在列表尾部追加 `{ version: 上一条 + 1, name, up }`，版本必须连续、名称唯一。
+
+以下情况会明确失败（fail closed，不做半迁移）：
+
+- `user_version` 高于代码支持的最新版本（旧版代码打开新库会被拒绝）；
+- `user_version` 在 1..18 之间：属兼容期旧布局，本版本**没有就地升级路径**，打开即报错并提示“备份数据目录后从导出恢复或使用空库”；
+- `user_version = 0` 但 `schema_migrations` 已存在，或 `user_version > 0` 但没有 `schema_migrations`；
+- 已应用迁移行数/版本/名称与当前列表不一致；
 - migration SQL 或记录写入失败；
 - migration 列表不连续或名称重复。
 
@@ -123,19 +170,23 @@ health 执行轻量 `SELECT 1`、SQLite 版本、PRAGMA、`user_version` 与 mig
 
 四个存储域（session/share/lan-access/scheduled-runs）共用同一个 `quickforge.sqlite3`，而 `PRAGMA quick_check` 扫描整个库文件、不分域。因此它**不是四域常规启动扫描**：
 
-- `initializeSqliteStorage()` 统一负责数据库打开、PRAGMA、schema/migration 一致性与版本门禁；scheduled-runs authoritative 常规启动不再额外调用 health/`quick_check`。
-- Share/LAN pending/authoritative 常规启动只 drain 各自事务性 JSON mirror outbox，不全表扫描、不调用 `verifyIntegrity({ quickCheck: true })`。
-- shared `quick_check` 只在首次 cutover 提交后的严格验证、权威 backup/export、显式完整性维护与离线工具等边界使用；restore 的关系/count/digest 校验按各域恢复流程执行，日常启动不复算快照 digest。
+- `initializeSqliteStorage()` 统一负责数据库打开、PRAGMA、schema/migration 一致性与版本门禁；四域常规启动都不额外调用 health/`quick_check`。
+- 四域都没有 cutover、phase 或 JSON mirror outbox 可 drain，常规启动只需初始化 service（repository 访问器与注入），不做全表扫描、不调用 `verifyIntegrity({ quickCheck: true })`。
+- shared `quick_check` 只在权威 backup/export、restore 边界、显式完整性维护与离线工具等场景使用；restore 的关系/count/digest 校验按各域恢复流程执行，日常启动不复算快照 digest。
 - `server/sqlite/database.mjs` 的 `runSharedSqliteQuickCheck()` 仍为这些显式调用点提供进程内按数据库路径去重与 7 天 marker 降频；`:memory:` 始终真扫，marker 缺失/损坏/不可读则退回真扫。
 - `verifyIntegrity({quickCheck:true, forceQuickCheck:true})` 与 `QUICKFORGE_SQLITE_QUICK_CHECK=force` 可强制真扫；失败照旧 fail closed，且不写 marker、不进入缓存。
 
-历史“authoritative 启动时四域各扫一次，再由 shared quick_check 去重”的描述已被上述边界策略取代。WAL + `synchronous=FULL` 降低 torn-write 风险；`quick_check` 主要发现磁盘 bit-rot / 文件系统级损坏，逻辑关系与快照一致性由 cutover、backup/restore/export 和维护边界各自校验。
+历史“authoritative 启动时四域各扫一次，再由 shared quick_check 去重”的描述已被上述边界策略取代。WAL + `synchronous=NORMAL` 降低 torn-write 风险；`quick_check` 主要发现磁盘 bit-rot / 文件系统级损坏，逻辑关系与快照一致性由 backup/restore/export 和维护边界各自校验。
 
 ## 7. 备份与数据边界
+
+> 本节保留 F2 时代的前提与决策上下文；四域的最终形态见下一条现状说明。
 
 F2 不迁移现有 JSON 配置、会话或其他业务数据。当时的 JSON 备份/恢复流程也**不包含** `quickforge.sqlite3`、`-wal` 或 `-shm` 文件；migration 1 只有可由代码重建的 schema metadata。F3 后续增加 `scheduled_task_runs`；F4 再将其用于非权威、best-effort 影子双写，但不迁移旧历史。JSON `task.runs` 仍是完整业务权威并继续由现有备份格式导出/恢复，restore 不依赖 SQLite。
 
 F5 若要让 SQLite 成为权威业务存储，必须先设计并实现 SQLite **逻辑备份/恢复**（而不是运行中复制数据库/WAL 文件），并定义 JSON→SQLite 的迁移、验证、回滚和版本兼容策略。未完成该前置工作前，不得删除 JSON runs 或把 SQLite 设为唯一权威。
+
+**现状**：上述前置工作已全部落地，四个业务域（session / share / lan-access / scheduled-runs）均为单路径 SQLite 权威。在线备份/恢复走各域 `*-backup.mjs`（维护锁 + 逻辑导出/计划文件 + 补偿，绝不复制运行中的库文件）；JSON→SQLite 迁移只剩两个方向——空库启动时对会话域的一次性导入（`session-state-import.mjs`），以及 `server/maintenance/export-*-v1.mjs` 的停机导出逃生通道。JSON 不再承担任何在线权威或 mirror 角色。
 
 ## 8. 已知风险
 

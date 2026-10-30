@@ -1,5 +1,5 @@
-// Shared startup bolt icon: drawn by the StartupSplash and the migration
-// progress view with the same animation classes defined in src/styles/startup.css.
+// Shared startup bolt icon: drawn by the StartupSplash with the same animation
+// classes defined in src/styles/startup.css.
 export function StartupSplashIcon() {
   return (
     <svg className="quickforge-startup-splash-icon" viewBox="0 0 64 64" fill="none" aria-hidden="true">

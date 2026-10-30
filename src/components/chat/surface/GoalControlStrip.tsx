@@ -368,9 +368,8 @@ export function GoalControlStrip({ sessionId, goal, enabled, onAction }: GoalCon
       <span className="quickforge-goal-strip-icon" aria-hidden="true">
         <GoalIcon />
       </span>
-      {/* A rotating arc appears only while a step is actually being worked on;
-          the dot beside the word carries the attention color. */}
-      {view.spinning ? <span className="quickforge-goal-strip-spinner" aria-hidden="true" /> : null}
+      {/* The breathing dot is the only "alive" signal: a second rotating arc
+          next to it just animated the same fact twice. */}
       <span className="quickforge-goal-strip-dot" aria-hidden="true" />
       <button
         type="button"

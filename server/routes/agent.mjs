@@ -6,6 +6,8 @@ import { isCommandLogPath, readCommandLog } from '../utils/command-log.mjs'
 import { logger } from '../utils/logger.mjs'
 import { toSseWireEvent } from '../utils/sse-wire.mjs'
 import { projectEventForClient, projectMessagesForClient, projectStateForClient, sessionAttachmentUrlFor } from '../client-attachments.mjs'
+import { createConnectionProjector } from '../message-log.mjs'
+import { globalEventLog } from '../event-log.mjs'
 import { resolveModelBinding } from '../model-catalog.mjs'
 import {
   createAgent,
@@ -117,7 +119,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
 
   // GET /api/agents/events — global SSE event stream for all sessions
   if (req.method === 'GET' && pathname === '/api/agents/events') {
-    handleGlobalStream(req, res)
+    handleGlobalStream(req, res, url)
     return
   }
 
@@ -384,11 +386,11 @@ export async function handleAgentApi(req, res, url, context = {}) {
     return
   }
 
-  // GET /api/agents/:sessionId/messages?after=N — incremental message fetch.
-  // Split sessions never embed the full message list in state frames; clients
-  // materialize the conversation through this lightweight, paginated channel
-  // (after = message index; the response reports the server total count so
-  // clients can detect truncation/rollback and refetch from zero).
+  // GET /api/agents/:sessionId/messages?from=N&limit=M — 消息日志分页读取。
+  //
+  // `from` 是**绝对 seq**（服务端权威数组下标），`after` 保留为同义参数以
+  // 兼容既有调用方。响应同时给出 `logVersion` 与 `total`，让客户端能判断
+  // 「本次读取与刚才的 /state 是否同一版本」，不再靠两次请求之间的运气。
   if (req.method === 'GET' && subPath === 'messages') {
     let state = getSessionState(sessionId)
     if (!state) {
@@ -401,18 +403,21 @@ export async function handleAgentApi(req, res, url, context = {}) {
       throw error
     }
     const messages = Array.isArray(state.messages) ? state.messages : []
-    const afterParam = Number(new URLSearchParams(url.search).get('after'))
-    const after = Number.isInteger(afterParam) && afterParam >= 0 ? afterParam : 0
-    const limitParam = Number(new URLSearchParams(url.search).get('limit'))
-    // Default to the server cap so a long split session materializes in a
-    // single round trip instead of ⌈N/500⌉ serial ones — the client's
-    // `fetchAllSessionMessages` always drains every page anyway.
+    const params = new URLSearchParams(url.search)
+    const fromParam = Number(params.get('from') ?? params.get('after'))
+    const from = Number.isInteger(fromParam) && fromParam >= 0 ? fromParam : 0
+    const limitParam = Number(params.get('limit'))
+    // Default to the server cap so a long session materializes in a single
+    // round trip instead of ⌈N/500⌉ serial ones.
     const limit = Number.isInteger(limitParam) && limitParam >= 1 ? Math.min(limitParam, 5000) : 5000
-    const page = messages.slice(after, after + limit)
+    const page = messages.slice(from, from + limit)
     sendJson(res, 200, {
-      after,
+      from,
+      after: from,
       count: messages.length,
-      hasMore: after + page.length < messages.length,
+      total: messages.length,
+      logVersion: Number.isInteger(state.logVersion) ? state.logVersion : 0,
+      hasMore: from + page.length < messages.length,
       messages: projectMessagesForClient(page, sessionAttachmentUrlFor(sessionId)),
     })
     return
@@ -661,9 +666,28 @@ async function handleStreamHead(req, res, sessionId) {
   res.end()
 }
 
-function handleGlobalStream(req, res) {
+/**
+ * 解析 SSE 续传游标：标准 `Last-Event-ID` 头优先，其次 `?lastEventId=`。
+ *
+ * 浏览器 `EventSource` 在自动重连时会把收到的最后一个 `id:` 放进
+ * `Last-Event-ID` 请求头，所以服务端只要发过 `id:`，续传就是零客户端改造。
+ */
+function parseLastEventId(req, url) {
+  const header = req?.headers?.['last-event-id']
+  const rawHeader = Array.isArray(header) ? header[0] : header
+  for (const candidate of [rawHeader, url?.searchParams?.get('lastEventId')]) {
+    const value = Number(candidate)
+    if (Number.isInteger(value) && value > 0) return value
+  }
+  return null
+}
+
+function handleGlobalStream(req, res, url) {
   let failureLogged = false
   let cleanedUp = false
+  // 每连接一份投影游标：同一会话的两个客户端各有自己的投递位置。
+  // 旧实现的会话级 `deliveredMessageCount` 会让后加入者收到空尾。
+  const projector = createConnectionProjector()
   const logFailure = (failureType, error) => {
     if (failureLogged || cleanedUp) return
     failureLogged = true
@@ -695,8 +719,9 @@ function handleGlobalStream(req, res) {
   const writeEvent = (event) => {
     try {
       const eventSessionId = typeof event.sessionId === 'string' ? event.sessionId : ''
-      const payload = toSseWireEvent(projectEventForClient(event, sessionAttachmentUrlFor(eventSessionId)))
-      writeSseEvent(res, payload.type || 'agent_event', payload)
+      const projected = projector.project(eventSessionId, event)
+      const payload = toSseWireEvent(projectEventForClient(projected, sessionAttachmentUrlFor(eventSessionId)))
+      writeSseEvent(res, payload.type || 'agent_event', payload, Number.isInteger(event.logSeq) ? event.logSeq : undefined)
     } catch (error) {
       logFailure('event_write_failed', error)
       cleanup()
@@ -711,9 +736,28 @@ function handleGlobalStream(req, res) {
     cleanedUp = true
     clearInterval(keepAlive)
     updateThrottle.dispose()
+    projector.clear()
     agentEvents.removeListener('agent_event', onAgentEvent)
     if (!res.writableEnded) {
       res.end()
+    }
+  }
+
+  // 断线续传：把环里错过的轻量帧补发一遍。缺口（断线太久 / 服务重启）时
+  // 额外发一帧 `resync`，客户端据此对所有活跃会话重取一次快照。
+  // 放在订阅之前：JS 单线程，补发期间不会有新事件插队，顺序仍然正确。
+  const lastEventId = parseLastEventId(req, url)
+  if (lastEventId !== null) {
+    try {
+      const { frames, gap } = globalEventLog.since(lastEventId)
+      for (const entry of frames) {
+        writeSseEvent(res, entry.frame.type || 'agent_event', entry.frame, entry.seq)
+      }
+      if (gap) {
+        writeSseEvent(res, 'resync', { reason: 'event-log-gap', since: lastEventId })
+      }
+    } catch (error) {
+      logFailure('replay_failed', error)
     }
   }
 
@@ -734,6 +778,8 @@ async function handleStream(req, res, sessionId) {
   let failureLogged = false
   let cleanedUp = false
   let sseAcquired = false
+  // 每连接一份投影游标（替代会话级 deliveredMessageCount）。
+  const projector = createConnectionProjector()
   const logFailure = (failureType, error) => {
     if (failureLogged || cleanedUp) return
     failureLogged = true
@@ -780,12 +826,18 @@ async function handleStream(req, res, sessionId) {
     'x-accel-buffering': 'no',
   })
 
-  // Send initial state (split sessions send a lightweight summary; clients
-  // fetch messages through GET /api/agents/:id/messages)
+  // 初始快照：尾部窗口 + `messagesAfter` + `logVersion`。客户端一次请求就能
+  // 自洽渲染，之后的增量按**本连接**游标只补新增后缀。
   const state = getSessionState(sessionId)
   if (state) {
     try {
-      writeSseEvent(res, 'state', projectStateForClient(stripSplitSessionState(state), sessionAttachmentUrlFor(sessionId)))
+      const snapshot = projectStateForClient(stripSplitSessionState(state), sessionAttachmentUrlFor(sessionId))
+      writeSseEvent(res, 'state', snapshot)
+      // 快照已把 [messagesAfter, total) 交给客户端，游标从 total 起算。
+      const total = Number.isInteger(snapshot.messagesSummary?.count)
+        ? snapshot.messagesSummary.count
+        : (Array.isArray(state.messages) ? state.messages.length : 0)
+      projector.seed(sessionId, total, Number.isInteger(snapshot.logVersion) ? snapshot.logVersion : 0)
     } catch (error) {
       logFailure('initial_state_write_failed', error)
       releaseConnection()
@@ -810,8 +862,9 @@ async function handleStream(req, res, sessionId) {
   // Handle agent events
   const writeEvent = (event) => {
     try {
-      const payload = toSseWireEvent(projectEventForClient(event, sessionAttachmentUrlFor(sessionId)))
-      writeSseEvent(res, payload.type, payload)
+      const projected = projector.project(sessionId, event)
+      const payload = toSseWireEvent(projectEventForClient(projected, sessionAttachmentUrlFor(sessionId)))
+      writeSseEvent(res, payload.type, payload, Number.isInteger(event.logSeq) ? event.logSeq : undefined)
     } catch (error) {
       logFailure('event_write_failed', error)
       cleanup()
@@ -826,6 +879,7 @@ async function handleStream(req, res, sessionId) {
     cleanedUp = true
     clearInterval(keepAlive)
     updateThrottle.dispose()
+    projector.clear()
     eventBus.removeListener('agent_event', onAgentEvent)
     releaseConnection()
     if (!res.writableEnded) {
@@ -919,13 +973,15 @@ function writeSseKeepAlive(res) {
   res.write(': ping\n\n')
 }
 
-function writeSseEvent(res, event, data) {
+function writeSseEvent(res, event, data, id) {
   // 背压保护：慢客户端积压超过阈值时丢弃可丢弃事件；不 await drain，
   // 避免慢客户端拖慢模型 token 流。
   if (SSE_DROPPABLE_EVENTS.has(event) && isSseBackpressured(res)) return
   const payload = typeof data === 'string' ? data : JSON.stringify(data)
   // Split multi-line payloads
   const lines = payload.split('\n')
+  // `id:` 让浏览器自动重连带 `Last-Event-ID`，服务端据此重放环里的错失帧。
+  if (Number.isInteger(id) && id > 0) res.write(`id: ${id}\n`)
   res.write(`event: ${event}\n`)
   for (const line of lines) {
     res.write(`data: ${line}\n`)

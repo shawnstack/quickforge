@@ -251,7 +251,13 @@ export type FileContextReference = {
 export type PromptCapabilitySelection = SelectedCapability
 
 export type GoalIterationMarkerSnapshot = {
+  /**
+   * **会话绝对 seq**：与消息数组的服务端下标一致，不是窗口内位置。
+   * 客户端渲染前必须减去自己的 `messageBaseSeq`。
+   */
   index: number
+  /** 绝对 seq 的显式别名（服务端 message-log 投影同时下发）。 */
+  seq?: number
   role: string
   id?: string
   timestamp?: number
@@ -283,8 +289,15 @@ export type ServerAgentStateSnapshot = {
   stateVersion?: number
   messageStorage?: 'split'
   messages?: AgentMessage[]
+  /**
+   * 本帧 `messages[0]` 对应的服务端绝对 seq。快照/增量帧都带，客户端据此
+   * 把窗口对齐到正确下标，而不是用「本地数组长度」反推。
+   */
+  messagesAfter?: number
+  /** 服务端消息日志版本：只在消息数组真的变化时递增。 */
+  logVersion?: number
   /** Lightweight summary replacing `messages` on split-session state frames. */
-  messagesSummary?: { count?: number }
+  messagesSummary?: { count?: number; logVersion?: number }
   /** Sparse, identity-checked goal metadata retained on split state snapshots. */
   goalIterationMarkers?: GoalIterationMarkerSnapshot[]
   systemPrompt?: string

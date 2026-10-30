@@ -236,10 +236,6 @@ export function shareSnapshotDigest(records) {
   return createHash('sha256').update(values.join('\n')).digest('hex')
 }
 
-function recordJson(record) {
-  return JSON.stringify(canonicalize({ ...record, revision: undefined, deletedAt: undefined }))
-}
-
 function mapShareRow(row) {
   if (!row) return null
   let extra
@@ -354,28 +350,6 @@ function replaceTokens(database, shareId, tokens) {
   }
 }
 
-const ENQUEUE_SHARE_MIRROR_SQL = `
-  INSERT INTO share_json_mirror_queue (share_id, operation, share_json, attempts, last_error, updated_at)
-  VALUES (?, ?, ?, 0, NULL, ?)
-  ON CONFLICT(share_id) DO UPDATE SET
-    operation = excluded.operation,
-    share_json = excluded.share_json,
-    attempts = 0,
-    last_error = NULL,
-    updated_at = excluded.updated_at
-`
-
-function enqueueShareMirror(database, record, operation, updatedAt, statement = null) {
-  const stored = record ? { ...record, revision: undefined, deletedAt: undefined } : null
-  const insert = statement ?? database.prepare(ENQUEUE_SHARE_MIRROR_SQL)
-  insert.run(
-    record?.id || record,
-    operation,
-    operation === 'upsert' ? (stored ? recordJson(stored) : null) : null,
-    updatedAt,
-  )
-}
-
 function currentRow(database, shareId) {
   return database.prepare(`SELECT ${SHARE_COLUMNS} FROM share_sessions WHERE share_id = ?`).get(shareId)
 }
@@ -391,19 +365,6 @@ function assertCas(database, shareId, expectedRevision) {
   if (!Number.isInteger(expectedRevision) || expectedRevision < 0) throw invalid('expectedRevision must be a non-negative integer')
   const current = actualRevision(database, shareId)
   if (current.revision !== expectedRevision) throw conflict(shareId, expectedRevision, current.revision)
-}
-
-function updateStorageState(database, values, timestamp) {
-  if (!values) return
-  database.prepare(`UPDATE share_storage_state SET phase = ?, share_count = ?, digest = ?, backup_file = ?, diagnostic_json = ?, updated_at = ?
-    WHERE singleton = 1`).run(
-    values.phase,
-    values.shareCount ?? null,
-    values.digest ?? null,
-    values.backupFile ?? null,
-    values.diagnostic ? JSON.stringify(values.diagnostic) : null,
-    timestamp,
-  )
 }
 
 export function createShareRepository(storageHandle, { now = () => new Date().toISOString() } = {}) {
@@ -466,7 +427,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
         assertCas(database, row.share_id, null)
         insertShareRow(database, superseded, Number(row.revision) + 1, stale.createdAt, timestamp)
         replaceTokens(database, row.share_id, [])
-        enqueueShareMirror(database, { ...superseded, revision: undefined }, 'upsert', timestamp)
       }
 
       if (current) {
@@ -494,7 +454,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
         const nextRevision = Number(current.revision) + 1
         insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
         replaceTokens(database, merged.id, merged.tokens)
-        enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
         return { ...merged, revision: nextRevision }
       }
 
@@ -507,7 +466,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const created = { ...record, id, updatedAt: timestamp, tokens: record.tokens }
       insertShareRow(database, created, 1, created.createdAt || timestamp, timestamp)
       replaceTokens(database, id, created.tokens)
-      enqueueShareMirror(database, { ...created, revision: 1 }, 'upsert', timestamp)
       beforeCommit?.(database)
       return { ...created, revision: 1 }
     }, { mode: 'immediate' })
@@ -564,7 +522,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const nextRevision = Number(row.revision) + 1
       insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
       replaceTokens(database, shareId, merged.tokens)
-      enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return { ...merged, revision: nextRevision }
     }, { mode: 'immediate' })
   }
@@ -587,7 +544,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const nextRevision = Number(row.revision) + 1
       insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
       replaceTokens(database, shareId, [])
-      enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return { ...merged, revision: nextRevision }
     }, { mode: 'immediate' })
   }
@@ -618,7 +574,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const nextRevision = Number(row.revision) + 1
       insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
       replaceTokens(database, shareId, [])
-      enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return { ...merged, revision: nextRevision }
     }, { mode: 'immediate' })
   }
@@ -630,12 +585,10 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const row = currentRow(database, shareId)
       if (!row || row.deleted_at !== null) throw notFound(shareId)
       assertCas(database, shareId, expectedRevision)
-      const existing = attachTokens([mapShareRow(row)], tokenRowsFor(database, [shareId]))[0]
       const nextRevision = Number(row.revision) + 1
       database.prepare('UPDATE share_sessions SET deleted_at = ?, updated_at = ?, revision = ? WHERE share_id = ?')
         .run(timestamp, timestamp, nextRevision, shareId)
       database.prepare('DELETE FROM share_tokens WHERE share_id = ?').run(shareId)
-      enqueueShareMirror(database, { ...existing, revision: nextRevision }, 'delete', timestamp)
       return true
     }, { mode: 'immediate' })
   }
@@ -658,7 +611,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       }
       const nextRevision = Number(row.revision) + 1
       insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
-      enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return removed
     }, { mode: 'immediate' })
   }
@@ -693,7 +645,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
       const nextRevision = Number(row.revision) + 1
       insertShareRow(database, merged, nextRevision, existing.createdAt, timestamp)
       replaceTokens(database, shareId, kept)
-      enqueueShareMirror(database, { ...merged, revision: nextRevision }, 'upsert', timestamp)
       return { token, share: { ...merged, revision: nextRevision } }
     }, { mode: 'immediate' })
   }
@@ -714,7 +665,7 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     return tokenRecords.some((entry) => (entry.authVersion || 1) === authVersion && safeHashEqual(entry.tokenHash, actualHash))
   }
 
-  function replaceAll(inputs, { expectedCount, expectedDigest, storageState, beforeCommit } = {}) {
+  function replaceAll(inputs, { expectedCount, expectedDigest, beforeCommit } = {}) {
     if (!Array.isArray(inputs)) throw invalid('Share records must be an array')
     const records = inputs.map(normalizeShareRecord)
     const ids = new Set()
@@ -724,18 +675,15 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     }
     const timestamp = now()
     return storage.transaction((database) => {
-      database.exec('DELETE FROM share_sessions; DELETE FROM share_tokens; DELETE FROM share_json_mirror_queue;')
+      database.exec('DELETE FROM share_sessions; DELETE FROM share_tokens;')
       const insertSession = database.prepare(SHARE_SESSION_UPSERT_SQL)
-      const insertMirror = database.prepare(ENQUEUE_SHARE_MIRROR_SQL)
       for (const record of records) {
         insertShareRow(database, { ...record, updatedAt: record.updatedAt || timestamp }, 1, record.createdAt || timestamp, record.updatedAt || timestamp, insertSession)
         replaceTokens(database, record.id, record.tokens)
-        enqueueShareMirror(database, { ...record, revision: 1 }, 'upsert', timestamp, insertMirror)
       }
       const digest = shareSnapshotDigest(records)
       if (expectedCount !== undefined && records.length !== expectedCount) throw new Error('Share replace count verification failed')
       if (expectedDigest !== undefined && digest !== expectedDigest) throw new Error('Share replace digest verification failed')
-      updateStorageState(database, storageState ? { ...storageState, shareCount: records.length, digest, updatedAt: timestamp } : null, timestamp)
       beforeCommit?.(database)
       return records.length
     }, { mode: 'immediate' })
@@ -809,28 +757,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     }
   }
 
-  function listMirrorQueue() {
-    return storage.prepare('SELECT * FROM share_json_mirror_queue ORDER BY updated_at, share_id').all().map((row) => ({
-      shareId: row.share_id,
-      operation: row.operation,
-      record: row.share_json ? JSON.parse(row.share_json) : null,
-      attempts: Number(row.attempts),
-      lastError: row.last_error,
-      updatedAt: row.updated_at,
-    }))
-  }
-
-  function acknowledgeMirror(entry) {
-    return Number(storage.prepare('DELETE FROM share_json_mirror_queue WHERE share_id = ?')
-      .run(entry.shareId).changes) === 1
-  }
-
-  function failMirror(entry, error) {
-    storage.prepare(`UPDATE share_json_mirror_queue SET attempts = attempts + 1, last_error = ?, updated_at = ?
-      WHERE share_id = ?`)
-      .run(String(error?.message || error).slice(0, 1000), now(), entry.shareId)
-  }
-
   return Object.freeze({
     get,
     list,
@@ -847,9 +773,6 @@ export function createShareRepository(storageHandle, { now = () => new Date().to
     verifyIntegrity,
     count,
     digest,
-    listMirrorQueue,
-    acknowledgeMirror,
-    failMirror,
   })
 }
 

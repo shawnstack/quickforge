@@ -104,7 +104,17 @@
   scrollbar-width: none;
 }
 
-.quickforge-tool-summary:has(.quickforge-command-summary)::-webkit-scrollbar {
+/* 两条「可横向拖动的工具摘要行」（run_command 与 subagent）必须一起隐藏 webkit 滚动条：
+   不支持 `scrollbar-width: none` 的引擎（旧 Android WebView / 内嵌 Chromium、Safari <18.2）
+   会落回 foundation.css 的全局 `*::-webkit-scrollbar { width/height: 8px }`，在行底露出
+   一条常驻灰色横条，并把 subagent 行撑高 8px（跑马灯定高 1.125rem 是纵向滚动的度量前提）。
+   注意这里必须写成 unlayered 规则：`[&::-webkit-scrollbar]:hidden` 在 @layer utilities 内，
+   会被未分层的全局 `*` 规则覆盖。
+   仍保留 overflow-x: auto 的横向拖动能力（iOS 的 overlay 瞬时滚动条由系统绘制，CSS 无法隐藏）。 */
+.quickforge-tool-summary:has(.quickforge-command-summary)::-webkit-scrollbar,
+.quickforge-subagent-tool > .quickforge-tool-summary::-webkit-scrollbar {
+  width: 0;
+  height: 0;
   display: none;
 }
 

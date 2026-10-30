@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills-dialog'
-import { MigrationProgressView } from '@/components/migration-progress-view'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
 import { PluginUiToasts } from '@/components/plugins/PluginSlot'
 import { ConversationHeader } from '@/components/app/ConversationHeader'
@@ -863,7 +862,7 @@ function MainApp() {
     return unsubscribe
   }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds, updateSessionTitle, upsertSessionMetadata])
 
-  const { ready, startupError, migrationStatus, retryBootstrap } = useAppBootstrap({
+  const { ready, startupError, retryBootstrap } = useAppBootstrap({
     storageRef,
     backendRef,
     activeModelRef,
@@ -1343,15 +1342,12 @@ function MainApp() {
 
   // --- Loading state ---
   if (startupError) {
-    const migrationFailed = startupError.kind === 'migration'
     return (
       <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
         <div className="max-w-md rounded-lg border border-border bg-background p-5 text-center">
-          <h1 className="text-base font-semibold">
-            {migrationFailed ? t('migration.failedTitle') : t('localServiceUnavailableTitle')}
-          </h1>
+          <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
           <p className="mt-2 text-sm text-muted-foreground">{startupError.message}</p>
-          {migrationFailed && startupError.detail ? (
+          {startupError.detail ? (
             <p className="mt-2 whitespace-pre-wrap break-all text-left text-xs text-muted-foreground">{startupError.detail}</p>
           ) : null}
           <div className="mt-4 flex justify-center gap-2">
@@ -1368,7 +1364,7 @@ function MainApp() {
   }
 
   if (!startupReady) {
-    return migrationStatus?.state === 'migrating' ? <MigrationProgressView status={migrationStatus} /> : <StartupSplash />
+    return <StartupSplash />
   }
 
   return (

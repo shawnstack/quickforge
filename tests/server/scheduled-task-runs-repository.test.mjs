@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations, BASELINE_VERSION, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
 import { createScheduledTaskRunsRepository, MAX_SCHEDULED_TASK_RUNS_PER_TASK } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
@@ -38,7 +38,7 @@ function spawnInitializationWorker(databasePath) {
   })
 }
 
-describe('scheduled task runs repository schema v3', () => {
+describe('scheduled task runs repository baseline schema', () => {
   let directory
   let databasePath
   let storage
@@ -57,7 +57,7 @@ describe('scheduled task runs repository schema v3', () => {
     await rm(directory, { recursive: true, force: true })
   })
 
-  it('creates the composite-key table, state/lock tables, and global stable indexes', () => {
+  it('creates the composite-key table, lock table, and global stable indexes', () => {
     expect(storage.health()).toMatchObject({ ok: true })
     // Registered migration names must match the migration module in order:
     // this catches renames/duplicates that would break existing databases,
@@ -68,77 +68,38 @@ describe('scheduled task runs repository schema v3', () => {
     expect(columns.find((column) => column.name === 'task_id')).toMatchObject({ pk: 1, notnull: 1 })
     expect(columns.find((column) => column.name === 'id')).toMatchObject({ pk: 2, notnull: 1 })
     expect(columns.map((column) => column.name)).toEqual(expect.arrayContaining(['extra_json', 'legacy_json', 'source', 'updated_at']))
-    expect(storage.prepare('SELECT phase FROM scheduled_runs_state WHERE singleton = 1').get()).toEqual({ phase: 'hybrid' })
+    expect(storage.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'scheduled_runs_maintenance_lock'").get())
+      .toEqual({ name: 'scheduled_runs_maintenance_lock' })
+    // The compat-era phase table belongs to the retired v1..v18 chain.
+    expect(storage.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'scheduled_runs_state'").get()).toBeUndefined()
     const indexes = storage.prepare("SELECT sql FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'scheduled_task_runs' AND sql IS NOT NULL").all()
     expect(indexes.some((row) => /started_at DESC, id DESC, task_id DESC/.test(row.sql))).toBe(true)
   })
 
-  it('migrates v2 shadow rows atomically and preserves their values', async () => {
-    await closeSqliteStorage()
-    const raw = new DatabaseSync(databasePath)
-    raw.exec(`
-      DROP TABLE IF EXISTS sessions;
-      DROP TABLE IF EXISTS session_messages;
-      DROP TABLE IF EXISTS session_tombstones;
-      DROP TABLE IF EXISTS session_state_maintenance_lock;
-      DROP TABLE IF EXISTS session_index;
-      DROP TABLE IF EXISTS session_json_mirror_queue;
-      DROP TABLE IF EXISTS session_storage_state;
-      DROP TABLE IF EXISTS session_state_tombstones;
-      DROP TABLE IF EXISTS session_states;
-      DROP TABLE IF EXISTS session_index_v10_backup;
-      DROP TABLE IF EXISTS session_json_mirror_queue_v10_backup;
-      DROP TABLE IF EXISTS session_messages_v10_backup;
-      DROP TABLE IF EXISTS session_state_tombstones_v10_backup;
-      DROP TABLE IF EXISTS session_states_v10_backup;
-      DROP TABLE IF EXISTS session_storage_state_v10_backup;
-      DROP TABLE IF EXISTS scheduled_runs_maintenance_lock;
-      DROP TABLE IF EXISTS scheduled_runs_state;
-      DROP TABLE IF EXISTS scheduled_task_runs;
-      DROP TABLE IF EXISTS share_json_mirror_queue;
-      DROP TABLE IF EXISTS share_maintenance_lock;
-      DROP TABLE IF EXISTS share_sessions;
-      DROP TABLE IF EXISTS share_storage_state;
-      DROP TABLE IF EXISTS share_tokens;
-      DROP TABLE IF EXISTS lan_access_json_mirror_queue;
-      DROP TABLE IF EXISTS lan_access_maintenance_lock;
-      DROP TABLE IF EXISTS lan_access_state;
-      DROP TABLE IF EXISTS lan_access_storage_state;
-      DROP TABLE IF EXISTS lan_access_tokens;
-      DROP TABLE IF EXISTS memories_fts;
-      DROP TABLE IF EXISTS memory_embeddings;
-      DROP TABLE IF EXISTS memories;
-      DROP TABLE IF EXISTS dreaming_note_stats;
-      DROP TABLE IF EXISTS memory_events;
-      DROP TABLE IF EXISTS dreaming_runs;
-      DELETE FROM schema_migrations WHERE version >= 3;
-      PRAGMA user_version = 2;
-    `)
-    SQLITE_MIGRATIONS[1].up(raw)
-    raw.prepare(`INSERT INTO scheduled_task_runs (id, task_id, status, started_at, result) VALUES (?, ?, ?, ?, ?)`)
-      .run('same', 'task-a', 'success', '2026-01-01T00:00:00.000Z', 'kept')
-    raw.close()
-
-    storage = await initializeSqliteStorage({ databasePath })
-    repository = createScheduledTaskRunsRepository(storage)
-    expect(repository.get('task-a', 'same')).toMatchObject({ id: 'same', result: 'kept', source: 'v2_shadow' })
-  })
-
-  it('rolls back a failing v3 migration without losing the real v2 table, indexes, or data', () => {
+  it('rolls back a failing append-only migration without losing run rows or indexes', () => {
     const rawPath = path.join(directory, 'rollback.sqlite3')
     const raw = new DatabaseSync(rawPath)
-    const v1v2 = SQLITE_MIGRATIONS.slice(0, 2)
-    const failing = SQLITE_MIGRATIONS.map((migration) => migration.version === 3
-      ? { ...migration, up(database) { migration.up(database); throw new Error('after rebuild') } }
-      : migration)
+    const failing = [
+      ...SQLITE_MIGRATIONS,
+      {
+        version: BASELINE_VERSION + 1,
+        name: 'probe',
+        up(database) {
+          database.exec('CREATE TABLE migration_probe (id INTEGER PRIMARY KEY)')
+          throw new Error('after rebuild')
+        },
+      },
+    ]
     try {
-      applySqliteMigrations(raw, { migrations: v1v2 })
-      raw.prepare(`INSERT INTO scheduled_task_runs (id, task_id, status, started_at, result) VALUES (?, ?, ?, ?, ?)`)
-        .run('shadow', 'task-v2', 'success', '2026-01-01T00:00:00.000Z', 'preserved')
-      expect(() => applySqliteMigrations(raw, { migrations: failing })).toThrow(/migration 3.*after rebuild/)
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(2)
+      applySqliteMigrations(raw, { migrations: SQLITE_MIGRATIONS })
+      raw.prepare(`INSERT INTO scheduled_task_runs (id, task_id, status, started_at, result, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run('shadow', 'task-baseline', 'success', '2026-01-01T00:00:00.000Z', 'preserved', 'test', '2026-01-01T00:00:00.000Z')
+      expect(() => applySqliteMigrations(raw, { migrations: failing }))
+        .toThrow(new RegExp(`migration ${BASELINE_VERSION + 1}.*after rebuild`))
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
+      expect(raw.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'migration_probe'").get()).toBeUndefined()
       expect(raw.prepare('SELECT id, task_id, result FROM scheduled_task_runs').all()).toEqual([
-        { id: 'shadow', task_id: 'task-v2', result: 'preserved' },
+        { id: 'shadow', task_id: 'task-baseline', result: 'preserved' },
       ])
       const indexes = raw.prepare("SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = 'scheduled_task_runs' AND sql IS NOT NULL ORDER BY name").all()
       expect(indexes.map((row) => row.name)).toEqual([
@@ -147,10 +108,8 @@ describe('scheduled task runs repository schema v3', () => {
         'scheduled_task_runs_task_started_idx',
         'scheduled_task_runs_trigger_started_idx',
       ])
-      expect(raw.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all()).toEqual([
-        { version: 1, name: 'create_schema_migrations' },
-        { version: 2, name: 'create_scheduled_task_runs' },
-      ])
+      expect(raw.prepare('SELECT version, name FROM schema_migrations ORDER BY version').all())
+        .toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
     } finally {
       raw.close()
     }
@@ -215,7 +174,7 @@ describe('scheduled task runs repository schema v3', () => {
     expect(repository.get('task-b', 'run-000')).not.toBeNull()
   })
 
-  it('initializes schema v4 safely from multiple processes', async () => {
+  it('initializes the baseline schema safely from multiple processes', async () => {
     await closeSqliteStorage()
     const concurrentPath = path.join(directory, 'concurrent.sqlite3')
     const summaries = await Promise.all([
@@ -227,8 +186,8 @@ describe('scheduled task runs repository schema v3', () => {
     const raw = new DatabaseSync(concurrentPath)
     try {
       const applied = raw.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version)
-      expect(applied).toEqual(applied.map((_, index) => index + 1))
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(applied.length)
+      expect(applied).toEqual(SQLITE_MIGRATIONS.map((migration) => migration.version))
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
     } finally {
       raw.close()
     }

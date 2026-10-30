@@ -33,6 +33,10 @@ export type MessageQueueWiringDeps = {
   readOnly: boolean
   isDisposed: () => boolean
   getCapabilities: () => ChatCapabilities
+  /** A pending `ask_user` card is waiting for an answer. */
+  isAskPending: () => boolean
+  /** Hand composer text to the ask card; true when the card consumed it. */
+  submitAskText: (text: string) => boolean
   /** Controller cleared the composer: host hides menus / syncs the draft. */
   onComposerCleared: () => void
 }
@@ -107,9 +111,17 @@ export function setupMessageQueueWiring(deps: MessageQueueWiringDeps): MessageQu
     isStreaming: () => agent.state.isStreaming,
     steeringEnabled: () => deps.getCapabilities().messageSteering
       && typeof serverAgent.steer === 'function',
+    isAskPending: () => deps.isAskPending(),
+    submitAskText: (text) => deps.submitAskText(text),
     onChange: () => schedulePersistMessageQueue(),
     onComposerCleared: () => deps.onComposerCleared(),
     submitJump: async (item) => {
+      // While a question is waiting, "send now" answers it: steering would only
+      // be drained after the ask settles (see the controller's Enter handler).
+      if (deps.isAskPending() && deps.submitAskText(item.text)) {
+        messageQueue.removeItem(item.id)
+        return
+      }
       if (!deps.getCapabilities().messageSteering || typeof (agent as ServerAgent).steer !== 'function' || !agent.state.isStreaming) {
         // Steering unavailable right now — send it as the next normal prompt.
         messageQueue.moveItemToHead(item.id)

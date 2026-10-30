@@ -2,6 +2,90 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## remove-storage-backward-compat（done，2026-10-30）
+
+- Goal：用户看到启动时的「数据库 migration（当前 v11）」问这是干嘛，讨论后决定「大版本不需要向前兼容」，把 JSON→SQLite 兼容层、迁移进度页与 18 条迁移历史一起删掉。
+- 决策依据（写下来免得以后反复）：迁移引擎本身（schema_migrations + user_version + 事务应用，约 120 行）保留，因为删了等于「每次改表删库」；真正能删的是**兼容旧数据的代码**——cutover 三件套 1076 行、双路径 store、phase 状态机、进度页、18 条迁移折叠成 1 条 baseline。
+- ① 四域单路径：删 `share-cutover.mjs`/`lan-access-cutover.mjs`/`scheduled-runs-cutover.mjs`/`share-json-file.mjs`/`lan-access-json-file.mjs`/`maintenance/downgrade-{share,lan-access}-v1.mjs`；维护锁提取为 `share-maintenance.mjs`/`lan-access-maintenance.mjs`/`scheduled-runs-maintenance.mjs`（照 `session-state-maintenance.mjs` 既有模式，锁表 share/lan_access/scheduled_runs_maintenance_lock）；`*-service.mjs` 只剩 repository 访问器与注入；`*-store.mjs` 删 JSON 分支/mirror 入队/phase 判断；`*-backup.mjs` 去掉 phase 字段与 authoritative 前置；仓储层删掉 mirror 队列 API 与 storage_state 计数更新；maintenance 只剩 `export-*-v1` 逃生通道。
+- ② 启动窗口收窄：`startup-state.mjs` 状态 starting/ready/failed（删 MIGRATING、`readMigrationStatus` 域名投影），`/api/migration-status` 路由删除，白名单只剩 `/api/health`；前端删 `src/lib/migration-status.ts`、`components/migration-progress-view.tsx` 及 2 个测试，`useAppBootstrap` 失败时改从 `/api/health` 读 `startupError` 作详情，启动期只显示 `StartupSplash`，i18n 删 14 个 `migration.*` 键。
+- ③ 迁移折叠：`server/sqlite/migrations.mjs` 由 18 条 875 行折叠为单条 `version=19 name='baseline'`（一次建 15 表 + 13 索引），兼容期对象（`*_v10_backup`、两个 mirror 队列、三个 `*_storage_state`、`scheduled_runs_state`、`session_index` 备份表）一个都不建；`inspectSqliteMigrationState` 对 `user_version<19` 的旧库直接报错并给恢复指引（备份数据目录 → 从导出恢复或空库启动），没有就地升级；新迁移仍 append-only，与 `schema_migrations` 行、`user_version` 同事务。
+- 测试与文档：help 里的 schema helper 改为按最后一条迁移推导版本；`sqlite-storage-foundation` 删掉 v10/v11/v12 历史迁移回归、改成基线结构断言 + pre-baseline 拒绝用例；share/lan/scheduled 三域的 store/service/backup/export 测试改单路径；`session-state-full-chain-electron-smoke` fixture 去掉 cutover/downgrade 段，改成「运行期不写 JSON + 离线 export 逃生」；`scheduled-tasks.commands` 的 runs 读取改走 SQLite repository。文档侧 sqlite 基础层/session-storage-v2/wiki server 全面改写，三份 cutover 文档标 archived，CHANGELOG 增 Removed。
+- 关键约束（别踩）：
+  - `*-store.mjs` 里 `defaultLanAccessConfig` 已迁入 store；`readXxxStorageState()` 仍保留为常量诊断（`phase:'authoritative'` + 实时计数），因为 backup 信封与 CLI 还读它，这不是阶段机残留。
+  - 空库首次启动必须走 `initializeLanAccessService()` 物化 disabled 配置行，否则 backup 导出的 LAN 完整性校验会失败（多个测试的 helper 已按此修正）。
+  - 旧库只有「备份 + 导出/删库」两条路；不要再加 downgrade 工具，也不要把 baseline 版本号写回 1（会与已有 v19 库冲突）。
+- 验证：分域定向 vitest 全绿（share 27 例、lan-access 20 例、scheduled-runs 58 例、schema 56 例）；`npm run test` 462 files 全绿；`npm run lint` 0 problems；`npx tsc -b` 0 错误；`npm run build` 成功（precompress 224 files）。未创建 Git commit，未手工改生成产物。
+
+## goal-strip-drop-spinner（done，2026-10-30）
+
+- Goal：用户提出「goal 在对话前面显示时原点已经有呼吸效果，是不是可以不要那个旋转状态了」。
+- 结论：旋转弧确实是冗余信号。`spinning` 只在 `runtime` 为 executing/planning/verifying（legacy running/verifying/planning）时为真，而这三个 runtime 的状态词都收敛到 `goalStateRunning` → `data-state="running"`，该状态本就有 2s `quickforge-goal-breathe` 呼吸动画。条带上同时有旋转弧 + 呼吸点＝同一个「正在推进」画了两遍，还抢了唯一强调色状态词的注意力。
+- 改动：`GoalControlStrip.tsx` 删 spinner 渲染（只留 `.quickforge-goal-strip-dot`）；`goal-control-strip.ts` 删视图字段 `spinning`、`isWorkingSpin()` 与 legacy/v2 两处赋值；`goal-workflow.css` 删 `.quickforge-goal-strip-spinner`、`@keyframes quickforge-goal-spin` 与 reduced-motion 中的 spinner 覆盖（呼吸点 reduced-motion 下仍关停）；`goal-card.test.ts` CSS 契约反转（不含 spinner / keyframes），`goal-control-strip.test.ts` 删「spins only while a step is actually being worked on」用例与分散断言；`docs/wiki/src/components/README.md` 同步。
+- 边界：聊天内 goal 卡自身的 `spinning`（`src/lib/goal.ts#isGoalSpinning` 驱动状态图标旋转）不属于运行条，未改。
+- 验证：定向 vitest 4 files / 120 passed；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误。未创建 Git commit，未触碰生成产物。
+
+## message-log-realtime-consistency（done，2026-10-30）
+
+- Goal：用户反馈「手机 Tailscale 访问显示的对话内容与 web 不一致（同一 session）」，明确目标是**双端实时一致**、按最优架构落地、不打补丁。
+- 根因（六条，完整版见 `docs/architecture/message-log-consistency.zh-CN.md`）：
+  1. 增量投递游标 `session.deliveredMessageCount` 是**会话级单值**：两个客户端共享同一投递位置，后加入者从别人的进度开始收增量 → 结构性漏消息。
+  2. `stateVersion` 是每个 token 都 +1 的**事件计数器**，不是快照版本，不能回答「消息变没变」。
+  3. SSE 无 `id:`/无重放，全局流连接时**零初始帧**：断线期间事件永久丢失，非流式期间丢了也发现不了。
+  4. 只读视图只给尾部 200 条，补齐靠一次性 `hydrateFullHistory`：失败静默 + 期间有 SSE 帧就整段丢弃 + 调用方只调一次 → 手机拉 MB 级请求失败后永久停在 200 条。
+  5. `mergeIncrementalMessages`（假设本地从服务端索引 0 开始）与 `mergeWindowedMessages`（唯一处理窗口偏移）双轨并存，三个 SSE 调用点走前者 → 窗口态必然错位。
+  6. 8 处「整体替换」只换数组、不换偏移；`reset()` 也不重置偏移。
+- 改动（架构级）：
+  - 服务端新增 `server/message-log.mjs`：`logVersion`（只随消息变化递增，指纹 = 条数 + 尾消息身份）、`tailWindow`、`projectSessionSnapshot`（尾部窗口 + `messagesAfter` + `logVersion` + 绝对 seq 的 goal 标记）、`createConnectionProjector`（**每连接一份**投递游标；`messages_replaced` 或总数回退视为替换）。
+  - 服务端新增 `server/event-log.mjs`：全局单调 `seq` + 轻量事件环（容量 1000，仅存定位字段，流式帧不入环），`since(lastSeq)` 返回 `{ frames, gap }`。
+  - `agent-session-events.mjs`：`emitSessionEvent` 改为发**完整事件**（裁剪下沉到连接层），新增 `trackMessageLogVersion`（logVersion 守卫），删除 `deliveredMessageCount` 裁剪；`stripSplitSessionState` 改为 `projectSessionSnapshot` 的别名。
+  - `routes/agent.mjs`：两个 SSE handler 各自建 `createConnectionProjector`；`writeSseEvent` 支持 `id:`；全局流解析 `Last-Event-ID`/`?lastEventId=` 重放，缺口发 `resync`；会话级流初始帧后 `projector.seed`；`/messages` 支持 `from`（`after` 同义）并返回 `logVersion/total`。
+  - `routes/session-view.mjs`：`messagesAfter` + `logVersion` + `messagesSummary.logVersion`；`agent-session-queries.mjs`：`/state`、`/status` 带 `logVersion`。
+  - 客户端新增 `src/lib/message-log.ts`：`applyMessageLogOp` 纯函数（`snapshot`/`append`/`replace`/`update`；空洞返回 `gap`，重复段返回 `noop`），`baseSeq` 是唯一坐标。
+  - `ServerAgent`：`messageWindowOffset` → `messageBaseSeq`，新增 `messageLogVersion`/`messageOffset` getter/`applyLog`/`localMessageEndSeq`；state/agent_end/message_end/turn_end/messages_replaced/`/state` 刷新/补齐全部改走 `applyLog`；删除 `mergeIncrementalMessages`/`mergeWindowedMessages`；3 处「本地长度 == 服务端下标」判据改为绝对位置；四条构造路径统一 `applySnapshotCoordinates`；`reset()` 同时清坐标。
+  - `ServerAgent.rollback`：本地数组下标 + `messageBaseSeq` 换算成绝对 seq 再发给服务端（窗口态回滚错轮次的修复）。
+  - `applyGoalIterationMarkers`：marker 的绝对 `seq/index` 减去 `baseSeq`，窗口外丢弃。
+  - 压缩分割线：新增 `shiftCompactionToLocal`，`ChatSurface` 用 `agent.messageOffset` 换算后再交给列表。
+  - `hydrateFullHistory` 改为幂等 + 返回 `boolean`；新增 `ensureFullHistory()`（退避 `[0,1s,3s,8s,20s]`，dispose 可中断）；拉取期间有 SSE 落地时以服务端全量为基底、保留本地更新尾部（不再整段丢弃）；`ChatPanelHost` 改调 `ensureFullHistory`，并在 `visibilitychange` / `online` 时重新收敛。
+  - `global-agent-sse-client`：注册并分发 `resync` 帧（全局帧，遍历所有活跃会话），`ServerAgent` 收到后 `syncState()`。
+- 验证：`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；定向测试 `tests/server/message-log.test.mjs`（19）、`tests/server/event-log.test.mjs`（6）、`tests/frontend/message-log.test.ts`（14）、`tests/frontend/server-agent-history-convergence.test.ts`（4）全过；`tests/frontend` 全量 271 files / 3266 passed；`npm run test` → 465 files / 5409 passed / 2 skipped；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`）。未创建 Git commit，未手工修改 `dist/`、`package-dist/`、`package-offline/`。
+- 边界与遗留：
+  - 事件环在进程内存：服务重启后首个客户端必然走 `resync`（一次全量 `/state` 校准），属预期。
+  - 仍是单进程假设：跨实例实时一致需要外部 pub/sub，未做。
+  - `tests/frontend/server-agent-message-window.test.ts` 随双轨合并函数一起删除，能力由 `tests/frontend/message-log.test.ts` 覆盖（窗口后追加、窗口内原位覆盖、丢弃前缀条目、整尾早于窗口）。
+  - `tests/server/scheduled-tasks.commands.test.mjs` 仍为既有 flaky（单跑通过，与本次改动无关）。
+  - 真机待验：手机 Tailscale 打开大会话后滚到顶能继续加载更早历史；断网 30s 再恢复，两端内容一致；同时打开两端流式期间不重复/不错位。
+
+## ask-user-blocking-coordination（done，2026-10-30）
+
+- Goal：用户要求按「架构最优」修掉 ask_user 弹窗与阻塞语义之间的缺口，保持现有交互与功能一致（允许重构）。
+- 结论：`ask_user` 保持阻塞语义（execute 返回未 resolve 的 Promise，`runLoop` 停在 `executeToolCalls`，模型不会继续推理），本轮改的是它与**单槽 UI**、**steer 队列**之间的三处不一致：同会话并发提问改为串行排队、待答期间输入框文本改为直接作答、重启丢失语义写清。
+- 根因（三条独立链）：
+  1. 并发 ask_user 互相顶掉：`pendingAsks` 允许同会话多条、`getPendingAskForSession` 只回溯第一条、前端 `pendingAskRef` + 卡片都单槽 → 后一张顶掉前一张，先发出的那条只能干等 30 分钟超时；`ask_user` 又没标 `executionMode:'sequential'`（默认并行），一条 assistant message 里的两个 ask_user 会同时开始执行。
+  2. 待答期间输入框文本静默入队：待答时 `state.isStreaming` 仍为 true，Enter 被消息队列的 capture keydown 收走 → `agent.steer`；而 steering 只在**轮边界**由 `getSteeringMessages` drain，被 ask_user 阻塞的这一轮永远走不到轮边界，用户那句话最长 30 分钟后才可能被模型看到。
+  3. 重启语义不明：`pendingAsks` 是进程内 Map，服务重启后提问随进程消失（无幽灵卡片、也不会代答），但文档没写清。
+- 改动（架构级，不是补丁）：
+  - `server/ask-store.mjs`：新增 `enqueueAskForSession`（同会话串行链 + 深度计数；**首个提问同步激活**，保持原来「注册 + emit 与工具调用同步」的时序）、`ASK_QUEUE_MAX_WAITING = 3`、`clearAskQueues()`（测试缝）、`formatAskBusyResult()`；头注释改为当前事实源（Promise 编排在 orchestrator，store 只管队列与纯函数）。
+  - `server/agent-approval-orchestrator.mjs`：`createAskUserPromise` = 归一 + 入队（队列满 → `details.skipReason:'busy'` 的文本结果，不注册、不 emit）；原实现整体下沉为 `activateAsk`，注册/`ask_user_required`/超时/abort/`ask_user_answered` 全部不变，**30 分钟计时从激活（变为可见）起算**，排队期间不计时。
+  - `src/components/chat/panel-decoration/ask-user-card.ts`：`advance()` 返回 boolean；新增 `applyComposerText` 与 `WeakMap<HTMLElement, handler>` 登记，导出 `submitAskTextToPendingAsk(panel, text)`——问题步把文本写入该问的自由补充并前进（等价卡片内回车）；`allowCustom:false` 时按选项标签精确匹配（忽略大小写/首尾空白），匹配不上返回 false 交回原逻辑不吞字；回执步追加为卡片级补充信息。
+  - `panel-decoration/message-queue.ts`：控制器新增 `isAskPending` / `submitAskText`，capture keydown 先走提问卡再入队；placeholder 待答时用 `askUserComposerPlaceholder`。
+  - `panel-wiring/message-queue.ts`：透传两个新依赖；排队消息的「立即」按钮同样先走提问通道，避免同一条消息被 steer 静默挂住。
+  - `ChatPanelHost.tsx`：`isAskPending` 取 `pendingAskRef` ?? `state.pendingAsk`（与卡片对账同源）；i18n 新增 `askUserComposerPlaceholder`（en/zh）。
+- 测试：`agent-approval-orchestrator` 29 例（新增：第二条排队且前一条结算后才注册/emit、排队期间不计时 + 激活后满 30 分钟才超时、排队中 abort 直接 aborted、队列满返回 busy 且不注册、跨会话互不排队）；新增 `tests/frontend/ask-user-composer-routing.test.ts` 5 例（jsdom：自由补充并推进/选项精确匹配/不匹配交回/回执步进 remark/disabled 忽略）；`message-queue` 21 例（新增待答分流与 placeholder 源码契约）；`ask-user-card` 27 例（i18n 双语言列表加入新 key）。
+- 验证：针对性 40 + 53 例全过；`npm run test` → 462 files / 5327 passed / 31 failed / 2 skipped（**31 例失败全部落在 3 个与本次无关的文件**：`tests/server/backup.test.mjs`、`tests/server/backup.authoritative-session.test.mjs`（LAN access state integrity）、`tests/server/scheduled-tasks.commands.test.mjs`，来自工作区里既有的 lan-access / scheduled-runs 未提交重构）；`npm run lint` → 0 errors（1 个既有 warning：`server/scheduled-task-runs-service.mjs` 未使用变量）；`npx tsc -b` → 0 错误；`npm run build` → 成功（`[precompress] 224 files: 12.66MB → 6.48MB`）。未创建 Git commit，未手工改生成产物。
+- 范围/边界：阻塞语义、30 分钟超时、跳过/abort 文案、workflow 排除 `ask_user`、subagent 绑父会话 pending 通道均未变；未给 `ask_user` 加 `executionMode:'sequential'`（会连带把同批 `read_file` 等工具一起卡住 30 分钟，排队放在服务端更精准）。
+- Notes（与本 feature 无关、未处理）：① 三条 backup / scheduled-task 测试失败属工作区既有未提交改动（lan-access cutover 删除、scheduled runs repository 改道），需另开会话收敛；② 首次跑 `npm run lint` 时出现过一次 `ENOENT: src/lib/migration-status.ts`（该文件在工作区已被删除），重跑即恢复正常，判断为当时并发跑测试造成的瞬态，非代码问题。
+
+## subagent-mobile-horizontal-scrollbar（done，2026-10-30）
+
+- Goal：用户反馈「subagent tools 在手机端访问显示有一个滑动的条」，确认是否异常并修掉。
+- 根因（三者叠加，只有手机暴露）：
+  1. subagent 摘要行必然横向溢出：`.quickforge-subagent-marquee{width:max-content;flex:0 0 auto}`（`process-timeline.css:24-37`）+ label 关掉省略号（`running-state.css:20-26`）。
+  2. 兜底容器给了 `overflow-x:auto; touch-action:pan-x`（`tool-summary.css:98-105`），但隐藏滚动条只写了标准属性 `scrollbar-width:none`。
+  3. `::-webkit-scrollbar` 隐藏规则只覆盖 `:has(.quickforge-command-summary)`（`tool-summary.css:107-109`），subagent 行漏写 → 忽略 `scrollbar-width` 的引擎（旧 Android WebView / Chromium <121、Safari <18.2）回落到 `foundation.css:49-66` 的全局 `*::-webkit-scrollbar{height:8px}` + `thumb=var(--border)`，行底出现常驻灰色横条并额外占 8px 高度（跑马灯定高 1.125rem 的度量前提被破坏）。桌面 Chromium/Safari 支持 `scrollbar-width` 所以看不到。
+- 改动：`src/styles/chat/tool-summary.css` 把 `::-webkit-scrollbar` 隐藏组扩展到两条横向兜底行（`width:0;height:0;display:none`），并注明必须 unlayered（`[&::-webkit-scrollbar]:hidden` 在 `@layer utilities` 内会被全局 `*` 覆盖，参见 `inspector-tabs.css:1-20`）。
+- 验证：`npm run lint` → 0 problems；`npm run build` → 成功（`[precompress] 224 files: 12.66MB → 6.48MB`）；产物 `dist/assets/index-BOaN4A3z.css` 已含新选择器。
+- 范围/边界：保留 `overflow-x:auto` 的横向拖动能力（用户明确要可横向滚动）；iOS <18.2 的 overlay 瞬时滚动条由系统绘制，CSS 无法隐藏，如需彻底消除只能取消横向滚动容器（会与跑马灯契约冲突，需另行评估）。未改 TSX、未改生成产物。
+
 ## window-scroll-transaction（done，2026-10-29）
 
 - Goal：用户反馈「优化后，从下往上翻页会回弹到底部，从上往下翻页会直接到最下面」。

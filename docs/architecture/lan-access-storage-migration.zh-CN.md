@@ -1,5 +1,9 @@
 # LAN 访问存储 SQLite 权威迁移（F11）
 
+> **历史文档（archived）**：本文记录 F11 lan-access 域从 JSON 到 SQLite 的迁移演进。其中 phase 状态机（`lan_access_storage_state`）、JSON mirror 队列（`lan_access_json_mirror_queue`）、`lan-access-cutover.mjs`、`lan-access-json-file.mjs`、启动期 `initializeLanAccessCutover()` 链与 `downgrade-lan-access-v1.mjs` **均已删除**，正文里描述这些机制如何运行的段落只作历史记录，不代表当前行为。
+>
+> **现状**：lan-access 域是单路径 SQLite 权威，表为 baseline v19 的 `lan_access_state` / `lan_access_tokens` / `lan_access_maintenance_lock`。`lan-access-store.mjs` 的全部读写经 `lan-access-repository`（单事务 + CAS + 常数时间哈希校验），不再读写 `security/lan-access.json`，也没有 phase 路由与 mirror drain；`lan-access-service.mjs` 只剩 repository 访问器/注入与 `initializeLanAccessService()`；维护锁独立在 `server/lan-access-maintenance.mjs`（表 `lan_access_maintenance_lock`）；备份信封为 `lanAccessState: { count, digest }`（已无 phase 字段）；逃生通道只剩 `node server/maintenance/export-lan-access-v1.mjs`。存储总体协议见 [`sqlite-storage-foundation.zh-CN.md`](./sqlite-storage-foundation.zh-CN.md) §4。
+>
 > 本文保留 Phase 1/2/3 的历史演进；其中 v9 的在线 `record_digest` 与 pending/authoritative 启动全表校验描述已被 migration 12 和当前启动策略取代。
 
 ## 1. 背景与决策

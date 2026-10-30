@@ -4,18 +4,16 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { closeSqliteStorage, initializeSqliteStorage } from '../sqlite/database.mjs'
 import { createLanAccessRepository } from '../sqlite/lan-access-repository.mjs'
-import { buildLanAccessJsonSnapshot } from '../lan-access-cutover.mjs'
-import { readLanAccessStorageState } from '../lan-access-service.mjs'
+import { buildLanAccessJsonSnapshot } from '../lan-access-backup.mjs'
+import { runLanAccessMaintenance } from '../lan-access-maintenance.mjs'
 import { dataDir } from '../storage.mjs'
 
-// F11 Phase 3 offline authoritative LAN access export (shutdown-time only).
-// Mirrors export-share-v1.mjs in the independent lan-access storage domain:
-// refuses cutover_running and json_authoritative, runs quick_check +
-// verifyIntegrity + exportSnapshot with fail-closed count/digest checks, and
-// only renames the temporary file into place after re-reading and re-verifying
-// what was written. The exported config carries token hashes only (never the
-// raw secrets) and strips the repository-internal revision.
-const AUTHORITATIVE_PHASES = new Set(['sqlite_authoritative_json_pending', 'authoritative'])
+// LAN access offline export (shutdown-time only). Mirrors
+// export-share-v1.mjs: runs under the lan-access maintenance lock, takes
+// quick_check + verifyIntegrity + exportSnapshot with fail-closed count/digest
+// checks, and only renames the temporary file into place after re-reading and
+// re-verifying what was written. The exported config carries token hashes only
+// (never the raw secrets) and strips the repository-internal revision.
 
 function outputPath() {
   const argument = process.argv[2]
@@ -37,26 +35,22 @@ try {
   const storage = await initializeSqliteStorage({ dataDir })
   storage.health({ quickCheck: true })
   const repository = createLanAccessRepository(storage)
-  const state = readLanAccessStorageState()
-  if (state.phase === 'cutover_running') {
-    throw new Error('LAN access cutover is still running; stop all QuickForge processes and retry')
-  }
-  if (!AUTHORITATIVE_PHASES.has(state.phase)) {
-    throw new Error(`LAN access storage is ${state.phase}; authoritative export requires the SQLite cutover to be complete`)
-  }
-  const integrity = repository.verifyIntegrity({ quickCheck: true })
-  if (!integrity.ok) throw new Error('LAN access storage integrity verification failed')
-  const snapshot = repository.exportSnapshot()
-  if (snapshot.tokenCount !== integrity.count || snapshot.digest !== integrity.digest) {
-    throw new Error('LAN access backup count/digest verification failed')
-  }
+  const snapshot = await runLanAccessMaintenance(async () => {
+    const integrity = repository.verifyIntegrity({ quickCheck: true })
+    if (!integrity.ok) throw new Error('LAN access storage integrity verification failed')
+    const exported = repository.exportSnapshot()
+    if (exported.tokenCount !== integrity.count || exported.digest !== integrity.digest) {
+      throw new Error('LAN access backup count/digest verification failed')
+    }
+    return exported
+  }, { storage, operation: 'lan-access-offline-export' })
   const backup = {
     app: 'quickforge',
     version: 1,
     exportedAt: new Date().toISOString(),
     scope: 'lan-access',
     includeSecrets: false,
-    lanAccessState: { phase: state.phase, count: snapshot.tokenCount, digest: snapshot.digest },
+    lanAccessState: { count: snapshot.tokenCount, digest: snapshot.digest },
     data: {
       lanAccess: publicConfig(snapshot.config),
     },

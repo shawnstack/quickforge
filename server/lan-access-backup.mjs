@@ -2,25 +2,19 @@ import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getSqliteStorage } from './sqlite/database.mjs'
-import { createLanAccessRepository, lanAccessConfigDigest } from './sqlite/lan-access-repository.mjs'
-import {
-  buildLanAccessJsonSnapshot,
-  currentLanAccessMaintenanceContext,
-  runLanAccessMaintenance,
-} from './lan-access-cutover.mjs'
-import { getLanAccessStoragePhase, isLanAccessStorageAuthoritative } from './lan-access-service.mjs'
+import { createLanAccessRepository, lanAccessConfigDigest, normalizeLanAccessConfig } from './sqlite/lan-access-repository.mjs'
+import { currentLanAccessMaintenanceContext, runLanAccessMaintenance } from './lan-access-maintenance.mjs'
 import { storageDir } from './storage.mjs'
 
-// F11 Phase 3 lan-access backup/restore: mirrors the session-state/share backup
-// pattern in the independent lan-access storage domain. Exports run under the
-// lan-access maintenance lock with quick_check + verifyIntegrity + exportSnapshot
-// (count/digest fail closed). Restores run under the same lock, persist a
-// crash-recoverable plan file and compensate back to the exact before-state if
-// the apply or its verification fails. Only lan_access_state /
-// lan_access_tokens / lan_access_json_mirror_queue are touched;
-// scheduled_task_runs, session_index, session_messages and share_sessions are
-// never modified here. The exported config keeps token hashes only (raw secrets
-// never leave the issuer) and strips the repository-internal revision.
+// LAN access backup/restore over the authoritative SQLite store. Exports run
+// under the lan-access maintenance lock with quick_check + verifyIntegrity +
+// exportSnapshot (count/digest fail closed). Restores run under the same lock,
+// persist a crash-recoverable plan file and compensate back to the exact
+// before-state if the apply or its verification fails. Only lan_access_state /
+// lan_access_tokens are touched; scheduled_task_runs, session_index,
+// session_messages and share_sessions are never modified here. The exported
+// config keeps token hashes only (raw secrets never leave the issuer) and strips
+// the repository-internal revision.
 const RESTORE_PLAN_FILE = path.join(storageDir, 'lan-access-restore-plan.json')
 const ROLL_FORWARD_STATUSES = new Set(['prepared', 'applying', 'target_applied'])
 const ROLL_BACK_STATUSES = new Set(['compensating', 'compensation_failed'])
@@ -29,7 +23,7 @@ function repositoryRequired() {
   try {
     return createLanAccessRepository(getSqliteStorage())
   } catch (error) {
-    throw new Error('SQLite storage is required for authoritative LAN access state', { cause: error })
+    throw new Error('SQLite storage is required for LAN access state', { cause: error })
   }
 }
 
@@ -39,6 +33,27 @@ function isPlainObject(value) {
 
 function isPlainPlanValue(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+/**
+ * Validate and normalize a whole LAN access config into a canonical snapshot.
+ * Fails closed on: malformed config object, password hash/salt inconsistency,
+ * enabled-without-password, malformed `tokens` array. Expired tokens are pruned
+ * and the ≤100 cap keeps the newest entries. The count/digest are computed with
+ * the exact repository digest algorithm so the SQLite replace verification can
+ * compare digests 1:1.
+ */
+export function buildLanAccessJsonSnapshot(input, { now = () => new Date().toISOString() } = {}) {
+  if (!isPlainObject(input)) throw new TypeError('LAN access config must be an object')
+  const config = normalizeLanAccessConfig(
+    input.updatedAt ? input : { ...input, updatedAt: now() },
+    { now },
+  )
+  return {
+    config,
+    tokenCount: config.tokens.length,
+    digest: lanAccessConfigDigest(config),
+  }
 }
 
 // Strip repository-internal fields before writing the config into backups or
@@ -64,10 +79,9 @@ function countLanAccessTokens(values) {
 }
 
 /**
- * Authoritative lan-access state export for the backup route and offline tools.
- * Runs under the lan-access maintenance lock so a concurrent restore can never
- * be observed mid-transaction, and fail-closes when integrity or digest
- * verification fails.
+ * LAN access state export for the backup route and offline tools. Runs under the
+ * lan-access maintenance lock so a concurrent restore can never be observed
+ * mid-transaction, and fail-closes when integrity or digest verification fails.
  */
 export async function exportLanAccessStateForBackup(options = {}) {
   const operation = async () => {
@@ -83,7 +97,6 @@ export async function exportLanAccessStateForBackup(options = {}) {
       config: snapshot.config,
       count: snapshot.tokenCount,
       digest: snapshot.digest,
-      phase: getLanAccessStoragePhase(),
     }
   }
   if (!options.maintenance || currentLanAccessMaintenanceContext()) return operation()
@@ -126,19 +139,16 @@ function validatePlan(plan) {
 }
 
 /**
- * Restore the authoritative lan-access state from a backup snapshot. Always
- * runs under the lan-access maintenance lock, persists a crash-recoverable plan
- * file, and compensates back to the exact before-state if the apply or its
- * verification fails. replace mode wipes the local config; merge mode keeps
- * local config fields (including local tokens) while backup fields override
- * same-key entries. `values` is the v1 lan-access.json shape
- * (`{ lanAccess: config }`). The restore overwrites the `enabled` switch when
- * the backup carries one, so import UIs warn before applying.
+ * Restore the LAN access state from a backup snapshot. Always runs under the
+ * lan-access maintenance lock, persists a crash-recoverable plan file, and
+ * compensates back to the exact before-state if the apply or its verification
+ * fails. replace mode wipes the local config; merge mode keeps local config
+ * fields (including local tokens) while backup fields override same-key
+ * entries. `values` is the v1 lan-access.json shape (`{ lanAccess: config }`).
+ * The restore overwrites the `enabled` switch when the backup carries one, so
+ * import UIs warn before applying.
  */
 export async function restoreLanAccessStateSnapshot(values, options = {}) {
-  if (!isLanAccessStorageAuthoritative()) {
-    throw new Error('LAN access state restore requires authoritative SQLite storage')
-  }
   if (!isPlainPlanValue(values) || !isPlainObject(values.lanAccess)) {
     throw new TypeError('LAN access restore values must be a lanAccess config object')
   }
@@ -232,9 +242,6 @@ export async function recoverLanAccessRestorePlan({
   } catch (error) {
     if (error?.code === 'ENOENT') return false
     throw new Error(`LAN access restore plan is unreadable or invalid: ${error?.message || error}`, { cause: error })
-  }
-  if (!isLanAccessStorageAuthoritative()) {
-    throw new Error('LAN access restore plan exists outside authoritative mode')
   }
   const repository = repositoryOverride || repositoryRequired()
   return runLanAccessMaintenance(async () => {

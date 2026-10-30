@@ -1,6 +1,6 @@
 # 会话存储 v2 设计（SQLite 单一权威重构）
 
-> 基准：存储 v2 改造完成，2026-08-19；SQLite schema v11（migration `session_state_v2_storage`）。本文是会话域存储的**当前事实源**。v1 的 JSON mirror、phase 状态机、session_index 派生表、cutover / background-migration 等旧设计已整体移除（对照见 [§9 新旧对比简表](#9-新旧对比简表)），不再单独保留历史文档。
+> 基准：存储 v2 改造完成，2026-08-19；schema 现为 **baseline v19**（单条 migration `baseline`，`BASELINE_VERSION = 19`）。v2 原本以 migration v11（`session_state_v2_storage`）落地，该迁移及其前后的兼容期迁移链已整体折叠进 baseline（`*_v10_backup` 回滚表、mirror 队列表、phase 状态表都已删除，v11 历史不再单独存在）。本文是会话域存储的**当前事实源**。v1 的 JSON mirror、phase 状态机、session_index 派生表、cutover / background-migration 等旧设计已整体移除（对照见 [§9 新旧对比简表](#9-新旧对比简表)），不再单独保留历史文档。
 > 本文与 [`sqlite-storage-foundation.zh-CN.md`](./sqlite-storage-foundation.zh-CN.md)（连接/PRAGMA/migration 协议）互补：基础层机制不变，v2 只重构会话域表与写入/删除/启动链路。
 
 ## 1. 背景与动机：写放大与不可回收空间
@@ -19,9 +19,9 @@
 
 v2 的目标：**每条数据只存一份；删除即时归还空间；删除全部过渡性机制**（mirror、phase、cutover、background-migration、写屏障、派生索引表）。
 
-## 2. 目标布局：schema v11 三表
+## 2. 目标布局：baseline v19 三表
 
-migration v11 把旧会话域 6 张表 `RENAME` 保留为回滚安全网（见 §7），并创建新三表：
+baseline 迁移（v19）直接建出会话域三表：
 
 | 表 | 作用 | 关键结构 |
 |---|---|---|
@@ -41,7 +41,7 @@ CREATE INDEX idx_session_messages_session_id ON session_messages (session_id);
 - **没有 `state_json` 巨列**：`body_json` 只存不含 `messages` 数组的会话帧（标题、配置、任务状态等，KB 级）；消息本体全部在 `session_messages` 逐行追加。旧设计"改一个字段重写整个 body"的放大从根上消失。
 - **messages 永远逐行**：不再有 v1 的 inline/split 双模式与 200 条阈值——任何带 `messages` 数组的 body 在写入时被 repository 统一抽取（`body_json` 带标记 `messageStorage: 'split'`，永不内联消息）。
 - **`message_count` 是派生值**：任何消息写入后在同事务内由 `SELECT COUNT(*)` 重算，不信任调用方。
-- **旧表 RENAME 保留**：`session_states`/`session_messages`/`session_index`/`session_state_tombstones`/`session_json_mirror_queue`/`session_storage_state` 全部重命名为 `*_v10_backup`，不 DROP（新表索引改用 `idx_*` 前缀避免与旧索引名冲突）；share / lan-access / scheduled-runs 域与维护锁表不受影响。
+- **旧表不存在**：`session_states`/`session_index`/`session_state_tombstones`/`session_json_mirror_queue`/`session_storage_state` 以及 v11 时代的 `*_v10_backup` 回滚表都不在当前 schema 里（baseline 只建 `sessions`/`session_messages`/`session_tombstones`/`session_state_maintenance_lock`）；share / lan-access / scheduled-runs 域各有自己的表与维护锁表。
 
 ## 3. 写入路径：统一抽取 + 增量计划 + 单事务
 
@@ -87,13 +87,13 @@ repository 的 `normalizeRecord` 对任何带 `messages` 数组的 body（内联
 3. UPSERT 墓碑（`deleted_at` = epoch 毫秒，`WITHOUT ROWID` 极小）；
 4. **事务外** best-effort `PRAGMA incremental_vacuum(512)`：`auto_vacuum = INCREMENTAL` 下把释放页归还 OS；失败仅记 warn，不影响业务操作成功。
 
-`auto_vacuum` 说明（`server/sqlite/database.mjs`）：连接打开时（`busy_timeout` 之后、migration 事务之前）执行 `PRAGMA auto_vacuum = INCREMENTAL`。**该标志只对新建的空库生效**——已有库保持原布局，除非整体 `VACUUM` 重建。升级用户的实际路径是"删库文件重启重导"（见 §5），重建出的库天然带增量回收。
+`auto_vacuum` 说明（`server/sqlite/database.mjs`）：连接打开时（`busy_timeout` 之后、`applySqliteMigrations` 之前）执行 `PRAGMA auto_vacuum = INCREMENTAL`。该标志只对"尚未建出任何表"的库生效，因此 baseline 在同一连接内建库时天然带上增量回收。兼容期旧库（`user_version` < 19）会被版本门禁直接拒绝打开（见 `sqlite-storage-foundation.zh-CN.md` §4.2），不存在"旧布局库缺 auto_vacuum"的残留状态；需要重建数据时按 §5 的导出/导入路径走。
 
 墓碑语义：同 key 墓碑在下一次成功 save 时清除；从未复活的会话墓碑按设计保留（每行几十字节）。同长度同尾但中部的并发写靠 CAS 拒绝，不依赖墓碑。
 
 ## 5. 启动与一次性导入
 
-v2 之后会话域**没有相位路由**：SQLite 恒为权威（`isSessionStateAuthoritative()` 常量 true；migration-status 的 `sessionState` 域恒报 `authoritative` + 实时会话数）。启动链只剩一个条件分支（`server/index.mjs` 的 `runStartupInitialization`）：
+v2 之后会话域**没有相位路由**：SQLite 恒为权威（`isSessionStateAuthoritative()` 常量 true；`readSessionStorageState()` 恒返回 `phase: 'authoritative'` + 实时会话数，不再有 `/api/migration-status` 域名投影）。启动链只剩一个条件分支（`server/index.mjs` 的 `runStartupInitialization`）：
 
 ```text
 session-state-service  →  session-state-import  →  session-state-restore-plan
@@ -112,38 +112,38 @@ session-state-service  →  session-state-import  →  session-state-restore-pla
 - 桶级 `sessions-metadata.json` 损坏/不可读同样**不中断启动**：该桶降级为空 metadata 继续（正文文件照常导入，走 body-only 推导；仅 metadata-only 条目丢失——它们本就不含消息、按设计 dropped），记 `diagnostics`（`metadata-bucket-error`）+ warn 日志；
 - 结束后 WAL checkpoint。
 
-导入在启动维护窗口内执行：`/api/*` 维持 503 门控（进程状态 `migrating`）直到完成，避免导入期间读到半量数据。
+导入在启动维护窗口内执行：`/api/*` 维持 503 门控（进程状态 `starting`，白名单只有 `/api/health`）直到初始化链完成，避免导入期间读到半量数据；前端这段时间只显示启动画面。
 
-**用户重导路径**：关闭进程 → 删除 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm`）→ 重启。空库 + JSON 文件存在即自动重导；这也是升级用户获得 `auto_vacuum` 新库布局的路径。
+**用户重导路径**：关闭进程 → 备份并按需删除 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm`）→ 重启。空库 + JSON 文件存在即自动重导。若手上是兼容期旧库（`user_version` < 19），本版本不会就地升级：先用能读旧库的版本导出 v1 备份，再按上面的路径重建空库并从备份恢复。
 
 ## 6. 删除的机制清单
 
 | 机制 | v1 位置 | v2 处置 |
 |---|---|---|
-| JSON mirror 全链 | `session_json_mirror_queue` 表 + service 内 drain 调度 + storage JSON 写回 | 表 RENAME 保留；代码全删，会话写路径不再物化 JSON |
-| phase 状态机 | `session_storage_state` singleton + 4 相位路由 | 表 RENAME 保留；service 恒 authoritative |
-| `session_index` 派生表 | v4/v5 派生表 + 同事务 upsert + 影子校验/rebuild | 表 RENAME 保留；`session-index-repository.mjs` 重写为 `sessions` 表**直查层**（只读 LIMIT/OFFSET + `json_extract(meta_json,'$.lastModified')` 排序，保持历史列表序），无 sync/shadow/rebuild |
+| JSON mirror 全链 | `session_json_mirror_queue` 表 + service 内 drain 调度 + storage JSON 写回 | 表删除（baseline 不建）；代码全删，会话写路径不再物化 JSON |
+| phase 状态机 | `session_storage_state` singleton + 4 相位路由 | 表删除；service 恒 authoritative |
+| `session_index` 派生表 | v4/v5 派生表 + 同事务 upsert + 影子校验/rebuild | 表删除；`session-index-repository.mjs` 重写为 `sessions` 表**直查层**（只读 LIMIT/OFFSET + `json_extract(meta_json,'$.lastModified')` 排序，保持历史列表序），无 sync/shadow/rebuild |
 | 同步 cutover | `server/session-state-cutover.mjs` | 模块删除 |
 | 后台迁移 | `server/session-state-background-migration.mjs`（importing→converging→idle→switching 状态机） | 模块删除 |
 | 写屏障 | `acquireSessionJsonWriteBarrier` / `readLastSessionWriteFinishedAt`（storage.mjs） | 删除（无 JSON 写路径需要 park） |
 | 维护锁 | cutover 模块内 | 抽出为独立模块 `server/session-state-maintenance.mjs`（`session_state_maintenance_lock` 表沿用，restore/verify 维护操作仍经它跨进程串行） |
 | phase 路由的 facade 复检 | storage.mjs 会话写入口的执行时相位重路由 | 删除：`sessionStateFacade()` 恒走 session-state-service（SQLite） |
 
-share / lan-access / scheduled-runs 三小域的 JSON→SQLite cutover 链**不在本次范围**，机制照旧。
+share / lan-access / scheduled-runs 三小域曾各自保留 JSON→SQLite cutover 链与 phase 状态机；这些机制现已按同一原则整体删除，三域同样是单路径 SQLite 权威，只保留独立维护锁模块（`share-maintenance.mjs` / `lan-access-maintenance.mjs` / `scheduled-runs-maintenance.mjs`）。
 
 ## 7. 兼容与逃生通道
 
-- **备份信封不变**：`GET /api/backup/export` 仍写 `sessionState: { phase, count, digest }`（phase 恒 `'authoritative'`）；restore 链路（维护锁、补偿事务、`session-state-restore-plan.json` 启动恢复）原样保留。旧 v1 备份文件可正常导入恢复。
-- **downgrade 工具 = 纯导出**：`node server/maintenance/downgrade-session-state-v1.mjs [--dry-run]` 重写为把权威库物化回 v1 JSON 布局（逐会话 body 文件 + 每桶 `sessions-metadata.json`，拆分会话重组完整 body）。它**不再切换权威**——SQLite 恒权威，导出的 JSON 只是逃生副本（供旧版本 QuickForge 或人工读取）。
-- **export 工具照旧**：`node server/maintenance/export-session-state-v1.mjs <输出.json>` 不再检查相位，完整性校验通过后导出 v1 备份。
-- **`*_v10_backup` 六表**：作为回滚安全网保留（约等于旧库原始体积）。建议 v2 稳定运行一个观察期（真实大库验证 + 至少一个 patch 发布）后，以独立 migration 统一 DROP 回收空间。
+- **备份信封保留 sessionState 的 phase 字段**：`GET /api/backup/export` 仍写 `sessionState: { phase, count, digest }`（phase 恒 `'authoritative'`，仅为兼容旧客户端而保留）；share/lan-access 的 `shareState`/`lanAccessState` 信封只剩 `{ count, digest }`。restore 链路（维护锁、补偿事务、`session-state-restore-plan.json` 启动恢复）原样保留。旧 v1 备份文件可正常导入恢复。
+- **导出即逃生通道**：`node server/maintenance/downgrade-session-state-v1.mjs [--dry-run]` 把权威库物化回 v1 JSON 布局（逐会话 body 文件 + 每桶 `sessions-metadata.json`，拆分会话重组完整 body）。它**不切换权威**——SQLite 恒权威，导出的 JSON 只是逃生副本（供旧版本 QuickForge 或人工读取）。share / lan-access / scheduled-runs 域对应的 `downgrade-*` 工具已删除，只剩 `export-*-v1.mjs` 纯导出。
+- **export 工具照旧**：`node server/maintenance/export-session-state-v1.mjs <输出.json>` 不做相位检查，完整性校验通过后导出 v1 备份。
+- **没有回滚安全网表**：`*_v10_backup` 六表与 phase/mirror 表都不存在于 baseline，库体积即净数据体积；回到旧布局只能靠导出 + 重建空库 + 导入。
 
 ## 8. 已知取舍
 
 1. **`listPage` 的 `lastModified` 排序走 `json_extract(meta_json, '$.lastModified')`**：列表 UI 沿用 metadata 的 `lastModified`（会话可能回填早于写时钟的历史时间），无法直接用 `updated_at` 列。排序需要 temp b-tree；EXPLAIN 已验证 scope/archive 过滤仍走 `idx_sessions_list` 索引。中期候选：`json_extract` 表达式索引。
 2. **删除后同 key CAS 的 `actualRevision` 报 0**：v2 墓碑不携带 revision（`actualRevision` 对墓碑态解析为 0）。效果上 stale 写（`expectedRevision > 0`）依旧 409 冲突、fresh 重建（null/0）依旧成功，但冲突错误体里的 `actualRevision` 是 0 而非历史值——调用方若依赖该值需知悉。
 3. **`repository()` 先取进程级句柄**：service 的 `repository()` 总是先求值 `getSqliteStorage()`（用于检测句柄重建），即使测试通过 `configureSessionStateService` 注入了 repository 实例——**注入路径仍要求 SQLite 已初始化**（否则抛错）。当前测试均先初始化 storage，未构成实际问题；后续若需要纯内存 repository 测试可拆开这两步。
-4. **`auto_vacuum` 仅新库生效**（见 §4）：升级用户不删库重导则没有增量回收；`*_v10_backup` 表的旧体积也仍在文件里。
+4. **`auto_vacuum` 只在建库时生效**（见 §4）：库的所有表都由 baseline 在同一连接内建出，因此现役库天然带增量回收；手工在别处预建表再交给 QuickForge 的库拿不到该布局。
 5. **消息行读放大有界**：`readMessagesPage` 上限 5000 行/页；整体读组装（`assembleState`）逐页拉取，不再一次性物化（v1 OOM 教训）。
 
 ## 9. 新旧对比总表
@@ -153,6 +153,6 @@ share / lan-access / scheduled-runs 三小域的 JSON→SQLite cutover 链**不�
 | 写入遍数（追加一条消息） | 巨列全量重写 + index 行 + outbox 行 + JSON 物化 + WAL（≈5 份） | sessions 小行 + 1 条消息行 + WAL（1 份） |
 | 删除回收 | 无：FK 手动级联删行，自由页永不回收，库只增不减 | FK CASCADE + 墓碑 + `incremental_vacuum(512)`，空间即时归还 OS |
 | 列表查询 | `session_index` 派生表 + 同事务维护 + TTL/影子校验 + fallback | `sessions` 直查（`idx_sessions_list` + `json_extract` 排序），无同步层 |
-| 启动链 | phase 路由四分支（同步 cutover / 后台迁移 / drain / barrier）+ 恢复计划 | 常量 authoritative + 空库一次性 JSON 导入 + 恢复计划 |
-| 降级逃生 | `downgrade --commit` 切回 JSON 权威 | `downgrade` 纯导出 JSON 副本，SQLite 恒权威 |
-| 库体积 | 实测 2~3GB 且不可逆增长 | 每数据一份 + 删除即回收（`*_v10_backup` 清理后回到净体积） |
+| 启动链 | phase 路由四分支（同步 cutover / 后台迁移 / drain / barrier）+ 恢复计划 | 常量 authoritative + 空库一次性 JSON 导入 + 恢复计划；失败详情只经 `/api/health` |
+| 降级逃生 | `downgrade --commit` 切回 JSON 权威 | 导出 JSON 副本（`downgrade-session-state-v1.mjs` / `export-session-state-v1.mjs`），SQLite 恒权威 |
+| 库体积 | 实测 2~3GB 且不可逆增长 | 每数据一份 + 删除即回收（baseline 无 `*_v10_backup`，体积即净数据） |

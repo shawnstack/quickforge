@@ -31,7 +31,7 @@ describe('session state full chain smoke', () => {
     await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
   })
 
-  it('runs JSON import→authoritative, save/read/delete, CAS 409, split save→read→append→SSE frame, backup/restore, scheduled runs and the offline escape hatch without regression', async () => {
+  it('runs JSON import→authoritative, save/read/delete, CAS 409, split save→read→append→SSE frame, backup/restore, scheduled runs and the offline export escape hatch without regression', async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'qf-full-chain-smoke-'))
     directories.push(directory)
     const result = await spawnSmoke(directory)
@@ -39,24 +39,18 @@ describe('session state full chain smoke', () => {
     const output = JSON.parse(result.stdout.trim())
     expect(output.ok).toBe(true)
     expect(Number.isSafeInteger(output.schemaVersion) && output.schemaVersion > 0).toBe(true)
-    expect(output.phase).toBe('authoritative')
     expect(output.count).toBe(2)
-    expect(output.downgrade).toMatchObject({ dryRunOk: true, materialized: 210 })
     expect(output.share).toMatchObject({
-      phase: 'authoritative',
-      count: 2,
+      count: 1,
       restoreDigestOk: true,
-      mirrorOk: true,
-      downgrade: { dryRunOk: true, materialized: 1, committed: true, phaseAfterCommit: 'json_authoritative' },
+      jsonUntouched: true,
+      offlineExportOk: true,
     })
     expect(output.lanAccess).toMatchObject({
-      phase: 'authoritative',
       count: 1,
       roundtripDigestOk: true,
-      mirrorOk: true,
-      revokeAllOk: true,
-      backupRestoreOk: true,
-      downgrade: { dryRunOk: true, materialized: 1, committed: true, phaseAfterCommit: 'json_authoritative' },
+      jsonUntouched: true,
+      offlineExportOk: true,
     })
     expect(output.runtime).toBeDefined()
   })

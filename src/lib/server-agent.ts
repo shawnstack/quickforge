@@ -25,6 +25,12 @@ import {
 import { fetchJsonWithTimeout } from './server-agent-http'
 import { globalAgentSseClient } from './global-agent-sse-client'
 import { GoalStateController } from './goal-state-controller'
+import {
+  applyMessageLogOp,
+  createMessageLogWindow,
+  type MessageLogApplyResult,
+  type MessageLogOp,
+} from './message-log'
 import { leaseSnapshotFromWire, type SessionLeaseSnapshot } from './session-lease-client'
 import { SessionLeaseController } from './session-lease-controller'
 import type {
@@ -93,6 +99,15 @@ const STATE_REQUEST_TIMEOUT_MS = 30000
  * （后端不可达场景由 reconnect-notice 提示与 watchdog 后续轮询兜底）。
  */
 const MESSAGE_RECONCILE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000]
+/**
+ * 补齐全量历史的退避表（毫秒）。首试立即，之后 1s / 3s / 8s / 20s。
+ *
+ * 为什么要重试：只读视图只给尾部 200 条，更早历史全靠这一次全量拉取。手机
+ * 走 Tailscale 时这条请求是 MB 级，超时、切网、后台挂起都可能让它失败；旧实现
+ * 「调用方只调一次 + 失败静默 + 期间有 SSE 帧就丢弃结果」三者叠加，等于让那一端
+ * 永远停在 200 条，直到手动刷新。现在补齐是幂等、可重入、失败会重试的收敛动作。
+ */
+const HISTORY_HYDRATE_RETRY_DELAYS_MS = [0, 1_000, 3_000, 8_000, 20_000]
 // A goal action must never hang the card: bound it so a stuck request rejects
 // (and the card's pending state is released) instead of waiting forever.
 const GOAL_ACTION_TIMEOUT_MS = 30000
@@ -339,61 +354,13 @@ function cachedSnapshotToStateSnapshot(cached: SessionMessageSnapshotEntry): Ser
 // Split-session message reconciliation
 // ---------------------------------------------------------------------------
 
-function sameMessageShape(left: AgentMessage | undefined, right: AgentMessage): boolean {
-  if (!left) return false
-  // Identity alone is not enough: the final assistant can keep the streamed
-  // message id while its text arrives later. Skipping that update hides the
-  // summary until a full refresh replaces the list.
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
-/**
- * Merge an incremental tail (`messages` starting at index `after`) into the
- * local message list. Overlapping positions keep the server's version only
- * when the content actually differs (same-position edits); identical messages
- * (e.g. already applied via a message_end upsert) are skipped. This is the
- * split-session counterpart of the legacy whole-array replacement.
- */
-export function mergeIncrementalMessages(current: AgentMessage[], after: number, tail: AgentMessage[]): AgentMessage[] {
-  const result = current.slice()
-  const start = Math.max(0, Math.min(after, result.length))
-  for (let index = 0; index < tail.length; index += 1) {
-    const position = start + index
-    const message = tail[index]
-    if (position < result.length) {
-      if (sameMessageShape(result[position], message)) continue
-      result[position] = message
-    } else {
-      result.push(message)
-    }
-  }
-  return result
-}
-
-/**
- * Merge a server tail into a local list that starts at `windowOffset` in the
- * server's full message list (a read-only tail window, see `loadView`).
- *
- * `mergeIncrementalMessages` assumes the local list starts at server index 0.
- * A windowed list starts at `windowOffset`, so positions before that belong to
- * the omitted prefix and must be dropped — otherwise the tail is written into
- * the wrong slots and the visible conversation shifts.
- *
- * Deltas that start inside the window are applied at their window-relative
- * position; deltas that start before it are trimmed to the window start.
- */
-export function mergeWindowedMessages(
-  current: AgentMessage[],
-  windowOffset: number,
-  after: number,
-  tail: AgentMessage[],
-): AgentMessage[] {
-  if (windowOffset <= 0) return mergeIncrementalMessages(current, after, tail)
-  const skip = Math.max(0, windowOffset - after)
-  if (skip >= tail.length) return current
-  const relativeAfter = Math.max(0, after - windowOffset)
-  return mergeIncrementalMessages(current, relativeAfter, skip > 0 ? tail.slice(skip) : tail)
-}
+// 消息窗口合并：统一收口到 `message-log.ts`。
+//
+// 旧实现有两条并行的合并通道——`mergeIncrementalMessages`（假设本地从服务端
+// 索引 0 开始）和 `mergeWindowedMessages`（只有它在处理窗口偏移）。SSE 的
+// message_end / agent_end / messages_replaced 三个调用点走的是前者，于是
+// 「尾部窗口 + 增量帧」必然写错位置。现在两者都删除，所有路径统一走
+// `applyMessageLogOp`：坐标只有 `baseSeq + index`，缺口显式返回 `gap`。
 
 type SessionMessagesPage = { messages: AgentMessage[]; count: number; hasMore: boolean }
 
@@ -481,14 +448,24 @@ export class ServerAgent {
   private lastSseEventAt = Date.now()
   private lastServerStateVersion = 0
   /**
-   * 本地 `state.messages` 里第一条消息对应服务端全量列表的索引。
+   * 本地 `state.messages` 里第一条消息对应的服务端**绝对 seq**。
    *
-   * 正常 restore/create 路径为 0（本地就是全量）。只读视图（`loadView`）返回的是
-   * 尾部窗口，此时本地列表从 `summary.count - messages.length` 开始。增量对账
-   * （`reconcileMessagesFromSummary`）里所有「本地条数 == 服务端索引」的假设都
-   * 依赖这个偏移，必须显式记录，否则尾部窗口会话会拉错位置或判定为截断。
+   * 这是本次重构后唯一的消息坐标。正常 restore/create 路径为 0（本地就是
+   * 全量）。只读视图（`loadView`）返回尾部窗口时，它等于服务端给的
+   * `messagesAfter`。任何「本地数组长度 == 服务端下标」的假设都必须换成
+   * `messageBaseSeq + index`，否则窗口态会拉错位置或误判截断。
+   *
+   * 读写都只经过 `applyLog()`：它保证 `messages` 与 `baseSeq` 成对更新，
+   * 不再有「只换了数组、忘了偏移」的半截状态。
    */
-  private messageWindowOffset = 0
+  private messageBaseSeq = 0
+  /**
+   * 服务端消息日志版本（见 `server/message-log.mjs`）：只在消息数组真的变化
+   * 时递增，与 `stateVersion`（每个事件都 +1）分离。0 表示未知。
+   */
+  private messageLogVersion = 0
+  /** `ensureFullHistory` 的可中断等待句柄；dispose 时立即放行并清定时器。 */
+  private historyHydrateWaiter: { timer: ReturnType<typeof setTimeout>; resolve: () => void } | null = null
   /**
    * Goal-specific change watermark, independent of the message `stateVersion`.
    * Every applied goal snapshot that actually changes the goal increments it, so
@@ -921,7 +898,11 @@ export class ServerAgent {
   }
 
   reset(): void {
+    // 清空会话必须同时清坐标：否则复用实例时 baseSeq 还停在旧窗口起点，
+    // 下一次增量会把消息写进不存在的下标（旧实现的半截状态之一）。
     this.state.messages = []
+    this.messageBaseSeq = 0
+    this.messageLogVersion = 0
     this.state.errorMessage = undefined
     this.state.isStreaming = false
     this.state.streamingMessage = undefined
@@ -1004,11 +985,15 @@ export class ServerAgent {
    */
   async rollback(messageIndex: number): Promise<ServerRollbackResult> {
     if (!this.canWrite()) throw new Error('Another window is writing to this session')
+    // 调用方给的是**本地数组下标**（渲染层坐标）。服务端要的是会话绝对 seq；
+    // 窗口态下两者相差 `messageBaseSeq`，少了这一步换算会回滚到错误的轮次
+    // ——旧实现直接把本地下标发给服务端，窗口会话必然删错消息。
+    const absoluteIndex = this.messageBaseSeq + messageIndex
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/rollback`
     const res = await fetch(url, {
       method: 'POST',
       headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ messageIndex }),
+      body: JSON.stringify({ messageIndex: absoluteIndex }),
     })
     const payload = await res.json().catch(() => null) as (ServerRollbackResult & ServerErrorPayload) | null
     if (!res.ok) throw new Error(serverErrorMessage(payload, `Failed to roll back: HTTP ${res.status}`))
@@ -1344,6 +1329,12 @@ export class ServerAgent {
       clearTimeout(this.messageReconcileRetryTimer)
       this.messageReconcileRetryTimer = null
     }
+    if (this.historyHydrateWaiter !== null) {
+      // 放行挂起的 `ensureFullHistory`，让它在下一轮 `disposed` 检查里退出。
+      clearTimeout(this.historyHydrateWaiter.timer)
+      this.historyHydrateWaiter.resolve()
+      this.historyHydrateWaiter = null
+    }
     this.statusPromise = null
     this.subagentRunPublisher.dispose()
     this.workflowAgentRunPublisher.dispose()
@@ -1369,7 +1360,7 @@ export class ServerAgent {
     const messages = state.messages.length > SESSION_MESSAGE_CACHE_TAIL_MESSAGES
       ? state.messages.slice(-SESSION_MESSAGE_CACHE_TAIL_MESSAGES)
       : state.messages
-    const messageCount = this.messageWindowOffset + state.messages.length
+    const messageCount = this.messageBaseSeq + state.messages.length
     return {
       stateVersion: this.lastServerStateVersion,
       messages,
@@ -1433,11 +1424,63 @@ export class ServerAgent {
   }
 
   private applyGoalIterationMarkers(markers?: GoalIterationMarkerSnapshot[], replay = false): void {
-    const messages = mergeGoalIterationMarkers(this.state.messages, markers, replay)
+    // marker 的 `index`/`seq` 是**会话绝对位置**；本地数组是窗口，必须减去
+    // baseSeq 才是可达下标。窗口外的 marker 直接丢弃——滚动到更早历史时会随
+    // 新快照重新下发。旧实现直接把绝对下标写进窗口数组，窗口态下标记会落到
+    // 无关消息上（或静默越界）。
+    const relative = Array.isArray(markers)
+      ? markers
+          .map((marker) => {
+            const absolute = typeof marker.seq === 'number' ? marker.seq : marker.index
+            return { ...marker, index: absolute - this.messageBaseSeq }
+          })
+          .filter((marker) => marker.index >= 0 && marker.index < this.state.messages.length)
+      : markers
+    const messages = mergeGoalIterationMarkers(this.state.messages, relative, replay)
     if (messages === this.state.messages) return
     this.state.messages = messages
     this.stateVersion++
     this.notifyMessageMetadataChanged()
+  }
+
+  /**
+   * 把一条消息日志操作应用到本地窗口。**所有**消息写入都必须走这里。
+   *
+   * 职责边界：
+   * - 只改 `state.messages` / `messageBaseSeq` / `messageLogVersion` 三者，并
+   *   保证它们成对更新（旧实现有 8 处「只换数组、忘了偏移」的半截状态）；
+   * - 不推进 `stateVersion`、不广播——由调用方按各自语义决定；
+   * - `outcome === 'gap'` 时窗口保持不变并触发一次强制对账，绝不猜测拼接。
+   */
+  private applyLog(op: MessageLogOp<AgentMessage>): MessageLogApplyResult<AgentMessage> {
+    const window = createMessageLogWindow(this.messageBaseSeq, this.state.messages, this.messageLogVersion)
+    const result = applyMessageLogOp(window, op)
+    if (result.outcome === 'gap') {
+      logger.debug(`[message-log] gap at seq ${result.gapFrom ?? 0}; forcing reconcile`, { sessionId: this.sessionId })
+      void this.refreshStateFromServer({ forceMessages: true }).catch(() => {})
+      return result
+    }
+    this.messageLogVersion = result.window.logVersion
+    if (result.outcome === 'applied') {
+      this.messageBaseSeq = result.window.baseSeq
+      this.state.messages = result.window.messages
+    }
+    return result
+  }
+
+  /** 本地窗口覆盖到的服务端绝对位置（不含），用于和 `messagesSummary.count` 比较。 */
+  private localMessageEndSeq(): number {
+    return this.messageBaseSeq + this.state.messages.length
+  }
+
+  /**
+   * 本地消息窗口的**绝对起点**（本地 `state.messages[0]` 对应的会话 seq）。
+   *
+   * UI 需要把服务端下发的会话绝对坐标（压缩分割线位置、goal 标记等）换算成
+   * 本地窗口坐标时读这个值；不要在组件里用「消息条数」反推。
+   */
+  get messageOffset(): number {
+    return this.messageBaseSeq
   }
 
   // --- SSE event handling ---
@@ -1459,9 +1502,26 @@ export class ServerAgent {
         if (s.systemPrompt !== undefined) {
           this.state.systemPrompt = s.systemPrompt
         }
-        if (s.messages && (s.messages.length > this.state.messages.length || (!this.state.isStreaming && s.messages.length === this.state.messages.length))) {
-          if (JSON.stringify(this.state.messages) !== JSON.stringify(s.messages)) {
-            this.state.messages = s.messages
+        if (s.messages) {
+          // 用**绝对位置**判断快照新旧：服务端总数 vs 本地窗口末尾。
+          // 旧实现比较 `s.messages.length > this.state.messages.length`，在
+          // 窗口态下恒成立/恒不成立，取决于窗口起点，与数据新旧无关。
+          const snapshotBaseSeq = typeof s.messagesAfter === 'number' ? s.messagesAfter : 0
+          const serverTotal = typeof s.messagesSummary?.count === 'number'
+            ? s.messagesSummary.count
+            : snapshotBaseSeq + s.messages.length
+          const localEnd = this.localMessageEndSeq()
+          const acceptSnapshot = serverTotal > localEnd
+            || (!this.state.isStreaming && serverTotal === localEnd)
+          const changed = snapshotBaseSeq !== this.messageBaseSeq
+            || JSON.stringify(this.state.messages) !== JSON.stringify(s.messages)
+          if (acceptSnapshot && changed) {
+            this.applyLog({
+              kind: 'snapshot',
+              baseSeq: snapshotBaseSeq,
+              messages: s.messages,
+              logVersion: s.logVersion,
+            })
             this.stateVersion++
             this.notifyMessageMetadataChanged()
           }
@@ -1565,7 +1625,7 @@ export class ServerAgent {
 
       case 'agent_end': {
         this.stopStateWatchdog()
-        const endEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
+        const endEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number; logVersion?: number }; logVersion?: number; messagesReplaced?: boolean; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
 
         // The server normalizes pi-agent-core's agent_end payload to include
         // the authoritative full session history (non-split) or an incremental
@@ -1574,14 +1634,17 @@ export class ServerAgent {
         // If the event is missing messages or looks older than local state,
         // fall back to the full state fetch for safety.
         if (endEvent.messagesIncremental) {
-          this.state.messages = mergeIncrementalMessages(
-            this.state.messages,
-            typeof endEvent.messagesAfter === 'number' ? endEvent.messagesAfter : this.state.messages.length,
-            endEvent.messages ?? [],
-          )
+          // 增量按**绝对 seq** 落位：`messagesAfter` 由服务端给，缺省时用本地
+          // 末尾（旧服务端的兜底）。缺口会由 applyLog 触发强制对账，不猜拼接。
+          this.applyLog({
+            kind: 'append',
+            after: typeof endEvent.messagesAfter === 'number' ? endEvent.messagesAfter : this.localMessageEndSeq(),
+            messages: endEvent.messages ?? [],
+            logVersion: endEvent.logVersion,
+          })
           const summary = endEvent.messagesSummary
           const summaryCount = summary?.count
-          if (summary && typeof summaryCount === 'number' && summaryCount > this.state.messages.length) {
+          if (summary && typeof summaryCount === 'number' && summaryCount > this.localMessageEndSeq()) {
             void this.reconcileMessagesFromSummary(summary, undefined, true).finally(() => {
               this.state.isStreaming = false
               this.state.streamingMessage = undefined
@@ -1607,7 +1670,7 @@ export class ServerAgent {
         }
         if (endEvent.messagesSummary && (
           !Array.isArray(endEvent.messages)
-          || (typeof endEvent.messagesSummary.count === 'number' && endEvent.messagesSummary.count > this.state.messages.length)
+          || (typeof endEvent.messagesSummary.count === 'number' && endEvent.messagesSummary.count > this.localMessageEndSeq())
         )) {
           void this.reconcileMessagesFromSummary(endEvent.messagesSummary, undefined, true).finally(() => {
             this.state.isStreaming = false
@@ -1620,7 +1683,12 @@ export class ServerAgent {
           return
         }
         if (endEvent.messages && endEvent.messages.length >= this.state.messages.length) {
-          this.state.messages = endEvent.messages
+          this.applyLog({
+            kind: 'snapshot',
+            baseSeq: typeof endEvent.messagesAfter === 'number' ? endEvent.messagesAfter : 0,
+            messages: endEvent.messages,
+            logVersion: endEvent.logVersion,
+          })
           this.replayGoalIterationMarkers()
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.isStreaming = false
@@ -1652,7 +1720,7 @@ export class ServerAgent {
         // calls are executed after the assistant message_end event, so keeping
         // this message in local state lets pending run_command cards render
         // immediately instead of waiting for a full state refresh.
-        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; contextUsage?: ServerAgentContextUsage | null }
+        const msgEvent = event as { message?: AgentMessage; messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number; logVersion?: number }; logVersion?: number; contextUsage?: ServerAgentContextUsage | null }
         // The partial body this stream was rendering is finalized by this
         // frame (carried by it or refetched below), so drop it to avoid
         // rendering the same message twice (list + streaming container).
@@ -1674,12 +1742,13 @@ export class ServerAgent {
           return
         }
         if (msgEvent.messagesIncremental) {
-          this.state.messages = mergeIncrementalMessages(
-            this.state.messages,
-            typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : this.state.messages.length,
-            msgEvent.messages ?? [],
-          )
-          if (typeof msgEvent.messagesSummary?.count === 'number' && msgEvent.messagesSummary.count > this.state.messages.length) {
+          this.applyLog({
+            kind: 'append',
+            after: typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : this.localMessageEndSeq(),
+            messages: msgEvent.messages ?? [],
+            logVersion: msgEvent.logVersion,
+          })
+          if (typeof msgEvent.messagesSummary?.count === 'number' && msgEvent.messagesSummary.count > this.localMessageEndSeq()) {
             void this.reconcileMessagesFromSummary(msgEvent.messagesSummary, undefined, true).finally(() => {
               this.forwardWireEvent(event)
             })
@@ -1692,7 +1761,12 @@ export class ServerAgent {
           return
         }
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
-          this.state.messages = msgEvent.messages
+          this.applyLog({
+            kind: 'snapshot',
+            baseSeq: typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : 0,
+            messages: msgEvent.messages,
+            logVersion: msgEvent.logVersion,
+          })
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
@@ -1717,13 +1791,18 @@ export class ServerAgent {
         // point it is already in state and tool results may have followed it.
         // Do not upsert event.message here, otherwise it can duplicate the
         // assistant message after tool results.
-        const msgEvent = event as { messages?: AgentMessage[]; contextUsage?: ServerAgentContextUsage | null }
+        const msgEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; logVersion?: number; contextUsage?: ServerAgentContextUsage | null }
         // Defensive: message_end normally cleared the partial body already,
         // but a turn_end without a preceding message_end must not leave the
         // last streamed message duplicated in the streaming container.
         this.state.streamingMessage = undefined
         if (msgEvent.messages && msgEvent.messages.length >= this.state.messages.length) {
-          this.state.messages = msgEvent.messages
+          this.applyLog({
+            kind: 'snapshot',
+            baseSeq: typeof msgEvent.messagesAfter === 'number' ? msgEvent.messagesAfter : 0,
+            messages: msgEvent.messages,
+            logVersion: msgEvent.logVersion,
+          })
           this.replayGoalIterationMarkers()
           this.state.contextUsage = msgEvent.contextUsage !== undefined ? msgEvent.contextUsage : null
           this.stateVersion++
@@ -1737,16 +1816,15 @@ export class ServerAgent {
       }
 
       case 'messages_replaced': {
-        const replacedEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number }; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
+        const replacedEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesReplaced?: boolean; messagesSummary?: { count?: number; logVersion?: number }; logVersion?: number; contextCompaction?: ServerAgentContextCompaction | null; contextUsage?: ServerAgentContextUsage | null }
         if (replacedEvent.messagesIncremental) {
-          // Split sessions normally emit a summary-only frame for replacements
-          // (rollback/clear produce an empty tail); keep this branch for
-          // forward compatibility with tail-carrying replacement frames.
-          this.state.messages = mergeIncrementalMessages(
-            this.state.messages,
-            typeof replacedEvent.messagesAfter === 'number' ? replacedEvent.messagesAfter : this.state.messages.length,
-            replacedEvent.messages ?? [],
-          )
+          // 旧服务端的兼容分支：替换帧带增量尾。
+          this.applyLog({
+            kind: 'append',
+            after: typeof replacedEvent.messagesAfter === 'number' ? replacedEvent.messagesAfter : this.localMessageEndSeq(),
+            messages: replacedEvent.messages ?? [],
+            logVersion: replacedEvent.logVersion,
+          })
           this.state.streamingMessage = undefined
           this.stateVersion++
         } else if (replacedEvent.messagesSummary && !Array.isArray(replacedEvent.messages)) {
@@ -1754,7 +1832,15 @@ export class ServerAgent {
           // refetch everything and replace the local list.
           void this.reconcileMessagesFromSummary(replacedEvent.messagesSummary)
         } else if (replacedEvent.messages) {
-          this.state.messages = replacedEvent.messages
+          // 替换语义：旧前缀作废，baseSeq 由服务端的 `messagesAfter` 重建。
+          // 这里必须是 `replace` 而不是 `snapshot`——否则回滚后本地会保留
+          // 对「已不存在的消息」的窗口假设。
+          this.applyLog({
+            kind: 'replace',
+            baseSeq: typeof replacedEvent.messagesAfter === 'number' ? replacedEvent.messagesAfter : 0,
+            messages: replacedEvent.messages,
+            logVersion: replacedEvent.logVersion,
+          })
           this.state.streamingMessage = undefined
           this.stateVersion++
         }
@@ -1768,6 +1854,14 @@ export class ServerAgent {
           this.state.contextUsage = null
         }
         break
+      }
+
+      case 'resync': {
+        // 事件环缺口（断线太久 / 服务端重启）：错过的增量已不可重放，重取一次
+        // 权威快照。这是「双端最终一致」的兜底路径，不做节流——该帧本身稀少，
+        // 而缺口期间本地可能已经落后很多条。
+        void this.syncState()
+        return
       }
 
       case 'error': {
@@ -2113,33 +2207,46 @@ export class ServerAgent {
    *
    * 幂等且可重复调用：已经是全量（偏移 0）时直接返回。失败保持窗口状态不变。
    */
-  async hydrateFullHistory(beforeReplace?: () => (() => void) | void): Promise<void> {
-    if (this.disposed || this.messageWindowOffset <= 0) return
-    const versionBefore = this.stateVersion
+  /**
+   * 补齐全量历史：把本地尾部窗口向前扩到会话开头。
+   *
+   * 幂等、可重入：`baseSeq === 0` 时直接返回 true。返回 false 表示这次没成功
+   * （网络失败 / 服务端无响应），调用方（`ensureFullHistory`）会退避重试。
+   *
+   * 与旧实现的区别（都是「补齐永久失败」的成因）：
+   * - 不再因为「拉取期间有 SSE 帧推进了 stateVersion」就整段丢弃：服务端全量
+   *   作为基底，本地更长的尾部保留，合并后提交；
+   * - 不再静默吞掉失败，返回值让上层可以重试。
+   */
+  async hydrateFullHistory(beforeReplace?: () => (() => void) | void): Promise<boolean> {
+    if (this.disposed || this.messageBaseSeq <= 0) return true
     let all: AgentMessage[] | null
     try {
       all = await this.fetchAllMessagesFromServer()
     } catch {
-      return
+      return false
     }
-    if (!all || this.disposed) return
-    // A concurrent SSE frame already advanced the list; drop this snapshot and
-    // leave the offset in place so a later attempt can still widen it.
-    if (versionBefore !== this.stateVersion) return
+    if (this.disposed) return false
+    if (!all) return false
     if (all.length <= this.state.messages.length) {
-      // Nothing more on the server than we already show: clear the offset so we
-      // stop treating the list as windowed.
-      this.messageWindowOffset = 0
-      return
+      // 服务端没有更多历史：清掉窗口标记，停止把它当窗口处理。
+      this.messageBaseSeq = 0
+      return true
     }
+    const localEnd = this.localMessageEndSeq()
+    // 拉取期间本地可能已被 SSE 推进到更后面：以服务端全量为基底，把本地超出
+    // 的部分接上，避免这次补齐把刚到的消息回退掉（旧实现直接丢弃整份结果）。
+    const merged = all.length >= localEnd
+      ? all
+      : [...all, ...this.state.messages.slice(all.length - this.messageBaseSeq)]
     // 一次性替换，不分批。
     //
     // 曾尝试「按 60 条逐帧向前扩展」以削平长任务，**实测更差**：累计阻塞从
     // ~1.1s 涨到 5.0s、长任务从 2 个变成 35 个。原因是每次提交都要重建整张列表
     // （React 协调 + 装饰重算），增量收益被重复成本吃掉。保持单次替换。
     const cancelAnchor = beforeReplace?.()
-    this.state.messages = all
-    this.messageWindowOffset = 0
+    // 补齐 = 整表替换，baseSeq 归零。走 applyLog 保证「数组 + 偏移」成对更新。
+    this.applyLog({ kind: 'snapshot', baseSeq: 0, messages: merged })
     this.state.contextUsage = null
     this.stateVersion++
     this.notifyMessageMetadataChanged()
@@ -2152,6 +2259,38 @@ export class ServerAgent {
         : (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0)
       defer(() => cancelAnchor())
     }
+    return true
+  }
+
+  /**
+   * 收敛循环：反复尝试补齐，直到 `baseSeq === 0` 或退避表耗尽。
+   *
+   * 这是 UI 唯一该调用的入口。可被多次触发（首帧后 / 页面重新可见 / 网络恢复），
+   * 已补齐时是零成本早退。
+   */
+  async ensureFullHistory(beforeReplace?: () => (() => void) | void): Promise<boolean> {
+    for (const delay of HISTORY_HYDRATE_RETRY_DELAYS_MS) {
+      if (this.disposed) return false
+      if (this.messageBaseSeq <= 0) return true
+      if (delay > 0) {
+        await this.sleepBeforeHistoryHydrate(delay)
+        if (this.disposed) return false
+        if (this.messageBaseSeq <= 0) return true
+      }
+      if (await this.hydrateFullHistory(beforeReplace)) return true
+    }
+    return this.messageBaseSeq <= 0
+  }
+
+  /** 可中断的等待：dispose 时立即放行，避免定时器把实例吊在内存里。 */
+  private sleepBeforeHistoryHydrate(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.historyHydrateWaiter = null
+        resolve()
+      }, ms)
+      this.historyHydrateWaiter = { timer, resolve }
+    })
   }
 
   private async refreshStateFromServer(options?: { notify?: boolean; forceMessages?: boolean }) {
@@ -2246,7 +2385,7 @@ export class ServerAgent {
     // offset has to participate — otherwise a 200-message window over a
     // 1000-message session looks like a 800-message server-side truncation and
     // triggers a pointless full refetch.
-    const windowOffset = this.messageWindowOffset
+    const windowOffset = this.messageBaseSeq
     const localEnd = windowOffset + localCount
     const isCurrent = () => versionBefore === this.stateVersion
       && (!markers || markers === this.latestGoalIterationMarkers)
@@ -2278,9 +2417,8 @@ export class ServerAgent {
         this.scheduleMessageReconcileRetry(summary, markers, forceMessages, retryAttempt)
         return
       }
-      this.state.messages = all
       // The refetch restored the full list, so the window offset no longer applies.
-      this.messageWindowOffset = 0
+      this.applyLog({ kind: 'snapshot', baseSeq: 0, messages: all })
       this.state.contextUsage = null
       this.stateVersion++
       finish()
@@ -2328,17 +2466,17 @@ export class ServerAgent {
         this.scheduleMessageReconcileRetry(summary, markers, forceMessages, retryAttempt)
         return
       }
-      this.state.messages = all
-      this.messageWindowOffset = 0
+      this.applyLog({ kind: 'snapshot', baseSeq: 0, messages: all })
       this.state.contextUsage = null
       this.stateVersion++
       finish()
       return
     }
     if (page.messages.length > 0) {
-      const merged = mergeWindowedMessages(this.state.messages, windowOffset, after, page.messages)
-      if (JSON.stringify(merged) !== JSON.stringify(this.state.messages)) {
-        this.state.messages = merged
+      // 窗口偏移与空洞由 applyLog 统一处理（旧实现走 mergeWindowedMessages
+      // 这一条单独的旁路，其它增量路径绕过它就会错位）。
+      const applied = this.applyLog({ kind: 'append', after, messages: page.messages })
+      if (applied.outcome === 'applied') {
         this.state.contextUsage = null
         this.stateVersion++
       }
@@ -2402,17 +2540,31 @@ export class ServerAgent {
         this.lastServerStateVersion = serverStateVersion
       }
 
+      // 用**绝对位置**判断快照新旧（服务端总数 vs 本地窗口末尾），不再比较
+      // 两边数组长度——窗口态下那个比较与数据新旧无关。
+      const snapshotBaseSeq = typeof state.messagesAfter === 'number' ? state.messagesAfter : 0
+      const serverTotal = typeof state.messagesSummary?.count === 'number'
+        ? state.messagesSummary.count
+        : snapshotBaseSeq + (state.messages?.length ?? 0)
+      const localEnd = this.localMessageEndSeq()
       const shouldReplaceMessages = Boolean(
         state.messages
         && (
           options?.forceMessages
-          || state.messages.length > this.state.messages.length
-          || (!this.state.isStreaming && state.messages.length === this.state.messages.length)
+          || serverTotal > localEnd
+          || (!this.state.isStreaming && serverTotal === localEnd)
         ),
       )
       if (shouldReplaceMessages && state.messages) {
-        if (JSON.stringify(this.state.messages) !== JSON.stringify(state.messages)) {
-          this.state.messages = state.messages
+        const changed = snapshotBaseSeq !== this.messageBaseSeq
+          || JSON.stringify(this.state.messages) !== JSON.stringify(state.messages)
+        if (changed) {
+          this.applyLog({
+            kind: 'snapshot',
+            baseSeq: snapshotBaseSeq,
+            messages: state.messages,
+            logVersion: state.logVersion,
+          })
           this.stateVersion++
           this.notifyMessageMetadataChanged()
         }
@@ -2425,7 +2577,7 @@ export class ServerAgent {
         // async gap, so concurrent SSE updates still win.
         const summaryCount = state.messagesSummary.count
         if (!options?.forceMessages && versionMatchesLocal
-          && typeof summaryCount === 'number' && summaryCount === this.state.messages.length) {
+          && typeof summaryCount === 'number' && summaryCount === this.localMessageEndSeq()) {
           // Unchanged server version + matching summary count: the local
           // message list (e.g. hydrated from the snapshot cache) is already
           // in sync — skip the /messages fetch. forceMessages keeps the
@@ -2530,6 +2682,23 @@ export class ServerAgent {
    *
    * 失败（404 / 网络）抛错，由调用方决定是否退回 `restore`。
    */
+  /**
+   * 把服务端快照的坐标落到实例上：`baseSeq` 与 `logVersion`。
+   *
+   * 四条构造路径（`loadView` / `restore` 缓存命中 / `restore` 网络 / `create`）
+   * 都必须调用。少一条就会出现「消息是尾部窗口、坐标还是 0」的错位状态——
+   * 旧实现只有 `loadView` 与缓存命中设了偏移，`restore` 拿到窗口后仍按全量
+   * 处理，后续增量必然写错位置。
+   */
+  private static applySnapshotCoordinates(agent: ServerAgent, snapshot: ServerAgentStateSnapshot): void {
+    const messageCount = Array.isArray(snapshot.messages) ? snapshot.messages.length : 0
+    const summaryCount = typeof snapshot.messagesSummary?.count === 'number' ? snapshot.messagesSummary.count : undefined
+    agent.messageBaseSeq = typeof snapshot.messagesAfter === 'number'
+      ? snapshot.messagesAfter
+      : (summaryCount !== undefined && summaryCount > messageCount ? summaryCount - messageCount : 0)
+    agent.messageLogVersion = typeof snapshot.logVersion === 'number' ? snapshot.logVersion : 0
+  }
+
   static async loadView(
     sessionId: string,
     config: { baseUrl?: string; signal?: AbortSignal } = {},
@@ -2552,19 +2721,16 @@ export class ServerAgent {
       baseUrl,
       initialState: initialStateFromSnapshot(snapshot),
     })
-    // 尾部窗口：remember where the local list starts in the server's full list.
-    // Every incremental reconcile assumes "local index == server index"; with a
-    // window that only holds when the offset is recorded here.
-    const summaryCount = typeof snapshot.messagesSummary?.count === 'number' ? snapshot.messagesSummary.count : undefined
-    if (summaryCount !== undefined && summaryCount > snapshot.messages.length) {
-      agent.messageWindowOffset = summaryCount - snapshot.messages.length
-    }
+    // 尾部窗口：服务端直接给 `messagesAfter`（绝对 seq），比「总数 - 本地条数」
+    // 更可靠 —— 后者在服务端窗口策略变化时会算错。
+    ServerAgent.applySnapshotCoordinates(agent, snapshot)
     agent.sessionCacheMetadata = snapshotForCache(snapshot as Record<string, unknown>).snapshot
     agent.scheduleSessionMessageCacheWrite()
     logger.debug('Loaded session view', {
       sessionId,
       messageCount: snapshot.messages.length,
-      totalMessageCount: summaryCount,
+      totalMessageCount: snapshot.messagesSummary?.count,
+      messageBaseSeq: agent.messageOffset,
     })
     return { agent, snapshot }
   }
@@ -2591,7 +2757,8 @@ export class ServerAgent {
         })
         // The snapshot is a tail window: record where it starts in the server's
         // full list so the background reconcile asks for the right tail.
-        agent.messageWindowOffset = cached.windowOffset
+        // 缓存条目不带消息日志版本（0 = 未知），由随后的 /state 校准。
+        agent.messageBaseSeq = cached.windowOffset
         agent.sessionCacheMetadata = cached.snapshot
         void agent.refreshStateFromServer({ notify: true, forceMessages: false })
           .catch(() => {})
@@ -2623,6 +2790,8 @@ export class ServerAgent {
       baseUrl,
       initialState: initialStateFromSnapshot(snapshot),
     })
+    // 服务端可能只返回尾部窗口（`projectSessionSnapshot`），坐标必须一起落。
+    ServerAgent.applySnapshotCoordinates(agent, snapshot)
     agent.sessionCacheMetadata = snapshotForCache(snapshot as Record<string, unknown>).snapshot
     agent.scheduleSessionMessageCacheWrite()
     logger.debug('Restored ServerAgent', {
@@ -2712,6 +2881,9 @@ export class ServerAgent {
         stateVersion: serverState.stateVersion as number | undefined,
       },
     })
+    // 新建会话通常是空消息，但服务端仍按统一快照形状回复（可能带尾部窗口），
+    // 坐标一并落地，避免复用实例时的半截状态。
+    ServerAgent.applySnapshotCoordinates(agent, serverState as ServerAgentStateSnapshot)
     agent.sessionCacheMetadata = snapshotForCache(serverState).snapshot
     agent.scheduleSessionMessageCacheWrite()
     return agent

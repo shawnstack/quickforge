@@ -1,6 +1,6 @@
 # 会话状态 SQLite 事务权威存储（F8 / F9）
 
-> 状态：F8 将 session body、metadata、session_index 与 JSON mirror outbox 收敛为 SQLite 单事务提交，提供严格校验、CAS、可恢复 cutover、镜像物化、backup/restore 与离线降级工具。F9 Phase 2（核心存储层）在 schema v7 增加按会话分片的 `session_messages` 增量存储：大会话“拆分后写入”，body 保留 `messageStorage: 'split'` 标记，messages 行与 body/index/outbox 同一事务提交。schema v7。JSON mirror 保留用于降级与外部工具读取，SQLite 在 pending/authoritative 下是唯一业务权威。
+> 状态：**历史决策记录**——本文描述的 mirror outbox、相位路由、可恢复 cutover 与离线降级工具均已在会话域存储 v2 / baseline v19 中整体删除，当前事实源见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)，schema 与迁移协议见 [`sqlite-storage-foundation.zh-CN.md`](./sqlite-storage-foundation.zh-CN.md) §4。F8 将 session body、metadata、session_index 与 JSON mirror outbox 收敛为 SQLite 单事务提交，提供严格校验、CAS、可恢复 cutover、镜像物化、backup/restore 与离线降级工具。F9 Phase 2（核心存储层）在 schema v7 增加按会话分片的 `session_messages` 增量存储：大会话“拆分后写入”，body 保留 `messageStorage: 'split'` 标记，messages 行与 body/index/outbox 同一事务提交。schema v7。JSON mirror 保留用于降级与外部工具读取，SQLite 在 pending/authoritative 下是唯一业务权威。
 > 边界（F9 Phase 2）：本阶段实施核心存储层（schema v7 + repository 分片 API + service 增量读写与 digest 语义）；agent-manager 增量接线、route SSE 增量下发、前端、backup 导出 v2 与 downgrade 对拆分会话的完整物化属于 Phase 3。
 
 ## 1. Schema v6 → v7

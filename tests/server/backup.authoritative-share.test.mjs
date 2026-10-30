@@ -27,10 +27,9 @@ function record(overrides = {}) {
 }
 
 /**
- * Set up a real authoritative share state environment (temp data dir + SQLite
- * schema v8 + share cutover to authoritative with seeded v1 JSON) and freshly
- * import the route so dataDir/storageDir/sqlite paths all resolve inside the
- * temp dir.
+ * Set up a real share state environment (temp data dir + SQLite schema + shares
+ * seeded straight through the authoritative repository) and freshly import the
+ * route so dataDir/storageDir/sqlite paths all resolve inside the temp dir.
  */
 async function withAuthoritativeShareBackup(seedShares, testFn) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-backup-share-'))
@@ -43,25 +42,20 @@ async function withAuthoritativeShareBackup(seedShares, testFn) {
     const storage = await import('../../server/storage.mjs')
     database = await import('../../server/sqlite/database.mjs')
     const repoModule = await import('../../server/sqlite/share-repository.mjs')
-    const service = await import('../../server/share-service.mjs')
-    const cutover = await import('../../server/share-cutover.mjs')
+    const lanAccessRepoModule = await import('../../server/sqlite/lan-access-repository.mjs')
+    const lanAccessService = await import('../../server/lan-access-service.mjs')
+    const maintenance = await import('../../server/share-maintenance.mjs')
     await storage.ensureStorage()
     const sqliteStorage = await database.initializeSqliteStorage({ dataDir: tmpDir })
+    // Real startup materializes the disabled LAN-access config row; the backup
+    // builder always exports that domain, so a fresh database must look the
+    // same here or the LAN integrity check fails before share data is reached.
+    lanAccessService.configureLanAccessService({ repository: lanAccessRepoModule.createLanAccessRepository(sqliteStorage) })
+    await lanAccessService.initializeLanAccessService()
     const repository = repoModule.createShareRepository(sqliteStorage)
-    service.configureShareService({ repository, mirror: null, phase: 'json_authoritative' })
-    const sharesFile = path.join(tmpDir, 'storage', 'shares', 'conversation-shares.json')
-    await fs.mkdir(path.dirname(sharesFile), { recursive: true })
-    await fs.writeFile(sharesFile, `${JSON.stringify(seedShares)}\n`, 'utf8')
-    const state = await cutover.initializeShareCutover({
-      storage: sqliteStorage,
-      repository,
-      backupDirectory: path.join(tmpDir, 'storage', 'backups'),
-      mirror: { upsert: async () => {}, delete: async () => {} },
-      owner: { id: '500:test', pid: 500 },
-      pidAlive: () => false,
-    })
-    if (state.phase !== 'authoritative') throw new Error(`expected authoritative, got ${state.phase}`)
-    await testFn(backup, storage, service, repository, sqliteStorage, cutover)
+    const seedRecords = Object.values(seedShares)
+    if (seedRecords.length > 0) repository.replaceAll(seedRecords, {})
+    await testFn(backup, storage, sqliteStorage, repository, maintenance)
   } finally {
     await database.closeSqliteStorage().catch(() => {})
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
@@ -111,7 +105,7 @@ async function callImport(backup, body) {
 }
 
 describe('backup route — authoritative share state', () => {
-  it('exports shares with shareState phase/count/digest including tokens (scope=shares and scope=all)', async () => {
+  it('exports shares with shareState count/digest including tokens (scope=shares and scope=all)', async () => {
     const seeded = record({ id: shareId(), sessionId: 'seed', titleSnapshot: 'Seed' })
     const withToken = record({
       id: shareId(),
@@ -119,11 +113,12 @@ describe('backup route — authoritative share state', () => {
       titleSnapshot: 'With token',
       tokens: [{ tokenHash: 'token-hash-abc', issuedAt: '2026-01-01T00:00:00.000Z', expiresAt: '2027-01-01T00:00:00.000Z', authVersion: 1 }],
     })
-    await withAuthoritativeShareBackup({ [seeded.id]: seeded, [withToken.id]: withToken }, async (backup, storage, service, repository) => {
+    await withAuthoritativeShareBackup({ [seeded.id]: seeded, [withToken.id]: withToken }, async (backup, storage, sqliteStorage, repository) => {
       const { res, json } = await callExport(backup)
       expect(res._status).toBe(200)
       expect(json.scope).toBe('shares')
-      expect(json.shareState).toMatchObject({ phase: 'authoritative', count: 2 })
+      expect(json.shareState).toMatchObject({ count: 2 })
+      expect(json.shareState).not.toHaveProperty('phase')
       expect(json.shareState.digest).toBe(repository.digest())
       expect(Object.keys(json.data.shares).sort()).toEqual([seeded.id, withToken.id].sort())
       expect(json.data.shares[withToken.id].tokens).toEqual([
@@ -140,7 +135,7 @@ describe('backup route — authoritative share state', () => {
 
   it('imports shares in replace mode and leaves scheduled_task_runs untouched', async () => {
     const seedShare = record({ id: shareId(), sessionId: 'seed', titleSnapshot: 'Seed' })
-    await withAuthoritativeShareBackup({ [seedShare.id]: seedShare }, async (backup, storage, service, repository, sqliteStorage) => {
+    await withAuthoritativeShareBackup({ [seedShare.id]: seedShare }, async (backup, storage, sqliteStorage, repository) => {
       const runsModule = await import('../../server/sqlite/scheduled-task-runs-repository.mjs')
       const runsRepository = runsModule.createScheduledTaskRunsRepository(sqliteStorage)
       runsRepository.create('task-a', { id: 'run-1', status: 'success', startedAt: '2026-01-01T00:00:00.000Z' })
@@ -175,7 +170,7 @@ describe('backup route — authoritative share state', () => {
   it('imports shares in merge mode preserving local-only records and overriding same keys', async () => {
     const localOnly = record({ id: shareId(), sessionId: 'local', titleSnapshot: 'Local only' })
     const override = record({ id: shareId(), sessionId: 'override', titleSnapshot: 'Old title' })
-    await withAuthoritativeShareBackup({ [localOnly.id]: localOnly, [override.id]: override }, async (backup, storage, service, repository) => {
+    await withAuthoritativeShareBackup({ [localOnly.id]: localOnly, [override.id]: override }, async (backup, storage, sqliteStorage, repository) => {
       const added = record({ id: shareId(), sessionId: 'added', titleSnapshot: 'Added' })
       const payload = {
         backup: {
@@ -199,7 +194,7 @@ describe('backup route — authoritative share state', () => {
     })
   })
 
-  it('imports a legacy v1 conversation-shares.json shape without an envelope (single-token fields normalized)', async () => {
+  it('imports a legacy v1 share backup shape without an envelope (single-token fields normalized)', async () => {
     const legacyId = shareId('legacy')
     const legacy = {
       id: legacyId,
@@ -215,7 +210,7 @@ describe('backup route — authoritative share state', () => {
       tokenIssuedAt: '2026-01-01T00:00:00.000Z',
       tokenExpiresAt: '2027-01-01T00:00:00.000Z',
     }
-    await withAuthoritativeShareBackup({}, async (backup, storage, service, repository) => {
+    await withAuthoritativeShareBackup({}, async (backup, storage, sqliteStorage, repository) => {
       const payload = {
         backup: {
           data: {
@@ -239,8 +234,8 @@ describe('backup route — authoritative share state', () => {
 
   it('rejects import with 423 while share maintenance is active', async () => {
     const seedShare = record({ id: shareId(), sessionId: 'seed', titleSnapshot: 'Seed' })
-    await withAuthoritativeShareBackup({ [seedShare.id]: seedShare }, async (backup, storage, service, repository, sqliteStorage, cutover) => {
-      const lease = cutover.acquireShareMaintenanceLock(sqliteStorage, {
+    await withAuthoritativeShareBackup({ [seedShare.id]: seedShare }, async (backup, storage, sqliteStorage, repository, maintenance) => {
+      const lease = maintenance.acquireShareMaintenanceLock(sqliteStorage, {
         owner: { id: '999:test', pid: 999 },
         pidAlive: () => true,
         operation: 'other-maintenance',
@@ -260,7 +255,7 @@ describe('backup route — authoritative share state', () => {
       await expect(backup.handleBackupApi({ method: 'POST', ...mockReq(payload) }, mockRes(), url, backup.createInternalBackupContext()))
         .rejects.toMatchObject({ statusCode: 423, errorCode: 'share_maintenance' })
       expect(repository.count()).toBe(1)
-      cutover.releaseShareMaintenanceLock(sqliteStorage, lease)
+      maintenance.releaseShareMaintenanceLock(sqliteStorage, lease)
     })
   })
 

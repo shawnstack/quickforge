@@ -11,7 +11,6 @@ import {
 } from '@/lib/pi-chat'
 import { initializeAppLanguage, applyAppLanguageFromSnapshot, t } from '@/lib/i18n'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
-import { fetchMigrationStatus, waitForMigrationSettled, type MigrationStatus } from '@/lib/migration-status'
 import { applyToolDisplaySettingsValue, loadToolDisplaySettings } from '@/lib/tool-display-settings'
 import { applyFontSizeSettings, loadAndApplyFontSizeSettings, normalizeFontSizeSettings } from '@/lib/font-size-settings'
 import {
@@ -42,14 +41,26 @@ type UseAppBootstrapOptions = {
   onStorageReady?: (storage: Awaited<ReturnType<typeof initializePiStorage>>) => void
 }
 
-// Startup failure shown by the error card. `kind` picks the copy:
-// 'service' keeps the generic local-service-unavailable wording, 'migration'
-// means the server's startup maintenance window (storage migration) failed
-// and `detail` carries the server-side startupError verbatim.
+// Startup failure shown by the error card. `detail` carries the server-side
+// startupError verbatim when /api/health reports a failed startup chain.
 type StartupError = {
   message: string
-  kind: 'service' | 'migration'
   detail?: string
+}
+
+// Reads the startup failure detail from /api/health. The server keeps answering
+// health with { ok: false, startupError } while business /api/* routes are gated
+// with 503, so this is the only way to explain *why* boot failed.
+async function readStartupFailureDetail(): Promise<string | undefined> {
+  try {
+    const response = await fetch('/api/health', { cache: 'no-store' })
+    if (!response.ok) return undefined
+    const payload = await response.json() as { ok?: unknown; startupError?: unknown }
+    if (payload?.ok !== false || typeof payload.startupError !== 'string') return undefined
+    return payload.startupError
+  } catch {
+    return undefined
+  }
 }
 
 export function useAppBootstrap({
@@ -69,9 +80,6 @@ export function useAppBootstrap({
   const [ready, setReady] = useState(false)
   const [startupError, setStartupError] = useState<StartupError>()
   const [retryNonce, setRetryNonce] = useState(0)
-  // Latest /api/migration-status snapshot while the server is inside the
-  // startup maintenance window; undefined once the window closed (or failed).
-  const [migrationStatus, setMigrationStatus] = useState<MigrationStatus>()
 
   // Keep callbacks in refs so the bootstrap effect runs exactly once
   const depsRef = useRef({
@@ -112,7 +120,6 @@ export function useAppBootstrap({
       try {
         setReady(false)
         setStartupError(undefined)
-        setMigrationStatus(undefined)
 
         // Stale-while-revalidate：启动第一步（任何 await 之前）发起本地快照
         // 读取，命中即预应用语言/外观/字号/工具展示；异步 IndexedDB 读取不
@@ -146,28 +153,6 @@ export function useAppBootstrap({
 
         const storage = await initializePiStorage()
         if (cancelled) return
-
-        // P1 startup maintenance window: /api/health still reports ok while
-        // the server migrates storage to SQLite in the background, but every
-        // other /api/* route answers 503. Park the boot here (UI shows the
-        // migration progress view) until the window closes; storage refs stay
-        // unset so nothing issues gated requests in the meantime.
-        const migrationGate = await waitForMigrationSettled({
-          onStatus: (status) => {
-            if (!cancelled) setMigrationStatus(status)
-          },
-          isCancelled: () => cancelled,
-        })
-        if (cancelled || migrationGate.state === 'cancelled') return
-        if (migrationGate.state === 'failed') {
-          setStartupError({
-            message: t('migration.failedDescription'),
-            kind: 'migration',
-            detail: migrationGate.startupError,
-          })
-          return
-        }
-        setMigrationStatus(undefined)
 
         storageRef.current = storage
         onReady?.(storage)
@@ -231,48 +216,12 @@ export function useAppBootstrap({
       } catch (error) {
         logger.error('Failed to bootstrap QuickForge:', error)
         if (cancelled) return
-        // A failed startup window keeps /api/health at ok:false, so storage
-        // initialization throws before the migration gate above runs. Probe
-        // the migration status once so the error card can explain a migration
-        // failure instead of the generic service-unavailable wording.
-        const status = await fetchMigrationStatus()
+        // A failed startup chain keeps /api/health at ok:false with the server
+        // side error text, so the error card can explain the failure instead of
+        // showing the generic service-unavailable wording.
+        const detail = await readStartupFailureDetail()
         if (cancelled) return
-        if (status.ok && status.state === 'failed') {
-          setStartupError({
-            message: t('migration.failedDescription'),
-            kind: 'migration',
-            detail: status.startupError,
-          })
-          return
-        }
-        if (status.ok && status.state === 'migrating') {
-          // Boot raced into the startup maintenance window: the requests above
-          // hit the business /api/* 503s before the migration gate could run.
-          // Recover by parking the UI on the migration progress view instead
-          // of the generic error card, then auto-retry the full boot once the
-          // window closes.
-          const migrationGate = await waitForMigrationSettled({
-            onStatus: (windowStatus) => {
-              if (!cancelled) setMigrationStatus(windowStatus)
-            },
-            isCancelled: () => cancelled,
-          })
-          if (cancelled || migrationGate.state === 'cancelled') return
-          if (migrationGate.state === 'failed') {
-            setStartupError({
-              message: t('migration.failedDescription'),
-              kind: 'migration',
-              detail: migrationGate.startupError,
-            })
-            return
-          }
-          setMigrationStatus(undefined)
-          // The retryNonce bump re-runs this effect (deps include it), giving
-          // the post-window boot a clean state instead of resuming mid-failure.
-          setRetryNonce((value) => value + 1)
-          return
-        }
-        setStartupError({ message: t('localServiceUnavailableDescription'), kind: 'service' })
+        setStartupError({ message: t('localServiceUnavailableDescription'), detail })
       }
     }
 
@@ -294,9 +243,8 @@ export function useAppBootstrap({
   const retryBootstrap = useCallback(() => {
     setReady(false)
     setStartupError(undefined)
-    setMigrationStatus(undefined)
     setRetryNonce((value) => value + 1)
   }, [])
 
-  return { ready, startupError, migrationStatus, retryBootstrap }
+  return { ready, startupError, retryBootstrap }
 }

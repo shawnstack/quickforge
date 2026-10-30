@@ -15,6 +15,12 @@ async function withTempBackup(testFn) {
   const database = await import('../../server/sqlite/database.mjs')
   try {
     await database.initializeSqliteStorage()
+    // Real startup materializes the disabled LAN-access config row; the backup
+    // builder always exports that domain, so the fixture must look the same.
+    const lanAccessRepoModule = await import('../../server/sqlite/lan-access-repository.mjs')
+    const lanAccessService = await import('../../server/lan-access-service.mjs')
+    lanAccessService.configureLanAccessService({ repository: lanAccessRepoModule.createLanAccessRepository() })
+    await lanAccessService.initializeLanAccessService()
     const backup = await import('../../server/routes/backup.mjs')
     const storage = await import('../../server/storage.mjs')
     await storage.ensureStorage()
@@ -519,30 +525,39 @@ describe('backup import — validation', () => {
     })
   })
 
-  it('keeps JSON scheduled task runs complete in backup and restores them without SQLite', async () => {
+  it('keeps scheduled task runs complete in backup and restores them through SQLite', async () => {
     await withTempBackup(async (backup, storage) => {
-      const scheduledTasks = {
+      const metadata = {
         'task-with-runs': {
           id: 'task-with-runs',
           title: '备份任务',
           status: 'enabled',
           projectId: null,
-          runs: [{
-            id: 'run-json',
-            status: 'success',
-            trigger: 'manual',
-            inputContent: 'authoritative input',
-            result: 'authoritative result',
-            startedAt: '2026-01-01T00:00:00.000Z',
-          }],
         },
       }
-      await storage.writeStore('scheduled-tasks', scheduledTasks)
+      await storage.writeStore('scheduled-tasks', metadata)
+      // Runs live only in SQLite now; the JSON store keeps task metadata.
+      const { createScheduledTaskRunsRepository } = await import('../../server/sqlite/scheduled-task-runs-repository.mjs')
+      const runsRepository = createScheduledTaskRunsRepository()
+      runsRepository.upsert('task-with-runs', {
+        id: 'run-json',
+        status: 'success',
+        trigger: 'manual',
+        inputContent: 'authoritative input',
+        result: 'authoritative result',
+        startedAt: '2026-01-01T00:00:00.000Z',
+      }, { source: 'runtime' })
 
       const { json: exported } = await callExport(backup, 'http://localhost/api/backup/export?sections=scheduledTasks')
-      expect(exported.data.scheduledTasks).toEqual(scheduledTasks)
+      expect(exported.data.scheduledTasks['task-with-runs'].runs).toHaveLength(1)
+      expect(exported.data.scheduledTasks['task-with-runs'].runs[0]).toMatchObject({
+        id: 'run-json',
+        status: 'success',
+        result: 'authoritative result',
+      })
 
       await storage.writeStore('scheduled-tasks', {})
+      runsRepository.deleteByTask('task-with-runs')
       const { res } = await callImport(backup, storage, {
         backup: exported,
         sections: ['scheduledTasks'],
@@ -550,7 +565,11 @@ describe('backup import — validation', () => {
       })
 
       expect(res._status).toBe(200)
-      expect(await storage.readStore('scheduled-tasks')).toEqual(scheduledTasks)
+      const restored = await storage.readStore('scheduled-tasks')
+      expect(restored['task-with-runs']).toMatchObject({ id: 'task-with-runs', status: 'enabled' })
+      const restoredRuns = runsRepository.list({ taskId: 'task-with-runs', page: 1, pageSize: 10 }).runs
+      expect(restoredRuns).toHaveLength(1)
+      expect(restoredRuns[0]).toMatchObject({ id: 'run-json', status: 'success', result: 'authoritative result' })
     })
   })
 

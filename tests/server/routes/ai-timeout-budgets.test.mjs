@@ -63,12 +63,10 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   abortRun: vi.fn(),
 }))
 
-vi.mock('../../../server/scheduled-runs-cutover.mjs', () => ({
+vi.mock('../../../server/scheduled-runs-maintenance.mjs', () => ({
   assertScheduledRunsAvailable: vi.fn(),
   canStartScheduledRun: vi.fn(() => false),
   configureScheduledRunsRuntimeHooks: vi.fn(),
-  isScheduledRunsAuthoritative: vi.fn(() => false),
-  recordScheduledRunsDiagnostic: vi.fn(),
 }))
 
 vi.mock('../../../server/scheduled-task-runs-service.mjs', () => ({

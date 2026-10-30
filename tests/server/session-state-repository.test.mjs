@@ -83,7 +83,7 @@ function spawnWorker(databasePath, sessionId, expectedRevision, marker) {
   })
 }
 
-describe('session state repository and schema v11', () => {
+describe('session state repository and baseline schema', () => {
   let directory
   let databasePath
   let database
@@ -106,41 +106,16 @@ describe('session state repository and schema v11', () => {
 
   const tableNames = (db) => db.prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name").all().map((row) => row.name)
 
-  it('creates the v11 schema: new session tables live, old session tables renamed to *_v10_backup', () => {
+  it('creates the baseline session tables and never the retired compat tables', () => {
     const tables = tableNames(database)
     for (const name of ['sessions', 'session_messages', 'session_tombstones', 'session_state_maintenance_lock']) {
       expect(tables).toContain(name)
     }
-    for (const name of [
-      'session_states_v10_backup',
-      'session_messages_v10_backup',
-      'session_index_v10_backup',
-      'session_state_tombstones_v10_backup',
-      'session_json_mirror_queue_v10_backup',
-      'session_storage_state_v10_backup',
-    ]) {
-      expect(tables).toContain(name)
-    }
-    for (const gone of ['session_states', 'session_index', 'session_json_mirror_queue', 'session_state_tombstones', 'session_storage_state']) {
+    for (const gone of ['session_states', 'session_index', 'session_json_mirror_queue', 'session_state_tombstones']) {
       expect(tables).not.toContain(gone)
     }
     expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='index' AND name LIKE 'idx_sessions%' ORDER BY name").all().map((row) => row.name))
       .toEqual(['idx_sessions_list', 'idx_sessions_pinned', 'idx_sessions_session_id'])
-  })
-
-  it('renames v10 session tables on upgrade and keeps their rows as a safety net', () => {
-    database.close()
-    database = new DatabaseSync(path.join(directory, 'v10.sqlite3'))
-    database.exec('PRAGMA foreign_keys = ON')
-    applySqliteMigrations(database, { migrations: SQLITE_MIGRATIONS.slice(0, 10) })
-    database.prepare(`INSERT INTO session_states
-      (scope, project_id, session_id, revision, state_version, state_json, state_digest, metadata_json, metadata_digest, created_at, updated_at)
-      VALUES ('global', '', 'legacy', 1, 0, '{}', '${'a'.repeat(64)}', '{}', '${'b'.repeat(64)}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`).run()
-    applySqliteMigrations(database)
-    expect(database.prepare('SELECT session_id FROM session_states_v10_backup').all()).toEqual([{ session_id: 'legacy' }])
-    expect(database.prepare('SELECT COUNT(*) AS count FROM sessions').get().count).toBe(0)
-    const v10Repository = createSessionStateRepository(createHandle(database), { now: () => '2026-01-01T00:00:02.000Z' })
-    expect(v10Repository.save(record(), { expectedRevision: 0 }).revision).toBe(1)
   })
 
   it('saves with message extraction, opaque fields preserved, and never stores messages in body_json', () => {

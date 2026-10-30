@@ -1,66 +1,62 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import { createScheduledTaskRunsRepository } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
-import { initializeScheduledRunsCutover } from '../../server/scheduled-runs-cutover.mjs'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   MAINTENANCE_API_WHITELIST,
   STARTUP_RECOVERY_GUIDANCE,
   STARTUP_STATES,
   getStartupError,
   getStartupState,
-  readMigrationStatus,
   resetStartupState,
   resolveMaintenanceGate,
   setStartupState,
   withStartupRecoveryGuidance,
 } from '../../server/startup-state.mjs'
 
-describe('startup maintenance state machine', () => {
+describe('startup state machine', () => {
   afterEach(() => {
     resetStartupState()
   })
 
-  it('starts in migrating at module evaluation and tracks ready/failed transitions', () => {
-    expect(getStartupState()).toBe(STARTUP_STATES.MIGRATING)
+  it('starts in starting at module evaluation and tracks ready/failed transitions', () => {
+    expect(getStartupState()).toBe(STARTUP_STATES.STARTING)
 
     setStartupState(STARTUP_STATES.READY)
     expect(getStartupState()).toBe(STARTUP_STATES.READY)
     expect(getStartupError()).toBeNull()
 
-    setStartupState(STARTUP_STATES.FAILED, 'cutover integrity failure')
+    setStartupState(STARTUP_STATES.FAILED, 'integrity failure')
     expect(getStartupState()).toBe(STARTUP_STATES.FAILED)
-    expect(getStartupError()).toBe('cutover integrity failure')
+    expect(getStartupError()).toBe('integrity failure')
 
     setStartupState(STARTUP_STATES.FAILED)
     expect(getStartupError()).toBe('Startup failed')
 
     resetStartupState()
-    expect(getStartupState()).toBe(STARTUP_STATES.MIGRATING)
+    expect(getStartupState()).toBe(STARTUP_STATES.STARTING)
     expect(getStartupError()).toBeNull()
   })
 
   it('clears the error when leaving the failed state', () => {
     setStartupState(STARTUP_STATES.FAILED, 'boom')
-    setStartupState(STARTUP_STATES.MIGRATING)
+    setStartupState(STARTUP_STATES.STARTING)
     expect(getStartupError()).toBeNull()
+  })
+
+  it('rejects unknown states', () => {
+    expect(() => setStartupState('migrating')).toThrow(TypeError)
   })
 })
 
 describe('startup recovery guidance', () => {
   it('keeps the original error text and appends safe domain-neutral recovery steps', () => {
-    const message = withStartupRecoveryGuidance('cutover integrity failure')
-    expect(message.startsWith('cutover integrity failure')).toBe(true)
+    const message = withStartupRecoveryGuidance('integrity failure')
+    expect(message.startsWith('integrity failure')).toBe(true)
     expect(message).toContain('Stop all QuickForge processes')
     expect(message).toContain('complete copy of the entire QuickForge dataDir')
     expect(message).toContain('SQLite database and any -wal/-shm files')
-    expect(message).toContain('GET /api/migration-status')
     expect(message).toContain('server logs')
-    expect(message).toContain('specific error domain')
+    expect(message).toContain('failing storage domain')
     expect(message).toContain('do not delete the database')
-    expect(message).toContain('do not delete the database or blindly run a session-state downgrade command')
+    expect(message).not.toContain('/api/migration-status')
     expect(message).not.toContain('downgrade-session-state-v1.mjs')
     expect(message).not.toContain('export-session-state-v1.mjs')
     // Multi-line: the original message and the guidance stay separate paragraphs.
@@ -85,110 +81,27 @@ describe('startup maintenance gate', () => {
     expect(resolveMaintenanceGate('POST', '/api/health')).toBeNull()
   })
 
-  it('only allows the whitelisted GET endpoints while migrating', () => {
-    setStartupState(STARTUP_STATES.MIGRATING)
+  it('only allows the whitelisted GET endpoint while starting', () => {
+    setStartupState(STARTUP_STATES.STARTING)
     for (const pathname of MAINTENANCE_API_WHITELIST) {
       expect(resolveMaintenanceGate('GET', pathname)).toBeNull()
     }
-    expect(resolveMaintenanceGate('POST', '/api/health')).toEqual({ status: 503, state: STARTUP_STATES.MIGRATING })
-    expect(resolveMaintenanceGate('GET', '/api/agents')).toEqual({ status: 503, state: STARTUP_STATES.MIGRATING })
-    expect(resolveMaintenanceGate('GET', '/api/shares')).toEqual({ status: 503, state: STARTUP_STATES.MIGRATING })
+    expect(MAINTENANCE_API_WHITELIST).toEqual(['/api/health'])
+    expect(resolveMaintenanceGate('POST', '/api/health')).toEqual({ status: 503, state: STARTUP_STATES.STARTING })
+    expect(resolveMaintenanceGate('GET', '/api/agents')).toEqual({ status: 503, state: STARTUP_STATES.STARTING })
+    expect(resolveMaintenanceGate('GET', '/api/shares')).toEqual({ status: 503, state: STARTUP_STATES.STARTING })
   })
 
   it('keeps the same gate once the startup chain failed', () => {
     setStartupState(STARTUP_STATES.FAILED, 'boom')
     expect(resolveMaintenanceGate('GET', '/api/health')).toBeNull()
-    expect(resolveMaintenanceGate('GET', '/api/migration-status')).toBeNull()
     expect(resolveMaintenanceGate('GET', '/api/storage/sessions')).toEqual({ status: 503, state: STARTUP_STATES.FAILED })
   })
 
   it('never gates non-API paths so static assets and /share/ stay reachable', () => {
-    setStartupState(STARTUP_STATES.MIGRATING)
+    setStartupState(STARTUP_STATES.STARTING)
     expect(resolveMaintenanceGate('GET', '/')).toBeNull()
     expect(resolveMaintenanceGate('GET', '/share/qfs_123')).toBeNull()
     expect(resolveMaintenanceGate('GET', '/assets/index.js')).toBeNull()
-  })
-})
-
-describe('readMigrationStatus', () => {
-  let directory
-  let storage
-
-  beforeEach(async () => {
-    await closeSqliteStorage()
-    directory = await mkdtemp(path.join(os.tmpdir(), 'qf-startup-maintenance-'))
-    storage = await initializeSqliteStorage({ databasePath: path.join(directory, 'quickforge.sqlite3') })
-  })
-
-  afterEach(async () => {
-    resetStartupState()
-    await closeSqliteStorage()
-    if (directory) await rm(directory, { recursive: true, force: true })
-  })
-
-  it('reports the four domain phases created by the SQLite migrations', () => {
-    const status = readMigrationStatus(storage)
-
-    expect(status.ok).toBe(true)
-    expect(status.state).toBe(STARTUP_STATES.MIGRATING)
-    expect(Object.keys(status.domains).sort()).toEqual(['lanAccess', 'scheduledRuns', 'sessionState', 'share'])
-    expect(status.domains.scheduledRuns.phase).toBe('hybrid')
-    // Storage v2: the session domain is authoritative by construction; the
-    // live session count comes straight from the store.
-    expect(status.domains.sessionState).toMatchObject({ phase: 'authoritative', stateCount: 0 })
-    expect(status.domains.share.phase).toBe('json_authoritative')
-    expect(status.domains.lanAccess.phase).toBe('json_authoritative')
-    for (const [name, domain] of Object.entries(status.domains)) {
-      // The session domain's updatedAt comes from the service initialization
-      // timestamp (null before initializeSessionStateService runs).
-      if (name === 'sessionState') expect(domain.updatedAt).toBeNull()
-      else expect(domain.updatedAt).toBeTruthy()
-    }
-  })
-
-  it('degrades a domain to phase unknown instead of failing the whole endpoint', async () => {
-    // Close SQLite: every domain read now throws and must surface as unknown.
-    await closeSqliteStorage()
-    const status = readMigrationStatus()
-
-    expect(status.ok).toBe(true)
-    expect(Object.keys(status.domains).sort()).toEqual(['lanAccess', 'scheduledRuns', 'sessionState', 'share'])
-    // The session domain stays authoritative (phase is constant in storage
-    // v2); only its live count degrades to null while SQLite is closed.
-    expect(status.domains.sessionState).toMatchObject({ phase: 'authoritative', stateCount: null })
-    for (const [name, domain] of Object.entries(status.domains)) {
-      if (name === 'sessionState') continue
-      expect(domain.phase).toBe('unknown')
-      expect(typeof domain.error).toBe('string')
-    }
-  })
-
-  it('passes through the live scheduled-runs phase after the cutover ran', async () => {
-    const repository = createScheduledTaskRunsRepository(storage)
-    const finalState = await initializeScheduledRunsCutover({
-      storage,
-      repository,
-      backupDirectory: path.join(directory, 'backups'),
-      readTasks: vi.fn(async () => ({})),
-      writeTasks: vi.fn(async () => {}),
-      logger: { warn: vi.fn() },
-    })
-    expect(finalState.phase).not.toBe('unknown')
-
-    const status = readMigrationStatus()
-    expect(status.domains.scheduledRuns.phase).toBe(finalState.phase)
-    expect(status.domains.scheduledRuns.runCount).toBe(finalState.runCount)
-    expect(status.domains.scheduledRuns.updatedAt).toBeTruthy()
-  })
-
-  it('exposes startupError only in the failed state', () => {
-    setStartupState(STARTUP_STATES.MIGRATING)
-    expect(readMigrationStatus(storage)).not.toHaveProperty('startupError')
-
-    setStartupState(STARTUP_STATES.FAILED, 'integrity failure')
-    const status = readMigrationStatus(storage)
-    expect(status.state).toBe(STARTUP_STATES.FAILED)
-    expect(status.startupError).toBe('integrity failure')
-    expect(status.ok).toBe(true)
   })
 })

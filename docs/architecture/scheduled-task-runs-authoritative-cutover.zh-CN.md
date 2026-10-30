@@ -1,6 +1,10 @@
 # 定时任务运行记录 SQLite 权威切换（F5）
 
-> 状态：F5 将 scheduled task runs 从 F4 JSON-authoritative hybrid 安全切换为 SQLite authoritative。备份格式继续为 version 1；JSON `scheduled-tasks` 在权威模式仅保存任务 metadata。
+> **历史文档（archived）**：本文记录 F5 scheduled task runs 从 JSON/hybrid 到 SQLite 权威的切换演进。其中 `scheduled_runs_state` phase 状态机（`hybrid`/`cutover_running`/`sqlite_authoritative_json_pending`/`authoritative`）、JSON 瘦身步骤、`scheduled-runs-cutover.mjs` 启动 coordinator、JSON mirror 与 `downgrade` 路径 **均已删除**（`server/scheduled-runs-maintenance.mjs` 保留了维护锁的部分），正文只作历史记录。
+>
+> **现状**：scheduled-runs 是单路径 SQLite 权威——runs 恒存 `scheduled_task_runs`，JSON `scheduled-tasks` 只存任务 metadata（不再有 hybrid 影子写、不再有相位分支）；维护锁独立在 `server/scheduled-runs-maintenance.mjs`（表 `scheduled_runs_maintenance_lock`）供 restore/权威 backup/维护操作串行；backup 仍为 `version: 1`，导出时逻辑挂回 `scheduledTasks[taskId].runs`；逃生通道只剩 `node server/maintenance/export-scheduled-runs-v1.mjs`。存储总体协议与表清单见 [`sqlite-storage-foundation.zh-CN.md`](./sqlite-storage-foundation.zh-CN.md) §4。
+>
+> 状态：F5 曾将 scheduled task runs 从 F4 JSON-authoritative hybrid 安全切换为 SQLite authoritative。备份格式继续为 version 1；JSON `scheduled-tasks` 在权威模式仅保存任务 metadata。
 
 ## 1. Schema v3
 

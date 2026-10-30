@@ -15,9 +15,7 @@ import {
   assertScheduledRunsAvailable,
   canStartScheduledRun,
   configureScheduledRunsRuntimeHooks,
-  isScheduledRunsAuthoritative,
-  recordScheduledRunsDiagnostic,
-} from '../scheduled-runs-cutover.mjs'
+} from '../scheduled-runs-maintenance.mjs'
 import {
   dayMs,
   formatLocalDateTime,
@@ -430,12 +428,11 @@ function getTasks() {
 }
 
 async function hydrateTaskRuns(task, limit = 5) {
-  if (!task || !isScheduledRunsAuthoritative()) return task
+  if (!task) return task
   return { ...task, runs: await taskRunsService.recentRuns(task.id, limit) }
 }
 
 async function hydrateTasksRuns(tasks, limit = 5) {
-  if (!isScheduledRunsAuthoritative()) return tasks
   return Promise.all(tasks.map((task) => hydrateTaskRuns(task, limit)))
 }
 
@@ -444,43 +441,19 @@ const taskRunsService = createScheduledTaskRunsService({
   logger,
 })
 
-function authoritativeRun(task, runId) {
-  return task?.runs?.find((run) => run.id === runId) || null
-}
-
-async function persistRun(taskId, run, phase) {
+async function persistRun(taskId, run, stage) {
   if (!run?.id) return null
   try {
-    return await taskRunsService.syncRun(taskId, run, { phase })
+    return await taskRunsService.syncRun(taskId, run, { stage })
   } catch (error) {
     logger.warn('Scheduled task run persistence rejected', {
       taskId,
       runId: run.id,
-      phase,
+      stage,
       errorName: error?.name || 'Error',
       errorCode: error?.code,
     })
     throw error
-  }
-}
-
-async function syncAuthoritativeRun(task, runId, phase) {
-  const run = authoritativeRun(task, runId)
-  if (!run) return null
-  try {
-    return await persistRun(task.id, run, phase)
-  } catch (error) {
-    if (isScheduledRunsAuthoritative()) throw error
-    return null
-  }
-}
-
-async function deleteAuthoritativeTaskRuns(taskId) {
-  try {
-    return await taskRunsService.deleteTaskRuns(taskId)
-  } catch (error) {
-    if (isScheduledRunsAuthoritative()) throw error
-    return false
   }
 }
 
@@ -500,23 +473,18 @@ async function getTaskRuns(url) {
 
 async function updateTask(taskId, updater) {
   let updated = null
-  try {
-    await atomicUpdate(STORE, (data) => {
-      if (!data[taskId]) return data
-      updated = updater(data[taskId])
-      if (isScheduledRunsAuthoritative() && updated) {
-        const { runs: _runs, ...metadata } = updated
-        updated = metadata
-      }
-      data[taskId] = updated
-      return data
-    })
-  } catch (error) {
-    if (isScheduledRunsAuthoritative()) {
-      try { recordScheduledRunsDiagnostic('task_metadata_update', error, { taskId }) } catch { /* Preserve metadata failure. */ }
+  await atomicUpdate(STORE, (data) => {
+    if (!data[taskId]) return data
+    updated = updater(data[taskId])
+    if (updated) {
+      // Runs live in SQLite (`scheduled_task_runs`); the task record keeps
+      // metadata only.
+      const { runs: _runs, ...metadata } = updated
+      updated = metadata
     }
-    throw error
-  }
+    data[taskId] = updated
+    return data
+  })
   return updated
 }
 
@@ -587,39 +555,9 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
   }
   let currentRun = createdRun
   let started = false
-  let createdTask
-  if (isScheduledRunsAuthoritative()) {
-    await persistRun(task.id, createdRun, 'created')
-    try {
-      createdTask = await updateTask(task.id, (current) => {
-        const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)
-        if (mode === 'serial' && otherRunIds.length > 0) return current
-        started = true
-        const nextRunAt = advanceNextRunAtAtStart
-          ? calculateNextRun(current, new Date(startedAt))
-          : current.nextRunAt
-        const activeRunIds = appendCurrentRunId(current, runId)
-        return {
-          ...current,
-          currentRunId: activeRunIds[activeRunIds.length - 1] || null,
-          currentRunIds: activeRunIds,
-          lastSessionId: sessionId,
-          nextRunAt,
-        }
-      })
-    } catch (error) {
-      try {
-        await taskRunsService.deleteRun(task.id, runId)
-      } catch (compensationError) {
-        throw new Error(`Scheduled run create metadata failed and SQLite compensation failed: ${compensationError?.message || compensationError}`, { cause: compensationError })
-      } finally {
-        removeActiveRun(task.id, runId)
-      }
-      throw error
-    }
-    if (!started) await taskRunsService.deleteRun(task.id, runId)
-  } else {
-    createdTask = await updateTask(task.id, (current) => {
+  await persistRun(task.id, createdRun, 'created')
+  try {
+    await updateTask(task.id, (current) => {
       const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)
       if (mode === 'serial' && otherRunIds.length > 0) return current
       started = true
@@ -633,15 +571,23 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
         currentRunIds: activeRunIds,
         lastSessionId: sessionId,
         nextRunAt,
-        runs: [createdRun, ...(current.runs || [])].slice(0, MAX_RUN_HISTORY_PER_TASK),
       }
     })
+  } catch (error) {
+    try {
+      await taskRunsService.deleteRun(task.id, runId)
+    } catch (compensationError) {
+      throw new Error(`Scheduled run create metadata failed and SQLite compensation failed: ${compensationError?.message || compensationError}`, { cause: compensationError })
+    } finally {
+      removeActiveRun(task.id, runId)
+    }
+    throw error
   }
   if (!started) {
+    await taskRunsService.deleteRun(task.id, runId)
     removeActiveRun(task.id, runId)
     return
   }
-  if (!isScheduledRunsAuthoritative()) await syncAuthoritativeRun(createdTask, runId, 'created')
 
   let settled = false
 
@@ -707,15 +653,11 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       agentSnapshot,
       warning: agentWarning || currentRun.warning,
     }
-    const resolvedTask = await updateTask(task.id, (current) => ({
+    await updateTask(task.id, (current) => ({
       ...current,
       lastSessionId: sessionId,
-      ...(!isScheduledRunsAuthoritative() ? {
-        runs: (current.runs || []).map((run) => run.id === runId ? { ...run, ...currentRun } : run),
-      } : {}),
     }))
-    if (isScheduledRunsAuthoritative()) await persistRun(task.id, currentRun, 'resolved')
-    else await syncAuthoritativeRun(resolvedTask, runId, 'resolved')
+    await persistRun(task.id, currentRun, 'resolved')
     onStarted?.({ taskId: task.id, runId, sessionId })
 
     const goalRequested = parseInternalCommandInvocation(userMessage)?.type === 'goal'
@@ -822,15 +764,10 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       finishedAt,
       durationMs,
     }
-    let terminalPersisted = false
-    if (isScheduledRunsAuthoritative()) {
-      await persistRun(task.id, terminalRun, 'terminal')
-      terminalPersisted = true
-    }
+    await persistRun(task.id, terminalRun, 'terminal')
     let terminalMetadataError = null
-    let terminalTask
     try {
-      terminalTask = await updateTask(task.id, (current) => {
+      await updateTask(task.id, (current) => {
         const remainingRunIds = removeCurrentRunId(current, runId)
         const stillRunning = remainingRunIds.length > 0
         const recurring = isRecurringTask(current)
@@ -852,18 +789,14 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
           lastRunAt: finishedAt,
           nextRunAt: nextRunAt ?? current.nextRunAt,
           lastSessionId: sessionId,
-          ...(!isScheduledRunsAuthoritative() ? {
-            runs: (current.runs || []).map((run) => run.id === runId ? terminalRun : run),
-          } : {}),
         }
       })
     } catch (error) {
-      if (!terminalPersisted) throw error
+      // The terminal run row is already committed, so a metadata failure must
+      // not turn a finished run into an execution failure.
       terminalMetadataError = error
-      try { recordScheduledRunsDiagnostic('terminal_metadata', error, { taskId: task.id, runId }) } catch { /* Preserve terminal success. */ }
       logger.warn('Scheduled task terminal metadata persistence failed', { taskId: task.id, runId, errorName: error?.name || 'Error' })
     }
-    if (!isScheduledRunsAuthoritative()) await syncAuthoritativeRun(terminalTask, runId, 'terminal')
     if (terminalMetadataError) settled = true
 
     emitScheduledTaskNotification({
@@ -892,19 +825,16 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
       durationMs,
     }
     let persistenceError = null
-    if (isScheduledRunsAuthoritative()) {
-      try {
-        await persistRun(task.id, failedRun, 'exception-terminal')
-      } catch (terminalError) {
-        persistenceError = terminalError
-      }
+    try {
+      await persistRun(task.id, failedRun, 'exception-terminal')
+    } catch (terminalError) {
+      persistenceError = terminalError
     }
     if (persistenceError) {
-      try { recordScheduledRunsDiagnostic('exception_terminal', persistenceError, { taskId: task.id, runId }) } catch { /* Preserve the original failure. */ }
       logger.error('Scheduled task terminal SQLite persistence failed', { taskId: task.id, runId, errorName: persistenceError?.name || 'Error' })
       return
     }
-    const failedTask = await updateTask(task.id, (current) => {
+    await updateTask(task.id, (current) => {
       const remainingRunIds = removeCurrentRunId(current, runId)
       const stillRunning = remainingRunIds.length > 0
       return {
@@ -915,12 +845,8 @@ async function executeTask(task, trigger = 'schedule', onStarted) {
         lastRunAt: finishedAt,
         lastSessionId: sessionId,
         nextRunAt: stillRunning || advanceNextRunAtAtStart ? current.nextRunAt : (isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt),
-        ...(!isScheduledRunsAuthoritative() ? {
-          runs: (current.runs || []).map((run) => run.id === runId ? { ...run, ...failedRun } : run),
-        } : {}),
       }
     })
-    if (!isScheduledRunsAuthoritative()) await syncAuthoritativeRun(failedTask, runId, 'exception-terminal')
     emitScheduledTaskNotification({
       task,
       runId,
@@ -939,22 +865,17 @@ export async function recoverStaleScheduledTaskRuns({ now = () => new Date() } =
   const finishedAt = now().toISOString()
   for (const task of tasks) {
     const activeIds = currentRunIdsFor(task)
-    const sqliteRunning = isScheduledRunsAuthoritative()
-      ? (await taskRunsService.listRuns({ taskId: task.id, status: 'running', page: 1, pageSize: MAX_RUN_HISTORY_PER_TASK })).runs
-      : []
-    const jsonRunning = Array.isArray(task.runs) ? task.runs.filter((run) => run?.status === 'running') : []
-    const runningById = new Map([...sqliteRunning, ...jsonRunning].map((run) => [run.id, run]))
+    const storedRunning = (await taskRunsService.listRuns({ taskId: task.id, status: 'running', page: 1, pageSize: MAX_RUN_HISTORY_PER_TASK })).runs
+    const runningById = new Map(storedRunning.map((run) => [run.id, run]))
     for (const runId of activeIds) {
       if (!runningById.has(runId)) runningById.set(runId, { id: runId, status: 'running', trigger: 'schedule', startedAt: task.lastRunAt || task.updatedAt || finishedAt })
     }
     if (runningById.size === 0 && activeIds.length === 0) continue
-    const failedRuns = []
     for (const run of runningById.values()) {
       const startedMs = new Date(run.startedAt).getTime()
       const durationMs = Number.isFinite(startedMs) ? Math.max(0, new Date(finishedAt).getTime() - startedMs) : 0
       const failed = { ...run, status: 'failed', errorMessage: 'Interrupted by previous process shutdown', finishedAt, durationMs }
-      failedRuns.push(failed)
-      if (isScheduledRunsAuthoritative()) await persistRun(task.id, failed, 'startup-recovery')
+      await persistRun(task.id, failed, 'startup-recovery')
     }
     await updateTask(task.id, (current) => ({
       ...current,
@@ -963,9 +884,6 @@ export async function recoverStaleScheduledTaskRuns({ now = () => new Date() } =
       status: current.status === 'paused' ? 'paused' : (isRecurringTask(current) ? 'enabled' : 'failed'),
       lastRunAt: finishedAt,
       nextRunAt: isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt,
-      ...(!isScheduledRunsAuthoritative() ? {
-        runs: (current.runs || []).map((run) => failedRuns.find((failed) => failed.id === run.id) || run),
-      } : {}),
     }))
   }
 }
@@ -1072,7 +990,6 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       status: enabled ? 'enabled' : 'paused',
       createdAt: now,
       updatedAt: now,
-      ...(isScheduledRunsAuthoritative() ? {} : { runs: [] }),
     }
     await atomicUpdate(STORE, (data) => {
       data[task.id] = task
@@ -1124,26 +1041,19 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
     if (req.method === 'DELETE' && !action) {
       const existingForDelete = (await readStore(STORE))[taskId]
       const before = existingForDelete ? await hydrateTaskRuns(existingForDelete, MAX_RUN_HISTORY_PER_TASK) : null
-      if (isScheduledRunsAuthoritative()) {
-        await deleteAuthoritativeTaskRuns(taskId)
-        try {
-          await atomicUpdate(STORE, (data) => {
-            delete data[taskId]
-            return data
-          })
-        } catch (error) {
-          if (before) {
-            const restoredRuns = Array.isArray(before.runs) ? before.runs : []
-            for (const run of restoredRuns) await persistRun(taskId, run, 'delete-compensation')
-          }
-          throw error
-        }
-      } else {
+      await taskRunsService.deleteTaskRuns(taskId)
+      try {
         await atomicUpdate(STORE, (data) => {
           delete data[taskId]
           return data
         })
-        await deleteAuthoritativeTaskRuns(taskId)
+      } catch (error) {
+        // Runs are deleted first, so a failed metadata delete must restore them.
+        if (before) {
+          const restoredRuns = Array.isArray(before.runs) ? before.runs : []
+          for (const run of restoredRuns) await persistRun(taskId, run, 'delete-compensation')
+        }
+        throw error
       }
       sendJson(res, 200, { ok: true })
       return
@@ -1179,8 +1089,7 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       await new Promise((resolve, reject) => {
         executeTask(task, 'manual', resolve).catch((error) => {
           logger.error(`Manual scheduled task ${task.id} failed:`, error)
-          if (isScheduledRunsAuthoritative()) reject(error)
-          else resolve()
+          reject(error)
         })
       })
       const updatedTask = (await readStore(STORE))[taskId] ?? task

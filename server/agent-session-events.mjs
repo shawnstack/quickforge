@@ -6,6 +6,14 @@
 import { EventEmitter } from 'node:events'
 import { mergeQuickForgeTiming } from './tool-wiring.mjs'
 import { estimateSessionContextUsage } from './auto-compaction.mjs'
+import { globalEventLog } from './event-log.mjs'
+import {
+  bumpMessageLogVersion,
+  goalIterationMarkers,
+  messageIdentity,
+  messageLogVersion,
+  projectSessionSnapshot,
+} from './message-log.mjs'
 import { logger } from './utils/logger.mjs'
 
 export const agentEvents = new EventEmitter()
@@ -75,13 +83,49 @@ function nextSessionStateVersion(session) {
   return session.stateVersion
 }
 
+/**
+ * 消息日志版本守卫：只在「消息数组真的变了」时推进 `messageLogVersion`。
+ *
+ * 用「条数 + 尾消息身份」做指纹而不是深比较：每帧 `message_end` 都带完整
+ * messages，深比较是 O(会话字节数)。指纹必须存值而不是数组引用——append 是
+ * 原地 push，引用比较永远相等。
+ */
+function trackMessageLogVersion(session, event) {
+  const messages = Array.isArray(event?.messages) ? event.messages : null
+  if (!messages) return messageLogVersion(session)
+  const fingerprint = {
+    length: messages.length,
+    lastIdentity: messageIdentity(messages[messages.length - 1]),
+  }
+  const previous = session.messageLogFingerprint
+  if (!previous || previous.length !== fingerprint.length || previous.lastIdentity !== fingerprint.lastIdentity) {
+    session.messageLogFingerprint = fingerprint
+    return bumpMessageLogVersion(session)
+  }
+  return messageLogVersion(session)
+}
+
+/**
+ * 会话事件出口。
+ *
+ * 顺序是契约的一部分：先推进 `stateVersion`（帧新鲜度水位），再推进
+ * `logVersion`（消息变更水位），然后发布到全局事件环拿到 `logSeq`（SSE 的
+ * `id:`），最后广播。
+ *
+ * **这里发出的是完整事件**（含完整 messages）。裁到「本连接还没见过的尾部
+ * 窗口」是连接层的职责（`createConnectionProjector`）。旧实现用会话级
+ * `deliveredMessageCount` 在这里裁剪，两个客户端共享同一个投递位置，后加入者
+ * 会从别人的进度开始收增量——这是「同 session 双端内容不一致」的硬伤。
+ */
 function emitSessionEvent(session, event) {
   const stateVersion = nextSessionStateVersion(session)
+  const logVersion = trackMessageLogVersion(session, event)
   const enrichedEvent = (event?.type === 'message_end' || event?.type === 'agent_end' || event?.type === 'messages_replaced' || event?.type === 'auto_compact_completed')
     && event.contextUsage === undefined
-    ? { ...event, contextUsage: getSessionContextUsage(session), stateVersion }
-    : { ...event, stateVersion }
+    ? { ...event, contextUsage: getSessionContextUsage(session), stateVersion, logVersion }
+    : { ...event, stateVersion, logVersion }
   const wireEvent = transformSplitSessionEvent(session, enrichedEvent)
+  wireEvent.logSeq = globalEventLog.publish(session.sessionId, wireEvent)
   logSseFrame(session, wireEvent)
   session.eventBus.emit('agent_event', wireEvent)
   agentEvents.emit('agent_event', { sessionId: session.sessionId, ...wireEvent })
@@ -124,73 +168,37 @@ function logSseFrame(session, wireEvent) {
  * older clients and non-split sessions are unaffected. `stateVersion` is
  * never modified here.
  */
-// Sparse metadata, never message bodies or unrelated details. Identity is
-// checked at the exact index by clients; markers cannot append messages.
-function goalIterationMarkers(messages) {
-  return messages.flatMap((message, index) => {
-    const marker = message?.details?.quickforgeGoalIteration
-    if (!isRecord(marker)) return []
-    return [{
-      index,
-      role: message.role,
-      ...(typeof message.id === 'string' ? { id: message.id } : {}),
-      ...(Number.isFinite(message.timestamp) ? { timestamp: message.timestamp } : {}),
-      quickforgeGoalIteration: marker,
-    }]
-  })
-}
-
+/**
+ * SSE 事件形状修正：split 会话的 `state` 帧补上 `messagesSummary` 与**绝对
+ * seq** 的 goal 迭代标记；消息体保持完整，由连接层按游标裁剪。
+ *
+ * 旧实现直接删掉 `messages`，再用会话级游标切尾（`deliveredMessageCount`）。
+ * 现在这层只加元数据，不做任何「按会话」的裁剪——裁剪必须按连接做。
+ */
 function transformSplitSessionEvent(session, event) {
-  if (session.persistedMessageStorage !== 'split' || !event || typeof event !== 'object') return event
-  if (event.type === 'state') {
-    if (!Array.isArray(event.messages)) return event
-    const next = { ...event }
-    const count = next.messages.length
-    next.goalIterationMarkers = goalIterationMarkers(next.messages)
-    delete next.messages
-    next.messagesSummary = { count }
-    return next
+  if (!event || typeof event !== 'object') return event
+  if (event.type !== 'state') return event
+  const next = { ...event }
+  if (Array.isArray(next.messages)) {
+    const logVersion = messageLogVersion(session)
+    next.goalIterationMarkers = goalIterationMarkers(next.messages, 0)
+    next.messagesSummary = { count: next.messages.length, logVersion }
   }
-  if (event.type === 'message_end' || event.type === 'agent_end' || event.type === 'messages_replaced') {
-    if (!Array.isArray(event.messages)) return event
-    // Persistence can commit the final answer before this frame is sent. Its
-    // count must not be treated as the client's cursor, or the frame reports
-    // an empty tail and the answer only appears after refresh.
-    const hasDeliveredCursor = Number.isInteger(session.deliveredMessageCount) && session.deliveredMessageCount >= 0
-    // Missing cursor means this client has no proven delivery position.
-    // Falling back to persistedMessageCount drops the final answer when a
-    // persist commits it before the frame is sent.
-    const after = Math.min(hasDeliveredCursor ? session.deliveredMessageCount : 0, event.messages.length)
-    const tail = event.messages.slice(after)
-    const count = event.messages.length
-    const next = { ...event }
-    delete next.messages
-    if (tail.length > 0) {
-      next.messages = tail
-      next.messagesAfter = after
-      next.messagesIncremental = true
-    }
-    next.messagesSummary = { count }
-    session.deliveredMessageCount = count
-    return next
-  }
-  return event
+  return next
 }
 
 /**
- * Strip full messages from a session state snapshot destined for the wire
- * (GET /state, POST /restore, SSE initial state frame) when the session is
- * split. Internal consumers (shared conversations, ACP) keep the full state.
+ * 会话状态快照（`/state`、`/restore`、会话级 SSE 初始帧共用）。
+ *
+ * 返回「尾部窗口 + `messagesAfter` + `logVersion`」，而不是把消息整体删掉：
+ * 客户端一次请求就能自洽渲染，不再依赖「先 /state 再 /messages」两次请求之间
+ * 的一致性——那两次之间原本没有任何版本校验。
+ *
+ * 函数名保留（`stripSplitSessionState`）以免破坏既有 import，语义已改为
+ * 「按消息日志投影快照」。
  */
 export function stripSplitSessionState(state) {
-  if (!state || state.messageStorage !== 'split') return state
-  if (!Array.isArray(state.messages)) return state
-  const next = { ...state }
-  const count = next.messages.length
-  next.goalIterationMarkers = goalIterationMarkers(next.messages)
-  delete next.messages
-  next.messagesSummary = { count }
-  return next
+  return projectSessionSnapshot(state)
 }
 
 function addToolTimingToEvent(session, event) {

@@ -3,6 +3,7 @@ import { mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { BASELINE_VERSION } from '../../server/sqlite/migrations.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
 const benchmarkScript = path.join(projectRoot, 'scripts', 'session-message-benchmark.mjs')
@@ -48,7 +49,7 @@ describe('session message benchmark script', () => {
 
       expect(meta.benchmark).toBe('session-message-storage')
       expect(meta.scratchDir).toBeTruthy()
-      expect(Number.isSafeInteger(meta.schemaVersion)).toBe(true)
+      expect(meta.schemaVersion).toBe(BASELINE_VERSION)
 
       expect(scale.benchmark).toBe('session-message-storage')
       expect(scale.messageCount).toBe(100)

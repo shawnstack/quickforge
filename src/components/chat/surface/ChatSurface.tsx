@@ -37,7 +37,7 @@ import { PluginSlot } from '@/components/plugins/PluginSlot'
 import { AgentAccessMenu, AgentAccessTrigger, PlanModeTrigger, positionAgentAccessMenu } from './ComposerAccessControls'
 import { registerAgentAccessMenuCloser } from '../panel-decoration/agent-access-menu'
 import { ModelRetryNotice, ReconnectNotice, SessionLeaseStrip, UnreachableStrip, useSseConnectionStatus, type ModelRetryInfo } from './ConnectionNotices'
-import { resolveCompactionMarkers, type ContextCompactionState } from './ContextCompactionNotice'
+import { resolveCompactionMarkers, shiftCompactionToLocal, type ContextCompactionState } from './ContextCompactionNotice'
 import { resolveAssistantWaitingRow } from './AssistantWaitingBubble'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
 import { CommandActionsEnabledContext, LocalFilePathHandlerContext } from './surface-context'
@@ -256,7 +256,15 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
   // Context compaction is replaced wholesale by the server agent on
   // `auto_compact_completed` / `messages_replaced`, so reference identity is
   // enough to detect a change.
-  const contextCompaction = (state as { contextCompaction?: ContextCompactionState | null }).contextCompaction ?? null
+  //
+  // 服务端下发的是**会话绝对**位置，而列表渲染的是本地窗口（起点
+  // `agent.messageOffset`）。这里统一换算成窗口坐标，避免分割线在窗口态
+  // 落到错误行或整条消失。
+  const messageBaseSeq = (agent as { messageOffset?: number } | undefined)?.messageOffset ?? 0
+  const contextCompaction = shiftCompactionToLocal(
+    (state as { contextCompaction?: ContextCompactionState | null }).contextCompaction ?? null,
+    messageBaseSeq,
+  )
   // In-flight compaction notice. Compared by reference: the server agent swaps
   // in a whole new object per phase change and `null` otherwise, so identity is
   // enough (and identical repeats cost no render).

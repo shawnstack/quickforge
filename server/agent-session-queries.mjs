@@ -1,6 +1,7 @@
 import { agentSessions } from './agent-session-store.mjs'
 import { getPendingApprovalForSession, getPendingAutoCompactApprovalForSession } from './approval-store.mjs'
 import { getPendingAskForSession } from './ask-store.mjs'
+import { messageLogVersion } from './message-log.mjs'
 
 // Inject projections to avoid a runtime dependency back to the manager facade.
 export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage, listBackgroundCommands = () => [], getWriteLease = () => null }) {
@@ -30,6 +31,12 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       createdAt: session.createdAt,
       lastModified: session.lastModified,
       stateVersion: session.stateVersion || 0,
+      /**
+       * 消息日志版本：只在消息数组真的变化时递增，与 `stateVersion`（每个
+       * 事件都 +1，含 token delta）分离。客户端用它判断「我持有的消息是否
+       * 落后」，而不是拿 `stateVersion` 当快照版本用。
+       */
+      logVersion: messageLogVersion(session),
       messageStorage: session.persistedMessageStorage === 'split' ? 'split' : undefined,
       status: session.status,
       startedAt: session.startedAt,
@@ -93,6 +100,7 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       createdAt: session.createdAt,
       lastModified: session.lastModified,
       stateVersion: session.stateVersion || 0,
+      logVersion: messageLogVersion(session),
       status: session.status,
       startedAt: session.startedAt,
       finishedAt: session.finishedAt,

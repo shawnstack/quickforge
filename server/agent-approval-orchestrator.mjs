@@ -14,6 +14,8 @@ import {
   pendingAsks,
   normalizeAskQuestions,
   formatAskResult,
+  formatAskBusyResult,
+  enqueueAskForSession,
 } from './ask-store.mjs'
 import {
   notifyGoalApprovalOutcome,
@@ -115,6 +117,11 @@ export function createApprovalPromise(session, toolCallId, toolName, args, sourc
  * Create a Promise that resolves when the user answers (or skips) an ask_user
  * tool call. The tool's execute blocks on this promise, pausing the agent loop
  * until the user responds.
+ *
+ * Only one ask per session may be visible at a time: the pending-ask projection
+ * and the composer card are single-slot, so a second ask_user from the same
+ * assistant message waits for the first to settle (and only then emits its own
+ * `ask_user_required`) instead of overwriting it. See `enqueueAskForSession`.
  */
 export function createAskUserPromise(session, toolCallId, params) {
   const questions = normalizeAskQuestions(params)
@@ -124,6 +131,17 @@ export function createAskUserPromise(session, toolCallId, params) {
       details: { askId: null, skipped: true },
     })
   }
+  const queued = enqueueAskForSession(session.sessionId, () => activateAsk(session, toolCallId, questions))
+  if (queued) return queued
+  // Queue full: answer the model instead of hanging behind invisible questions.
+  return Promise.resolve({
+    content: [{ type: 'text', text: formatAskBusyResult() }],
+    details: { askId: null, skipped: true, skipReason: 'busy' },
+  })
+}
+
+/** Register one ask, emit it to the client and wait for the answer. */
+function activateAsk(session, toolCallId, questions) {
   const askId = randomUUID()
   return new Promise((resolve) => {
     let settled = false

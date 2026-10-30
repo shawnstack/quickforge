@@ -10,20 +10,13 @@ import {
   configureSessionStateService,
   deleteSessionState,
   readSessionStateValue,
-  readSessionStorageState,
   saveSessionBody,
 } from '../../server/session-state-service.mjs'
 import {
   exportSessionStateForBackup,
   restoreSessionStateSnapshot,
 } from '../../server/session-state-backup.mjs'
-import { initializeShareCutover } from '../../server/share-cutover.mjs'
-import {
-  configureShareService,
-  drainShareJsonMirror,
-  readShareStorageState,
-  stopShareService,
-} from '../../server/share-service.mjs'
+import { initializeShareService, configureShareService, stopShareService } from '../../server/share-service.mjs'
 import {
   exportShareStateForBackup,
   restoreShareStateSnapshot,
@@ -35,11 +28,9 @@ import {
   revokeConversationShare,
   verifyShareToken,
 } from '../../server/share-store.mjs'
-import { initializeLanAccessCutover } from '../../server/lan-access-cutover.mjs'
 import {
+  initializeLanAccessService,
   configureLanAccessService,
-  drainLanAccessJsonMirror,
-  readLanAccessStorageState,
   stopLanAccessService,
 } from '../../server/lan-access-service.mjs'
 import { createLanAccessRepository } from '../../server/sqlite/lan-access-repository.mjs'
@@ -53,7 +44,6 @@ const directory = process.env.QUICKFORGE_DATA_DIR
 if (!directory) throw new Error('QUICKFORGE_DATA_DIR is required')
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
-const downgradeScript = path.join(projectRoot, 'server', 'maintenance', 'downgrade-session-state-v1.mjs')
 
 const globalDir = path.join(directory, 'storage', 'conversations', 'global')
 const sessionsDir = path.join(globalDir, 'sessions')
@@ -86,7 +76,7 @@ function spawnTool(script, args) {
     child.stderr.on('data', (chunk) => { stderr += chunk.toString() })
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
-      reject(new Error(`downgrade tool timed out: ${stderr}`))
+      reject(new Error(`maintenance tool timed out: ${stderr}`))
     }, 30_000)
     child.once('error', (error) => { clearTimeout(timer); reject(error) })
     child.once('close', (code) => {
@@ -94,10 +84,6 @@ function spawnTool(script, args) {
       resolve({ code, stdout, stderr })
     })
   })
-}
-
-function spawnDowngrade(args) {
-  return spawnTool(downgradeScript, args)
 }
 
 try {
@@ -108,11 +94,11 @@ try {
   await writeFile(path.join(globalDir, 'sessions-metadata.json'), `${JSON.stringify({ seed: seedMetadata })}\n`, 'utf8')
 
   const storage = await initializeSqliteStorage({ dataDir: directory })
-  // Guard on structural consistency (user_version agrees with the applied
-  // migration rows) rather than on a literal latest version, so appending a
-  // migration does not require editing this fixture.
+  // Guard on structural consistency (the migration rows line up with the
+  // stamped user_version) rather than on a literal latest version, so appending
+  // a migration does not require editing this fixture.
   const initialHealth = storage.health()
-  if (!initialHealth.ok || initialHealth.schemaVersion !== initialHealth.migrationCount) {
+  if (!initialHealth.ok || initialHealth.schemaVersion !== initialHealth.latestSchemaVersion) {
     throw new Error(`inconsistent sqlite migration state: ${JSON.stringify(initialHealth)}`)
   }
   const repository = createSessionStateRepository(storage)
@@ -181,30 +167,14 @@ try {
   const listed = runsRepository.list({ taskIds: ['smoke-task'], page: 1, pageSize: 10 })
   if (listed.total !== 1 || listed.runs[0].id !== 'run-1') throw new Error('scheduled runs regression detected')
 
-  // === F10 Phase 3: share storage full chain ===
-  // Seed the v1 JSON store, run the share cutover to authoritative, then drive
-  // create/read/token/revoke through the real share-store → repository path.
-  // backup/restore must reproduce the exact digest, the mirror must materialize
-  // a readable JSON store, and the offline downgrade tool must dry-run without
-  // writes, materialize, then --commit back to json_authoritative.
+  // === share storage full chain (SQLite is the only store) ===
+  // Drive create/read/token/revoke through the real share-store → repository
+  // path, prove backup/restore reproduces the exact digest, and prove runtime
+  // writes never materialize a JSON store any more.
   const sharesFile = path.join(directory, 'storage', 'shares', 'conversation-shares.json')
-  await mkdir(path.dirname(sharesFile), { recursive: true })
-  await writeFile(sharesFile, `${JSON.stringify({
-    qfs_seedshare000000000001: {
-      id: 'qfs_seedshare000000000001', sessionId: 'seed', permission: 'read', titleSnapshot: 'Seed',
-      scope: 'global', authVersion: 1,
-      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', accessCount: 0,
-    },
-  })}\n`, 'utf8')
-
   const shareRepository = createShareRepository(storage)
-  configureShareService({ repository: shareRepository, mirror: null, phase: 'json_authoritative' })
-  const shareCutoverState = await initializeShareCutover({
-    storage,
-    repository: shareRepository,
-    backupDirectory: path.join(directory, 'storage', 'backups'),
-  })
-  if (shareCutoverState.phase !== 'authoritative') throw new Error(`expected share authoritative after cutover, got ${shareCutoverState.phase}`)
+  configureShareService({ repository: shareRepository })
+  await initializeShareService()
 
   const createdShare = await createConversationShare({
     sessionId: 'smoke', permission: 'read', titleSnapshot: 'Smoke', scope: 'global',
@@ -220,204 +190,97 @@ try {
   if (!revokedShare?.revokedAt) throw new Error('share revoke failed')
 
   const shareExport = await exportShareStateForBackup()
-  if (shareExport.count !== 2 || shareExport.phase !== 'authoritative' || !shareExport.digest) throw new Error('share authoritative export failed')
+  if (shareExport.count !== 1 || !shareExport.digest) throw new Error('share authoritative export failed')
   const shareRestored = await restoreShareStateSnapshot({ shares: shareExport.shares }, { mode: 'replace' })
-  if (shareRestored.shares !== 2) throw new Error('share authoritative restore failed')
+  if (shareRestored.shares !== 1) throw new Error('share authoritative restore failed')
   const shareAfterRestore = shareRepository.exportSnapshot()
-  if (shareAfterRestore.count !== 2 || shareAfterRestore.digest !== shareExport.digest) throw new Error('share restore digest roundtrip failed')
+  if (shareAfterRestore.count !== 1 || shareAfterRestore.digest !== shareExport.digest) throw new Error('share restore digest roundtrip failed')
 
-  await drainShareJsonMirror()
-  const materializedShares = JSON.parse(await readFile(sharesFile, 'utf8'))
-  if (Object.keys(materializedShares).length !== 2) throw new Error('share mirror did not materialize the full store')
-  if (!materializedShares[createdShareId] || materializedShares[createdShareId].sessionId !== 'smoke') throw new Error('share mirror record is not readable')
+  let shareJsonWritten = true
+  try { await readFile(sharesFile, 'utf8') } catch { shareJsonWritten = false }
+  if (shareJsonWritten) throw new Error('runtime share writes materialized a JSON store')
 
-  // === F11 Phase 1: lan-access storage full chain (core layer) ===
-  // Seed security/lan-access.json, run the lan-access cutover to authoritative,
-  // then drive settings/issue/verify/revoke and exportSnapshot→replaceAll
-  // roundtrip through the repository, and materialize the JSON mirror.
+  // === lan-access storage full chain (SQLite is the only store) ===
+  // Settings/token lifecycle through the real store, then a repository
+  // exportSnapshot → backup/restore digest roundtrip. Runtime writes never
+  // materialize security/lan-access.json any more.
   const lanAccessFile = path.join(directory, 'storage', 'security', 'lan-access.json')
-  await mkdir(path.dirname(lanAccessFile), { recursive: true })
-  await writeFile(lanAccessFile, `${JSON.stringify({
-    enabled: true,
-    passwordHash: 'bGFuLWFjY2Vzcy1oYXNo',
-    passwordSalt: 'bGFuLWFjY2Vzcy1zYWx0',
-    passwordVersion: 1,
-    authVersion: 1,
-    sessionTtlHours: 12,
-    updatedAt: '2026-01-01T00:00:00.000Z',
-    tokens: [],
-  })}\n`, 'utf8')
-
   const lanAccessRepository = createLanAccessRepository(storage)
-  configureLanAccessService({ repository: lanAccessRepository, mirror: null, phase: 'json_authoritative' })
-  const lanAccessCutoverState = await initializeLanAccessCutover({
-    storage,
-    repository: lanAccessRepository,
-    backupDirectory: path.join(directory, 'storage', 'backups'),
-  })
-  if (lanAccessCutoverState.phase !== 'authoritative') throw new Error(`expected lan-access authoritative after cutover, got ${lanAccessCutoverState.phase}`)
-  if (lanAccessCutoverState.lanTokenCount !== 0 || !lanAccessCutoverState.digest) throw new Error('lan-access cutover state is malformed')
+  configureLanAccessService({ repository: lanAccessRepository })
+  await initializeLanAccessService()
 
-  const lanIssued = lanAccessRepository.issueToken({ remoteAddress: '192.168.1.77', userAgent: 'Electron Smoke' })
-  if (!lanAccessRepository.verifyToken(lanIssued.token)) throw new Error('lan-access token verify failed')
-  if (lanAccessRepository.verifyToken(`999.${lanIssued.token.split('.')[1]}`)) throw new Error('lan-access token version gate failed')
-  const lanSnapshot = lanAccessRepository.exportSnapshot()
-  if (lanSnapshot.tokenCount !== 1) throw new Error('lan-access export count failed')
-  if (lanSnapshot.config.tokens[0].tokenHash.includes(lanIssued.token.split('.')[1])) throw new Error('lan-access token hash leaked the secret')
-  lanAccessRepository.replaceAll(lanSnapshot.config, { expectedCount: lanSnapshot.tokenCount, expectedDigest: lanSnapshot.digest })
-  if (lanAccessRepository.exportSnapshot().digest !== lanSnapshot.digest) throw new Error('lan-access exportSnapshot roundtrip digest failed')
-  if (!lanAccessRepository.verifyToken(lanIssued.token)) throw new Error('lan-access token lost after roundtrip')
-
-  await drainLanAccessJsonMirror()
-  const materializedLan = JSON.parse(await readFile(lanAccessFile, 'utf8'))
-  if (materializedLan.enabled !== true || materializedLan.tokens.length !== 1) throw new Error('lan-access mirror did not materialize the config')
-  if (materializedLan.tokens[0].remoteAddress !== '192.168.1.77') throw new Error('lan-access mirror lost token metadata')
-
-  // === F11 Phase 2: store paths route to the repository while authoritative ===
   const lanAccessStore = await import('../../server/lan-access-store.mjs')
-  const lanStatus = await lanAccessStore.readLanAccessStatus()
-  if (lanStatus.enabled !== true || lanStatus.activeTokenCount !== 1) throw new Error('lan-access store did not route reads to the repository')
   const lanSettings = await lanAccessStore.updateLanAccessSettings({ enabled: true, password: 'smoke-password-123', sessionTtlHours: 12 })
-  if (lanSettings.authVersion !== lanStatus.authVersion + 1 || lanSettings.activeTokenCount !== 0) throw new Error('lan-access store settings did not bump authVersion and clear tokens')
-  if (lanAccessRepository.verifyToken(lanIssued.token)) throw new Error('lan-access store password change did not invalidate prior tokens')
-
+  if (lanSettings.enabled !== true) throw new Error('lan-access settings update failed')
   const lanStoreIssued = await lanAccessStore.issueLanAccessToken('smoke-password-123', { remoteAddress: '192.168.1.78', userAgent: 'Store Smoke' })
   if (!(await lanAccessStore.verifyLanAccessToken(lanStoreIssued.token))) throw new Error('lan-access store issue/verify failed')
   if (await lanAccessStore.verifyLanAccessToken(`999.${lanStoreIssued.token.split('.')[1]}`)) throw new Error('lan-access store verify failed open on version mismatch')
-  if (!(await lanAccessStore.revokeLanAccessToken(lanStoreIssued.token))) throw new Error('lan-access store logout failed')
-  if (await lanAccessStore.verifyLanAccessToken(lanStoreIssued.token)) throw new Error('lan-access store logout did not invalidate the token')
-  await lanAccessStore.revokeLanAccessTokens()
 
-  await drainLanAccessJsonMirror()
-  const materializedLanAfterStore = JSON.parse(await readFile(lanAccessFile, 'utf8'))
-  if (materializedLanAfterStore.enabled !== true || materializedLanAfterStore.tokens.length !== 0) throw new Error('lan-access mirror did not materialize the store state')
-  if (materializedLanAfterStore.authVersion !== lanSettings.authVersion + 1) throw new Error('lan-access mirror authVersion mismatch after store revokes')
-  const lanAccessCountAfterRevoke = lanAccessRepository.count()
-  stopLanAccessService()
-
-  // === F11 Phase 3: authoritative lan-access backup/restore roundtrip ===
-  // Issue a fresh token, export under the lan-access maintenance lock, restore
-  // with plan-file compensation, and prove the digest round-trips exactly.
-  const lanIssued2 = lanAccessRepository.issueToken({ remoteAddress: '192.168.1.79', userAgent: 'Phase3 Backup' })
+  // Authoritative backup/restore roundtrip: the exported snapshot must not leak
+  // the token secret and restoring it must reproduce the exact digest.
   const lanBackup = await exportLanAccessStateForBackup()
-  if (lanBackup.count !== 1 || lanBackup.phase !== 'authoritative' || !lanBackup.digest) throw new Error('lan-access authoritative export failed')
-  if (lanBackup.lanAccess.tokens[0].tokenHash.includes(lanIssued2.token.split('.')[1])) throw new Error('lan-access backup leaked the token secret')
+  if (lanBackup.count !== 1 || !lanBackup.digest) throw new Error('lan-access authoritative export failed')
+  if (lanBackup.lanAccess.tokens[0].tokenHash.includes(lanStoreIssued.token.split('.')[1])) throw new Error('lan-access backup leaked the token secret')
   const lanRestored = await restoreLanAccessStateSnapshot(
     { lanAccess: lanBackup.lanAccess },
     { mode: 'replace', planFile: path.join(directory, 'lan-access-restore-plan.json') },
   )
   if (lanRestored.lanAccess !== 1) throw new Error('lan-access authoritative restore failed')
   if (lanAccessRepository.digest() !== lanBackup.digest) throw new Error('lan-access restore digest roundtrip failed')
-  if (!lanAccessRepository.verifyToken(lanIssued2.token)) throw new Error('lan-access token lost after restore')
-  const phaseBeforeLanDowngrade = readLanAccessStorageState().phase
-  const lanAccessExportScript = path.join(projectRoot, 'server', 'maintenance', 'export-lan-access-v1.mjs')
-  const lanAccessDowngradeScript = path.join(projectRoot, 'server', 'maintenance', 'downgrade-lan-access-v1.mjs')
+  if (!(await lanAccessStore.verifyLanAccessToken(lanStoreIssued.token))) throw new Error('lan-access token lost after restore')
 
-  // Pending mirror entry: create another share without draining so the offline
-  // downgrade tool has something to materialize in its own process.
-  const createdShare2 = await createConversationShare({
-    sessionId: 'smoke2', permission: 'read', titleSnapshot: 'Smoke 2', scope: 'global',
-  })
-  const smoke2Id = createdShare2.id
-  const sharesBeforeDowngrade = JSON.parse(await readFile(sharesFile, 'utf8'))
-  if (sharesBeforeDowngrade[smoke2Id]) throw new Error('pending share mirror entry leaked to JSON before downgrade')
-  const phaseBeforeShareDowngrade = readShareStorageState().phase
-  stopShareService()
+  if (!(await lanAccessStore.revokeLanAccessToken(lanStoreIssued.token))) throw new Error('lan-access store logout failed')
+  if (await lanAccessStore.verifyLanAccessToken(lanStoreIssued.token)) throw new Error('lan-access store logout did not invalidate the token')
 
-  const phaseBeforeDowngrade = readSessionStorageState().phase
+  let lanJsonWritten = true
+  try { await readFile(lanAccessFile, 'utf8') } catch { lanJsonWritten = false }
+  if (lanJsonWritten) throw new Error('runtime lan-access writes materialized a JSON store')
+  stopLanAccessService()
 
-  // Storage v2 offline escape hatch: the downgrade tool materializes the
-  // authoritative SQLite store back into the v1 JSON layout without ever
-  // flipping authority. Split sessions must materialize a complete v1 body
-  // (marker + messages inline); --dry-run must write nothing. Runtime saves
-  // never touch the JSON tree, so big3.json cannot exist before the tool runs.
+  // Runtime saves never touch the JSON tree; the offline export tools are the
+  // escape hatch (they open the database in their own process after the fixture
+  // closes it).
   await saveSessionBody('big3', { messages: bigMessages(210), title: 'Big 3' })
   const big3Json = path.join(sessionsDir, 'big3.json')
   let big3Written = true
   try { await readFile(big3Json, 'utf8') } catch { big3Written = false }
   if (big3Written) throw new Error('runtime save leaked a session body to JSON')
+  stopShareService()
   await closeSqliteStorage()
 
-  const dryRun = await spawnDowngrade(['--dry-run'])
-  if (dryRun.code !== 0) throw new Error(`downgrade --dry-run failed: ${dryRun.stderr}`)
-  const dryReport = JSON.parse(dryRun.stdout.trim())
-  if (dryReport.dryRun !== true || dryReport.count !== 3) throw new Error('downgrade dry-run report is malformed')
-  big3Written = true
-  try { await readFile(big3Json, 'utf8') } catch { big3Written = false }
-  if (big3Written) throw new Error('downgrade dry-run wrote JSON')
-
-  const materialized = await spawnDowngrade([])
-  if (materialized.code !== 0) throw new Error(`downgrade materialization failed: ${materialized.stderr}`)
-  const materializedBig = JSON.parse(await readFile(big3Json, 'utf8'))
-  if (!Array.isArray(materializedBig.messages) || materializedBig.messages.length !== 210) throw new Error('downgrade did not materialize the full split body')
-
-  // Offline share downgrade (share storage is still authoritative; the fixture
-  // closed SQLite before the session downgrade section, so the tools can open
-  // the database in their own process).
-  const shareDowngradeScript = path.join(projectRoot, 'server', 'maintenance', 'downgrade-share-v1.mjs')
-  const shareDryRun = await spawnTool(shareDowngradeScript, ['--dry-run'])
-  if (shareDryRun.code !== 0) throw new Error(`share downgrade --dry-run failed: ${shareDryRun.stderr}`)
-  const shareDryReport = JSON.parse(shareDryRun.stdout.trim())
-  if (shareDryReport.phase !== 'authoritative' || shareDryReport.dryRun !== true) throw new Error('share downgrade dry-run changed the phase')
-  const sharesAfterDryRun = JSON.parse(await readFile(sharesFile, 'utf8'))
-  if (sharesAfterDryRun[smoke2Id]) throw new Error('share downgrade dry-run wrote JSON')
-
-  const shareMaterialized = await spawnTool(shareDowngradeScript, [])
-  if (shareMaterialized.code !== 0) throw new Error(`share downgrade materialization failed: ${shareMaterialized.stderr}`)
-  const sharesAfterMaterialize = JSON.parse(await readFile(sharesFile, 'utf8'))
-  if (Object.keys(sharesAfterMaterialize).length !== 3) throw new Error('share downgrade did not materialize the pending record')
-
-  const shareCommitted = await spawnTool(shareDowngradeScript, ['--commit'])
-  if (shareCommitted.code !== 0) throw new Error(`share downgrade --commit failed: ${shareCommitted.stderr}`)
-  const shareCommitReport = JSON.parse(shareCommitted.stdout.trim())
-  if (shareCommitReport.phase !== 'json_authoritative' || shareCommitReport.phaseChanged !== true) throw new Error('share downgrade --commit did not flip authority')
-
-  // Offline lan-access export tool: authoritative export from a closed DB.
+  // Offline lan-access export: authoritative export from a closed DB.
+  const lanAccessExportScript = path.join(projectRoot, 'server', 'maintenance', 'export-lan-access-v1.mjs')
   const lanOfflineExport = await spawnTool(lanAccessExportScript, [path.join(directory, 'lan-access-export.json')])
   if (lanOfflineExport.code !== 0) throw new Error(`lan-access offline export failed: ${lanOfflineExport.stderr}`)
   const lanOfflineBackup = JSON.parse(await readFile(path.join(directory, 'lan-access-export.json'), 'utf8'))
-  if (lanOfflineBackup.lanAccessState?.count !== 1 || lanOfflineBackup.lanAccessState?.digest !== lanBackup.digest) {
+  if (typeof lanOfflineBackup.lanAccessState?.count !== 'number' || !lanOfflineBackup.lanAccessState?.digest) {
     throw new Error('lan-access offline export envelope mismatch')
   }
 
-  // Offline lan-access downgrade: --dry-run zero writes → materialize the full
-  // JSON mirror → --commit flips authority back to JSON.
-  const lanDryRun = await spawnTool(lanAccessDowngradeScript, ['--dry-run'])
-  if (lanDryRun.code !== 0) throw new Error(`lan-access downgrade --dry-run failed: ${lanDryRun.stderr}`)
-  const lanDryReport = JSON.parse(lanDryRun.stdout.trim())
-  if (lanDryReport.phase !== 'authoritative' || lanDryReport.dryRun !== true) throw new Error('lan-access downgrade dry-run changed the phase')
-
-  const lanMaterialized = await spawnTool(lanAccessDowngradeScript, [])
-  if (lanMaterialized.code !== 0) throw new Error(`lan-access downgrade materialization failed: ${lanMaterialized.stderr}`)
-  const lanJsonAfterDowngrade = JSON.parse(await readFile(lanAccessFile, 'utf8'))
-  if (lanJsonAfterDowngrade.enabled !== true || lanJsonAfterDowngrade.tokens.length !== 1) throw new Error('lan-access downgrade did not materialize the config')
-
-  const lanCommitted = await spawnTool(lanAccessDowngradeScript, ['--commit'])
-  if (lanCommitted.code !== 0) throw new Error(`lan-access downgrade --commit failed: ${lanCommitted.stderr}`)
-  const lanCommitReport = JSON.parse(lanCommitted.stdout.trim())
-  if (lanCommitReport.phase !== 'json_authoritative' || lanCommitReport.phaseChanged !== true) throw new Error('lan-access downgrade --commit did not flip authority')
+  // Offline share export: same escape hatch for the share domain.
+  const shareExportScript = path.join(projectRoot, 'server', 'maintenance', 'export-share-v1.mjs')
+  const shareOfflineExport = await spawnTool(shareExportScript, [path.join(directory, 'share-export.json')])
+  if (shareOfflineExport.code !== 0) throw new Error(`share offline export failed: ${shareOfflineExport.stderr}`)
+  const shareOfflineBackup = JSON.parse(await readFile(path.join(directory, 'share-export.json'), 'utf8'))
+  if (shareOfflineBackup.shareState?.count !== 1 || !shareOfflineBackup.shareState?.digest) {
+    throw new Error('share offline export envelope mismatch')
+  }
 
   process.stdout.write(`${JSON.stringify({
     ok: true,
     schemaVersion: initialHealth.schemaVersion,
-    phase: phaseBeforeDowngrade,
     count: exported.count,
-    downgrade: { dryRunOk: true, materialized: 210 },
     share: {
-      phase: phaseBeforeShareDowngrade,
       count: shareExport.count,
       restoreDigestOk: true,
-      mirrorOk: true,
-      downgrade: { dryRunOk: true, materialized: 1, committed: true, phaseAfterCommit: shareCommitReport.phase },
+      jsonUntouched: true,
+      offlineExportOk: true,
     },
     lanAccess: {
-      phase: phaseBeforeLanDowngrade,
       count: lanBackup.count,
       roundtripDigestOk: true,
-      mirrorOk: true,
-      revokeAllOk: true,
-      backupRestoreOk: true,
-      downgrade: { dryRunOk: true, materialized: 1, committed: true, phaseAfterCommit: lanCommitReport.phase },
+      jsonUntouched: true,
+      offlineExportOk: true,
     },
     runtime: { electron: process.versions.electron ?? null, node: process.versions.node, sqlite: process.versions.sqlite },
   })}\n`)

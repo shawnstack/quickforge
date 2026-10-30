@@ -86,25 +86,19 @@ describe('buildGoalControlStripView', () => {
       statusKey: 'goalStatusRunning',
       statusWordKey: 'goalStateRunning',
       primaryAction: 'pause',
-      spinning: true,
     })
     expect(buildGoalControlStripView(goal({ status: 'verifying' }))).toMatchObject({
       statusKey: 'goalStatusVerifying',
       primaryAction: 'pause',
     })
-    // Planning is a step the engine is actively working, so the arc runs even
-    // though the legacy status used to keep the checklist glyph static.
+    // Planning is a step the engine is actively working.
     expect(buildGoalControlStripView(goal({ status: 'planning' }))).toMatchObject({
       statusKey: 'goalStatusPlanning',
       primaryAction: 'none',
-      spinning: true,
     })
     expect(buildGoalControlStripView(goal({ status: 'pausing' }))).toMatchObject({
       statusKey: 'goalStatusPausing',
       primaryAction: 'pause',
-      // Pausing is alive but no longer progressing: the arc stops, the amber dot
-      // and the word carry it (方案 A).
-      spinning: false,
     })
     expect(buildGoalControlStripView(goal({ status: 'paused' }))).toMatchObject({
       primaryAction: 'resume',
@@ -161,7 +155,7 @@ describe('buildGoalControlStripView', () => {
       activation: 'disarmed',
       runtime: 'idle',
     }))
-    expect(paused).toMatchObject({ statusWordKey: 'goalStatePaused', stateTone: 'idle', tone: 'info', spinning: false })
+    expect(paused).toMatchObject({ statusWordKey: 'goalStatePaused', stateTone: 'idle', tone: 'info' })
 
     // Waiting is the one state that needs the user: amber, never "active" blue.
     // The single primary action must resolve that wait — it must not stay "pause"
@@ -177,7 +171,6 @@ describe('buildGoalControlStripView', () => {
         stateTone: 'attention',
         primaryAction: 'attention',
         primaryLabelKey: 'goalAttentionAction',
-        spinning: false,
       })
     }
 
@@ -187,34 +180,14 @@ describe('buildGoalControlStripView', () => {
       activation: 'disarmed',
       runtime: 'idle',
     }))
-    expect(blocked).toMatchObject({ statusWordKey: 'goalStateBlocked', stateTone: 'blocked', spinning: false })
+    expect(blocked).toMatchObject({ statusWordKey: 'goalStateBlocked', stateTone: 'blocked' })
 
     expect(buildGoalControlStripView(goal({
       status: 'running',
       phase: 'active',
       activation: 'armed',
       runtime: 'executing',
-    }))).toMatchObject({ statusWordKey: 'goalStateRunning', stateTone: 'working', spinning: true })
-  })
-
-  it('spins only while a step is actually being worked on', () => {
-    // Pausing / waiting are alive but not progressing: the amber dot says so.
-    for (const runtime of ['pausing', 'waiting_approval', 'waiting_input', 'idle'] as const) {
-      expect(buildGoalControlStripView(goal({
-        status: runtime === 'waiting_approval' ? 'awaiting_approval' : runtime === 'waiting_input' ? 'awaiting_input' : 'running',
-        phase: 'active',
-        activation: 'armed',
-        runtime,
-      }))).toMatchObject({ spinning: false })
-    }
-    for (const runtime of ['planning', 'executing', 'verifying'] as const) {
-      expect(buildGoalControlStripView(goal({
-        status: 'running',
-        phase: 'active',
-        activation: 'armed',
-        runtime,
-      }))).toMatchObject({ spinning: true })
-    }
+    }))).toMatchObject({ statusWordKey: 'goalStateRunning', stateTone: 'working' })
   })
 
   it('routes an exhausted budget to the inspector instead of a bare resume', () => {

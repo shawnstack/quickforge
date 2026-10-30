@@ -42,12 +42,13 @@ quickforge/
 | 文档 | 说明 |
 |------|------|
 | [工作流编排架构](../architecture/workflow-orchestration.zh-CN.md) | `run_workflow` 脚本编排 Agent 与工具（hook 契约、并发与审批、worker 隔离） |
-| [会话存储 v2](../architecture/session-storage-v2.zh-CN.md) | 会话域存储的当前事实源（SQLite 单一权威、写入/删除/空间回收、备份恢复入口） |
-| [SQLite 存储基础层](../architecture/sqlite-storage-foundation.zh-CN.md) | `node:sqlite` 连接、PRAGMA、append-only migration 协议 |
+| [会话消息实时一致性](../architecture/message-log-consistency.zh-CN.md) | 消息日志版本、连接级投递游标、SSE 续传与 `applyLog` 单一投影（双端一致契约） |
+| [会话存储 v2](../architecture/session-storage-v2.zh-CN.md) | 会话域存储的当前事实源（SQLite 单一权威、baseline v19 三表、写入/删除/空间回收、备份恢复入口） |
+| [SQLite 存储基础层](../architecture/sqlite-storage-foundation.zh-CN.md) | `node:sqlite` 连接、PRAGMA、append-only migration 协议与 baseline v19（历史迁移链已折叠） |
 | [会话状态事务化存储](../architecture/session-state-transactional-storage.zh-CN.md) | F8/F9 历史决策记录（CAS、tombstone、拆分写入） |
 | [Session Index 基础](../architecture/session-index-foundation.zh-CN.md) / [查询迁移](../architecture/session-index-query-migration.zh-CN.md) | F6/F7 历史决策记录（列表分页索引与降级） |
-| [定时任务运行记录 Repository](../architecture/scheduled-task-runs-repository.zh-CN.md) / [权威切换](../architecture/scheduled-task-runs-authoritative-cutover.zh-CN.md) | F3/F5 历史决策记录 |
-| [分享令牌存储迁移](../architecture/share-token-storage-migration.zh-CN.md) / [LAN 访问存储迁移](../architecture/lan-access-storage-migration.zh-CN.md) | F10/F11 历史决策记录 |
+| [定时任务运行记录 Repository](../architecture/scheduled-task-runs-repository.zh-CN.md) / [权威切换（归档）](../architecture/scheduled-task-runs-authoritative-cutover.zh-CN.md) | F3 当前 repository 契约；F5 为归档历史（phase 状态机与 cutover coordinator 已删除，现为单路径权威） |
+| [分享令牌存储迁移（归档）](../architecture/share-token-storage-migration.zh-CN.md) / [LAN 访问存储迁移（归档）](../architecture/lan-access-storage-migration.zh-CN.md) | F10/F11 归档历史（phase 状态机、mirror 队列与 cutover 链已删除，两域均为单路径 SQLite 权威） |
 | [插件系统](../architecture/plugin-system.zh-CN.md) / [Agent 能力插件系统](../architecture/agent-plugin-system.zh-CN.md) | 当前 V1 能力与目标架构 |
 | [自定义 Agent / Agent Profile](../architecture/custom-agents-design.zh-CN.md) | Agent Profile 架构与存储 |
 | [浏览器缓存策略](../architecture/browser-cache-strategy.zh-CN.md) | 应用层缓存分级与已实施范围 |

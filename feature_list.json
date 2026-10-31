@@ -1400,6 +1400,21 @@
       ],
       "verification": "npx vitest run custom-model-selector + model-selector-thinking-sync + composer-model-trigger → 3 files / 31 tests passed（含新增「tapping a model moves the check icon immediately」）；npx eslint 改动文件 → 0 problems；npx tsc -p tsconfig.app.json --noEmit → 0 错误。未创建 Git commit，未触碰生成产物。",
       "updatedAt": "2026-10-30"
+    },
+    {
+      "id": "chat-scrollbar-gutter-stable",
+      "title": "展开普通工具卡时整列左右抖动（竖向滚动条占位）",
+      "status": "done",
+      "summary": "普通工具卡展开时整列左右抖约 5px：根因不在工具卡内部（实测 .quickforge-tool-header / .quickforge-tool-summary / .quickforge-tool-label 展开前后 x 与 width 完全一致），而在主滚动容器 .qf-scroll-container（overflow-y:auto）+ 居中内容列（mx-auto max-w-3xl）+ classic 8px 滚动条（foundation.css 的全局 *::-webkit-scrollbar）：内容刚过一屏时滚动条出现/消失让 clientWidth 990→980、列 x 128.43→123.34。展开 read_file / run_command 这类一次增高几百 px 的卡最容易跨过阈值，所以表现成「展开 tools 时整列左右抖」。修复为主滚动容器 scrollbar-gutter: stable both-edges：两侧各留一个 gutter，有无滚动条时 clientWidth 恒 970、列 x 恒 128.43，与「没有滚动条」时的位置完全一致；只写 stable 会恒定偏左 5px，等于把抖动换成永久偏移。此前几轮修的都是横向溢出（overflow-x:hidden、摘要行局部滚动容器、header/panel 分层），竖向滚动条占位从未处理（docs/archive/progress-archive.md 第 ④ 条已列为未做候选）。",
+      "files": [
+        "src/styles/chat/messages.css",
+        "tests/frontend/chat-surface-css-contract.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 tests/frontend/chat-surface-css-contract.test.ts + scroll-to-bottom-button.test.ts → 2 files / 50 passed；eslint 改动文件 0 problems；vite dev 实测 computed scrollbar-gutter=stable both-edges，内容 100px→2100px 时 clientWidth 恒 580、列 x 恒 23.18（同条件改动前列 x 会平移约 5px）。",
+      "updatedAt": "2026-10-31"
     }
   ]
 }

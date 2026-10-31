@@ -6,6 +6,17 @@
    those writes, so it is disabled on the main scroller only. */
 .qf-chat-panel > .qf-scroll-container {
   overflow-anchor: none;
+  /* 竖向滚动条占位：内容列是 `mx-auto max-w-3xl` 居中，滚动条是 classic 8px
+     （foundation.css 的全局 `*::-webkit-scrollbar`），`overflow-y: auto` 让它在
+     内容刚过一屏时出现、折叠回去时消失。每次出现/消失都会让 clientWidth
+     −10px，居中列随之左右平移约 5px（实测 990→980，列 x 128.43→123.34）。
+     展开普通工具卡（read_file / run_command 输出动辄几百 px）最容易把内容
+     推过阈值，所以表现成「展开 tools 时整列左右抖」。
+     `both-edges` 在两侧各留一个 gutter：有无滚动条时 clientWidth 恒为 970、
+     列 x 恒为 128.43，与「没有滚动条」时的位置完全一致——既不抖，也不偏。
+     只写 `stable` 会恒定偏左 5px，是另一种视觉回归。
+     移动端 overlay 滚动条不占位，不受影响。 */
+  scrollbar-gutter: stable both-edges;
   /* overflow-x:hidden 兜底：`overflow-y-auto` 的另一轴按规范会被计算为
      auto，任何撑宽消息列的内容都会让整个消息区底部出现水平滚动条。
      横向溢出一律由内容元素自己的局部滚动容器处理，主滚动容器只管

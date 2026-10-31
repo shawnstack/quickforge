@@ -485,6 +485,11 @@ describe('chat row font scale contract', () => {
     const scroller = declarationBlock('.qf-chat-panel > .qf-scroll-container {')
     expect(scroller).toContain('overflow-anchor: none;')
     expect(scroller).toContain('overflow-x: hidden;')
+    // 竖向滚动条占位：内容列居中（mx-auto max-w-3xl），classic 8px 滚动条在
+    // 「内容刚过一屏」时出现、折叠回去时消失，会让 clientWidth −10px、整列左右
+    // 平移约 5px（展开普通工具卡最容易触发）。必须两侧各留 gutter，只用
+    // `stable` 会把列恒定偏左 5px，等于把抖动换成永久偏移。
+    expect(scroller).toContain('scrollbar-gutter: stable both-edges;')
 
     // 宽 KaTeX 展示公式在自己的块内横滑（隐藏滚动条、可触摸），不再撑破消息列。
     const katexScroll = declarationBlock('.quickforge-katex-scroll {')

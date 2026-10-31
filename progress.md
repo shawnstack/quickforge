@@ -2,6 +2,24 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## chat-scrollbar-gutter-stable（done，2026-10-31）
+
+- Goal：修「展开普通 tools 时整列左右抖动」。
+- 结论（一句话）：抖动不在工具卡里，而在主滚动容器的竖向滚动条占位——`.qf-scroll-container`（`overflow-y:auto`）+ 居中内容列（`mx-auto max-w-3xl`）+ classic 8px 滚动条，内容刚过一屏时滚动条出现/消失让 `clientWidth` −10px，整列左右平移约 5px。
+- 实测（dev 页面，真实 class 链）：
+  - 卡内不动：`.quickforge-tool-header` / `.quickforge-local-tool` / `.quickforge-tool-summary` / `.quickforge-tool-label` 展开前后 x 与 width **完全一致**（138.34 / 810、804.375、450.86）。`311a2a2` 的 header/panel 分层与 `tool-output.css:49-57` 的宽度锁链仍然有效。
+  - 整列会动：内容不满一屏 `clientWidth=990`、列 `x=128.43`；内容超一屏 `clientWidth=980`、列 `x=123.34`（−5.09px），折叠回去反向再抖一次。
+  - 为什么是「普通 tools」最明显：`read_file` / `run_command` 展开一次增高几百 px，最容易把内容从「不满一屏」推过阈值；任何改变高度的操作（折叠 process 组、流式增长）本质同源。
+- 改动：
+  1. `src/styles/chat/messages.css`：`.qf-chat-panel > .qf-scroll-container` 加 `scrollbar-gutter: stable both-edges`。实测有无滚动条时 `clientWidth` 恒 970、列 `x` 恒 128.43——与「没有滚动条」时的位置完全一致，既不抖也不偏。只写 `stable` 会恒定偏左 5px，等于把抖动换成永久偏移。
+  2. `tests/frontend/chat-surface-css-contract.test.ts`：在主滚动容器契约里补 `scrollbar-gutter: stable both-edges;` 断言。
+- 关键约束（别踩）：
+  - 不要退回只写 `stable`（恒定偏左 5px），也不要改成隐藏滚动条（丢失滚动位置反馈）。
+  - `both-edges` 的前提是 classic 滚动条（`foundation.css` 的全局 `*::-webkit-scrollbar`）。若未来改成 overlay 滚动条，本规则自然失效但无害，不要同时再叠 `scrollbar-width: none`。
+  - 只加在主聊天滚动容器上；composer 区（`.shrink-0 > .max-w-3xl`）、侧栏、Inspector 不在本次范围，别顺手扩散。
+  - 此前几轮修的都是**横向**溢出（`overflow-x:hidden`、摘要行局部滚动容器、header/panel 分层），竖向滚动条占位从未处理（`docs/archive/progress-archive.md` 第 ④ 条曾列为未做候选，本次已落地）。
+- 验证：定向 `chat-surface-css-contract` + `scroll-to-bottom-button` → 2 files / 50 passed；`npx eslint` 改动文件 0 problems；vite dev 实测 computed `scrollbar-gutter=stable both-edges`，内容 100px→2100px 时 `clientWidth` 恒 580、列 `x` 恒 23.18。未创建 Git commit，未手工修改生成产物。
+
 ## main-ui-perf-review-followup（done，2026-10-31）
 
 - Goal：按评审结论，在不影响体验与交互的前提下，把主界面可安全等价实现的性能项一次做完。

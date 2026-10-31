@@ -199,6 +199,7 @@ function createContextUsageTipController() {
   let dataSignature = ''
   let hoverTimer: ReturnType<typeof setTimeout> | undefined
   let boundTrigger: HTMLElement | null = null
+  let positionFrame: number | null = null
 
   const handleTriggerEnter = () => scheduleOpen()
   const handleTriggerLeave = () => scheduleClose()
@@ -234,7 +235,14 @@ function createContextUsageTipController() {
     hoverTimer = undefined
   }
 
+  const cancelPositionFrame = () => {
+    if (positionFrame === null) return
+    if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(positionFrame)
+    positionFrame = null
+  }
+
   const removeTip = () => {
+    cancelPositionFrame()
     tip?.remove()
     tip = null
     trigger?.setAttribute('aria-expanded', 'false')
@@ -348,7 +356,18 @@ function createContextUsageTipController() {
   }
 
   const handlePositionChange = () => {
-    if (tip) positionTip()
+    if (!tip) return
+    // Window scroll fires once per frame already, but resize and capture-phase
+    // scroll can both land in the same frame; measure once, in the frame.
+    if (typeof window.requestAnimationFrame !== 'function') {
+      positionTip()
+      return
+    }
+    if (positionFrame !== null) return
+    positionFrame = window.requestAnimationFrame(() => {
+      positionFrame = null
+      positionTip()
+    })
   }
 
   document.addEventListener('pointerdown', handlePointerDown, true)

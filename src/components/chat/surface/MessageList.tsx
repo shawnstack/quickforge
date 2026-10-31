@@ -122,7 +122,9 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
     messages.forEach((message, index) => {
       if (message.role !== 'user' && message.role !== 'user-with-attachments' && message.role !== 'assistant') return
       const element = elements?.[ordinal++]
-      if (element) element.dataset.messageIndex = String(messageIndexOffset + index)
+      if (!element) return
+      const nextIndex = String(messageIndexOffset + index)
+      if (element.dataset.messageIndex !== nextIndex) element.dataset.messageIndex = nextIndex
     })
   }, [messages, messageIndexOffset])
   // Memoized on `messages` (R1 F1b): a fresh Map per render would defeat the

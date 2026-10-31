@@ -135,8 +135,9 @@ function beginRowDragSession({
       moved = true
       buildGhost()
     }
-    ghost?.style.setProperty('top', `${rect.top + (event.clientY - startY)}px`)
-    movePlaceholder(event.clientY)
+    // Geometry reads (sibling rects) and the placeholder move are coalesced
+    // into `tick`: pointermove fires faster than the compositor, and each
+    // read here would otherwise sit next to the row/ghost writes.
     if (scrollRaf === null) scrollRaf = requestAnimationFrame(tick)
     event.preventDefault()
   }
@@ -146,6 +147,9 @@ function beginRowDragSession({
       cleanup()
       return
     }
+    // The last pointer sample may not have run a frame yet; settle it before
+    // reading the drop index so the commit matches where the pointer was.
+    movePlaceholder(lastClientY)
     // Commit first: notify()'s render is parked while the session still owns
     // the list DOM, then cleanup→onEnd performs the single rebuild.
     onCommit(placeholderIndex())

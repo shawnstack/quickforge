@@ -109,7 +109,14 @@ body {
    context and its theme transition. */
 .user-message-container {
   position: relative;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* Explicit list preserves the existing theme and responsive-width
+     transitions while keeping future layout props out of `all`. */
+  transition:
+    background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    max-width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Light theme tokens (values from the previous theme defaults). */

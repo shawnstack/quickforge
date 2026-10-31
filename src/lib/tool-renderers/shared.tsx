@@ -882,9 +882,16 @@ function ConsoleCopyButton({ content }: { content: string }) {
  */
 function syncConsoleScrollFades(element: HTMLElement) {
   const dataset = element.dataset
-  const overflow = element.scrollWidth - element.clientWidth > 1
-  dataset.overflowStart = overflow && element.scrollLeft > 1 ? 'true' : 'false'
-  dataset.overflowEnd = overflow && element.scrollLeft + element.clientWidth < element.scrollWidth - 1 ? 'true' : 'false'
+  // Read geometry once, before any scrollTop write, so the fade update never
+  // runs between a layout-invalidating write and a forced synchronous read.
+  const scrollWidth = element.scrollWidth
+  const clientWidth = element.clientWidth
+  const scrollLeft = element.scrollLeft
+  const overflow = scrollWidth - clientWidth > 1
+  const overflowStart = overflow && scrollLeft > 1 ? 'true' : 'false'
+  const overflowEnd = overflow && scrollLeft + clientWidth < scrollWidth - 1 ? 'true' : 'false'
+  if (dataset.overflowStart !== overflowStart) dataset.overflowStart = overflowStart
+  if (dataset.overflowEnd !== overflowEnd) dataset.overflowEnd = overflowEnd
 }
 
 function ConsoleScrollArea({ content }: { content: string }) {
@@ -895,8 +902,10 @@ function ConsoleScrollArea({ content }: { content: string }) {
   useEffect(() => {
     const element = scrollRef.current
     if (!element) return
-    element.scrollTop = element.scrollHeight
+    // 先量后写：垂直置底不影响水平溢出状态，fade 判定可以安全提前。
+    const scrollHeight = element.scrollHeight
     syncConsoleScrollFades(element)
+    element.scrollTop = scrollHeight
   })
 
   return (

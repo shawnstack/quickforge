@@ -238,7 +238,7 @@ export function WorkspaceTabStrip({ panelTabs, activePanelTabId, projectName, ta
                       <button
                         type="button"
                         className={cn(
-                          'mr-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-all hover:bg-black hover:text-white focus-visible:opacity-100 group-hover:opacity-100',
+                          'mr-1 inline-flex size-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-[opacity,background-color,color] hover:bg-black hover:text-white focus-visible:opacity-100 group-hover:opacity-100',
                           active && 'opacity-100',
                         )}
                         onPointerDown={(event) => event.stopPropagation()}

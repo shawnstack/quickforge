@@ -69,6 +69,10 @@ class FakeElement {
     for (const listener of [...(this.listeners.get(type) ?? [])]) listener(event)
   }
 
+  getBoundingClientRect() {
+    return { top: 0, left: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) }
+  }
+
   append(child: FakeElement) {
     child.parentElement?.removeChild(child)
     this.children.push(child)
@@ -168,6 +172,52 @@ describe('scroll-to-bottom button', () => {
     expect(env.button()!.classList.contains('is-visible')).toBe(true)
   })
 
+  it('refreshes from the resize observer instead of measuring on every setup', () => {
+    class TestResizeObserver {
+      static latest: TestResizeObserver | null = null
+      private callback: () => void
+      disconnected = false
+
+      constructor(callback: () => void) {
+        this.callback = callback
+        TestResizeObserver.latest = this
+      }
+
+      observe() {}
+
+      disconnect() {
+        this.disconnected = true
+      }
+
+      trigger() {
+        this.callback()
+      }
+    }
+
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    try {
+      const env = createEnv()
+      const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
+      controller.setup()
+      const observer = TestResizeObserver.latest
+      expect(observer).not.toBeNull()
+
+      // A steady-state setup replays the cached distance: it must not pick up
+      // the new geometry synchronously (that is the forced-layout path).
+      env.setDistance(400)
+      controller.setup()
+      expect(env.button()!.classList.contains('is-visible')).toBe(false)
+
+      observer!.trigger()
+      expect(env.button()!.classList.contains('is-visible')).toBe(true)
+
+      controller.cleanup()
+      expect(observer!.disconnected).toBe(true)
+    } finally {
+      vi.stubGlobal('ResizeObserver', undefined)
+    }
+  })
+
   it('uses a hysteresis band so the threshold never flickers', () => {
     const env = createEnv()
     const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
@@ -261,6 +311,23 @@ describe('scroll-to-bottom button', () => {
     expect(onJumpSettled).toHaveBeenCalledTimes(1)
   })
 
+  it('restores the visible state when the composer dock is rebuilt', () => {
+    const env = createEnv()
+    const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
+
+    controller.setup()
+    env.setDistance(400)
+    env.scrollContainer.dispatch('scroll')
+    expect(env.button()!.classList.contains('is-visible')).toBe(true)
+
+    env.setShellAvailable(false)
+    controller.setup()
+    env.setShellAvailable(true)
+    controller.setup()
+
+    expect(env.button()!.classList.contains('is-visible')).toBe(true)
+  })
+
   it('removes the button when the composer dock is gone (read-only sessions)', () => {
     const env = createEnv()
     const controller = createScrollToBottomButton({ panel: env.panel, onJumpSettled: vi.fn() })
@@ -282,6 +349,16 @@ describe('scroll-to-bottom button wiring', () => {
     expect(css).toContain('.quickforge-chat-panel-empty-host .quickforge-scroll-bottom-button')
     expect(css).toContain('html.dark .quickforge-scroll-bottom-badge')
     expect(css).toContain('.quickforge-scroll-bottom-button {\n    transition: none;\n  }')
+  })
+
+  it('keeps steady-state setup off the layout path', () => {
+    const source = readFileSync(new URL('../../src/components/chat/panel-decoration/scroll-to-bottom-button.ts', import.meta.url), 'utf8')
+
+    // Geometry growth must arrive through ResizeObserver; repeated decoration
+    // passes may only re-apply the cached distance.
+    expect(source).toContain('new ResizeObserver(handleScroll)')
+    expect(source).toContain('if (!resizeObserver || resizeObserver !== previousObserver || measuredDistance === null) handleScroll()')
+    expect(source).toContain('else applyVisibility()')
   })
 
   it('is wired into the panel lifecycle and assistant message events', () => {

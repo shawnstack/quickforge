@@ -142,3 +142,37 @@ O(tail) 的解析」。元素树对象相同 → React 直接 bailout，稳定�
   改成调度需要确认「props 变化 → 首帧装饰」的时序契约，未在本轮改动。
 - 客户端 `agent.state.messages` 仍是全量常驻（窗口只裁 DOM）。这是数据权威，
   不是泄漏；如需治理应单独立项（例如大工具输出的惰性化）。
+
+## 7. 后续：DOM 强制布局与合成层清理（2026-10-31）
+
+> 对一份「CSS/DOM 防卡顿」通用清单做逐条核对后，只落地**不改变交互与视觉**
+> 的部分；清单里与本项目契约冲突的条目明确不做。
+
+### 7.1 已实施
+
+| 改动 | 说明 |
+|---|---|
+| 回底按钮测量缓存 | `scroll-to-bottom-button.ts` 用 `ResizeObserver` 观察滚动容器与内容列，滚动时更新缓存距离；重复 `setup()` 只重放缓存判断，不再在装饰 pass 里读 `scrollHeight`。无 `ResizeObserver` 的环境保留原测量兜底；dock 重建时新按钮会同步 `is-visible` 状态 |
+| 工具控制台先读后写 | `tool-renderers/shared.tsx` 的 fade 几何（`scrollWidth/clientWidth/scrollLeft`）在 `scrollTop` 写入前一次读完，并跳过值未变化的 `dataset` 写入 |
+| 拖动几何收进 rAF | `message-queue.ts` 的 `pointermove` 只记录坐标；兄弟节点 rect 读取与占位符移动统一在既有 `tick()` 里做，`pointerup` 前用最后一个坐标结算落点 |
+| 合成层清理 | `WorkspaceInspector.tsx` 删除静态 `will-change-[width,opacity,transform]`。`width` 不是可合成属性，`will-change` 不省布局，反而让整个侧栏长期占层 |
+| 过渡属性收窄 | `foundation.css` 的用户气泡 `transition: all` 改为显式列表（颜色/阴影 + 原有 `max-width`），保留窗口缩放时的既有过渡，同时避免未来新增布局属性被 `all` 自动卷入 |
+| 列表索引去重写 | `MessageList.tsx` 的 `useLayoutEffect` 只在 `data-message-index` 变化时写属性 |
+| tooltip 定位合并 | `context-usage.ts` 的 window scroll/resize 定位合并到 rAF，关闭时取消挂起帧 |
+| 残余 `transition-all` 收窄 | `WorkspaceTabStrip.tsx` 关闭按钮只过渡 `opacity/background-color/color` |
+
+### 7.2 经核对后明确不做
+
+- **装饰 pass 的「写后读」重排**（`ChatPanelHost` → `turn-navigation` / `scroll-bottom`）：
+  这些测量依赖本次装饰后的真实布局；前置会得到旧几何并破坏高亮/溢出判断。
+  轮次导航的 rect 循环被窗口上限（12 轮）约束，收益有限。
+- **消息行 `content-visibility` / CSS containment**：测试明确禁止消息宿主使用
+  `content-visibility`（回滚浮层契约），且估算高度会破坏显式滚动锚定。
+- **虚拟列表库**：维持 §3 的既有否决（可变高、流式尾行、fork/回滚与滚动事务）。
+- **`width` 过渡改 `transform`**（WorkspaceInspector / ChatSidebar）：会改变开关
+  动画的视觉表现，不属于等价实现；本轮只清理其 `will-change`。
+- **shimmer / box-shadow 关键帧、`backdrop-filter`**：属于可见视觉效果，需先用
+  长任务/Performance 面板证明是瓶颈再改。
+- **`startTransition` / `useDeferredValue` 控制流式提交**：会改变流式更新的调度
+  与输入时序；当前由服务端 50ms 合并控制频率，未在本轮引入。
+- **scroll 处理器 rAF 节流**：维持 §3 的否决（scroll 已按帧合并，rAF 会晚一帧）。

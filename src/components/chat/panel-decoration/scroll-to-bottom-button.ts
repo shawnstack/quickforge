@@ -30,15 +30,39 @@ export function createScrollToBottomButton({ panel, onJumpSettled }: ScrollToBot
   let button: HTMLButtonElement | null = null
   let badge: HTMLElement | null = null
   let scrollContainer: HTMLElement | null = null
+  let resizeObserver: ResizeObserver | null = null
+  let observedContainer: HTMLElement | null = null
+  let observedContent: HTMLElement | null = null
+  let measuredDistance: number | null = null
   let visible = false
   let unread = 0
 
   const findScrollContainer = () =>
     panel.querySelector<HTMLElement>('.qf-chat-panel .qf-scroll-container')
 
-  const distanceFromBottom = () => {
-    if (!scrollContainer) return 0
-    return scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+  const stopObserving = () => {
+    resizeObserver?.disconnect()
+    resizeObserver = null
+    observedContainer = null
+    observedContent = null
+  }
+
+  const readDistance = () => {
+    if (!scrollContainer) {
+      measuredDistance = null
+      return
+    }
+    measuredDistance = scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+  }
+
+  const applyVisibility = () => {
+    if (measuredDistance === null) return
+    setVisible(visible ? measuredDistance > HIDE_DISTANCE_PX : measuredDistance > SHOW_DISTANCE_PX)
+  }
+
+  const handleScroll = () => {
+    readDistance()
+    applyVisibility()
   }
 
   const renderBadge = () => {
@@ -60,11 +84,6 @@ export function createScrollToBottomButton({ panel, onJumpSettled }: ScrollToBot
       unread = 0
       renderBadge()
     }
-  }
-
-  const handleScroll = () => {
-    const distance = distanceFromBottom()
-    setVisible(visible ? distance > HIDE_DISTANCE_PX : distance > SHOW_DISTANCE_PX)
   }
 
   const jumpToBottom = () => {
@@ -119,6 +138,47 @@ export function createScrollToBottomButton({ panel, onJumpSettled }: ScrollToBot
   }
 
   /**
+   * Content and viewport growth are the only reasons visibility changes without
+   * a scroll event. Watching them through ResizeObserver keeps the per-pass
+   * `setup()` free of `scrollHeight` reads: by the time a decoration pass runs,
+   * layout has already been invalidated by the DOM writes above it, so measuring
+   * there would force a synchronous layout on every streaming frame.
+   */
+  const observeGeometry = () => {
+    if (!scrollContainer) return
+    // Test doubles do not implement the full Element surface.
+    const content = typeof scrollContainer.querySelector === 'function'
+      ? scrollContainer.querySelector<HTMLElement>('.max-w-3xl')
+      : null
+    if (
+      resizeObserver
+      && observedContainer === scrollContainer
+      && observedContent === content
+      && content?.isConnected !== false
+    ) {
+      return
+    }
+    stopObserving()
+    if (
+      typeof ResizeObserver !== 'function'
+      || typeof scrollContainer.getBoundingClientRect !== 'function'
+    ) {
+      return
+    }
+    const observer = new ResizeObserver(handleScroll)
+    try {
+      observer.observe(scrollContainer)
+      if (content) observer.observe(content)
+    } catch {
+      observer.disconnect()
+      return
+    }
+    resizeObserver = observer
+    observedContainer = scrollContainer
+    observedContent = content
+  }
+
+  /**
    * Idempotent and self-healing: safe to call on every decoration pass.  Binds
    * the (persistent) scroll container once, and re-anchors the button when the
    * composer dock is rebuilt or removed (read-only sessions drop the dock).
@@ -129,17 +189,29 @@ export function createScrollToBottomButton({ panel, onJumpSettled }: ScrollToBot
       scrollContainer?.removeEventListener('scroll', handleScroll)
       scrollContainer = container
       scrollContainer?.addEventListener('scroll', handleScroll, { passive: true })
+      measuredDistance = null
     }
     const shell = panel.querySelector<HTMLElement>('.quickforge-composer-shell')
     if (!shell) {
       button?.remove()
       button = null
       badge = null
+      stopObserving()
       return
     }
-    if (!button) button = createButton()
+    if (!button) {
+      button = createButton()
+      // A read-only session drops the dock (and the button) without resetting
+      // `visible`; replay the state onto the fresh node on rebuild.
+      button.classList.toggle('is-visible', visible)
+    }
     if (button.parentElement !== shell) shell.append(button)
-    handleScroll()
+    const previousObserver = resizeObserver
+    observeGeometry()
+    // First bind / geometry re-bind need one fresh measurement; steady-state
+    // passes reuse the last scroll or ResizeObserver reading.
+    if (!resizeObserver || resizeObserver !== previousObserver || measuredDistance === null) handleScroll()
+    else applyVisibility()
   }
 
   const notifyNewAssistantMessage = () => {
@@ -149,8 +221,10 @@ export function createScrollToBottomButton({ panel, onJumpSettled }: ScrollToBot
   }
 
   const cleanup = () => {
+    stopObserving()
     scrollContainer?.removeEventListener('scroll', handleScroll)
     scrollContainer = null
+    measuredDistance = null
     button?.remove()
     button = null
     badge = null

@@ -2,6 +2,23 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## chat-render-dom-perf-followup（done，2026-10-31）
+
+- Goal：在「不影响体验和交互」前提下，把 CSS/DOM 防卡顿清单里可等价实现的部分一次做完。
+- 结论（一句话）：只动了不会改变视觉与交互时序的路径——回底按钮不再在每个装饰 pass 里强制布局，工具控制台/消息拖动消除读写交替，清理了布局属性的 `will-change` 与非必要过渡。
+- 改动：
+  1. `scroll-to-bottom-button.ts`：`ResizeObserver` 观察滚动容器 + `.max-w-3xl` 内容列，滚动时缓存距离；重复 `setup()` 只重放缓存判断。无 `ResizeObserver` 的环境仍走原测量兜底。顺带修复：只读会话移除 dock 后 `visible` 状态保留，重建新按钮时补写 `is-visible`。
+  2. `tool-renderers/shared.tsx`：`syncConsoleScrollFades` 先读完水平几何再写 `scrollTop`，并跳过值未变化的 `data-overflow-*` 写入。
+  3. `message-queue.ts`：`pointermove` 只记录坐标，兄弟节点 rect 读取与占位符移动统一进既有 `tick()`；`pointerup` 前用 `lastClientY` 结算落点。
+  4. `WorkspaceInspector.tsx`：删除静态 `will-change-[width,opacity,transform]`；`width` 不是可合成属性，静态 `will-change` 不能省布局。
+  5. `foundation.css`：用户气泡 `transition: all` 收窄为显式列表（颜色/阴影 + 原有 `max-width`），窗口缩放行为不变。
+  6. `MessageList.tsx`：`data-message-index` 值未变化时不再写属性。
+  7. `context-usage.ts`：tooltip 的 scroll/resize 定位合并到 rAF，关闭时取消挂起帧。
+  8. `WorkspaceTabStrip.tsx`：关闭按钮的 `transition-all` 收窄为 `opacity/background-color/color`。
+- 明确不做（原因）：`content-visibility`/CSS containment（测试禁止消息宿主、破坏滚动锚定）；虚拟列表（既有否决）；`width` 过渡改 `transform`（改变动画观感）；shimmer/box-shadow/backdrop-filter（可见视觉，需先 profile）；`startTransition`（改变流式调度）；scroll rAF 节流（既有否决）；装饰 pass 写后读重排（测量依赖装饰后布局）。
+- 验证：定向 11 files / 206 passed；新增断言后 scroll-to-bottom-button 12 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量：`npm run test` → 465 files / 5376 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`），`tsc -b` 随 build 通过。
+- 未创建 Git commit，未手工修改生成产物。
+
 ## model-sheet-check-immediate（done，2026-10-30）
 
 - Goal：用户反馈「对话框，模型选择，点击不会马上勾选」，先定位再修。

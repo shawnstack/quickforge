@@ -1,6 +1,27 @@
 {
   "features": [
     {
+      "id": "chat-render-dom-perf-followup",
+      "title": "DOM 强制布局与合成层清理：回底按钮测量缓存、控制台读写顺序、拖动 rAF 合并、will-change/transition 收窄",
+      "status": "done",
+      "summary": "按「不影响体验和交互」约束，落地通用 CSS/DOM 防卡顿清单中可等价实现的部分：① 回底按钮用 ResizeObserver 观察滚动容器与内容列并缓存距离，重复 setup 不再读 scrollHeight，无 ResizeObserver 的环境保留原测量兜底；同时修复只读会话移除 dock 后重建时新按钮不同步 is-visible 的边界问题；② 工具控制台先读完 scrollWidth/clientWidth/scrollLeft 再写 scrollTop，并跳过值未变化的 data 属性写入；③ 消息队列拖动把兄弟节点 rect 读取与占位符移动收进既有 rAF tick，pointerup 前用最后一个坐标结算落点；④ WorkspaceInspector 删除静态 will-change-[width,opacity,transform]（width 非合成属性，静态 will-change 不能省布局反而长期占层）；⑤ 用户气泡 transition: all 收窄为显式列表（颜色/阴影 + 原有 max-width），保留窗口缩放过渡并防止未来布局属性被卷入；⑥ MessageList 跳过相同 data-message-index 写入；⑦ context-usage tooltip 的 window scroll/resize 定位合并到 rAF，关闭时取消挂起帧；⑧ WorkspaceTabStrip 关闭按钮的 transition-all 收窄为 opacity/background-color/color。明确不做：content-visibility/CSS containment（测试禁止消息宿主使用且会破坏显式滚动锚定）、虚拟列表库（既有契约否决）、width 过渡改 transform（会改变开关动画观感）、shimmer/box-shadow/backdrop-filter（可见视觉效果，需先 profile）、startTransition/useDeferredValue（会改变流式调度与输入时序）、scroll rAF 节流（既有否决）、装饰 pass 写后读重排（测量依赖装饰后的真实布局）。",
+      "files": [
+        "src/components/chat/panel-decoration/scroll-to-bottom-button.ts",
+        "src/components/chat/panel-decoration/message-queue.ts",
+        "src/lib/tool-renderers/shared.tsx",
+        "src/components/workspace/WorkspaceInspector.tsx",
+        "src/components/workspace/WorkspaceTabStrip.tsx",
+        "src/styles/foundation.css",
+        "src/components/chat/surface/MessageList.tsx",
+        "src/components/chat/context-usage.ts",
+        "tests/frontend/scroll-to-bottom-button.test.ts",
+        "tests/frontend/message-queue.test.ts",
+        "docs/architecture/chat-render-perf-review.zh-CN.md"
+      ],
+      "verification": "定向 11 files / 206 passed；新增架构断言后 scroll-to-bottom-button 12 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量：npm run test → 465 files / 5376 passed / 2 skipped；npm run lint → 0 problems；npm run build → 成功（precompress 224 files: 12.67MB → 6.48MB），tsc -b 随 build 通过。未创建 Git commit，未手工修改生成产物。",
+      "updatedAt": "2026-10-31"
+    },
+    {
       "id": "chat-render-perf-memory",
       "title": "对话渲染性能与内存：流式稳定块冻结、工具事件合并、装饰固定成本、缓存预算",
       "status": "done",

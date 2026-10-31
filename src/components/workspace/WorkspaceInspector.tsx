@@ -323,7 +323,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       <aside
         ref={asideRef}
         className={cn(
-          'relative shrink-0 overflow-hidden flex-col bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out will-change-[width,opacity,transform] lg:flex',
+          'relative shrink-0 overflow-hidden flex-col bg-background transition-[width,min-width,max-width,opacity,transform] duration-200 ease-out lg:flex',
           mobileOverlay ? 'quickforge-workspace-inspector-fullscreen z-20 flex rounded-none border-l-0' : 'hidden',
           visible ? 'translate-x-0 opacity-100' : 'w-0 min-w-0 max-w-0 translate-x-4 opacity-0',
           isResizing ? 'transition-none' : '',

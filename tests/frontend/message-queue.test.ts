@@ -190,6 +190,10 @@ describe('message queue source contracts', () => {
     expect(controllerSource).toContain("window.addEventListener('pointermove', onMove, true)")
     expect(controllerSource).toContain("window.addEventListener('pointerup', onUp, true)")
     expect(controllerSource).toContain("window.addEventListener('pointercancel', onCancel, true)")
+    // Geometry reads stay in the rAF tick; pointerup settles the last sample.
+    expect(controllerSource).not.toContain('movePlaceholder(event.clientY)')
+    expect(controllerSource).toContain('if (scrollRaf === null) scrollRaf = requestAnimationFrame(tick)')
+    expect(controllerSource).toContain('movePlaceholder(lastClientY)')
     expect(controllerSource).toContain('if (ghost) {')
     expect(controllerSource).toContain('items = moveQueuedMessage(items, item.id, toIndex)')
   })

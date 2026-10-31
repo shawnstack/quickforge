@@ -234,6 +234,36 @@ describe('custom model selector settings entry', () => {
     expect(css).toMatch(/\.quickforge-model-menu-item-check-slot\s*\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center[^}]*color:\s*color-mix\(in oklab,\s*var\(--foreground\)\s+88%,\s*transparent\)/s)
   })
 
+  it('moves the check icon immediately when a model is tapped in the sheet', () => {
+    window.innerWidth = 500
+    const onSelect = vi.fn()
+
+    openCustomOnlyModelSelector(model(), [model(), model('next')], onSelect, undefined, {
+      anchor: anchor as unknown as HTMLElement,
+    })
+
+    const items = collect(body, '.quickforge-model-menu-item')
+    const itemFor = (text: string) => items.find((item) => (
+      item.querySelector<FakeElement>('.quickforge-model-menu-item-name')?.textContent === text
+    ))
+    const checkSlotOf = (item: FakeElement | undefined) => (
+      item?.querySelector<FakeElement>('.quickforge-model-menu-item-check-slot')?.innerHTML ?? ''
+    )
+
+    const previous = itemFor('provider / model-1')
+    const next = itemFor('provider / next')
+    expect(checkSlotOf(previous)).not.toBe('')
+    expect(checkSlotOf(next)).toBe('')
+
+    next?.click()
+
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'next' }))
+    expect(checkSlotOf(next)).not.toBe('')
+    expect(checkSlotOf(previous)).toBe('')
+    // 抽屉保持打开，用户能立刻看到勾选已经移动
+    expect(document.querySelector('.quickforge-model-sheet')).not.toBeNull()
+  })
+
   it('keeps desktop model selection behavior unchanged', () => {
     const onSelect = vi.fn()
     const selectedModel = model('next')

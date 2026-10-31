@@ -266,7 +266,22 @@ function openMobileModelSelector(
   modelList.setAttribute('aria-label', t('model'))
 
   const modelItems = new Map<HTMLButtonElement, AnyModel>()
+  // 点击守卫：用指针位移 + 最近滚动时间判定，替代原来的固定 300ms 时间窗。
+  // 时间窗会把"滑完列表马上点"的点击直接丢掉，用户必须点第二次才生效。
+  const SCROLL_SETTLE_MS = 150
+  const TAP_SLOP_PX = 12
   let lastScrollAt = 0
+  let pressPoint: { x: number; y: number; duringScroll: boolean } | null = null
+
+  const isTapGesture = (event: MouseEvent) => {
+    const press = pressPoint
+    pressPoint = null
+    if (!press) return true
+    if (press.duringScroll) return false
+    const x = Number.isFinite(event.clientX) ? event.clientX : press.x
+    const y = Number.isFinite(event.clientY) ? event.clientY : press.y
+    return Math.abs(x - press.x) <= TAP_SLOP_PX && Math.abs(y - press.y) <= TAP_SLOP_PX
+  }
 
   const renderModelList = () => {
     modelItems.clear()
@@ -280,7 +295,7 @@ function openMobileModelSelector(
       noneItem.addEventListener('click', (event) => {
         event.preventDefault()
         event.stopPropagation()
-        if (Date.now() - lastScrollAt < 300) return
+        if (!isTapGesture(event)) return
         options.onNoneSelect?.()
         closeComposerModelMenu(anchor)
       })
@@ -296,7 +311,7 @@ function openMobileModelSelector(
         onClick: (event) => {
           event.preventDefault()
           event.stopPropagation()
-          if (Date.now() - lastScrollAt < 300) return
+          if (!isTapGesture(event)) return
           selectModel(model)
         },
       })
@@ -305,9 +320,17 @@ function openMobileModelSelector(
     }
   }
 
-  // 滚动期间忽略模型行点击，避免滚动误触选中模型
+  // 滚动期间忽略模型行点击，避免滚动误触选中模型：记录最近滚动时间 +
+  // pointerdown 起点，点击时由 isTapGesture 判定是滑动还是点击。
   modelList.addEventListener('scroll', () => {
     lastScrollAt = Date.now()
+  })
+  modelList.addEventListener('pointerdown', (event) => {
+    pressPoint = {
+      x: event.clientX,
+      y: event.clientY,
+      duringScroll: Date.now() - lastScrollAt < SCROLL_SETTLE_MS,
+    }
   })
 
   // 选中模型：立即生效，但保持抽屉打开，仅高亮当前项
@@ -316,8 +339,10 @@ function openMobileModelSelector(
     for (const [item, itemModel] of modelItems) {
       const selected = modelsAreEqual(itemModel, model)
       item.setAttribute('aria-checked', String(selected))
-      const suffix = item.querySelector<HTMLElement>('.quickforge-model-menu-item-suffix')
-      if (suffix) suffix.textContent = selected ? '✓' : ''
+      // 勾选图标挂在左侧 check-slot 里（旧的 suffix 节点已废弃）。
+      // 这里不重写图标，抽屉保持打开期间勾选就不会跟着移动。
+      const checkSlot = item.querySelector<HTMLElement>('.quickforge-model-menu-item-check-slot')
+      if (checkSlot) checkSlot.innerHTML = selected ? agentAccessCheckIcon : ''
     }
     onSelect(model)
   }

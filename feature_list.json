@@ -1,6 +1,22 @@
 {
   "features": [
     {
+      "id": "frontend-review-p0-a11y-and-sidebar-props",
+      "title": "前端评审 P0 跟进：核心输入框与两个弹窗的可访问名称、桌面/移动侧栏共享 props",
+      "status": "done",
+      "summary": "按前端评审结论落地两条「行为与交互不变」的 P0：① 可访问名称补全（不动鼠标行为、不动焦点顺序）——消息输入框补 aria-label（新增 i18n key composerInputLabel，en/zh 各一条；此前仅靠 placeholder，读屏用户输入后失去控件名）；prompt-dialog 与 GitGraphDialog 的弹窗面板补 role=\"dialog\" + aria-labelledby（useId 关联标题）/aria-describedby，prompt-dialog 的输入框用 options.title 作为可访问名称。刻意不加 aria-modal：这两个弹窗尚未实现焦点陷阱（全仓仅 confirm-dialog 有），加上 aria-modal 会向读屏声明一个并不成立的模态边界；该属性随 P2「统一 focus trap」一起做。② App.tsx 里桌面与移动抽屉的 <ChatSidebar> 是两份手写 props 列表（69 / 68 项，其中 52 项完全相同），抽出 const sidebarCommonProps 供两处 {…} 展开，两处只保留各自的入口回调（移动端多一层 closeMobileSidebar 包装）。展开后两处挂载的 props 名称集合与原列表逐项相等（69=69、68=68），props 取值引用未变，ChatSidebar 的 memo 浅比较结果不变。③ 随之修正 tests/frontend/sidebar-section-order.test.ts 里两条按 {prop}={value} 出现两次计数源码断言：改为「共享对象里每项只定义一次 + 两个挂载点各展开一次」，断言强度不低于原意。",
+      "files": [
+        "src/components/chat/surface/MessageEditor.tsx",
+        "src/components/ui/prompt-dialog.tsx",
+        "src/components/git/GitGraphDialog.tsx",
+        "src/lib/i18n.ts",
+        "src/App.tsx",
+        "tests/frontend/sidebar-section-order.test.ts"
+      ],
+      "verification": "针对性：npx vitest run sidebar-section-order → 22 passed；侧栏/项目选择五个源码契约测试 → 44 passed（改动后重跑）；npx eslint 改动文件 → 0 problems。全量：npm run test → 466 files / 5385 passed / 1 skipped（与改动前基线一致）；npx tsc -b → 0 错误；npm run build → 成功（built in 3.00s，仅有既存的 chunk >500kB 提示）。未创建 Git commit，未手工修改生成产物。",
+      "updatedAt": "2026-10-31"
+    },
+    {
       "id": "main-ui-perf-review-followup",
       "title": "主界面性能评审跟进：流式围栏分块修复、置顶摘要订阅收窄、轮次导航与侧栏固定成本",
       "status": "done",

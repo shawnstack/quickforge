@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,8 @@ function PromptDialogInner({
   const inputRef = useRef<HTMLInputElement>(null)
   const [value, setValue] = useState(options.defaultValue ?? '')
   const valueRef = useRef(value)
+  const titleId = useId()
+  const descriptionId = useId()
 
   useEffect(() => {
     valueRef.current = value
@@ -54,14 +56,17 @@ function PromptDialogInner({
       }}
     >
       <div
+        role="dialog"
+        aria-labelledby={titleId}
+        aria-describedby={options.description ? descriptionId : undefined}
         className={cn(
           'quickforge-dialog-panel-in w-full max-w-sm rounded-lg border border-border bg-background p-6 shadow-quickforge',
           'mx-4',
         )}
       >
-        <h2 className="text-base font-semibold text-foreground">{options.title}</h2>
+        <h2 id={titleId} className="text-base font-semibold text-foreground">{options.title}</h2>
         {options.description ? (
-          <p className="mt-2 text-sm text-muted-foreground">{options.description}</p>
+          <p id={descriptionId} className="mt-2 text-sm text-muted-foreground">{options.description}</p>
         ) : null}
         <div className="mt-4">
           <Input
@@ -69,6 +74,7 @@ function PromptDialogInner({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={options.placeholder}
+            aria-label={options.title}
             className="w-full"
           />
         </div>

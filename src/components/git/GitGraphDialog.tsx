@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { GitBranch, GitGraph, Loader2, RefreshCw, Tag, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -54,6 +54,7 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
   const [commits, setCommits] = useState<GitLogCommit[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
+  const titleId = useId()
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -85,11 +86,15 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
 
   return createPortal(
     <div className="quickforge-dialog-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget ? onClose() : undefined}>
-      <div className="quickforge-dialog-panel-in flex h-[78vh] w-[86vw] max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge">
+      <div
+        role="dialog"
+        aria-labelledby={titleId}
+        className="quickforge-dialog-panel-in flex h-[78vh] w-[86vw] max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge"
+      >
         <div className="flex h-14 shrink-0 items-center gap-3 border-b-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] px-5">
           <GitGraph className="size-5 text-muted-foreground" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-base font-medium text-foreground">{t('gitGraph')}</div>
+            <div id={titleId} className="truncate text-base font-medium text-foreground">{t('gitGraph')}</div>
             <div className="truncate text-xs text-muted-foreground">{projectName}</div>
           </div>
           <Button variant="ghost" size="icon" className="size-8" onClick={() => void refresh()} aria-label={t('refresh')} disabled={loading}>

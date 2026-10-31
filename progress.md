@@ -2,6 +2,24 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## frontend-review-p0-a11y-and-sidebar-props（done，2026-10-31）
+
+- Goal：按前端评审结论，落地两条「不改行为与交互」的 P0——核心控件的可访问名称、桌面/移动侧栏共享 props。
+- 结论（一句话）：消息输入框与两个 imperative 弹窗终于有可访问名称/对话框语义（纯属性，无视觉、无焦点顺序变化）；`App.tsx` 里两份手写的 `ChatSidebar` props 列表合并为一份 `sidebarCommonProps`，两处挂载 props 名称集合与取值逐项不变。
+- 逐项：
+  1. **消息输入框**（`MessageEditor.tsx`）：textarea 补 `aria-label={t('composerInputLabel')}`（`i18n.ts` en/zh 各加一条）。此前只有 `placeholder` + `aria-readonly`，读屏用户一旦输入就失去控件名；这是全应用主入口。
+  2. **`prompt-dialog`**：面板补 `role="dialog"` + `aria-labelledby`（`useId` 关联 `<h2>`）/ `aria-describedby`；输入框用 `options.title` 作可访问名称。该文件此前 `role=` 为 0。
+  3. **`GitGraphDialog`**：面板补 `role="dialog"` + `aria-labelledby`（`useId` 指向标题行），此前同为 0。
+  4. **侧栏 props 去重**（`App.tsx`）：桌面 L1592 与移动抽屉 L1628 两处 `<ChatSidebar>` 共有 52 项完全相同的 props，抽成 `const sidebarCommonProps`（渲染体内、`return` 之前）；两处改为 `{...sidebarCommonProps}` + 各自的入口回调（移动端多一层 `closeMobileSidebar()` 包装、另有 `variant="mobile"`/`sidebarOpen` 与 `onWidthChange` 差异）。展开后 props 名称集合 69=69、68=68，取值表达式未变，`memo(ChatSidebar)` 浅比较结果不变。
+  5. **测试同步**（`sidebar-section-order.test.ts`）：原断言按 `prop={value}` 在 App 源码中出现 **2 次**计数；改为「`sidebarCommonProps` 里每项定义一次 + `{...sidebarCommonProps}` 出现两次」，意图（桌面/移动共享同一份状态与回调）保持不变且更强。
+- 关键约束（别踩）：
+  - **不要给 `prompt-dialog` / `GitGraphDialog` 补 `aria-modal="true"`**，除非同一提交里实现了焦点陷阱：全仓只有 `ui/confirm-dialog.tsx` 有 trap，`aria-modal` 会向读屏声明一个不成立的模态边界（P2「统一 focus trap」再一并加）。
+  - `sidebarCommonProps` 必须是「两处挂载真正相同」的 props 集合：带 `closeMobileSidebar()` 包装的回调（`onSelectProjectDirectory` / `onOpenSettings` / `onOpenServer` / `onOpenUpdate` / `onOpenProjectInExplorer` / `onLoadSession` / `onStartNewDefaultChat` / `onStartNewGlobalChat` / `onToggleSidebar`）不得塞进共享对象。
+  - 共享对象在渲染体内重建是预期行为：`memo` 比较的是展开后的单个 prop 值，不是对象本身，因此不要改成 `useMemo`（会掩盖依赖）。
+  - `expandedProjectIds` 等在 App 里是解构出的同名变量，`sidebarCommonProps` 用简写；会话分区排序断言依赖这一点，改写法要同步测试。
+- 验证：`npx vitest run sidebar-section-order` → 22 passed；侧栏/项目选择五个源码契约测试 → 44 passed；改后全量 `npm run test` → 466 files / 5385 passed / 1 skipped（与基线一致）；`npx eslint` 改动文件 → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功（3.00s，仅既存的 chunk >500kB 提示）。未创建 Git commit，未手工修改生成产物。
+- 未更新 wiki 的原因：仅组件内部 props 组织方式与 ARIA 属性变化，公共入口、组件契约与发布流程不变；`docs/wiki/src/components/README.md` 记录的 `ChatSidebar` 模块拆分与源码契约读取方式未受影响。
+
 ## chat-scrollbar-gutter-stable（done，2026-10-31）
 
 - Goal：修「展开普通 tools 时整列左右抖动」。

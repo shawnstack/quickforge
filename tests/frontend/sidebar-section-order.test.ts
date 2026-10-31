@@ -212,10 +212,14 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(tasksResetEffect).toContain('setGlobalVisibleCount(SIDEBAR_SESSION_DISPLAY_STEP)')
     expect(projectExpansionResetEffect).toContain('invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)')
     expect(projectExpansionResetEffect).toContain('expandedProjectIds.has(projectId)')
-    expect(appSource.match(/sessionViewMode=\{sidebarSessionViewMode\}/g)).toHaveLength(2)
-    expect(appSource.match(/projectsCollapsed=\{ui\.projectsCollapsed\}/g)).toHaveLength(2)
-    expect(appSource.match(/conversationsCollapsed=\{ui\.conversationsCollapsed\}/g)).toHaveLength(2)
-    expect(appSource.match(/expandedProjectIds=\{expandedProjectIds\}/g)).toHaveLength(2)
+    // 桌面与移动抽屉共用同一份 props 对象（sidebarCommonProps）：每项只定义一次，
+    // 两个挂载点各展开一次，避免两份手写列表漂移。
+    const sharedSidebarPropsSource = appSource.match(/const sidebarCommonProps = \{[\s\S]*?\n {2}\}/)?.[0] ?? ''
+    expect(sharedSidebarPropsSource).toContain('sessionViewMode: sidebarSessionViewMode')
+    expect(sharedSidebarPropsSource).toContain('projectsCollapsed: ui.projectsCollapsed')
+    expect(sharedSidebarPropsSource).toContain('conversationsCollapsed: ui.conversationsCollapsed')
+    expect(sharedSidebarPropsSource).toContain('expandedProjectIds,')
+    expect(appSource.match(/\{\.\.\.sidebarCommonProps\}/g)).toHaveLength(2)
   })
 
   it('keeps show-more aligned with regular session rows, muted, and removes the visible collapse control', () => {
@@ -333,7 +337,8 @@ describe('ChatSidebar section reorder wiring', () => {
     const orderingSource = readFileSync(new URL('../../src/hooks/useSidebarOrdering.ts', import.meta.url), 'utf8')
     expect(orderingSource).toContain('useState<SidebarSectionOrder>(loadSidebarSectionOrder)')
     expect(orderingSource).toContain('saveSidebarSectionOrder(sidebarSectionOrder)')
-    expect(appSource.match(/sectionOrder=\{sidebarSectionOrder\}/g)).toHaveLength(2)
-    expect(appSource.match(/onReorderSections=\{handleSidebarSectionReorder\}/g)).toHaveLength(2)
+    expect(appSource.match(/sectionOrder: sidebarSectionOrder,/g)).toHaveLength(1)
+    expect(appSource.match(/onReorderSections: handleSidebarSectionReorder,/g)).toHaveLength(1)
+    expect(appSource.match(/\{\.\.\.sidebarCommonProps\}/g)).toHaveLength(2)
   })
 })

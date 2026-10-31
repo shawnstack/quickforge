@@ -1379,6 +1379,64 @@ function MainApp() {
     return <StartupSplash />
   }
 
+  // Desktop and mobile drawers render the same sidebar; only the entry-point
+  // callbacks differ (mobile closes the drawer first). Shared here so the two
+  // prop lists cannot drift apart.
+  const sidebarCommonProps = {
+    projectsCollapsed: ui.projectsCollapsed,
+    pinnedCollapsed: ui.pinnedCollapsed,
+    conversationsCollapsed: ui.conversationsCollapsed,
+    sectionOrder: sidebarSectionOrder,
+    projects,
+    expandedProjectIds,
+    activeProject,
+    currentSessionId: agentManager.currentSessionId,
+    loadingSessionId: agentManager.loadingSessionId,
+    sessionViewMode: sidebarSessionViewMode,
+    sessionSortMode: sidebarSessionSortMode,
+    globalSessions,
+    pinnedSessions,
+    pinnedHasMore,
+    pinnedLoading,
+    sessionsForProject,
+    projectTimelineSessions,
+    projectTimelineHasMore,
+    projectTimelineLoading,
+    projectTimelineAppending,
+    globalHasMore,
+    globalAppending,
+    onLoadMoreGlobal: loadMoreGlobal,
+    onLoadMorePinned: loadMorePinned,
+    projectHasMore,
+    projectLoading,
+    projectAppending,
+    projectLoaded,
+    onLoadMoreProject: loadMoreProject,
+    onLoadMoreProjectTimeline: loadMoreProjectTimeline,
+    sessionTaskStatus,
+    completedSessionIds,
+    selectingProject,
+    onTogglePinnedCollapsed: ui.togglePinnedCollapsed,
+    onToggleProjectsCollapsed: ui.toggleProjectsCollapsed,
+    onToggleConversationsCollapsed: ui.toggleConversationsCollapsed,
+    onReorderSections: handleSidebarSectionReorder,
+    onToggleProjectExpanded: toggleProjectExpanded,
+    onToggleAllProjectsExpanded: toggleAllProjectsExpanded,
+    onReorderProjects: reorderProjects,
+    onDeleteProject: deleteProjectInline,
+    onSessionViewModeChange: setSidebarSessionViewMode,
+    onSessionSortModeChange: setSidebarSessionSortMode,
+    onTogglePinSession: togglePinSession,
+    onDeleteSession: archiveSession,
+    currentServerUrl: mobileServerUrl,
+    currentServerAlias: mobileServerAlias,
+    updateAvailable: updateCheck.result.updateAvailable,
+    latestVersion: updateCheck.result.latestVersion,
+    currentVersion: updateCheck.result.currentVersion,
+    onDismissUpdate: updateCheck.dismissUpdate,
+    currentSessionHoverInfo,
+  }
+
   return (
     <>
     <DesktopTitlebarMenu
@@ -1532,47 +1590,8 @@ function MainApp() {
     >
       <PluginUiToasts />
       <ChatSidebar
+        {...sidebarCommonProps}
         sidebarOpen={ui.sidebarOpen}
-        projectsCollapsed={ui.projectsCollapsed}
-        pinnedCollapsed={ui.pinnedCollapsed}
-        conversationsCollapsed={ui.conversationsCollapsed}
-        sectionOrder={sidebarSectionOrder}
-        projects={projects}
-        expandedProjectIds={expandedProjectIds}
-        activeProject={activeProject}
-        currentSessionId={agentManager.currentSessionId}
-        loadingSessionId={agentManager.loadingSessionId}
-        sessionViewMode={sidebarSessionViewMode}
-        sessionSortMode={sidebarSessionSortMode}
-        globalSessions={globalSessions}
-        pinnedSessions={pinnedSessions}
-        pinnedHasMore={pinnedHasMore}
-        pinnedLoading={pinnedLoading}
-        sessionsForProject={sessionsForProject}
-        projectTimelineSessions={projectTimelineSessions}
-        projectTimelineHasMore={projectTimelineHasMore}
-        projectTimelineLoading={projectTimelineLoading}
-        projectTimelineAppending={projectTimelineAppending}
-        globalHasMore={globalHasMore}
-        globalAppending={globalAppending}
-        onLoadMoreGlobal={loadMoreGlobal}
-        onLoadMorePinned={loadMorePinned}
-        projectHasMore={projectHasMore}
-        projectLoading={projectLoading}
-        projectAppending={projectAppending}
-        projectLoaded={projectLoaded}
-        onLoadMoreProject={loadMoreProject}
-        onLoadMoreProjectTimeline={loadMoreProjectTimeline}
-        sessionTaskStatus={sessionTaskStatus}
-        completedSessionIds={completedSessionIds}
-        selectingProject={selectingProject}
-        onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
-        onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
-        onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
-        onReorderSections={handleSidebarSectionReorder}
-        onToggleProjectExpanded={toggleProjectExpanded}
-        onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
-        onReorderProjects={reorderProjects}
         onSelectProjectDirectory={remoteClient ? undefined : selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChatWithInspectorReset}
         onOpenGlobalSkills={openGlobalSkills}
@@ -1581,26 +1600,14 @@ function MainApp() {
         onOpenScheduledTasks={openScheduledTasks}
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
-        onDeleteProject={deleteProjectInline}
         onLoadSession={handleDesktopSidebarLoadSession}
-        onSessionViewModeChange={setSidebarSessionViewMode}
-        onSessionSortModeChange={setSidebarSessionSortMode}
-        onTogglePinSession={togglePinSession}
-        onDeleteSession={archiveSession}
         onStartNewDefaultChat={startNewDefaultSession}
         onStartNewGlobalChat={startNewExplicitGlobalSession}
         onOpenSettings={openDefaultOptionsSettings}
-        currentServerUrl={mobileServerUrl}
-        currentServerAlias={mobileServerAlias}
         onOpenServer={mobileShell ? openServerPicker : undefined}
-        updateAvailable={updateCheck.result.updateAvailable}
-        latestVersion={updateCheck.result.latestVersion}
-        currentVersion={updateCheck.result.currentVersion}
         onOpenUpdate={openAboutSettings}
-        onDismissUpdate={updateCheck.dismissUpdate}
         onToggleSidebar={toggleSidebar}
         onWidthChange={handleSidebarWidthChange}
-        currentSessionHoverInfo={currentSessionHoverInfo}
       />
 
       {ui.mobileSidebarOpen ? (
@@ -1621,46 +1628,7 @@ function MainApp() {
             <ChatSidebar
               variant="mobile"
               sidebarOpen
-              projectsCollapsed={ui.projectsCollapsed}
-              pinnedCollapsed={ui.pinnedCollapsed}
-              conversationsCollapsed={ui.conversationsCollapsed}
-              sectionOrder={sidebarSectionOrder}
-              projects={projects}
-              expandedProjectIds={expandedProjectIds}
-              activeProject={activeProject}
-              currentSessionId={agentManager.currentSessionId}
-              loadingSessionId={agentManager.loadingSessionId}
-              sessionViewMode={sidebarSessionViewMode}
-              sessionSortMode={sidebarSessionSortMode}
-              globalSessions={globalSessions}
-              pinnedSessions={pinnedSessions}
-              pinnedHasMore={pinnedHasMore}
-              pinnedLoading={pinnedLoading}
-              sessionsForProject={sessionsForProject}
-              projectTimelineSessions={projectTimelineSessions}
-              projectTimelineHasMore={projectTimelineHasMore}
-              projectTimelineLoading={projectTimelineLoading}
-              projectTimelineAppending={projectTimelineAppending}
-              globalHasMore={globalHasMore}
-              globalAppending={globalAppending}
-              onLoadMoreGlobal={loadMoreGlobal}
-              onLoadMorePinned={loadMorePinned}
-              projectHasMore={projectHasMore}
-              projectLoading={projectLoading}
-              projectAppending={projectAppending}
-              projectLoaded={projectLoaded}
-              onLoadMoreProject={loadMoreProject}
-              onLoadMoreProjectTimeline={loadMoreProjectTimeline}
-              sessionTaskStatus={sessionTaskStatus}
-         completedSessionIds={completedSessionIds}
-              selectingProject={selectingProject}
-              onTogglePinnedCollapsed={ui.togglePinnedCollapsed}
-              onToggleProjectsCollapsed={ui.toggleProjectsCollapsed}
-              onToggleConversationsCollapsed={ui.toggleConversationsCollapsed}
-              onReorderSections={handleSidebarSectionReorder}
-              onToggleProjectExpanded={toggleProjectExpanded}
-              onToggleAllProjectsExpanded={toggleAllProjectsExpanded}
-              onReorderProjects={reorderProjects}
+              {...sidebarCommonProps}
               onSelectProjectDirectory={remoteClient ? undefined : () => {
                 closeMobileSidebar()
                 selectProjectDirectory()
@@ -1678,34 +1646,22 @@ function MainApp() {
                   void showAlert(error instanceof Error ? error.message : t('openInExplorerFailed'))
                 })
               }}
-              onDeleteProject={deleteProjectInline}
               onLoadSession={loadSessionFromSidebar}
-              onSessionViewModeChange={setSidebarSessionViewMode}
-              onSessionSortModeChange={setSidebarSessionSortMode}
-              onTogglePinSession={togglePinSession}
-              onDeleteSession={archiveSession}
               onStartNewDefaultChat={startNewDefaultSessionFromSidebar}
               onStartNewGlobalChat={startNewExplicitGlobalSessionFromSidebar}
               onOpenSettings={() => {
                 closeMobileSidebar()
                 openDefaultOptionsSettings()
               }}
-              currentServerUrl={mobileServerUrl}
-              currentServerAlias={mobileServerAlias}
               onOpenServer={mobileShell ? () => {
                 closeMobileSidebar()
                 openServerPicker()
               } : undefined}
-              updateAvailable={updateCheck.result.updateAvailable}
-              latestVersion={updateCheck.result.latestVersion}
-              currentVersion={updateCheck.result.currentVersion}
               onOpenUpdate={() => {
                 closeMobileSidebar()
                 openAboutSettings()
               }}
-              onDismissUpdate={updateCheck.dismissUpdate}
               onToggleSidebar={closeMobileSidebar}
-              currentSessionHoverInfo={currentSessionHoverInfo}
             />
           </div>
         </div>

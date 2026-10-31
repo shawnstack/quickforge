@@ -1,5 +1,28 @@
 # Current Session Handoff
 
+## frontend-review-p0-a11y-and-sidebar-props（done，2026-10-31）
+
+- Current Objective（当前目标）：前端代码评审后，按用户确认落地两条「保持行为与交互不变」的 P0（可访问名称 + 双份侧栏 props 去重）。
+- 结论（一句话）：主输入框与 `prompt-dialog` / `GitGraphDialog` 现在有可访问名称与 `role="dialog"`（纯属性，无视觉与焦点顺序变化）；`App.tsx` 桌面/移动两处 `<ChatSidebar>` 合并为一份 `sidebarCommonProps`，展开后 props 名称集合与取值逐项不变（69=69、68=68）。
+- 改动文件：
+  - `src/components/chat/surface/MessageEditor.tsx`（textarea `aria-label`）
+  - `src/components/ui/prompt-dialog.tsx`（`useId` + `role="dialog"` + `aria-labelledby`/`aria-describedby`；输入框 `aria-label={options.title}`）
+  - `src/components/git/GitGraphDialog.tsx`（`useId` + `role="dialog"` + `aria-labelledby`）
+  - `src/lib/i18n.ts`（`composerInputLabel`：en `Message input` / zh `消息输入框`）
+  - `src/App.tsx`（新增 `sidebarCommonProps`，两处 `<ChatSidebar>` 改为展开 + 各自入口回调；净 −51 行）
+  - `tests/frontend/sidebar-section-order.test.ts`（两条「出现 2 次」源码断言改为「共享对象定义一次 + 展开两次」）
+  - `feature_list.json`、`progress.md`、本文件
+- Evidence（验证）：`npx vitest run sidebar-section-order` 22 passed；侧栏/项目选择五个源码契约测试 44 passed；全量 `npm run test` 466 files / 5385 passed / 1 skipped；`npx eslint` 改动文件 0 problems；`npx tsc -b` 0 错误；`npm run build` 成功（3.00s）。未创建 Git commit，未手工修改生成产物。
+- 关键约束（别踩）：
+  - 未加 `aria-modal`：这两个弹窗没有焦点陷阱（全仓仅 `ui/confirm-dialog.tsx` 有），声明模态会与真实 Tab 行为矛盾；留到 P2「统一 focus trap」一起做。
+  - `sidebarCommonProps` 只放两处挂载真正相同的 props；移动端包了 `closeMobileSidebar()` 的回调必须留在各自挂载点。
+  - 不要给 `sidebarCommonProps` 加 `useMemo`：`memo(ChatSidebar)` 比较的是展开后的单值，包 memo 只会掩盖依赖问题。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机/浏览器确认：输入框与两个弹窗对屏幕阅读器播报正确（对话框名称、必填输入），且视觉与焦点顺序与改动前完全一致。
+  2. 评审剩余 P0（未做）：`foundation.css` 全局 `:focus-visible` 兜底（34 处 `outline-none` 无替身，有双焦点环视觉风险，需逐页对比）；测试域 P0-4（`i18n` stub 去重）与 P0-5（`app-domain-fixture` 行号切片加指纹断言）。
+  3. 需产品批准的 P2 未动：全弹窗 focus trap、`shared.tsx` 工具卡文件预览入口键盘化、侧栏整行改 `<button>`、KaTeX/i18n 首屏拆分。
+
 ## chat-scrollbar-gutter-stable（done，2026-10-31）
 
 - Current Objective（当前目标）：用户反馈「展开普通 tools 也会左右抖动，之前修过上一层级的」，要求分析原因。

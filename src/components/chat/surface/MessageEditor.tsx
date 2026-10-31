@@ -271,6 +271,8 @@ const ComposerTextarea = memo(function ComposerTextarea({
       ref={textareaRef}
       className="w-full resize-none overflow-y-auto bg-transparent p-4 text-foreground placeholder-muted-foreground outline-none"
       placeholder={readOnly ? t(readOnlyPlaceholderKey) : t('composerPlaceholder')}
+      // 可访问名称与占位文案分开：占位符只在空值时可见，读屏用户输入后仍需知道这是消息输入框。
+      aria-label={t('composerInputLabel')}
       rows={1}
       style={textareaStyle}
       value={value}

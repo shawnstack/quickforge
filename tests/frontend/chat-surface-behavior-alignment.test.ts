@@ -134,9 +134,15 @@ describe('streaming code-block gate', () => {
     // after `items.map(...)` gets its own reconcile scope and remounts the row
     // even with a matching key. The combined key array also applies
     // `messageRenderKeys`'s occurrence suffix to same-identity duplicates.
-    expect(messageListSource).toContain('messageRenderKeys(streamingAssistant ? [...messages, streamingAssistant] : messages)')
-    expect(messageListSource).toContain('rows.push(')
-    expect(messageListSource).toContain('key={renderKeys[messages.length]}')
+    //
+    // 已提交行的 key/元素数组现在按 `messages` 记忆化，流式行 key 由
+    // `appendKey` 单独推导——两者拼接后与「对合并数组整体求 key」逐字一致，
+    // 由 `tests/frontend/render-key-index.test.ts` 锁定等价性。
+    expect(messageListSource).toContain('createRenderKeyIndex(messages)')
+    expect(messageListSource).toContain('renderKeys.appendKey(streamingAssistant)')
+    // 流式行仍追加在**同一个** keyed 数组里（committedRows 的兄弟），不是独立 JSX 槽。
+    expect(messageListSource).toContain('...committedRows')
+    expect(messageListSource).toContain('key={streamingRowKey}')
     // No wrapper element around the row either (see the next case).
     expect(messageListSource).not.toContain('AssistantStreamingContext')
   })

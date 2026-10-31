@@ -1,6 +1,42 @@
 {
   "features": [
     {
+      "id": "chat-render-perf-memory",
+      "title": "对话渲染性能与内存：流式稳定块冻结、工具事件合并、装饰固定成本、缓存预算",
+      "status": "done",
+      "summary": "按评审结论做架构级优化，硬约束是不改变任何用户可见交互。① 流式 Markdown 稳定块冻结（新增 markdown-stream-chunks.ts）：把流式内容切成「已闭合块 + 活动尾块」，块按块缓存元素树（streamingBlockCache 200 条/4MB），跨帧复用、React 直接 bailout；只在空行处切且两侧都不能是会跨空行延续的结构（列表/引用/缩进代码/表格/setext/HTML），冻结前缀还必须数学定界符成对，否则返回 null 退回整段解析。② 工具事件：前端 tool_execution_update 只走 streaming 模式装饰、结构性事件走一次 full pass，scheduleToolInterfaceUpdate 不再在 rAF 里直接 runDecorate（旧实现一次工具事件双 full pass）；服务端把 tool_execution_update 纳入 50ms trailing 合并，message_update 与 tool_execution_update 分槽共享一个窗口计时器，避免单槽互顶，非合并事件仍先 flush 再写。③ 装饰固定成本：artifact 卡先算签名再决定建 DOM（抽出 resolveArtifactCardInputs/artifactCardSignatures）；turn-navigation 不再每 pass 清空测量缓存，失效判据改为输入变化 + 锚点 isConnected；collectProcessTimeline 每 turn 只调一次（指纹与可折叠项共用）；scroll-sync 缓存滚动容器引用。④ 渲染列表：MessageList 的 items/已提交行 key/已提交行元素数组按 messages 记忆化，流式行 key 由新增 createRenderKeyIndex().appendKey 单独推导（与整体求 key 逐字等价，由测试锁定）。⑤ 渲染缓存：ContentCache 增加单槽快路径（同字符串引用 O(1) 命中）与字节预算双限（Markdown 8MB/高亮 12MB/KaTeX 4MB/数学 4MB/Mermaid 8MB），memoizeContentAsync 的 in-flight 去重改为严格比较。⑥ SSE 帧序列化按对象身份 WeakMap 共享，多端同看时第二个连接不再重复 JSON.stringify。经评估否决并记录理由：scroll rAF 合并（scroll 事件本就每帧一次）、折叠 turn 级指纹前置短路（需行结构签名缓存，与既有折叠语义冲突）、流式自适应降频（不改变单帧成本）、保活视图字节权重（预算语义是渲染行数）、SSE delta/虚拟列表/裁 state.messages（与既有契约冲突）。",
+      "files": [
+        "src/components/chat/surface/markdown-stream-chunks.ts",
+        "src/components/chat/surface/Markdown.tsx",
+        "src/components/chat/surface/render-key-index.ts",
+        "src/components/chat/surface/MessageList.tsx",
+        "src/components/chat/panel-decoration/assistant-artifact-card.ts",
+        "src/components/chat/panel-decoration/process-folding.ts",
+        "src/components/chat/panel-wiring/decorate-pipeline.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/components/chat/turn-navigation.ts",
+        "src/components/chat/scroll-sync.ts",
+        "src/components/chat/surface/KatexMath.tsx",
+        "src/lib/render-cache.ts",
+        "src/lib/mermaid-renderer.ts",
+        "src/lib/chat-math.ts",
+        "src/lib/code-highlight.ts",
+        "server/routes/agent.mjs",
+        "tests/frontend/markdown-stream-chunks.test.ts",
+        "tests/frontend/render-key-index.test.ts",
+        "tests/frontend/render-cache-bounds.test.ts",
+        "tests/frontend/streaming-render-cache.test.ts",
+        "tests/frontend/assistant-artifact-card.test.ts",
+        "tests/frontend/turn-navigation.test.ts",
+        "tests/frontend/chat-surface-behavior-alignment.test.ts",
+        "tests/server/routes/agent.test.mjs",
+        "docs/architecture/chat-render-perf-review.zh-CN.md",
+        "docs/wiki/README.md"
+      ],
+      "verification": "定向 175 例全绿：assistant-artifact-card 20、turn-navigation 12（新增「锚点元素脱离 DOM 时重新解析」）、process-folding 63、render-key-index 3、render-cache-bounds 4、markdown-stream-chunks 11（含 5 类文档形态的渲染等价性）、streaming-render-cache 5（第二帧只解析尾块）、routes/agent 57（新增双槽交错用例）。全量：npm run test → 465 files / 5373 passed / 2 skipped；npm run lint → 0 problems；npx tsc -b → 0 错误；npm run build → 成功（precompress 224 files: 12.66MB → 6.48MB）。未创建 Git commit，未手工修改生成产物。",
+      "updatedAt": "2026-10-30"
+    },
+    {
       "id": "remove-storage-backward-compat",
       "title": "删除存储向后兼容层：cutover/phase 全删、启动迁移页移除、迁移链折叠为 baseline v19",
       "status": "done",
@@ -1305,6 +1341,21 @@
         "session-handoff.md"
       ],
       "verification": "针对性：agent-approval-orchestrator 29 例（含新增排队/排队超时起算/排队 abort/队列上限 busy/跨会话隔离）、ask-user-tool 11 例、ask-user-composer-routing 5 例（jsdom 行为断言）、message-queue 21 例、ask-user-card 27 例全过；npm run test / lint / build / npx tsc -b 结果见 progress.md。未创建 Git commit，未触碰生成产物。",
+      "updatedAt": "2026-10-30"
+    },
+    {
+      "id": "model-sheet-check-immediate",
+      "title": "模型选择抽屉点击后勾选不即时移动（对话框模型选择）",
+      "status": "done",
+      "summary": "移动端/抽屉式模型选择（openMobileModelSelector，聊天输入框在 <=768px 与设置页 openModelSheet 都走它）点击模型后勾选不移动：selectModel 只更新 aria-checked，并把 ✓ 写进早已废弃的 .quickforge-model-menu-item-suffix（现勾选图标渲染在 .quickforge-model-menu-item-check-slot，仅创建时写一次），抽屉又保持打开不重渲染，于是必须重开弹层才看到勾选。改为在 selectModel 里同步重写 check-slot 的 innerHTML（agentAccessCheckIcon / 空）。顺带把「滚动后 300ms 内点击直接丢弃」的时间窗守卫换成 pointerdown 起点位移 + 最近 150ms 滚动判定（isTapGesture），滑完列表马上点不再需要点第二次。桌面菜单行为不变（pointerdown 选中后立即关闭）。",
+      "files": [
+        "src/lib/custom-model-selector.ts",
+        "tests/frontend/custom-model-selector.test.ts",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run custom-model-selector + model-selector-thinking-sync + composer-model-trigger → 3 files / 31 tests passed（含新增「tapping a model moves the check icon immediately」）；npx eslint 改动文件 → 0 problems；npx tsc -p tsconfig.app.json --noEmit → 0 错误。未创建 Git commit，未触碰生成产物。",
       "updatedAt": "2026-10-30"
     }
   ]

@@ -4,7 +4,8 @@ import type { ReactNode } from 'react'
 import type { AgentMessage, AgentTool, AssistantMessage as AssistantMessageType, ToolResultMessage } from './ChatTypes'
 import { AssistantMessage } from './AssistantMessage'
 import { UserMessage } from './UserMessage'
-import { isRenderableMessage, messageRenderKeys } from './content-parts'
+import { isRenderableMessage } from './content-parts'
+import { createRenderKeyIndex } from './render-key-index'
 import { ContextCompactionNotice, type CompactionBoundary, type CompactionMarker } from './ContextCompactionNotice'
 import { ContextCompactionStatusRow } from './ContextCompactionStatusRow'
 import { ContextCompactionDecisionRow } from './ContextCompactionDecisionRow'
@@ -131,12 +132,15 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
   const toolResultsById = useMemo(() => collectToolResultsById(messages), [messages])
 
   // Keep original indices before filtering lookup-only toolResults/artifacts.
-  const items = messages.map((message, index) => ({ message, index })).filter((item): item is { message: RenderableMessage; index: number } => {
+  // 记忆化：流式期间 `messages` 身份不变，但列表每帧都会重渲染（streamingAssistant
+  // 是新对象）。旧实现每帧重建 items/keys/rows，成本与窗口行数线性相关，而这一帧
+  // 真正变化的只有最后一行。
+  const items = useMemo(() => messages.map((message, index) => ({ message, index })).filter((item): item is { message: RenderableMessage; index: number } => {
     const { message } = item
     // Skip artifact messages (session persistence only) and standalone
     // toolResult bodies (rendered inline in the paired assistant message).
     return isRenderableMessage(message)
-  })
+  }), [messages])
   // Identity keys stay aligned with the original array indices (items keep
   // them). The key array covers the streaming tail row too (index
   // `messages.length`): keys are computed over one combined array, so the
@@ -144,15 +148,21 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
   // receive the same key, and `messageRenderKeys`'s occurrence suffix keeps a
   // same-identity duplicate (same-timestamp collision, not produced by the
   // agent loop) unique within the pass.
-  const renderKeys = messageRenderKeys(streamingAssistant ? [...messages, streamingAssistant] : messages)
+  //
+  // 拆分：已提交行的 key 只随 `messages` 变化；流式行的 key 按同一条
+  // occurrence 规则单独推导（见 `streamingRowKey`）。两者拼起来与对
+  // `[...messages, streamingAssistant]` 整体求 key 逐字一致——这是 `message_end`
+  // 原地复用 DOM 的前提，改动必须由测试锁定。
+  const renderKeys = useMemo(() => createRenderKeyIndex(messages), [messages])
+  const streamingRowKey = streamingAssistant ? renderKeys.appendKey(streamingAssistant) : undefined
 
   // Committed rows and the streaming tail row share ONE keyed array (see the
   // header comment): this is the exact sibling list React reconciles, so the
   // `message_end` hand-off matches the tail row by key and updates it in
   // place. The streaming row is appended here (not after the sibling assembly)
   // so the divider/bubble index arithmetic sees the full row list.
-  const rows = items.map(({ message, index }) => {
-    const key = renderKeys[index]
+  const committedRows = useMemo(() => items.map(({ message, index }) => {
+    const key = renderKeys.keys[index]
     if (message.role === 'user' || message.role === 'user-with-attachments') {
       return <UserMessage key={key} message={message} />
     }
@@ -167,13 +177,16 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
         onCostClick={onCostClick}
       />
     )
-  })
-  if (streamingAssistant) {
-    rows.push(
+  }), [items, renderKeys, tools, pendingToolCalls, toolResultsById, onCostClick])
+  // 流式尾行每帧都是新对象，但它只是**追加**的一行：已提交行的元素数组直接复用，
+  // 每帧不再重建 O(窗口行数) 个 React 元素。push 会改到 memo 缓存，必须复制。
+  const rows = streamingAssistant
+    ? [
+      ...committedRows,
       // Same identity the committed row will use, so `message_end` commits the
       // row in place instead of remounting it (see the header comment).
       <AssistantMessage
-        key={renderKeys[messages.length]}
+        key={streamingRowKey}
         message={streamingAssistant}
         tools={tools}
         isStreaming
@@ -182,8 +195,8 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
         hidePendingToolCalls
         onCostClick={onCostClick}
       />,
-    )
-  }
+    ]
+    : committedRows
 
   // The compaction divider and the waiting bubble are keyed siblings inserted at
   // a position counted over the MESSAGE rows. Build the final child array in one

@@ -87,6 +87,8 @@ type FakeElement = {
   scrollTo?: (options: { top: number }) => void
   children: FakeElement[]
   parentElement: FakeElement | null
+  /** 显式标记行已脱离文档（模拟 React 重建行）；未设置时按存活处理。 */
+  isConnected?: boolean
   listeners: Record<string, Array<(event?: unknown) => void>>
   getBoundingClientRect: () => { top: number }
   getClientRects: () => unknown[]
@@ -397,6 +399,26 @@ describe('turn navigation scroll measurement', () => {
 
     // messages 数组引用变化（React 表面重建窗口）→ 缓存失效，重新解析锚点。
     env.replaceMessages(Array.from({ length: 10 }, (_, index) => ({ role: index % 2 === 0 ? 'user' : 'assistant', content: `m${index}`, timestamp: index })))
+    env.dispatchScroll()
+    env.flushRaf()
+    expect(env.getLayoutProbes()).toBeGreaterThan(baseline)
+    env.navigation.cleanup()
+  })
+
+  it('re-resolves anchors when a cached row has been unmounted', () => {
+    const env = createScrollEnv()
+    env.navigation.update()
+    const baseline = env.getLayoutProbes()
+
+    // 输入未变 → 缓存命中，不重扫 DOM。
+    env.dispatchScroll()
+    env.flushRaf()
+    expect(env.getLayoutProbes()).toBe(baseline)
+
+    // 装饰周期重建了行（元素脱离 DOM），但 messages 引用与轮次签名都没变：
+    // 旧实现只在 update() 里无脑清缓存，滚动路径会继续用脱离的锚点。现在由
+    // 存活判据精确失效，代价是一次 isConnected 属性读。
+    env.userRows[1].isConnected = false
     env.dispatchScroll()
     env.flushRaf()
     expect(env.getLayoutProbes()).toBeGreaterThan(baseline)

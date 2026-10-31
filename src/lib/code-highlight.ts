@@ -94,7 +94,7 @@ export const MAX_HIGHLIGHT_LENGTH = 200 * 1024
  * 数组；调用方只读消费。上限按条数（不是字节），超过 200KB 的块本就不会
  * 进入缓存（上面已直接返回 plain）。
  */
-const highlightCache = new ContentCache<CodeHighlightSegment[]>(400)
+const highlightCache = new ContentCache<CodeHighlightSegment[]>(400, 12 * 1024 * 1024)
 
 /** token → CSS class on the `.qf-hl-<token>` palette in `src/styles/highlight.css`. */
 export const HIGHLIGHT_TOKEN_CLASSES: Record<CodeHighlightToken, string> = {

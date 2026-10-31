@@ -49,7 +49,7 @@ describe('assistant artifact card contract', () => {
     expect(source).toContain("export const ASSISTANT_FILE_CARD_CLASS = 'quickforge-assistant-file-card'")
     expect(source).toContain("artifact.source === 'present_files'")
     expect(source).toContain('createPresentedFileCard(artifact, deps)')
-    expect(source).toContain('createChangedFilesCard(changed, deps')
+    expect(source).toContain('createChangedFilesCard(inputs.changed, deps')
     expect(source).toContain("t('assistantArtifactsChangedTitle', { count: artifacts.length })")
     // 单文件卡：类型图标 + 文件名 + 「类别 · KIND」+ 打开菜单；无 diff 统计。
     expect(source).toContain('quickforge-assistant-file-card-icon')
@@ -85,7 +85,7 @@ describe('assistant artifact card contract', () => {
   })
 
   it('collapses the changed-files card by default and preserves expansion per host', () => {
-    expect(source).toMatch(/createChangedFilesCard\(changed, deps, \{[\s\S]*?expandedByDefault: options\.changedExpanded,/)
+    expect(source).toMatch(/createChangedFilesCard\(inputs\.changed, deps, \{[\s\S]*?expandedByDefault: options\.changedExpanded,/)
     expect(source).toContain("hostElement.dataset[EXPANDED_FLAG] === 'true'")
     expect(source).toContain("hostElement.dataset[EXPANDED_FLAG] = String(expanded)")
     expect(source).toContain("header.setAttribute('aria-expanded', String(expanded))")
@@ -94,8 +94,16 @@ describe('assistant artifact card contract', () => {
   })
 
   it('skips rebuilding when signatures match so transient interactions survive decorate cycles', () => {
+    // 签名必须先于 DOM 构建算出：idle pass 命中时一个卡片元素都不创建
+    // （旧实现先建整棵卡再判 unchanged 丢弃，每个 idle pass 白造一遍 DOM）。
+    expect(source).toContain('resolveArtifactCardInputs(turn.artifacts, deps, rollback)')
+    expect(source).toContain('const signatures = artifactCardSignatures(inputs, deps)')
+    const signatureAt = source.indexOf('artifactCardSignatures(inputs, deps)')
+    const buildAt = source.indexOf('buildCardPlans(inputs, deps')
+    expect(signatureAt).toBeGreaterThan(0)
+    expect(buildAt).toBeGreaterThan(signatureAt)
+    expect(source).toContain('card.dataset.quickforgeArtifactSignature === signatures[index]')
     expect(source).toContain('plan.element.dataset.quickforgeArtifactSignature = plan.signature')
-    expect(source).toContain('card.dataset.quickforgeArtifactSignature === plans[index].signature')
     expect(source).toContain('hostElement.insertBefore(card, anchor)')
     expect(source).toContain('closeActiveOpenMenu()')
   })

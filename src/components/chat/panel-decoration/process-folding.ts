@@ -1010,8 +1010,28 @@ function collectFoldableProcessNodes(
   finalSummaryMarkdown: HTMLElement | null,
   canFoldMarkdown: boolean,
 ) {
-  return selectFoldableProcessItems(
+  return collectFoldableProcessNodesFromItems(
     collectProcessTimeline(assistants),
+    finalSummaryMarkdown,
+    canFoldMarkdown,
+  )
+}
+
+/**
+ * 已收集的时间线 → 可折叠项。
+ *
+ * 与 {@link collectFoldableProcessNodes} 的差别只有一个：时间线由调用方传入。
+ * 指纹与可折叠项需要同一份时间线，而 `collectProcessTimeline` 对每个 assistant
+ * 都要跑两次 `querySelectorAll`（thinking + detail）。旧实现让指纹和收集各算一遍，
+ * 于是每个 turn 每个 assistant 白扫两轮 DOM。
+ */
+function collectFoldableProcessNodesFromItems<T extends { node: HTMLElement; sourceAssistant: AssistantMessageElement }>(
+  items: T[],
+  finalSummaryMarkdown: HTMLElement | null,
+  canFoldMarkdown: boolean,
+) {
+  return selectFoldableProcessItems(
+    items,
     (item) => item.node === finalSummaryMarkdown,
     (item) => isProcessNodeKind(item.node, 'markdown-block'),
     canFoldMarkdown,
@@ -1445,8 +1465,17 @@ function updateEmptyProcessSources(assistants: AssistantMessageElement[]) {
  * 中间 markdown（可折叠的过程段）仍然计入指纹：它出现/消失确实改变折叠结构。
  */
 export function processTurnFingerprint(assistants: AssistantMessageElement[], excludeNode: HTMLElement | null = null): string {
+  return processTurnFingerprintFromItems(collectProcessTimeline(assistants), assistants, excludeNode)
+}
+
+/** 已收集时间线版本的指纹（与 {@link processTurnFingerprint} 等价）。 */
+function processTurnFingerprintFromItems(
+  items: Array<{ node: HTMLElement; sourceAssistant: AssistantMessageElement }>,
+  assistants: AssistantMessageElement[],
+  excludeNode: HTMLElement | null,
+): string {
   const assistantIndexes = new Map(assistants.map((assistant, index) => [assistant, index]))
-  const parts = collectProcessTimeline(assistants)
+  const parts = items
     .filter(({ node }) => node !== excludeNode)
     .map(({ node, sourceAssistant }) => {
       const assistantIndex = assistantIndexes.get(sourceAssistant) ?? 0
@@ -1486,14 +1515,18 @@ function decorateProcessTurn(panel: HTMLElement, assistants: AssistantMessageEle
   const finalSummaryMarkdown = canFoldMarkdown
     ? findFinalSummaryMarkdown(finalSummaryTarget, isAgentStreaming)
     : null
+  // 时间线只收集一次：指纹与可折叠项都从它推导。旧实现各调一次
+  // `collectProcessTimeline`，同一 turn 的每个 assistant 因此白扫两轮 DOM
+  //（thinking + detail 各一次 querySelectorAll），而这两次之间没有任何 DOM 变更。
+  const processItems = collectProcessTimeline(assistants)
   // 指纹在终答判定之后计算并排除终答 markdown：它不参与折叠，首次出现（思考过程
   // 结束、正文开始输出）不该被当成结构变化触发整组重建（见 processTurnFingerprint）。
-  const fingerprint = processTurnFingerprint(assistants, finalSummaryMarkdown)
+  const fingerprint = processTurnFingerprintFromItems(processItems, assistants, finalSummaryMarkdown)
   const finalSummaryChanged = !isAgentStreaming && canFoldMarkdown && (
     !finalSummaryMarkdown
     || finalSummaryMarkdown.closest(PROCESS_GROUP_SELECTOR) !== null
   )
-  const currentNodes = collectFoldableProcessNodes(assistants, finalSummaryMarkdown, canFoldMarkdown)
+  const currentNodes = collectFoldableProcessNodesFromItems(processItems, finalSummaryMarkdown, canFoldMarkdown)
   const nodeSequenceCurrent = !existingGroup
     || processNodeSequenceIsCurrent(groupedProcessNodeSequences.get(existingGroup), currentNodes)
   // React releases folded thinking back into the message row while the folded

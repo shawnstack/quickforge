@@ -783,6 +783,34 @@ describe('SSE streaming throttle and backpressure', () => {
     throttle.dispose()
   })
 
+  it('coalesces message_update and tool_execution_update into separate slots', async () => {
+    vi.useFakeTimers()
+    const { createSseUpdateThrottle, SSE_MESSAGE_UPDATE_THROTTLE_MS } = await import('../../../server/routes/agent.mjs')
+    const frames = []
+    const throttle = createSseUpdateThrottle({ write: (event) => frames.push(event) })
+
+    // 交错到达：单槽实现会让后到的 tool_execution_update 顶掉 message_update。
+    throttle.push({ type: 'message_update', seq: 1 })
+    throttle.push({ type: 'tool_execution_update', seq: 2 })
+    throttle.push({ type: 'message_update', seq: 3 })
+    throttle.push({ type: 'tool_execution_update', seq: 4 })
+    expect(frames).toEqual([])
+
+    vi.advanceTimersByTime(SSE_MESSAGE_UPDATE_THROTTLE_MS)
+    // 每类只留最后一帧，顺序按首次到达。
+    expect(frames.map((event) => `${event.type}:${event.seq}`)).toEqual([
+      'message_update:3',
+      'tool_execution_update:4',
+    ])
+
+    // 非合并事件仍然先 flush pending，再写自己（顺序契约）。
+    throttle.push({ type: 'message_update', seq: 5 })
+    throttle.push({ type: 'message_end', seq: 6 })
+    expect(frames.map((event) => event.seq)).toEqual([3, 4, 5, 6])
+
+    throttle.dispose()
+  })
+
   it('flushes the pending message_update before writing message_end', async () => {
     const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
     const { eventBus, req, res, chunks } = sessionStream()

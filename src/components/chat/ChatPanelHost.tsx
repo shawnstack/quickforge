@@ -1563,9 +1563,13 @@ export function ChatPanelHost({
           scheduleDecorateRef.current?.()
         }
       }
-      if (eventType === 'background_commands' || eventType === 'tool_execution_start' || eventType === 'tool_execution_update' || eventType === 'tool_execution_end') {
+      if (eventType === 'tool_execution_update') {
+        // 高频工具输出（长命令、流式工具日志）与 token 增量同量级：只对账过程
+        // 折叠/摘要，不跑行级动作、产物卡、轮次导航与 editor 绑定。
+        decoratePipeline.scheduleToolInterfaceUpdate('streaming')
+      } else if (eventType === 'background_commands' || eventType === 'tool_execution_start' || eventType === 'tool_execution_end') {
+        // 结构性变化（工具卡出现/落定）：一次 full pass，由 scheduler 合并。
         decoratePipeline.scheduleToolInterfaceUpdate()
-        scheduleDecorateRef.current?.()
       }
       if (eventType === 'tool_execution_end' && !sideChatMode) {
         // 自动预览的唯一来源：本次工具执行刚刚产出的文件（live 口径）。

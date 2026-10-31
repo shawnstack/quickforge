@@ -38,7 +38,7 @@ export type DecoratePipeline = {
   runDecorate: () => void
   /** A new run started / a new assistant message began: void the pending handoff generation. */
   resetProcessHandoff: () => void
-  scheduleToolInterfaceUpdate: () => void
+  scheduleToolInterfaceUpdate: (mode?: ChatDecorateMode) => void
   /** Two-frame re-fold around the end of an assistant message. */
   scheduleProcessHandoff: () => void
   /** Called from panel initialization, once the surface should be observed. */
@@ -122,7 +122,7 @@ export function setupDecoratePipeline(deps: DecoratePipelineDeps): DecoratePipel
   // Expose for the decoration trigger effect
   deps.decorateFnRef.current = runDecorate
 
-  const scheduleToolInterfaceUpdate = () => {
+  const scheduleToolInterfaceUpdate = (mode: ChatDecorateMode = 'full') => {
     if (toolUpdateScheduled) return
     toolUpdateScheduled = true
     window.requestAnimationFrame(() => {
@@ -131,7 +131,11 @@ export function setupDecoratePipeline(deps: DecoratePipelineDeps): DecoratePipel
       deps.syncProcessStreamingState()
       // The React surface re-renders from agent snapshots on its own; the
       // rAF gives that commit time to land before decoration re-aligns.
-      runDecorate()
+      //
+      // 走同一个 scheduler，而不是在这里直接 `runDecorate()`：旧实现先同步跑
+      // 一遍 full pass，调用方再 `scheduleDecorate()` 排一遍，同一次工具事件
+      // 在一帧里做了两遍完整装饰（querySelectorAll + 折叠对账 + 强制布局）。
+      scheduleDecorate(mode)
       if (deps.isScrollFollowing()) deps.scheduleScrollToBottom()
     })
   }

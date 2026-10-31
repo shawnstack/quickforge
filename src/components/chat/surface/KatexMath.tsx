@@ -31,7 +31,7 @@ const renderOptions = (display: boolean): KatexOptions => ({
  * 只缓存成功结果；`throwOnError: false` 让语法错误也产出 html（红色 fallback
  * 由 KaTeX 自己生成），异常路径不入缓存，与原先行为一致。
  */
-const katexHtmlCache = new ContentCache<string>(400)
+const katexHtmlCache = new ContentCache<string>(400, 4 * 1024 * 1024)
 
 function renderKatexHtml(latex: string, display: boolean): string {
   return memoizeContent(katexHtmlCache, [display ? '1' : '0', latex], () => katex.renderToString(latex, renderOptions(display)))

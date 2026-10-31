@@ -33,15 +33,48 @@ type CacheEntry<T> = {
   value: T
 }
 
+/** key 片段的估算字节数（UTF-16：每字符 2 字节）。 */
+function entryBytes(parts: string[]): number {
+  let bytes = 0
+  for (const part of parts) bytes += part.length * 2
+  return bytes
+}
+
+/** 严格相等的 key 片段（字符串按引用比较，通常 O(1)）。 */
+function sameParts(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  for (let i = 0; i < left.length; i += 1) {
+    if (left[i] !== right[i]) return false
+  }
+  return true
+}
+
 /**
  * 有界内容缓存。按插入顺序淘汰（Map 迭代序即 LRU 序：命中会先删除再插入）。
+ *
+ * 两个上限同时生效：条目数（防小对象无限增长）与估算字节数（防「300 条」这种
+ * 按条数计的预算被几条 200KB 的代码块吃光）。字节按 key 片段估算——缓存值
+ * （React 元素树 / 高亮 segment）的体积与输入内容同阶，用输入长度做代理既便宜
+ * 又不需要遍历产物。
  */
 export class ContentCache<T> {
   private readonly entries = new Map<string, CacheEntry<T>>()
   private readonly maxEntries: number
+  private readonly maxBytes: number
+  private bytes = 0
+  /**
+   * 单槽最近命中。
+   *
+   * 历史消息每次重渲染都会用**同一个字符串引用**再查一次缓存，而按摘要查表要
+   * 对整段内容重算 FNV-1a（大代码块是 O(n)）。字符串引用相等时直接返回上次
+   * 结果，把这条最常见路径降到 O(1)。
+   */
+  private lastParts: string[] | null = null
+  private lastValue: T | undefined
 
-  constructor(maxEntries: number) {
+  constructor(maxEntries: number, maxBytes = Number.POSITIVE_INFINITY) {
     this.maxEntries = Math.max(1, Math.floor(maxEntries))
+    this.maxBytes = maxBytes > 0 ? maxBytes : Number.POSITIVE_INFINITY
   }
 
   get size(): number {
@@ -50,32 +83,53 @@ export class ContentCache<T> {
 
   /** 读取缓存；key 片段不完全一致时按 miss 处理。 */
   get(parts: string[]): T | undefined {
+    if (this.lastParts && sameParts(this.lastParts, parts)) return this.lastValue
     const digest = parts.map(fnv1a).join(KEY_SEPARATOR)
     const entry = this.entries.get(digest)
     if (!entry) return undefined
-    if (entry.parts.length !== parts.length) return undefined
-    for (let i = 0; i < parts.length; i += 1) {
-      if (entry.parts[i] !== parts[i]) return undefined
-    }
+    if (!sameParts(entry.parts, parts)) return undefined
     // 提升为最近使用：Map 的迭代序即淘汰序。
     this.entries.delete(digest)
     this.entries.set(digest, entry)
+    this.remember(entry.parts, entry.value)
     return entry.value
   }
 
   set(parts: string[], value: T): void {
     const digest = parts.map(fnv1a).join(KEY_SEPARATOR)
-    this.entries.delete(digest)
-    this.entries.set(digest, { parts: [...parts], value })
-    while (this.entries.size > this.maxEntries) {
+    const existing = this.entries.get(digest)
+    if (existing) {
+      this.bytes -= entryBytes(existing.parts)
+      this.entries.delete(digest)
+    }
+    const entry: CacheEntry<T> = { parts: [...parts], value }
+    this.entries.set(digest, entry)
+    this.bytes += entryBytes(entry.parts)
+    this.remember(entry.parts, value)
+    while (this.entries.size > this.maxEntries || this.bytes > this.maxBytes) {
       const oldest = this.entries.keys().next()
       if (oldest.done) break
+      const evicted = this.entries.get(oldest.value)
+      if (evicted) this.bytes -= entryBytes(evicted.parts)
       this.entries.delete(oldest.value)
+      // 被淘汰的条目不能继续从单槽快路径命中（否则等于没淘汰）。
+      if (evicted && this.lastParts && sameParts(this.lastParts, evicted.parts)) {
+        this.lastParts = null
+        this.lastValue = undefined
+      }
     }
   }
 
   clear(): void {
     this.entries.clear()
+    this.bytes = 0
+    this.lastParts = null
+    this.lastValue = undefined
+  }
+
+  private remember(parts: string[], value: T): void {
+    this.lastParts = parts
+    this.lastValue = value
   }
 }
 
@@ -97,7 +151,7 @@ export function memoizeContent<T>(cache: ContentCache<T>, parts: string[], compu
  */
 export function memoizeContentAsync<T>(
   cache: ContentCache<T>,
-  inflight: Map<string, Promise<T>>,
+  inflight: Map<string, { parts: string[]; promise: Promise<T> }>,
   parts: string[],
   compute: () => Promise<T>,
 ): Promise<T> {
@@ -105,13 +159,19 @@ export function memoizeContentAsync<T>(
   if (cached !== undefined) return Promise.resolve(cached)
   const digest = parts.map(fnv1a).join(KEY_SEPARATOR)
   const pending = inflight.get(digest)
-  if (pending) return pending
-  const promise = compute().then((value) => {
+  // in-flight 去重也必须做严格比较：摘要碰撞时复用另一段内容的渲染结果
+  // 就是「画错图」，而缓存本身的约束是「碰撞只能退化为 miss」。
+  if (pending && sameParts(pending.parts, parts)) return pending.promise
+  const entry = {
+    parts: [...parts],
+    promise: undefined as unknown as Promise<T>,
+  }
+  entry.promise = compute().then((value) => {
     cache.set(parts, value)
     return value
   }).finally(() => {
-    inflight.delete(digest)
+    if (inflight.get(digest) === entry) inflight.delete(digest)
   })
-  inflight.set(digest, promise)
-  return promise
+  inflight.set(digest, entry)
+  return entry.promise
 }

@@ -25,8 +25,23 @@ type ScrollMeasureCache = {
   list: HTMLElement
   messages: AgentMessage[]
   windowStart: number
-  turns: ConversationTurn[]
+  /** 轮次模型签名：`turns` 每次 update 都重建数组，只能按内容比较。 */
+  signature: string
   anchors: TurnAnchor[]
+}
+
+/**
+ * 缓存的锚点是否仍然可用。
+ *
+ * `update()` 过去无条件丢缓存，因为 decorate 可能在两轮之间重建了消息行。
+ * 但那惩罚了每个 idle pass；行重建的真正后果只是「锚点元素脱离 DOM」，
+ * 用一个属性读就能判定。没有 `isConnected` 的环境（测试桩）按存活处理。
+ */
+function anchorsAlive(anchors: TurnAnchor[]): boolean {
+  for (const anchor of anchors) {
+    if (anchor.element.isConnected === false) return false
+  }
+  return true
 }
 
 function textPreview(text: string, fallback: string) {
@@ -171,11 +186,18 @@ export function createTurnNavigation({
     const messages = getMessages()
     const windowStart = Number(list.dataset.windowStart) || 0
     let cache = scrollMeasureCache
-    if (!cache || cache.list !== list || cache.messages !== messages || cache.windowStart !== windowStart || cache.turns !== turns) {
+    if (
+      !cache
+      || cache.list !== list
+      || cache.messages !== messages
+      || cache.windowStart !== windowStart
+      || cache.signature !== nodeSignature
+      || !anchorsAlive(cache.anchors)
+    ) {
       // Anchors are resolved by absolute `data-message-index`, so a hidden or
       // windowed-out row can neither shift ordinal arithmetic nor be selected
       // as a zero-size target (see `turn-navigation-anchor.ts`).
-      cache = { list, messages, windowStart, turns, anchors: collectTurnAnchors(list, turns) }
+      cache = { list, messages, windowStart, signature: nodeSignature, anchors: collectTurnAnchors(list, turns) }
       scrollMeasureCache = cache
     }
     const { anchors } = cache
@@ -312,10 +334,9 @@ export function createTurnNavigation({
   }
 
   const update = () => {
-    // The decorate cycle that calls update() may have rebuilt message rows in
-    // between (decorate / process re-fold); drop the scroll-measure cache so
-    // the next measurement rescans the (possibly changed) DOM.
-    scrollMeasureCache = null
+    // 不再无条件丢弃测量缓存：装饰周期可能重建了行，但那只会表现为
+    // 「锚点元素脱离 DOM」，由 `anchorsAlive` 精确判定。直接清空会让每个
+    // idle decorate pass 都白扫一遍 DOM（并顺带多一次强制布局）。
     turns = buildConversationTurns(getMessages(), isStreaming())
     const signature = turns.map((turn) => `${turn.messageIndex}:${turn.userText}`).join('|')
     if (signature !== nodeSignature) {

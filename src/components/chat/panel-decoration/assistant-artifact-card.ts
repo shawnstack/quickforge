@@ -537,32 +537,69 @@ type CardPlan = {
   element: HTMLElement
 }
 
-function buildCardPlans(
+/**
+ * 一轮产物卡的纯输入：签名与 DOM 都由它推导。
+ *
+ * 拆出来的唯一目的是让「签名先算、DOM 后建」成为可能——装饰 pass 每轮都会
+ * 跑（面板任意 DOM 变化都会触发），而绝大多数轮次的产物没有变化。旧实现
+ * 先 `createChangedFilesCard` 建完整棵卡片 DOM，再拿签名判断「没变」并丢弃，
+ * 每个 idle pass 都在白造一遍 DOM。
+ */
+type ArtifactCardInputs = {
+  presented: AiTurnArtifact[]
+  changed: AiTurnArtifact[]
+  total: { added: number; removed: number }
+  rollback: TurnRollbackControl | null
+}
+
+function resolveArtifactCardInputs(
   artifacts: AiTurnArtifact[],
   deps: ArtifactCardDeps,
-  options: { changedExpanded: boolean; onExpandedChange?: (expanded: boolean) => void; rollback: TurnRollbackControl },
-): CardPlan[] {
-  const plans: CardPlan[] = []
+  rollbackControl: TurnRollbackControl,
+): ArtifactCardInputs {
   const presented = dedupePresentedArtifacts(artifacts.filter((artifact) => artifact.source === 'present_files'))
   const changed = mergeChangedArtifactsByPath(artifacts.filter((artifact) => artifact.source !== 'present_files'))
-  presented.forEach((artifact) => {
-    plans.push({
-      signature: `file:${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.preview ? 1 : 0}:${artifact.command ?? ''}`,
-      element: createPresentedFileCard(artifact, deps),
-    })
-  })
-  if (changed.length > 0) {
-    const total = diffTotal(changed)
+  return {
+    presented,
+    changed,
+    total: diffTotal(changed),
     // 撤销态进签名：rolledBackTurns 变化 → 签名变化 → 该轮卡重建为「已撤销」
     // 禁用态；turnIds 一并进签名——重试在同轮追加新 turnId 时重建卡片，按钮
     // 闭包才能拿到完整的 turnId 集合。
-    const rollback = options.rollback && deps.onRollbackTurn ? options.rollback : null
+    rollback: rollbackControl && deps.onRollbackTurn ? rollbackControl : null,
+  }
+}
+
+/** 与 {@link buildCardPlans} 一一对应的签名序列（顺序 = 卡片顺序）。 */
+function artifactCardSignatures(inputs: ArtifactCardInputs, deps: ArtifactCardDeps): string[] {
+  const signatures = inputs.presented.map((artifact) =>
+    `file:${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.preview ? 1 : 0}:${artifact.command ?? ''}`)
+  if (inputs.changed.length > 0) {
+    const { changed, total, rollback } = inputs
+    signatures.push(
+      `changed:${changed.map((artifact) => `${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.addedLines ?? ''}:${artifact.removedLines ?? ''}:${artifact.preview ? 1 : 0}`).join('|')}:${total.added}:${total.removed}:${rollback ? `${rollback.rolledBack ? 2 : 1}:${rollback.turnIds.join(',')}` : 0}:${deps.onReviewFileChanges ? 1 : 0}:${deps.onRevealFile ? 1 : 0}`,
+    )
+  }
+  return signatures
+}
+
+function buildCardPlans(
+  inputs: ArtifactCardInputs,
+  deps: ArtifactCardDeps,
+  options: { changedExpanded: boolean; onExpandedChange?: (expanded: boolean) => void },
+): CardPlan[] {
+  const signatures = artifactCardSignatures(inputs, deps)
+  const plans: CardPlan[] = inputs.presented.map((artifact, index) => ({
+    signature: signatures[index],
+    element: createPresentedFileCard(artifact, deps),
+  }))
+  if (inputs.changed.length > 0) {
     plans.push({
-      signature: `changed:${changed.map((artifact) => `${artifact.source}:${artifact.path}:${artifact.kind}:${artifact.addedLines ?? ''}:${artifact.removedLines ?? ''}:${artifact.preview ? 1 : 0}`).join('|')}:${total.added}:${total.removed}:${rollback ? `${rollback.rolledBack ? 2 : 1}:${rollback.turnIds.join(',')}` : 0}:${deps.onReviewFileChanges ? 1 : 0}:${deps.onRevealFile ? 1 : 0}`,
-      element: createChangedFilesCard(changed, deps, {
+      signature: signatures[signatures.length - 1],
+      element: createChangedFilesCard(inputs.changed, deps, {
         expandedByDefault: options.changedExpanded,
         onExpandedChange: options.onExpandedChange,
-        rollback,
+        rollback: inputs.rollback,
       }),
     })
   }
@@ -664,18 +701,14 @@ export function syncAssistantArtifactCard(deps: ArtifactCardDeps) {
     const rollback: TurnRollbackControl = turn.turnIds.length > 0 && deps.onRollbackTurn
       ? { turnIds: turn.turnIds, rolledBack: deps.rolledBackTurns?.has(turnRollbackKey(turn.turnIds)) === true }
       : null
-    const plans = buildCardPlans(turn.artifacts, deps, {
-      changedExpanded,
-      onExpandedChange: (expanded) => {
-        hostElement.dataset[EXPANDED_FLAG] = String(expanded)
-      },
-      rollback,
-    })
+    const inputs = resolveArtifactCardInputs(turn.artifacts, deps, rollback)
 
     // 签名一致时只校正位置，不重建：保留展开态、打开菜单与确认弹层（decorate
     // 在面板任意 DOM 变化时都会重跑，重建会把瞬态交互状态全部冲掉）。
-    const unchanged = existingCards.length === plans.length
-      && existingCards.every((card, index) => card.dataset.quickforgeArtifactSignature === plans[index].signature)
+    // 签名在这里**先于** DOM 构建算出：idle pass 命中时一个卡片元素都不创建。
+    const signatures = artifactCardSignatures(inputs, deps)
+    const unchanged = existingCards.length === signatures.length
+      && existingCards.every((card, index) => card.dataset.quickforgeArtifactSignature === signatures[index])
     if (unchanged) {
       existingCards.forEach((card) => {
         if (card !== (anchor?.previousElementSibling ?? hostElement.lastElementChild)) {
@@ -684,6 +717,13 @@ export function syncAssistantArtifactCard(deps: ArtifactCardDeps) {
       })
       continue
     }
+
+    const plans = buildCardPlans(inputs, deps, {
+      changedExpanded,
+      onExpandedChange: (expanded) => {
+        hostElement.dataset[EXPANDED_FLAG] = String(expanded)
+      },
+    })
 
     // 只重建本宿主的卡（其余轮的卡不动）；摘卡前关闭 fixed 打开菜单。
     if (existingCards.length > 0) closeActiveOpenMenu()

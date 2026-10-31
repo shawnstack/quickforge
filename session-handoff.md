@@ -1,5 +1,40 @@
 # Current Session Handoff
 
+## model-sheet-check-immediate（done，2026-10-30）
+
+- Current Objective（当前目标）：修「对话框模型选择点击后不马上勾选」。
+- 结论（一句话）：`openMobileModelSelector` 的 `selectModel` 写的是已废弃的 `.quickforge-model-menu-item-suffix`，勾选图标实际在 `.quickforge-model-menu-item-check-slot`，抽屉保持打开不重渲染 → 勾选不移动。
+- 改动文件：`src/lib/custom-model-selector.ts`（`selectModel` 重写 check-slot innerHTML；滚动守卫换成 `isTapGesture`：pointerdown 位移 + 150ms 滚动判定）、`tests/frontend/custom-model-selector.test.ts`（新增「tapping a model moves the check icon immediately」）、`feature_list.json` / `progress.md` / 本文件。
+- Evidence（验证）：`npx vitest run custom-model-selector + model-selector-thinking-sync + composer-model-trigger` → 3 files / 31 passed；`npx eslint` 改动文件 0 problems；`npx tsc -p tsconfig.app.json --noEmit` 0 错误。未创建 Git commit，未触碰生成产物。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：真机确认——移动端抽屉内连续切换模型时勾选与底部思考滑杆同步、滑完列表立刻点一次即生效；桌面菜单（点击即关闭）不受影响。若后续要改抽屉的选中反馈，只动 check-slot / `aria-checked`，不要恢复 suffix 文本写法。
+
+## chat-render-perf-memory（done，2026-10-30）
+
+- Current Objective（当前目标）：用户要求评审对话功能的显示性能与内存，并在「不影响体验和交互」的前提下**一次完成全部可优化项**（允许等价重构）。
+- 结论（一句话）：三处真实成本被削掉——①流式 Markdown 改为「稳定块缓存 + 只解析尾块」（O(n²)→O(n·k)）；②工具事件改为「单次 streaming/full pass + 服务端 50ms 合并」（原为一次事件双 full pass、服务端不合并）；③装饰与列表的固定成本（artifact 先建 DOM 再丢弃、轮次导航每 pass 强制 reflow、折叠时间线扫两遍、每帧重建 items/keys/rows）改为先判后建 / 复用时间线 / 记忆化。
+- 改动文件（核心）：
+  - 新增 `src/components/chat/surface/markdown-stream-chunks.ts`、`src/components/chat/surface/render-key-index.ts`
+  - `src/components/chat/surface/{Markdown,MessageList,KatexMath}.tsx`、`src/components/chat/{ChatPanelHost.tsx,turn-navigation.ts,scroll-sync.ts}`
+  - `src/components/chat/panel-decoration/{assistant-artifact-card,process-folding}.ts`、`src/components/chat/panel-wiring/decorate-pipeline.ts`
+  - `src/lib/{render-cache,mermaid-renderer,chat-math,code-highlight}.ts`
+  - `server/routes/agent.mjs`（双槽 trailing 合并 + 序列化 WeakMap 共享）
+  - 测试 8 个（新增 3 个：`markdown-stream-chunks`、`render-key-index`、`render-cache-bounds`）
+  - 文档：`docs/architecture/chat-render-perf-review.zh-CN.md`（新）、`docs/wiki/README.md`
+- Evidence（验证）：定向 175 例全绿；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功（`[precompress] 224 files: 12.66MB → 6.48MB`）；`npm run test` → 465 files / 5373 passed / 2 skipped。未创建 Git commit，未手工修改生成产物。
+- 关键约束（别踩）：
+  - `createRenderKeyIndex().appendKey` 必须**只读** occurrence 计数：递增会让同一流式行每帧换 key → 整行 remount（视觉闪烁）。
+  - 稳定块切分「保守优先」：只在空行切，且两侧都不能是列表项/引用/缩进代码/表格行/setext/HTML 块；冻结前缀必须数学定界符成对。任一不满足返回 `null` 退回整段解析——**不要为了收益放宽这些条件**。
+  - `streamingBlockCache` 与 `markdownElementCache` 必须分开限额。
+  - 服务端 `tool_execution_update` 合并的前提是「每帧携带完整累积 partialResult」；上游若改 delta，必须同时撤掉合并。
+  - 装饰层 `scheduleToolInterfaceUpdate` 只允许走 `decorateScheduler`，不要再在 rAF 里直接 `runDecorate()`（那就是双 pass）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机长回答（含 2000 行代码块）流式：用 `PerformanceObserver({entryTypes:['longtask']})` 对比改动前后的累计阻塞与最大单项；确认打字机手感不变、代码块不闪。
+  2. 真机含 loose list / 表格 / 未闭合围栏 / 行内公式的流式回答：确认分块渲染与定稿渲染视觉一致（切分不满足条件时应自动退回整段解析）。
+  3. 手机 + PC 同看同一会话流式：确认工具输出仍连续（服务端已合并到 20fps）、不丢终态。
+  4. 未做项：`ChatPanelHost` 的 props 变化仍同步 `runDecorate()`（绕过调度器合并），改动需先确认首帧装饰时序契约；折叠 skip 路径仍付 `hasTurnProcessSignals` + `updateEmptyProcessSources`，要削掉需先补「行结构签名」的回归网。
+
 ## remove-storage-backward-compat（done，2026-10-30）
 
 - Current Objective（当前目标）：用户问「数据库 migration（当前 v11）这个是干嘛」，讨论后确认「大版本不需要向前兼容」，按三步减法执行：删 cutover/phase、删启动迁移页、迁移链折叠为 baseline。

@@ -87,8 +87,19 @@ export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollow
   const releaseFollowDistancePx = 50
   const repinFollowDistancePx = 10
 
-  const findScrollContainer = () =>
-    panel.querySelector<HTMLElement>('.qf-scroll-container')
+  /**
+   * 缓存的滚动容器。
+   *
+   * `handleScroll` / `markUserScrollUp` / `scrollToBottom` 每个滚动事件都会调用
+   * 这里，而 `panel.querySelector` 在面板子树里是真实开销。缓存只在元素仍挂载时
+   * 命中；没有 `isConnected` 的环境（测试桩）退化为每次查询，行为与旧实现一致。
+   */
+  let boundScrollContainer: HTMLElement | undefined
+  const findScrollContainer = () => {
+    if (boundScrollContainer?.isConnected === true) return boundScrollContainer
+    boundScrollContainer = panel.querySelector<HTMLElement>('.qf-scroll-container') ?? undefined
+    return boundScrollContainer
+  }
 
   const distanceFromBottom = (element: HTMLElement) =>
     element.scrollHeight - element.scrollTop - element.clientHeight

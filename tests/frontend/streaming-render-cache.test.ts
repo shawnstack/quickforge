@@ -57,4 +57,19 @@ describe('streaming render cache policy', () => {
     const finalized = highlightCode('const b = 2', 'ts')
     expect(highlightCode('const b = 2', 'ts')).toBe(finalized)
   })
+
+  it('freezes stable streaming blocks so only the tail is re-parsed', () => {
+    const paragraph = (index: number) => `段落 ${index}：${'内容'.repeat(200)}`
+    const first = `${paragraph(1)}\n\n${paragraph(2)}\n\n尾`
+    const second = `${paragraph(1)}\n\n${paragraph(2)}\n\n尾继续增长`
+
+    renderBlock(first, false)
+    const afterFirst = markdownRenderCalls.length
+    // 第一帧：两个稳定块 + 尾块各解析一次。
+    expect(afterFirst).toBe(3)
+
+    renderBlock(second, false)
+    // 第二帧：两个稳定块命中缓存，只有尾块重新解析。
+    expect(markdownRenderCalls.length - afterFirst).toBe(1)
+  })
 })

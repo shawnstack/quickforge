@@ -15,8 +15,8 @@ let renderSequence = 0
  * remount，组件级 state 全部丢失，同一张图会被重新渲染。缓存以源码为 key，
  * 跨 mount 复用同一 SVG 字符串；失败结果不入缓存（错误态由调用方处理）。
  */
-const mermaidCache = new ContentCache<string>(60)
-const mermaidInflight = new Map<string, Promise<string>>()
+const mermaidCache = new ContentCache<string>(60, 8 * 1024 * 1024)
+const mermaidInflight = new Map<string, { parts: string[]; promise: Promise<string> }>()
 
 export function isMermaidLanguage(language: unknown) {
   return String(language ?? '').trim().toLowerCase() === 'mermaid'

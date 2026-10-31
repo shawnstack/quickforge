@@ -143,7 +143,7 @@ function replaceDelimitersInRun(text: string, tokens: MathTokenMap): string {
  * 定界符扫描原本会被重复执行；产物只取决于输入内容，因此按内容寻址复用。
  * 命中返回同一个对象（含同一个 token Map），调用方只读使用。
  */
-const preprocessedMathCache = new ContentCache<PreprocessedMath>(500)
+const preprocessedMathCache = new ContentCache<PreprocessedMath>(500, 4 * 1024 * 1024)
 
 /**
  * Preprocess chat message content for math rendering. `\(...\)` becomes an

@@ -54,6 +54,7 @@ quickforge/
 | [浏览器缓存策略](../architecture/browser-cache-strategy.zh-CN.md) | 应用层缓存分级与已实施范围 |
 | [会话打开快路径](../architecture/session-open-fast-path.zh-CN.md) | 打开历史会话的耗时构成、交互契约红线、内容寻址渲染缓存与后续里程碑 |
 | [渲染内存与附件边界](../architecture/render-memory-and-attachment-boundary.zh-CN.md) | 流式单份帧、定稿缓存、有界渲染窗口、附件引用与按需读取、首屏压缩 |
+| [对话渲染性能与内存评审](../architecture/chat-render-perf-review.zh-CN.md) | 流式稳定块冻结、工具事件合并、装饰固定成本、缓存字节预算与序列化共享（含 5 项否决候选与理由） |
 | [对话轨迹](../architecture/conversation-trace.zh-CN.md) | 对话区的只读运行时视图（Turn→Step→Tool 投影、三轨时间总览、检查器、不虚构耗时） |
 | [Dreaming 记忆固化](../architecture/dreaming-memory.zh-CN.md) | 后台把已结束会话沉淀为 `DREAMING.md` 里的一份笔记（一次 LLM 调用读旧列表 + 新会话，写回新列表；与手写的 `MEMORY.md` 是两个文件，一起注入） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |

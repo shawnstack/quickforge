@@ -2,6 +2,36 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## model-sheet-check-immediate（done，2026-10-30）
+
+- Goal：用户反馈「对话框，模型选择，点击不会马上勾选」，先定位再修。
+- 结论（一句话）：抽屉式模型选择里点击后勾选不动，是因为 `selectModel` 还在往已废弃的 `.quickforge-model-menu-item-suffix` 写 `✓`，而勾选图标早在 `createMenuItem` 里就渲染进左侧 `.quickforge-model-menu-item-check-slot` 且只写一次；抽屉又保持打开不重渲染，所以只有 `aria-checked`（背景高亮）变了。
+- 改动：`src/lib/custom-model-selector.ts`
+  1. `selectModel` 改为重写 check-slot 的 `innerHTML`（`agentAccessCheckIcon` / 空），删掉失效的 suffix 分支 —— 勾选随点击立即移动。
+  2. 滚动守卫从「最近 300ms 有过 scroll 就丢弃 click」改为 `isTapGesture`：记录 pointerdown 起点 + `SCROLL_SETTLE_MS=150` 内是否在滚动，位移超过 `TAP_SLOP_PX=12` 或按下时仍在滚动才忽略 —— 滑完列表马上点不再需要点第二次。
+- 受影响入口：聊天输入框模型弹层（`useModelActions.ts` → `openCustomOnlyModelSelector`，`innerWidth <= 768`）、设置/Agent 配置页模型选择（`AgentProfilesPage.tsx:347` → `openModelSheet`，桌面也强制走 sheet）。桌面菜单不变（pointerdown 选中后立即关闭）。
+- 关键约束（别踩）：勾选图标的唯一来源是 `.quickforge-model-menu-item-check-slot` 的 innerHTML；不要再按 `aria-checked` 之外的旧 class（suffix）写文本，CSS 里 `aria-checked="true"` 只给背景高亮。
+- 验证：`npx vitest run custom-model-selector + model-selector-thinking-sync + composer-model-trigger` → 3 files / 31 passed（含新增用例）；`npx eslint` 改动文件 0 problems；`npx tsc -p tsconfig.app.json --noEmit` 0 错误。未创建 Git commit，未手工修改生成产物。
+
+## chat-render-perf-memory（done，2026-10-30）
+
+- Goal：用户要求「分析对话功能的显示性能和内存，评审可优化技术，前提不损害交互和用户体验」，随后要求「架构最优、完整实现、必要可重构等价实现、一次完成」。
+- 结论（一句话）：三处真实成本被削掉——流式 Markdown 从「每帧全量解析」变成「稳定块缓存 + 只解析尾块」；工具事件从「一次事件双 full decorate + 服务端不合并」变成「单次 streaming/full pass + 50ms 合并」；装饰与列表的固定成本（artifact 建 DOM 后丢弃、轮次导航强制 reflow、折叠时间线扫两遍、每帧重建 items/keys/rows）改为「先判后建 / 复用时间线 / 记忆化」。
+- 逐项：
+  1. **流式稳定块冻结**（`markdown-stream-chunks.ts` + `Markdown.tsx`）：`blocks`（已闭合、可缓存）+ `tail`（每帧解析）。保守切分：只在空行切，两侧都不能是列表项/引用/缩进代码/表格行/setext/HTML 块；冻结前缀必须数学定界符成对；任一不满足返回 null 退回整段解析。元素树对象相同 → React bailout，稳定块内的代码块也不会重新高亮。
+  2. **工具事件**：`tool_execution_update` 走 `streaming` 装饰；`start`/`end`/`background_commands` 走一次 full。`scheduleToolInterfaceUpdate` 改走 `decorateScheduler`（不再 rAF 内直接 `runDecorate`）。服务端 `tool_execution_update` 纳入 50ms trailing，双槽共享计时器（单槽会互相顶掉），非合并事件先 flush。
+  3. **装饰固定成本**：artifact 卡签名前置（`resolveArtifactCardInputs` / `artifactCardSignatures`）；turn-navigation 测量缓存改为「输入变化 + 锚点 isConnected」失效；`collectProcessTimeline` 每 turn 一次；scroll-sync 缓存滚动容器。
+  4. **列表每帧分配**：`items` / 已提交行 key / 已提交行元素数组按 `messages` 记忆化；流式行 key 用 `createRenderKeyIndex().appendKey`（O(1)，与整体求 key 逐字等价）。
+  5. **渲染缓存**：单槽快路径（同字符串引用 O(1)）+ 字节预算（8/12/4/4/8MB）+ in-flight 严格比较。
+  6. **SSE 序列化共享**：WeakMap 按对象身份复用 `JSON.stringify` 结果。
+- 经评估否决（写进 `docs/architecture/chat-render-perf-review.zh-CN.md` §3）：scroll rAF 合并（浏览器已把 scroll 事件合并到每帧）、折叠 turn 级指纹前置短路（需行结构签名，与「每轮重新确认」语义冲突，有 goal-iteration-divider 前例）、流式自适应降频（不改变单帧成本）、保活视图字节权重（预算语义是渲染行数）、SSE delta / 虚拟列表 / 裁 `state.messages`。
+- 关键约束（别踩）：
+  - `appendKey` 必须**只读** occurrence 计数：递增会让同一流式行每帧换 key → 整行 remount。
+  - 稳定块切分是「保守优先」：宁可返回 null 退回整段解析，也不能切在列表/引用/围栏/表格/HTML/跨块数学定界符中间。
+  - `streamingBlockCache` 与 `markdownElementCache` 分开限额：块缓存生命周期只有一回合，不能把历史整段渲染挤出去。
+  - `tool_execution_update` 的合并前提是「每帧携带完整累积 partialResult」（客户端按替换语义写入）；如果将来上游改成 delta，必须同时撤掉合并。
+- 验证：定向 175 例全绿（assistant-artifact-card 20 / turn-navigation 12 / process-folding 63 / render-key-index 3 / render-cache-bounds 4 / markdown-stream-chunks 11 / streaming-render-cache 5 / routes/agent 57）；`npm run test` → 465 files / 5373 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功（`[precompress] 224 files: 12.66MB → 6.48MB`）。未创建 Git commit，未手工修改生成产物。
+
 ## remove-storage-backward-compat（done，2026-10-30）
 
 - Goal：用户看到启动时的「数据库 migration（当前 v11）」问这是干嘛，讨论后决定「大版本不需要向前兼容」，把 JSON→SQLite 兼容层、迁移进度页与 18 条迁移历史一起删掉。

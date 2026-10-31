@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components -- exports the MarkdownBlock component plus the pure image-scheme guard covered by tests. */
-import { isValidElement, memo, type ReactNode } from 'react'
+import { Fragment, isValidElement, memo, useMemo, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { preprocessLatexDelimiters, rehypeQfMath } from '@/lib/chat-math'
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { CodeBlock, codeBlockLanguage } from './CodeBlock'
 import { KatexMath } from './KatexMath'
 import { LocalFilePathLink } from './LocalFilePathLink'
+import { splitStableMarkdown } from './markdown-stream-chunks'
 import { rehypeQfLocalFilePaths } from './rehype-local-file-paths'
 
 /**
@@ -147,11 +148,20 @@ const markdownRemarkPlugins = [remarkGfm]
  * 等）读取的 context 变化仍由 React 正常传播，这里跳过的只是字符串解析与
  * 插件执行。
  */
-const markdownElementCache = new ContentCache<ReactNode>(300)
+const markdownElementCache = new ContentCache<ReactNode>(300, 8 * 1024 * 1024)
+
+/**
+ * 流式稳定块的元素树缓存。
+ *
+ * 与 {@link markdownElementCache} 分开：块缓存的生命周期只有一回合（块文本随
+ * 流式增长不断变化），单独限额可以避免它把历史消息的整段渲染挤出去。
+ */
+const streamingBlockCache = new ContentCache<ReactNode>(200, 4 * 1024 * 1024)
 
 /** 清空 Markdown 元素缓存（测试隔离与内存回收）。 */
 export function clearMarkdownElementCache(): void {
   markdownElementCache.clear()
+  streamingBlockCache.clear()
 }
 
 function renderMarkdownTree(content: string, cacheable: boolean): ReactNode {
@@ -177,10 +187,29 @@ function renderMarkdownTree(content: string, cacheable: boolean): ReactNode {
  * but the guard keeps the component safe for standalone use).
  */
 export const MarkdownBlock = memo(function MarkdownBlock({ content, isThinking = false, finalized = true }: MarkdownBlockProps) {
+  // 流式内容按「稳定块 + 活动尾块」渲染：已闭合的块按块缓存元素树，跨帧复用；
+  // 只有尾块每帧重新解析。切分不安全时 `splitStableMarkdown` 返回 null，退回
+  // 改动前的整段解析（视觉输出逐字一致）。
+  // Hook 必须在早退之前无条件调用。
+  const streamingChunks = useMemo(
+    () => (finalized ? null : splitStableMarkdown(content)),
+    [content, finalized],
+  )
   if (!content.trim()) return null
   const body = finalized
     ? memoizeContent(markdownElementCache, [content], () => renderMarkdownTree(content, true))
-    : renderMarkdownTree(content, false)
+    : streamingChunks
+      ? (
+        <>
+          {streamingChunks.blocks.map((block, index) => (
+            <Fragment key={index}>
+              {memoizeContent(streamingBlockCache, [block], () => renderMarkdownTree(block, true))}
+            </Fragment>
+          ))}
+          {renderMarkdownTree(streamingChunks.tail, false)}
+        </>
+      )
+      : renderMarkdownTree(content, false)
   return (
     <div
       className={cn(

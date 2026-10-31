@@ -35,7 +35,8 @@ function textFromBlocks(content: unknown) {
 
 function userText(message: AgentMessage) {
   if (!isTurnUserMessage(message)) return ''
-  return (typeof message.content === 'string' ? message.content : textFromBlocks(message.content)).trim()
+  const content = message.content
+  return (typeof content === 'string' ? content : textFromBlocks(content)).trim()
 }
 
 function answerText(message: AgentMessage) {
@@ -66,4 +67,31 @@ export function buildConversationTurns(messages: AgentMessage[], isStreaming: bo
 
   if (isStreaming && turns.length > 0) turns[turns.length - 1].isGenerating = true
   return turns
+}
+
+export type ConversationTurnResolver = (messages: AgentMessage[], isStreaming: boolean) => ConversationTurn[]
+
+/**
+ * One-entry cache for the turn projection.
+ *
+ * `turnNavigation.update()` runs on every decoration pass, but this projection
+ * walks the whole conversation and extracts every user/assistant text block.
+ * Its inputs only change when the message array (replaced on every write, see
+ * the immutable-message contract) or the streaming flag changes, so idle and
+ * streaming passes reuse the previous model instead of re-reading all text.
+ *
+ * Callers must treat the returned array as read-only: it is shared with the
+ * cached entry.
+ */
+export function createConversationTurnResolver(): ConversationTurnResolver {
+  let cachedMessages: AgentMessage[] | null = null
+  let cachedStreaming = false
+  let cachedTurns: ConversationTurn[] = []
+  return (messages, isStreaming) => {
+    if (cachedMessages === messages && cachedStreaming === isStreaming) return cachedTurns
+    cachedMessages = messages
+    cachedStreaming = isStreaming
+    cachedTurns = buildConversationTurns(messages, isStreaming)
+    return cachedTurns
+  }
 }

@@ -21,6 +21,7 @@ const goalInspectorSource = readFileSync(new URL('../../src/components/workspace
 const dragSource = readFileSync(new URL('../../src/lib/pinned-summary-drag.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const pinnedSummaryModelSource = readFileSync(new URL('../../src/hooks/usePinnedSummaryModel.ts', import.meta.url), 'utf8')
+const pinnedSummaryEventsSource = readFileSync(new URL('../../src/lib/pinned-summary-events.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const cssSource = appCss
 
@@ -565,7 +566,8 @@ describe('GitToolsPinnedSummary goal section', () => {
     // The shell executes updateGoal once; the Inspector/controller own the lock.
     expect(appSource).toContain('await agent.updateGoal(action, objective, options)')
     expect(appSource).not.toContain('runGoalUiAction')
-    expect(pinnedSummaryModelSource).toContain("'goal_updated',")
+    expect(pinnedSummaryEventsSource).toContain("'goal_updated',")
+    expect(pinnedSummaryModelSource).toContain('shouldInvalidatePinnedSummary')
   })
 
   it('routes goal summary navigation to the existing Inspector without a new global mode', () => {

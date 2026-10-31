@@ -1,6 +1,10 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { t } from '../../lib/i18n'
-import { buildConversationTurns, shouldShowTurnNavigation, type ConversationTurn } from './turn-navigation-data'
+import {
+  createConversationTurnResolver,
+  shouldShowTurnNavigation,
+  type ConversationTurn,
+} from './turn-navigation-data'
 import { collectTurnAnchors, collectIndexedRows, resolveTurnAnchor, type TurnAnchor } from './turn-navigation-anchor'
 
 export { buildConversationTurns } from './turn-navigation-data'
@@ -69,7 +73,9 @@ export function createTurnNavigation({
   host.append(rail)
 
   let turns: ConversationTurn[] = []
+  let turnsSignature = ''
   let nodeSignature = ''
+  const resolveTurns = createConversationTurnResolver()
   let activeOrdinal = -1
   let tooltip: HTMLElement | null = null
   let tooltipTrigger: HTMLButtonElement | null = null
@@ -337,10 +343,16 @@ export function createTurnNavigation({
     // 不再无条件丢弃测量缓存：装饰周期可能重建了行，但那只会表现为
     // 「锚点元素脱离 DOM」，由 `anchorsAlive` 精确判定。直接清空会让每个
     // idle decorate pass 都白扫一遍 DOM（并顺带多一次强制布局）。
-    turns = buildConversationTurns(getMessages(), isStreaming())
-    const signature = turns.map((turn) => `${turn.messageIndex}:${turn.userText}`).join('|')
-    if (signature !== nodeSignature) {
-      nodeSignature = signature
+    //
+    // 轮次模型与签名都只随消息数组/流式标志变化：每个装饰 pass 重扫全部正文
+    // 提取 userText/finalAnswerText 是纯浪费（数组未变时结果逐字相同）。
+    const nextTurns = resolveTurns(getMessages(), isStreaming())
+    if (nextTurns !== turns) {
+      turns = nextTurns
+      turnsSignature = turns.map((turn) => `${turn.messageIndex}:${turn.userText}`).join('|')
+    }
+    if (turnsSignature !== nodeSignature) {
+      nodeSignature = turnsSignature
       renderNodes()
     }
     attachScrollContainer()

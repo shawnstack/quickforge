@@ -1,6 +1,28 @@
 {
   "features": [
     {
+      "id": "main-ui-perf-review-followup",
+      "title": "主界面性能评审跟进：流式围栏分块修复、置顶摘要订阅收窄、轮次导航与侧栏固定成本",
+      "status": "done",
+      "summary": "按「不影响体验与交互、架构最优、等价实现」约束落地评审中可安全实现的项：① 流式 Markdown 分块的 isSelfContained 只检查围栏外的 HTML 起始行与数学定界符，修复含 JSX/HTML 代码块（或代码内不配对 \\[ / \\(）的回答每帧退回整段解析的问题，并补 JSX 围栏渲染等价性用例；② 新增 src/lib/pinned-summary-events.ts，把 tool_execution_update 从置顶摘要的 revision 事件中移除（该事件按服务端合并后的 ~20fps 到达、只原地增补 toolResult；todos/终态 subagent/background 都在结构性边界变化），消除工具输出期间 App 级每秒 20 次重渲染与最多 3 次全量消息扫描；③ 新增 createConversationTurnResolver()，轮次导航按消息数组身份 + streaming 标志缓存 turn 投影与签名，update() 不再每个装饰 pass 重扫全部正文；④ 桌面 ChatSidebar 的 onLoadSession 改为 useCallback，恢复 memo（此前内联箭头使所有可见会话行随 App 渲染重渲染并逐行格式化时间）；⑤ 会话菜单 window/document 监听只依赖 conversationMenuOpen 与稳定 setter；⑥ ChatSurface.readWindow 的「最后一个用户轮」按 messages 数组身份缓存。明确不做并写入 §8.2：单轮超长任务的轮内行窗口（会引入新分页交互与滚动锚点语义）、保活隐藏会话暂停装饰（切换时序契约需真机验证）、WorkspaceInspector 延迟挂载（改变状态保留矩阵）、SkillsDialog 懒加载/CSS 拆分/backdrop-filter（状态保留、级联与视觉风险）。",
+      "files": [
+        "src/components/chat/surface/markdown-stream-chunks.ts",
+        "src/lib/pinned-summary-events.ts",
+        "src/hooks/usePinnedSummaryModel.ts",
+        "src/components/chat/turn-navigation-data.ts",
+        "src/components/chat/turn-navigation.ts",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/App.tsx",
+        "tests/frontend/markdown-stream-chunks.test.ts",
+        "tests/frontend/pinned-summary-events.test.ts",
+        "tests/frontend/turn-navigation.test.ts",
+        "tests/frontend/git-tools-pinned-summary.test.ts",
+        "docs/architecture/chat-render-perf-review.zh-CN.md"
+      ],
+      "verification": "定向 17 files / 248 passed（chat-surface-* 全量 + turn-navigation 13 + markdown-stream-chunks 15 + pinned-summary-events 2 + git-tools-pinned-summary 31）；全量 npm run test → 466 files / 5385 passed / 1 skipped；npm run lint → 0 errors（3 个 warning 全部在 coverage/ 生成目录，存量）；npx tsc -b → 0 错误；npm run build → 成功（[precompress] 224 files: 12.67MB → 6.48MB）。未创建 Git commit，未手工修改生成产物。",
+      "updatedAt": "2026-10-31"
+    },
+    {
       "id": "chat-render-dom-perf-followup",
       "title": "DOM 强制布局与合成层清理：回底按钮测量缓存、控制台读写顺序、拖动 rAF 合并、will-change/transition 收窄",
       "status": "done",

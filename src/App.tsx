@@ -1118,6 +1118,14 @@ function MainApp() {
   const currentSessionPinned = Boolean(currentSessionMetadata?.pinnedAt)
   const { statuses: visibleRuntimeStatuses, completedSessionIds, markSessionRead } = useVisibleRuntimeStatuses(visibleSessions)
 
+  // ChatSidebar is memoized. An inline `onLoadSession` here would invalidate it
+  // on every App render (structural agent events included) and re-render every
+  // visible session row for nothing.
+  const handleDesktopSidebarLoadSession = useCallback((sessionId: string) => {
+    markSessionRead(sessionId)
+    loadSessionWithTransition(sessionId)
+  }, [loadSessionWithTransition, markSessionRead])
+
   const sessionTaskStatus = useCallback((session: QuickForgeSessionMetadata) => {
     return agentManager.taskStatuses[session.id]
       ?? visibleRuntimeStatuses[session.id]
@@ -1125,9 +1133,13 @@ function MainApp() {
       ?? 'idle'
   }, [agentManager.taskStatuses, visibleRuntimeStatuses])
 
+  // Read through stable locals: depending on the whole `ui` object would
+  // re-attach these window listeners on every App render.
+  const { conversationMenuOpen, setConversationMenuOpen } = ui
+
   useEffect(() => {
-    if (!ui.conversationMenuOpen) return
-    const closeMenu = () => ui.setConversationMenuOpen(false)
+    if (!conversationMenuOpen) return
+    const closeMenu = () => setConversationMenuOpen(false)
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') closeMenu()
     }
@@ -1143,7 +1155,7 @@ function MainApp() {
       window.removeEventListener('orientationchange', closeMenu)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [ui, ui.conversationMenuOpen])
+  }, [conversationMenuOpen, setConversationMenuOpen])
 
   useAppGitMenu(gitState)
 
@@ -1570,7 +1582,7 @@ function MainApp() {
         onOpenProjectSkills={openProjectSkills}
         onOpenProjectInExplorer={remoteClient ? undefined : openProjectInExplorerWithFeedback}
         onDeleteProject={deleteProjectInline}
-        onLoadSession={(sessionId) => { markSessionRead(sessionId); loadSessionWithTransition(sessionId) }}
+        onLoadSession={handleDesktopSidebarLoadSession}
         onSessionViewModeChange={setSidebarSessionViewMode}
         onSessionSortModeChange={setSidebarSessionSortMode}
         onTogglePinSession={togglePinSession}

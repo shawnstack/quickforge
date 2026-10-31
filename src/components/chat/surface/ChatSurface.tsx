@@ -939,10 +939,27 @@ type WindowSnapshot = {
  */
 import type { ScrollAnchor } from '../scroll-anchor'
 
+/**
+ * `readWindow` runs on every surface render (and in the paging handlers); the
+ * last user turn is a full-array scan. Message arrays are replaced on write and
+ * never mutated, so the index is cacheable by array identity for the same
+ * reason the render-key index is.
+ */
+const lastUserTurnIndexByMessages = new WeakMap<readonly AgentMessage[], number>()
+
+function lastUserTurnIndex(messages: AgentMessage[]): number {
+  let index = lastUserTurnIndexByMessages.get(messages)
+  if (index === undefined) {
+    index = messages.findLastIndex((message) => message.role === 'user' || message.role === 'user-with-attachments')
+    lastUserTurnIndexByMessages.set(messages, index)
+  }
+  return index
+}
+
 function readWindow(controller: MessageWindowController, messages: AgentMessage[]): WindowSnapshot {
   const visible = controller.getWindowMessages()
   // Extra out-of-window toolResults are lookup-only, not a tail signal.
-  const lastTurn = messages.findLastIndex((message) => message.role === 'user' || message.role === 'user-with-attachments')
+  const lastTurn = lastUserTurnIndex(messages)
   return { messages: visible, start: controller.getWindowStart(), atTail: lastTurn < 0 || visible.includes(messages[lastTurn]) }
 }
 

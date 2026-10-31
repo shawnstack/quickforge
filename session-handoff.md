@@ -1,5 +1,33 @@
 # Current Session Handoff
 
+## main-ui-perf-review-followup（done，2026-10-31）
+
+- Current Objective（当前目标）：先评审主界面性能，再按「架构最优、不影响体验与交互、可等价重构」一次完成可安全实现的优化项。
+- 结论（一句话）：含 JSX/HTML 代码块的流式回答恢复「稳定块冻结」（不再每帧整段解析）；置顶摘要不再随 `tool_execution_update`（~20fps）重算并重渲染整棵 App；轮次导航、侧栏与 `readWindow` 的固定成本改为身份缓存/稳定回调。
+- 改动文件：
+  - `src/components/chat/surface/markdown-stream-chunks.ts`（`isSelfContained` 只检查围栏外 HTML/数学定界符）
+  - `src/lib/pinned-summary-events.ts`（新，结构性事件白名单）
+  - `src/hooks/usePinnedSummaryModel.ts`（改用 `shouldInvalidatePinnedSummary`）
+  - `src/components/chat/turn-navigation-data.ts`（新增 `createConversationTurnResolver`）
+  - `src/components/chat/turn-navigation.ts`（复用 turn 投影与签名）
+  - `src/components/chat/surface/ChatSurface.tsx`（`readWindow` 最后用户轮索引 WeakMap 缓存）
+  - `src/App.tsx`（桌面侧栏 `onLoadSession` useCallback；会话菜单监听依赖收窄）
+  - 测试：`tests/frontend/{markdown-stream-chunks,pinned-summary-events(新),turn-navigation,git-tools-pinned-summary}.test.ts`
+  - 文档：`docs/architecture/chat-render-perf-review.zh-CN.md` §8、`feature_list.json`、`progress.md`、本文件
+- 关键约束（别踩）：
+  - 流式分块的自包含判定必须继续区分围栏内外；围栏内的 `<div>` / `\[` 是代码字面量，不得让整条消息退回逐帧全量解析。
+  - 不要把 `tool_execution_update` / `message_update` 加回置顶摘要的 revision；若未来某个投影需要逐帧数据，单独建窄订阅。
+  - `createConversationTurnResolver()` 依赖「messages 数组写入时替换、消息对象不原地改」的既有契约，返回数组视为只读。
+  - 桌面 `ChatSidebar` 的 props 不要放内联回调，否则 memo 会重新被击穿。
+  - 本轮明确没做：单轮超长任务的轮内行窗口、保活隐藏会话暂停装饰、WorkspaceInspector 延迟挂载、SkillsDialog 懒加载/CSS 拆分/`backdrop-filter`（理由见评审 §8.2）。
+- Evidence（验证）：定向 17 files / 248 passed；全量 `npm run test` → 466 files / 5385 passed / 1 skipped；`npm run lint` → 0 errors（3 个 coverage/ 存量 warning）；`npx tsc -b` → 0 错误；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`）。未创建 Git commit，未手工修改生成产物。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机用一条含 2000 行 JSX/HTML 代码块的长回答确认流式不再卡顿（Performance 面板看 longtask；分块命中后单帧应只解析尾块）。
+  2. 真机观察长命令/长工具输出期间侧栏与整页响应：App 不应再随 `tool_execution_update` 每秒重渲染约 20 次（React DevTools Profiler 的 commit 频率）。
+  3. 若还要继续压单轮超长任务，需单独立项设计「轮内行窗口 + 自动补页」，不要直接给现有 turn window 加行裁剪。
+  4. 保活隐藏会话的装饰暂停需要先确认真机切回时无未折叠/未对齐帧，再决定是否实现。
+
 ## chat-render-dom-perf-followup（done，2026-10-31）
 
 - Current Objective（当前目标）：把 CSS/DOM 防卡顿清单里「不影响体验与交互」的项一次实现完（允许等价重构）。

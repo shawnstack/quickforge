@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildConversationTurns, shouldShowTurnNavigation, TURN_NAVIGATION_MIN_TURNS } from '../../src/components/chat/turn-navigation-data'
+import {
+  buildConversationTurns,
+  createConversationTurnResolver,
+  shouldShowTurnNavigation,
+  TURN_NAVIGATION_MIN_TURNS,
+} from '../../src/components/chat/turn-navigation-data'
 import { createTurnNavigation } from '../../src/components/chat/turn-navigation'
 import { appCss } from '../helpers/app-css'
 
@@ -66,6 +71,27 @@ describe('conversation turn navigation', () => {
     expect(buildConversationTurns([user('unanswered')] as never[], false)).toEqual([
       { messageIndex: 0, userText: 'unanswered', finalAnswerText: '', isGenerating: false },
     ])
+  })
+
+  it('reuses the turn model while the message array and streaming flag are unchanged', () => {
+    const resolveTurns = createConversationTurnResolver()
+    let contentReads = 0
+    const messages = [
+      { role: 'user', get content() { contentReads += 1; return 'first question' }, timestamp: 0 },
+      assistant('first answer'),
+    ] as never[]
+
+    const first = resolveTurns(messages, false)
+    expect(contentReads).toBe(1)
+
+    // Idle decoration passes must not re-extract every text block.
+    expect(resolveTurns(messages, false)).toBe(first)
+    expect(contentReads).toBe(1)
+
+    // A replaced array or a streaming flip is a real input change.
+    expect(resolveTurns(messages.slice(), false)).not.toBe(first)
+    expect(contentReads).toBe(2)
+    expect(resolveTurns(messages.slice(), true)[0].isGenerating).toBe(true)
   })
 })
 

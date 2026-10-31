@@ -171,15 +171,46 @@ export function splitStableMarkdown(content: string): StreamingMarkdownChunks | 
   if (blocks.length === 0 || !tail.trim()) return null
   // 冻结前缀必须自身完整：跨空行的数学定界符或 HTML 块切开后会渲染成两段
   // 坏结构。这类内容（聊天里少见）整体退化为逐帧解析。
-  if (!isSelfContained(content.slice(0, cursor))) return null
+  if (!isSelfContained(content.slice(0, cursor), fences)) return null
   return { blocks, tail }
 }
 
-/** 前缀是否自包含：数学定界符成对、没有 HTML 块起始行。 */
-function isSelfContained(stable: string): boolean {
-  if (/^ {0,3}</m.test(stable)) return false
-  const count = (pattern: RegExp) => (stable.match(pattern) ?? []).length
-  if (count(/\\\[/g) !== count(/\\\]/g)) return false
-  if (count(/\\\(/g) !== count(/\\\)/g)) return false
+const HTML_BLOCK_LINE = /^ {0,3}</gm
+const DISPLAY_MATH_OPEN = /\\\[/g
+const DISPLAY_MATH_CLOSE = /\\\]/g
+const INLINE_MATH_OPEN = /\\\(/g
+const INLINE_MATH_CLOSE = /\\\)/g
+
+/**
+ * 只统计围栏外的匹配。
+ *
+ * 代码块内容是字面量：里面的 `\[`/`<div>` 既不会参与数学排版，也不是 HTML
+ * 块起始行。旧实现扫整段前缀，导致「回答里有一个 JSX/HTML 代码块」时每个流式
+ * 帧都退回整段解析——恰是编码场景最常见的输出形态。
+ */
+function countOutsideFences(text: string, fences: FenceRange[], pattern: RegExp): number {
+  pattern.lastIndex = 0
+  let count = 0
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(text))) {
+    if (!insideFence(fences, match.index)) count += 1
+  }
+  return count
+}
+
+function hasHtmlBlockOutsideFences(text: string, fences: FenceRange[]): boolean {
+  HTML_BLOCK_LINE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = HTML_BLOCK_LINE.exec(text))) {
+    if (!insideFence(fences, match.index)) return true
+  }
+  return false
+}
+
+/** 前缀是否自包含（围栏外）：数学定界符成对、没有 HTML 块起始行。 */
+function isSelfContained(stable: string, fences: FenceRange[]): boolean {
+  if (hasHtmlBlockOutsideFences(stable, fences)) return false
+  if (countOutsideFences(stable, fences, DISPLAY_MATH_OPEN) !== countOutsideFences(stable, fences, DISPLAY_MATH_CLOSE)) return false
+  if (countOutsideFences(stable, fences, INLINE_MATH_OPEN) !== countOutsideFences(stable, fences, INLINE_MATH_CLOSE)) return false
   return true
 }

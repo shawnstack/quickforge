@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { GoalState } from '@/lib/goal'
 import { syncGoalUiState } from '@/lib/goal-ui'
+import { shouldInvalidatePinnedSummary } from '@/lib/pinned-summary-events'
 import { getCachedToolDisplaySettings } from '@/lib/tool-display-settings'
 import {
   MAX_TERMINAL_SUBAGENT_RUNS,
@@ -12,19 +13,6 @@ import { extractLatestTodoWriteSnapshot, type BackgroundCommandSummary } from '@
 import { t } from '@/lib/i18n'
 
 const EMPTY_MESSAGES: AgentMessage[] = []
-
-const PINNED_SUMMARY_EVENTS = new Set([
-  'tool_execution_start',
-  'tool_execution_update',
-  'tool_execution_end',
-  'message_end',
-  'messages_replaced',
-  'agent_end',
-  'background_commands',
-  // Goal transitions (plan confirm, pause/resume, accept, cancel) drive the
-  // pinned summary's goal section and capsule.
-  'goal_updated',
-])
 
 type PinnedSummaryAgent = {
   state: {
@@ -56,7 +44,7 @@ export function usePinnedSummaryModel({
   useEffect(() => {
     if (!agent) return undefined
     return agent.subscribe((event) => {
-      if (PINNED_SUMMARY_EVENTS.has(String(event.type ?? ''))) {
+      if (shouldInvalidatePinnedSummary(String(event.type ?? ''))) {
         setRevision((value) => value + 1)
       }
     })

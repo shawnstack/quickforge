@@ -176,3 +176,36 @@ O(tail) 的解析」。元素树对象相同 → React 直接 bailout，稳定�
 - **`startTransition` / `useDeferredValue` 控制流式提交**：会改变流式更新的调度
   与输入时序；当前由服务端 50ms 合并控制频率，未在本轮引入。
 - **scroll 处理器 rAF 节流**：维持 §3 的否决（scroll 已按帧合并，rAF 会晚一帧）。
+
+## 8. 主界面性能评审跟进（2026-10-31）
+
+> 以当前源码与本轮构建产物为准做第二轮审计，只落地「不改变交互、收益可定位」的项；
+> 其余明确不做并写下理由。
+
+### 8.1 已实施
+
+| 改动 | 说明 |
+|---|---|
+| 流式分块围栏修正 | `isSelfContained` 只检查**围栏外**的 HTML 起始行与数学定界符。旧实现扫描整段冻结前缀，JSX/HTML 代码块里的 `<div>` 或代码里的 `\[` 会让含此类代码的回答每帧退回整段解析（O(n²)）。新增 JSX 围栏渲染等价性与围栏内不配对定界符用例 |
+| 置顶摘要订阅收窄 | 新增 `src/lib/pinned-summary-events.ts`：`tool_execution_update` 不再触发 `usePinnedSummaryModel` 的 revision。该事件按服务端合并后的 ~20fps 到达，只原地增补 toolResult；todos / 终态 subagent / background 均在结构性边界（start / end / message_end / messages_replaced / agent_end / goal_updated）变化。消除工具输出期间 App 级每秒 20 次重渲染与最多 3 次全量消息扫描 |
+| 轮次导航模型复用 | 新增 `createConversationTurnResolver()`：按消息数组身份 + streaming 标志缓存轮次投影与签名。`update()` 在每个装饰 pass 不再重扫全部正文提取 `userText` / `finalAnswerText` |
+| 侧栏 memo 恢复 | 桌面 `ChatSidebar` 的 `onLoadSession` 改为 `useCallback`。此前内联箭头使 `memo` 在每次 App 渲染（含结构性 agent 事件）失效，所有可见会话行重渲染并逐行格式化时间 |
+| 会话菜单监听稳定 | 会话菜单的 window/document 监听只依赖 `conversationMenuOpen` 与稳定 setter，不再把整个 `ui` 对象放进依赖、在菜单打开期间随 App 渲染反复重挂 |
+| readWindow 索引缓存 | `ChatSurface.readWindow` 的「最后一个用户轮」按 messages 数组身份缓存，避免每次渲染全量 `findLastIndex` |
+
+### 8.2 经评估不做（附理由）
+
+- **单轮超长 Agent 任务的 DOM 上限**：窗口按「轮」计量，单轮内部没有可裁剪单位；
+  按消息行/字符裁剪会引入新的分页交互与滚动锚点语义，违反「不改变交互」红线。
+  需要单独立项，先设计「轮内行窗口 + 自动补页」的交互契约。
+- **保活隐藏会话暂停装饰**：切走后隐藏面板仍订阅事件并调度装饰；暂停必须在切入时
+  同步重放完整装饰，否则会出现一帧未折叠/未对齐。属于切换时序契约，需真机验证后另开。
+- **WorkspaceInspector 延迟到首次打开**：关闭态仍渲染以保留标签页、终端与预览状态；
+  延迟挂载会改变状态保留矩阵。
+- **SkillsDialog 懒加载 / CSS 拆分 / `backdrop-filter`**：分别涉及弹窗内部状态保留、
+  全局级联顺序与可感知视觉；收益小，且不属于等价实现。
+- **流式每帧的 release-gate key 序列复算**：`MessageArea` 每帧为流式尾行新建
+  `renderedSequence`，`renderableRowKeysBySource` 的 WeakMap 必然 miss。真正消除
+  需要把 key 序列提升为共享输入并处理「partial 是否渲染」的条件，收益是 O(窗口行)
+  的 key 计算，却直接触碰折叠释放/重折与 CSS 动画时序契约（`getSnapshotBeforeUpdate`
+  的同步释放语义），本轮维持现状。

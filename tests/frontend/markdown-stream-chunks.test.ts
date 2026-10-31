@@ -42,6 +42,26 @@ describe('splitStableMarkdown', () => {
     if (chunks) expect(chunks!.blocks.join('')).not.toContain('\\[')
   })
 
+  it('ignores HTML start lines inside a closed fence when freezing the prefix', () => {
+    const content = `${paragraph(1)}\n\n\`\`\`tsx\n<div className="x">\n  {value}\n</div>\n\`\`\`\n\n${paragraph(2)}\n\n${paragraph(3)}\n`
+    const chunks = splitStableMarkdown(content)
+    // 围栏内的 `<div>` 是代码字面量，不是 HTML 块；不得因此退回整段解析。
+    expect(chunks).not.toBeNull()
+    expect(chunks!.blocks.join('') + chunks!.tail).toBe(content)
+    expect(chunks!.blocks.join('')).toContain('<div className="x">')
+  })
+
+  it('ignores unbalanced math delimiters inside a closed fence', () => {
+    const content = `${paragraph(1)}\n\n\`\`\`md\n\\[\nliteral delimiter\n\`\`\`\n\n${paragraph(2)}\n\n${paragraph(3)}\n`
+    expect(splitStableMarkdown(content)).not.toBeNull()
+  })
+
+  it('still refuses to freeze a prefix with an HTML block outside fences', () => {
+    const content = `${paragraph(1)}\n\n<div>\nraw\n\n${paragraph(2)}\n\n${paragraph(3)}\n`
+    const chunks = splitStableMarkdown(content)
+    if (chunks) expect(chunks!.blocks.join('')).not.toContain('<div>')
+  })
+
   it('returns null for short content', () => {
     expect(splitStableMarkdown('短内容\n\n也很短')).toBeNull()
   })
@@ -51,6 +71,7 @@ describe('streaming markdown chunk rendering', () => {
   const cases: Array<[string, string]> = [
     ['plain paragraphs', `${paragraph(1)}\n\n${paragraph(2)}\n\n${paragraph(3)}\n\n${paragraph(4)}\n`],
     ['closed fence', `${paragraph(1)}\n\n\`\`\`ts\nconst a = 1\nconst b = 2\n\`\`\`\n\n${paragraph(2)}\n\n${paragraph(3)}\n`],
+    ['jsx fence', `${paragraph(1)}\n\n\`\`\`tsx\n<div className="x">\n  {value}\n</div>\n\`\`\`\n\n${paragraph(2)}\n\n${paragraph(3)}\n`],
     ['headings and list', `${paragraph(1)}\n\n## 标题\n\n${paragraph(2)}\n\n- 甲\n- 乙\n\n${paragraph(3)}\n`],
     ['unclosed fence tail', `${paragraph(1)}\n\n${paragraph(2)}\n\n\`\`\`ts\nconst a = 1\n`],
     ['table', `${paragraph(1)}\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n${paragraph(2)}\n`],
@@ -68,5 +89,6 @@ describe('streaming markdown chunk rendering', () => {
     // 等价性测试不能因为「切分从未发生」而恒真。
     expect(splitStableMarkdown(cases[0][1])).not.toBeNull()
     expect(splitStableMarkdown(cases[1][1])).not.toBeNull()
+    expect(splitStableMarkdown(cases[2][1])).not.toBeNull()
   })
 })

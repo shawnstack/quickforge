@@ -2,6 +2,25 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## main-ui-perf-review-followup（done，2026-10-31）
+
+- Goal：按评审结论，在不影响体验与交互的前提下，把主界面可安全等价实现的性能项一次做完。
+- 结论（一句话）：三处真实热点被削掉——含 JSX/HTML 代码块的长回答恢复流式分块缓存；工具输出期间置顶摘要不再以 ~20fps 触发 App 级重渲染与全量扫描；轮次导航/侧栏/readWindow 的装饰与渲染固定成本改为身份缓存或稳定回调。
+- 逐项：
+  1. **流式分块围栏修正**（`markdown-stream-chunks.ts`）：`isSelfContained` 改为只检查围栏外的 HTML 起始行与数学定界符（`\[`/`\(` 成对）。旧实现扫整段冻结前缀，代码块里的 `<div>` 或字面量 `\[` 会让含这类代码的回答每帧退回整段解析。新增 JSX 围栏的渲染等价性用例、围栏内不配对定界符用例、围栏外 HTML 块仍拒绝冻结的用例。
+  2. **置顶摘要订阅收窄**（新增 `src/lib/pinned-summary-events.ts`）：`tool_execution_update` 不再 bump revision。该事件按服务端合并后的 ~20fps 到达，只原地增补 toolResult；todos/终态 subagent/background 都在 start/end/message_end/messages_replaced/agent_end/goal_updated 等结构性边界变化。`usePinnedSummaryModel` 改走 `shouldInvalidatePinnedSummary()`，并有契约测试锁定高频事件不触发。
+  3. **轮次导航模型复用**（`turn-navigation-data.ts` + `turn-navigation.ts`）：新增 `createConversationTurnResolver()`，按 messages 数组身份 + streaming 标志缓存 turn 投影；update() 只在输入变化时重建投影与签名，idle 装饰 pass 不再重扫全部正文。`userText` 顺带只读一次 `message.content`（原来 string 分支读两次属性）。
+  4. **侧栏 memo 恢复**（`App.tsx`）：桌面 `ChatSidebar` 的 `onLoadSession` 从内联箭头改为 `useCallback`，避免每次 App 渲染（含结构性 agent 事件）击穿 memo、重渲染所有可见会话行。
+  5. **会话菜单监听稳定**（`App.tsx`）：effect 只依赖 `conversationMenuOpen` 与稳定 setter，不再把整个 `ui` 对象放进依赖数组。
+  6. **readWindow 索引缓存**（`ChatSurface.tsx`）：最后一个用户轮索引按 messages 数组身份 WeakMap 缓存，去掉每次渲染的全量 `findLastIndex`。
+- 明确不做（写入 `docs/architecture/chat-render-perf-review.zh-CN.md` §8.2）：单轮超长 Agent 任务的轮内行窗口（会引入新分页交互与滚动锚点语义，违反「不改变交互」）；保活隐藏会话暂停装饰（需切入时同步重放完整装饰，属切换时序契约，需真机验证）；WorkspaceInspector 延迟到首次打开（会改变标签页/终端/预览的状态保留）；SkillsDialog 懒加载 / CSS 拆分 / `backdrop-filter`（状态保留、全局级联与可感知视觉风险）。
+- 关键约束（别踩）：
+  - `isSelfContained` 的围栏判定必须继续用它拿到的 `fences` 区间；不要再退回整段正则扫描，否则 JSX/HTML 代码块会让分块缓存永久失效。
+  - `shouldInvalidatePinnedSummary` 不得重新加入 `tool_execution_update`/`message_update`；若未来某个置顶投影需要逐帧数据，应单独为它建窄订阅，而不是把整棵 App 拖回 20fps。
+  - `createConversationTurnResolver()` 的缓存依赖「messages 数组在写入时被替换、消息对象不被原地修改」；调用方必须把返回数组当作只读（它与缓存共享）。
+  - `ChatSidebar` 的 props 里不要再放内联回调；桌面与移动两处入口都要保持回调引用稳定。
+- 验证：定向 17 files / 248 passed；全量 `npm run test` → 466 files / 5385 passed / 1 skipped；`npm run lint` → 0 errors（3 个 coverage/ 存量 warning）；`npx tsc -b` → 0 错误；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`）。未创建 Git commit，未手工修改生成产物。
+
 ## chat-render-dom-perf-followup（done，2026-10-31）
 
 - Goal：在「不影响体验和交互」前提下，把 CSS/DOM 防卡顿清单里可等价实现的部分一次做完。

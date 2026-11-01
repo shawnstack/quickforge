@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## compaction-as-message（done，2026-11-01）
+
+- Current Objective（当前目标）：按用户裁定完整实现「架构 B（压缩即消息）+ 视觉 A（既有分割线样式）」，并提交推送。
+- 结论（一句话）：压缩摘要成为 messages 里的一条真实消息（role:user + details.quickforgeCompaction，插在 tailStart），分割线 = MessageList 按消息下标渲染的 CompactionMessage（沿用既有 DOM/类名，视觉零变化）；模型从最后一条压缩消息切片，回滚删掉它即撤销压缩，坐标推断代码整段删除。
+- 改动文件：server/auto-compaction.mjs（插入消息 + 切片 + 迁移 + 下标同步）、server/agent-manager.mjs（回滚/重试判定 + 迁移挂点）、src/components/chat/surface/{compaction-message.ts,CompactionMessage.tsx,MessageList.tsx,ChatSurface.tsx,ContextCompactionNotice.tsx,AssistantWaitingBubble.tsx}、src/components/chat/panel-decoration/message-actions.ts、tests/server/{compaction-message.test.mjs,auto-compaction-history.test.mjs,agent-manager.persist-session-state.test.mjs}、tests/frontend/{context-compaction-notice.test.ts,assistant-waiting-bubble.test.ts}、docs/wiki/{src/components,server}/README.md、CHANGELOG.md、三件套。
+- Evidence（验证）：定向 vitest（compaction-message 5 / auto-compaction-history 4 / auto-compaction 20 / auto-compaction-notice 7 / rollback-compaction 12 / persist-session-state 37 / context-compaction-notice 6 / context-compaction-rows 8 / assistant-waiting-bubble 18 / message-actions 46）全过；全量 npm run test → 480 files / 5456 passed / 1 skipped，npm run lint → 0 errors（仅 coverage/ 3 条既有 warning），npm run build → 成功，npx tsc -b → 0 错误。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 同一回合内多次压缩仍产生多条分割线，若要合并为一条属于独立迭代；② 旧会话迁移发生在恢复/同步时，未打开的会话保持原样（模型侧走兜底，行为不变）；③ 压缩消息尚未参与 AI 标题生成输入，手动 /summary 会把它算进去，属既有问题。
+
 ## edit-first-message-resend-stay-in-session（done，2026-11-01）
 
 - Current Objective（当前目标）：修复「编辑第一条消息后发送会跳回新对话页」，要求在**当前对话**里继续。

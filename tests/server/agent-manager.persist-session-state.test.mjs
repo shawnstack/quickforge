@@ -221,16 +221,24 @@ describe('agent persist in authoritative session state', () => {
     }
   })
 
-  it.each([[7, 6, true], [3, 2, false]])('rolls back cold compacted history at %s', async (index, count, keepCompaction) => {
+  it.each([[7, 7, true], [3, 2, false]])('rolls back cold compacted history at %s', async (index, count, keepCompaction) => {
     const sessionId = 'cold-rollback'
-    const messages = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `message-${i}` }))
-    await evictSession(sessionId, { messages, compactedUpToIndex: 4 })
+    const base = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `message-${i}` }))
+    // 方案 B：压缩点是一条真实消息，restore 不再需要迁移插入。
+    const summary = {
+      role: 'user',
+      content: [{ type: 'text', text: '<compact_summary>\nsummary\n</compact_summary>' }],
+      details: { quickforgeCompaction: { version: 1, kind: 'summary', compactedAt: '2026-01-01T00:00:00.000Z' } },
+    }
+    const messages = [...base.slice(0, 4), summary, ...base.slice(4)]
+    await evictSession(sessionId, { messages, compactedUpToIndex: 5 })
     try {
       const result = await agentManager.rollbackSessionMessages(sessionId, index)
       expect(result.rollbackIndex).toBe(count)
       expect(result.session.messages).toEqual(messages.slice(0, count))
       const restored = await agentManager.restoreAgent(sessionId)
-      if (keepCompaction) expect(restored.contextCompaction.compactedUpToIndex).toBe(4)
+      // 派生下标 = 压缩消息下标 + 1（方案 B 下位置由消息给出）。
+      if (keepCompaction) expect(restored.contextCompaction.compactedUpToIndex).toBe(5)
       else expect(restored.contextCompaction).toBeNull()
       expect(restored.agent.continue).not.toHaveBeenCalled()
       expect(restored.agent.prompt).not.toHaveBeenCalled()

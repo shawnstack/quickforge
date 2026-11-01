@@ -194,16 +194,77 @@ function buildCompactionSourceMessages(session, messages, tailStart) {
   return source
 }
 
-export function buildAutoCompactLoopMessages(session, messages) {
-  const summaryMessage = session?.contextCompaction?.summaryMessage
-  if (!summaryMessage) return messages
+/** 把 messages 换成新数组：与 agent-manager 的 updateSessionMessages 同一语义。 */
+function replaceSessionMessages(session, messages) {
+  if (session?.agent?.state) session.agent.state.messages = messages
+}
+
+/** 数组里最后一条压缩摘要消息的下标；没有则 -1。 */
+export function lastCompactionMessageIndex(messages) {
   const source = Array.isArray(messages) ? messages : []
+  for (let index = source.length - 1; index >= 0; index -= 1) {
+    if (isCompactSummaryMessage(source[index])) return index
+  }
+  return -1
+}
+
+/**
+ * 截断/重试之后把压缩下标对齐到当前数组（tail 起点 = 压缩消息下标 + 1）。
+ * 位置语义由消息表达，这里只维护派生索引，供用量估算与诊断使用。
+ */
+export function syncCompactionIndex(session, compactionIndex, messageCount) {
+  const compaction = session?.contextCompaction
+  if (!compaction) return
+  session.contextCompaction = {
+    ...compaction,
+    compactedUpToIndex: Math.max(0, Number(compactionIndex) + 1),
+    sourceMessageCount: Math.max(0, Number(messageCount) || 0),
+  }
+}
+
+/**
+ * 模型上下文：压缩摘要本身就是一条消息，从最后一条压缩消息开始读即可。
+ *
+ * 旧会话（摘要只在 contextCompaction.summaryMessage 里、messages 中还没有那条
+ * 消息）走兼容分支：把摘要拼回虚拟数组的开头。迁移跑完后这条分支不再命中。
+ */
+export function buildAutoCompactLoopMessages(session, messages) {
+  const source = Array.isArray(messages) ? messages : []
+  const compactionIndex = lastCompactionMessageIndex(source)
+  if (compactionIndex >= 0) return source.slice(compactionIndex)
+
+  const summaryMessage = session?.contextCompaction?.summaryMessage
+  if (!summaryMessage) return source
   const compactedUpToIndex = Math.min(source.length, Math.max(0, Number(session.contextCompaction?.compactedUpToIndex) || 0))
-  // 防御旧持久化数据：compactedUpToIndex 可能指向 toolResult，跳过开头的孤儿，
-  // 避免压缩后的消息序列以 tool 消息开头（LLM API 会拒绝孤立 tool 消息）
+  // 防御旧持久化数据：compactedUpToIndex 可能指向 toolResult，跳过开头的孤儿。
   let tailStart = compactedUpToIndex
   while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
   return [summaryMessage, ...source.slice(tailStart)]
+}
+
+/**
+ * 幂等迁移：旧会话的摘要只存在 contextCompaction.summaryMessage 里，方案 B 下它
+ * 必须同时是 messages 中的一条消息。返回是否发生变更（调用方据此决定是否落库）。
+ */
+export function ensureCompactionMessage(session) {
+  const messages = Array.isArray(session?.agent?.state?.messages) ? session.agent.state.messages : null
+  if (!messages) return false
+  const compaction = session.contextCompaction
+  const summaryMessage = compaction?.summaryMessage
+  if (!summaryMessage) return false
+  if (lastCompactionMessageIndex(messages) >= 0) return false
+  const insertAt = Math.min(Math.max(0, Number(compaction?.compactedUpToIndex) || 0), messages.length)
+  const nextMessages = [...messages.slice(0, insertAt), summaryMessage, ...messages.slice(insertAt)]
+  replaceSessionMessages(session, nextMessages)
+  session.contextCompaction = {
+    ...compaction,
+    compactedUpToIndex: insertAt + 1,
+    sourceMessageCount: nextMessages.length,
+    history: Array.isArray(compaction.history)
+      ? compaction.history.map((entry) => ({ ...entry, occurredAtIndex: insertAt, boundaryIndex: insertAt }))
+      : compaction.history,
+  }
+  return true
 }
 
 function messageTimestampMs(message) {
@@ -336,22 +397,18 @@ export async function compactSessionInPlace({
     result.summary,
     '</compact_summary>',
   ].join('\n'), compactionMessageDetails('summary'))
-  // Every compaction is appended to `history` instead of overwriting the single
-  // record, so the timeline can keep one divider per compaction at the moment it
-  // really happened.
-  //
-  // Two coordinates are recorded on purpose — they are different things and only
-  // coincide when `keepRecentTurns` is 0 in a single-turn session:
-  // - `occurredAtIndex`: the messages length at the instant compaction ran. This
-  //   is the physical position ("this is where the timeline got summarized") and
-  //   is what the divider is anchored to.
-  // - `boundaryIndex`: the tail start, i.e. the right edge of the summarized
-  //   range. A rolling compaction keeps N recent turns, so this can sit several
-  //   messages *before* the moment it happened.
+  // 方案 B：摘要本身就是一条消息。把它插到被摘要范围的右边界（tailStart），
+  // 压缩点从此是数组里的一个下标 —— 位置不靠坐标推断，也不会随窗口滑动漂移。
+  // 插入之后 tail 的起点是「压缩消息下标 + 1」。
+  const insertAt = Math.min(Math.max(0, Number(tailStart) || 0), source.length)
+  const nextMessages = [...source.slice(0, insertAt), summaryMessage, ...source.slice(insertAt)]
+  replaceSessionMessages(session, nextMessages)
+  const compactedUpToIndex = insertAt + 1
+  // 诊断字段：位置语义已由消息本身表达，这里只留时间线与用量快照。
   const historyEntry = {
     compactedAt,
-    occurredAtIndex: source.length,
-    boundaryIndex: tailStart,
+    occurredAtIndex: insertAt,
+    boundaryIndex: insertAt,
     summaryMessage,
     keepRecentTurns: normalizedKeepRecentTurns,
     sourceMessageCount: source.length,
@@ -361,17 +418,18 @@ export async function compactSessionInPlace({
   const previousHistory = Array.isArray(session.contextCompaction?.history) ? session.contextCompaction.history : []
   session.contextCompaction = {
     summaryMessage,
-    compactedUpToIndex: tailStart,
+    compactedUpToIndex,
     compactedAt,
     keepRecentTurns: normalizedKeepRecentTurns,
-    sourceMessageCount: source.length,
+    sourceMessageCount: nextMessages.length,
     usageBefore: usage,
     thresholdPercent,
     history: [...previousHistory, historyEntry].slice(-MAX_CONTEXT_COMPACTION_HISTORY),
   }
-  onBeforePersist?.({ result, sourceMessages, tailStart, summaryMessage })
-  await persistSession?.(session)
-  const contextUsage = estimateSessionContextUsage(session, source)
+  onBeforePersist?.({ result, sourceMessages, tailStart, summaryMessage, messages: nextMessages })
+  // 中间插入不是追加：必须整份重写消息行，否则存储层会把插入当成尾部追加。
+  await persistSession?.(session, { forceMessagesReplace: true })
+  const contextUsage = estimateSessionContextUsage(session, nextMessages)
   emitSessionEvent?.(session, {
     type: 'auto_compact_completed',
     reason,
@@ -383,11 +441,11 @@ export async function compactSessionInPlace({
   emitSessionEvent?.(session, {
     type: 'messages_replaced',
     reason,
-    messages: source,
+    messages: nextMessages,
     contextCompaction: session.contextCompaction,
     contextUsage,
   })
-  return { compacted: true, usage, result, sourceMessages, tailStart }
+  return { compacted: true, usage, result, sourceMessages, tailStart, messages: nextMessages }
 }
 
 export function estimateSessionContextUsage(session, messages = session?.agent?.state?.messages ?? []) {

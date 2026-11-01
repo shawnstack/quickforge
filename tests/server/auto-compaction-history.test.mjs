@@ -72,7 +72,8 @@ describe('contextCompaction.history', () => {
     expect(history[0].occurredAtIndex).toBe(2)
     expect(history[1].occurredAtIndex).toBe(5)
     // Legacy single-record fields still describe the newest compaction.
-    expect(session.contextCompaction.compactedUpToIndex).toBe(5)
+    // 插入压缩消息后 tail 的起点是「压缩消息下标 + 1」。
+    expect(session.contextCompaction.compactedUpToIndex).toBe(6)
     expect(session.contextCompaction.compactedAt).toBe(history[1].compactedAt)
   })
 
@@ -94,9 +95,12 @@ describe('contextCompaction.history', () => {
 
     expect(result.compacted).toBe(true)
     const entry = session.contextCompaction.history[0]
-    // Kept turn starts at message 2, but the compaction physically ran at the end.
+    // 方案 B：摘要消息插在切点（index 2），所以两个坐标现在指的是同一处。
     expect(entry.boundaryIndex).toBe(2)
-    expect(entry.occurredAtIndex).toBe(4)
+    expect(entry.occurredAtIndex).toBe(2)
+    const inserted = session.agent.state.messages[2]
+    expect(inserted.details.quickforgeCompaction.kind).toBe('summary')
+    expect(session.contextCompaction.compactedUpToIndex).toBe(3)
   })
 
   it('still compacts a single-user-turn session with an empty tail', async () => {

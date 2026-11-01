@@ -1612,6 +1612,36 @@
       ],
       "verification": "npx vitest run tests/frontend/context-compaction-anchor.test.ts tests/frontend/context-compaction-notice.test.ts tests/frontend/context-compaction-rows.test.ts tests/frontend/assistant-waiting-bubble.test.ts → 4 files / 50 tests 全过；npx tsc -b → 0 错误；npx eslint 改动文件 → 0 problems；npm run build → 成功。",
       "updatedAt": "2026-11-01"
+    },
+    {
+      "id": "compaction-as-message",
+      "title": "压缩即消息：摘要作为真实消息，分割线位置由消息下标决定（方案 B + A 视觉）",
+      "status": "done",
+      "summary": "分割线的位置不再由外部坐标推断，而是由消息序列本身给出：compactSessionInPlace 在摘要生成成功后，把 summary 作为一条 role:user、带 details.quickforgeCompaction 的真实消息插到 tailStart（被摘要范围的右边界），compactedUpToIndex 同步为重算后的 tail 起点（插入下标 + 1），持久化以 forceMessagesReplace 整份重写（中间插入不能当尾部追加）；messages_replaced 事件携带新数组。模型上下文 buildAutoCompactLoopMessages 改为从最后一条压缩消息切片，旧会话（只有 contextCompaction.summaryMessage）保留虚拟拼接兜底。回滚/重试改成「压缩消息是否还在数组里」判定：删掉即压缩自然失效，保留则用 syncCompactionIndex 重算派生下标；未迁移旧会话仍按 compactedUpToIndex 兜底。新增 ensureCompactionMessage() 一次性幂等迁移，挂在 restoreAgent 与 syncSessionFromStorage。前端新增 isCompactionMessage/compactionDetailsOf 与 CompactionMessage 组件：沿用既有分割线 DOM 与类名（线 + pill + 折叠摘要卡，视觉零变化），按消息下标渲染，装饰层按 details 跳过编辑/回滚/重试/输入折叠/chips；等待气泡把压缩消息排除在「最后一条用户消息」之外。resolveCompactionMarkers、resolveCompactionBoundary、locateAfterCompaction、messageTimestampMs、anchorIndex、shiftCompactionToLocal、CompactionMarker/CompactionBoundary 以及 MessageList 的 marker 插槽全部删除，ChatSurface 不再做窗口换算。该实现取代 compaction-divider-anchor-cut 的双信号方案。",
+      "files": [
+        "server/auto-compaction.mjs",
+        "server/agent-manager.mjs",
+        "src/components/chat/surface/compaction-message.ts",
+        "src/components/chat/surface/CompactionMessage.tsx",
+        "src/components/chat/surface/MessageList.tsx",
+        "src/components/chat/surface/ChatSurface.tsx",
+        "src/components/chat/surface/ContextCompactionNotice.tsx",
+        "src/components/chat/surface/AssistantWaitingBubble.tsx",
+        "src/components/chat/panel-decoration/message-actions.ts",
+        "tests/server/compaction-message.test.mjs",
+        "tests/server/auto-compaction-history.test.mjs",
+        "tests/server/agent-manager.persist-session-state.test.mjs",
+        "tests/frontend/context-compaction-notice.test.ts",
+        "tests/frontend/assistant-waiting-bubble.test.ts",
+        "docs/wiki/src/components/README.md",
+        "docs/wiki/server/README.md",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run（compaction-message / auto-compaction* / agent-manager.rollback-compaction / agent-manager.persist-session-state / context-compaction-notice / context-compaction-rows / assistant-waiting-bubble / message-actions）全过；npx tsc -b 0 错误；npx eslint 0 problems；npm run build 成功；npm run test 全量见 session-handoff。",
+      "updatedAt": "2026-11-01"
     }
   ]
 }

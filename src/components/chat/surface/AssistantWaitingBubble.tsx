@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components -- exports the bubble component plus the pure row-resolution helper covered by tests. */
 import { t } from '@/lib/i18n'
 import type { AgentMessage } from './ChatTypes'
+import { isCompactionMessage } from './compaction-message'
 import { assistantText } from '@/lib/message-utils'
 
 /**
@@ -76,7 +77,8 @@ export function resolveAssistantWaitingRow(options: {
   let lastUserIndex = -1
   for (let index = messages.length - 1; index >= 0; index--) {
     const role = messages[index]?.role
-    if (role === 'user' || role === 'user-with-attachments') {
+    // 压缩摘要消息不是用户输入，不能把等待气泡锚到它后面。
+    if ((role === 'user' || role === 'user-with-attachments') && !isCompactionMessage(messages[index])) {
       lastUserIndex = index
       break
     }

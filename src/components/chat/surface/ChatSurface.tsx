@@ -37,7 +37,7 @@ import { PluginSlot } from '@/components/plugins/PluginSlot'
 import { AgentAccessMenu, AgentAccessTrigger, PlanModeTrigger, positionAgentAccessMenu } from './ComposerAccessControls'
 import { registerAgentAccessMenuCloser } from '../panel-decoration/agent-access-menu'
 import { ModelRetryNotice, ReconnectNotice, SessionLeaseStrip, UnreachableStrip, useSseConnectionStatus, type ModelRetryInfo } from './ConnectionNotices'
-import { resolveCompactionMarkers, shiftCompactionToLocal, type ContextCompactionState } from './ContextCompactionNotice'
+import type { ContextCompactionState } from './ContextCompactionNotice'
 import { resolveAssistantWaitingRow } from './AssistantWaitingBubble'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
 import { CommandActionsEnabledContext, LocalFilePathHandlerContext } from './surface-context'
@@ -253,18 +253,8 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
   // (`ServerAgent.applySessionLease` already dedupes no-op updates), so an
   // unchanged lease keeps the previous snapshot identity.
   const sessionLease = (state as { sessionLease?: SessionLeaseSnapshot }).sessionLease
-  // Context compaction is replaced wholesale by the server agent on
-  // `auto_compact_completed` / `messages_replaced`, so reference identity is
-  // enough to detect a change.
-  //
-  // 服务端下发的是**会话绝对**位置，而列表渲染的是本地窗口（起点
-  // `agent.messageOffset`）。这里统一换算成窗口坐标，避免分割线在窗口态
-  // 落到错误行或整条消失。
-  const messageBaseSeq = (agent as { messageOffset?: number } | undefined)?.messageOffset ?? 0
-  const contextCompaction = shiftCompactionToLocal(
-    (state as { contextCompaction?: ContextCompactionState | null }).contextCompaction ?? null,
-    messageBaseSeq,
-  )
+  // 压缩点是一条消息（方案 B），界面不再需要把服务端坐标换算成窗口坐标。
+  const contextCompaction = (state as { contextCompaction?: ContextCompactionState | null }).contextCompaction ?? null
   // In-flight compaction notice. Compared by reference: the server agent swaps
   // in a whole new object per phase change and `null` otherwise, so identity is
   // enough (and identical repeats cost no render).
@@ -700,7 +690,6 @@ const MessageArea = memo(function MessageArea({
   streamingAssistant,
   onCostClick,
   persistDegraded,
-  contextCompaction,
   compactionNotice = null,
   onApproveCompaction,
   onRejectCompaction,
@@ -720,19 +709,6 @@ const MessageArea = memo(function MessageArea({
   const renderedSequence = rendersStreamingRow && streamingAssistant
     ? [...messages, streamingAssistant]
     : messages
-  // One divider per compaction (rolling compaction appends a record each time).
-  // Resolved here (not in MessageList) so the memoized list keeps receiving a
-  // stable, already-computed position: the markers depend on the rendered
-  // window offset, not on anything the list itself owns.
-  const compactionMarkers = useMemo(
-    () => resolveCompactionMarkers({
-      compaction: contextCompaction,
-      messages,
-      messageIndexOffset,
-      isRenderable: isRenderableMessage,
-    }),
-    [contextCompaction, messages, messageIndexOffset],
-  )
   // Same reasoning as the divider: the waiting bubble's position is an index into
   // the rendered rows, resolved here so the memoized list receives a plain number.
   const assistantWaitingRow = useMemo(
@@ -765,7 +741,6 @@ const MessageArea = memo(function MessageArea({
             streamingAssistant={rendersStreamingRow ? streamingAssistant : undefined}
             onCostClick={onCostClick}
             persistDegraded={persistDegraded}
-            compactionMarkers={compactionMarkers}
             assistantWaitingRow={assistantWaitingRow}
             compactionNotice={compactionNotice}
             onApproveCompaction={onApproveCompaction}
@@ -1590,7 +1565,6 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
             streamingAssistant={streamingAssistant}
             onCostClick={onCostClick}
             persistDegraded={snapshot.persistDegraded}
-            contextCompaction={enableCompactionDivider ? snapshot.contextCompaction : null}
             compactionNotice={enableCompactionDivider ? snapshot.compactionNotice : null}
             onApproveCompaction={onApproveCompaction}
             onRejectCompaction={onRejectCompaction}

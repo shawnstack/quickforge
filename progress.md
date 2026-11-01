@@ -2,6 +2,20 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## compaction-as-message（done，2026-11-01）
+
+- Goal：按用户裁定完整实现「架构 B（压缩即消息）+ 视觉 A（既有分割线样式）」，测试/构建通过后提交并推送。
+- 结论（一句话）：压缩摘要变成 messages 里的一条真实消息（role:user + details.quickforgeCompaction，插在 tailStart），分割线就是它按消息下标渲染出来的既有 DOM；模型上下文从最后一条压缩消息切片，回滚删掉它即撤销压缩 —— 界面、模型、回滚读同一个位置事实，坐标换算整段消失。
+- 关键改动：
+  - 后端 `compactSessionInPlace()` 插入摘要消息并同步 `compactedUpToIndex`（插入下标 + 1）与 `sourceMessageCount`；持久化走 `forceMessagesReplace`（中间插入不能被当成尾部追加）；`messages_replaced` 事件带新数组。
+  - `buildAutoCompactLoopMessages()` 改为从最后一条压缩消息切片，旧会话保留虚拟拼接兜底。
+  - 回滚/重试改按「压缩消息是否还在数组里」判定，`syncCompactionIndex()` 重算派生下标；未迁移旧会话仍按 `compactedUpToIndex` 兜底。
+  - `ensureCompactionMessage()` 幂等迁移，挂在 `restoreAgent` 与 `syncSessionFromStorage`（写库 + 广播 `compaction_migration`）。
+  - 前端新增 `compaction-message.ts`（识别）与 `CompactionMessage.tsx`（渲染），`MessageList` 按消息分派；装饰层跳过压缩行（不加编辑/回滚/重试/输入折叠/chips）；等待气泡不再把压缩消息当作用户消息。
+  - 删除 `resolveCompactionMarkers` / `resolveCompactionBoundary` / `locateAfterCompaction` / `messageTimestampMs` / `anchorIndex` / `shiftCompactionToLocal` / `CompactionMarker` / `CompactionBoundary` 与 MessageList 的 marker 插槽；ChatSurface 不再做窗口换算。
+- 验证：npm run test → 480 files / 5456 passed / 1 skipped；npm run lint → 0 errors（仅 coverage/ 3 条既有 warning）；npm run build → 成功；npx tsc -b → 0 错误。
+- Notes：旧会话迁移只在会话被恢复/同步时发生，未打开的旧会话保持原样（内存里仍按兜底切片，行为不变）。同一回合内连续压缩仍会产生多条分割线 —— 合并成一行属于独立迭代。
+
 ## edit-first-message-resend-stay-in-session（done，2026-11-01）
 
 - Goal：用户反馈「编辑第一条消息后点发送，会话被切到/跳回新的对话页面」，期望留在当前对话继续。

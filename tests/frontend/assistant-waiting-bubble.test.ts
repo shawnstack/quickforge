@@ -34,6 +34,15 @@ function assistantMessage(parts: unknown[], timestamp = 2): AgentMessage {
   return { role: 'assistant', content: parts, timestamp } as AgentMessage
 }
 
+function compactionMessage(summary = 'summary'): AgentMessage {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text: '<compact_summary>' + summary + '</compact_summary>' }],
+    timestamp: 4,
+    details: { quickforgeCompaction: { version: 1, kind: 'summary', compactedAt: '2026-01-01T00:00:00.000Z' } },
+  } as unknown as AgentMessage
+}
+
 function toolResultMessage(): AgentMessage {
   return { role: 'toolResult', toolCallId: 'call-1', toolName: 'read', content: [], timestamp: 3 } as AgentMessage
 }
@@ -175,55 +184,40 @@ describe('waiting bubble rendering', () => {
     expect(container.querySelector('.quickforge-assistant-waiting')).not.toBeNull()
   })
 
-  it('keeps the bubble right after the last user row when a compaction divider precedes it', () => {
-    // Regression: the divider and the bubble are keyed siblings inserted at
-    // positions counted over MESSAGE rows. Applying two successive splices made
-    // the bubble index stale — inserting the divider shifts every later position
-    // by one — so a divider above the waiting row pushed the bubble one row too
-    // far (it landed before the last user row instead of after it).
+  it('keeps the bubble right after the last user row when a compaction message precedes it', () => {
+    // 压缩消息是列表里的一行（方案 B）：它计入行数，但不会被当成用户输入。
     const messages = [
       userMessage('old'), assistantMessage([{ type: 'text', text: 'a' }]),
       userMessage('mid'), assistantMessage([{ type: 'text', text: 'b' }]),
+      compactionMessage(),
       userMessage('current'),
     ]
     const waitingRow = resolve(messages)
     act(() => {
-      root.render(createElement(MessageList, {
-        messages,
-        // Divider after the 1st rendered message, i.e. above the waiting row.
-        compactionBoundary: { kind: 'at', rowIndex: 1, boundaryIndex: 1, summaryText: '' },
-        assistantWaitingRow: waitingRow,
-      }))
+      root.render(createElement(MessageList, { messages, assistantWaitingRow: waitingRow }))
     })
 
     const children = Array.from(container.querySelectorAll<HTMLElement>('.qf-message-list > *'))
     const classes = children.map((child) => child.className)
-    const dividerIndex = classes.findIndex((name) => name.includes('quickforge-context-compaction-notice'))
+    const dividerIndex = classes.findIndex((name) => name.includes('quickforge-compaction-message'))
     const bubbleIndex = classes.findIndex((name) => name.includes('quickforge-assistant-waiting'))
 
     expect(dividerIndex).toBeGreaterThanOrEqual(0)
     expect(bubbleIndex).toBeGreaterThan(dividerIndex)
-    // The bubble is the last child: it follows the final user row.
     expect(bubbleIndex).toBe(children.length - 1)
     expect(children[children.length - 2].className).toContain('qf-user-message')
   })
 
-  it('keeps both when the divider and the bubble resolve to the same index', () => {
-    // Divider at the window end and the bubble after the last row: both must be
-    // present, with the divider first (history flow before the live tail).
-    const messages = [userMessage('only')]
+  it('keeps both the compaction row and the bubble at the tail', () => {
+    const messages = [userMessage('only'), compactionMessage()]
     act(() => {
-      root.render(createElement(MessageList, {
-        messages,
-        compactionBoundary: { kind: 'at', rowIndex: 1, boundaryIndex: 1, summaryText: '' },
-        assistantWaitingRow: 1,
-      }))
+      root.render(createElement(MessageList, { messages, assistantWaitingRow: 2 }))
     })
 
     const classes = Array.from(container.querySelectorAll<HTMLElement>('.qf-message-list > *'))
       .map((child) => child.className)
     expect(classes).toHaveLength(3)
-    expect(classes[1]).toContain('quickforge-context-compaction-notice')
+    expect(classes[1]).toContain('quickforge-compaction-message')
     expect(classes[2]).toContain('quickforge-assistant-waiting')
   })
 

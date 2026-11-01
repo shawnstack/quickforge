@@ -37,7 +37,10 @@ import {
 } from './conversation-compaction.mjs'
 import {
   buildAutoCompactLoopMessages,
+  ensureCompactionMessage,
+  lastCompactionMessageIndex,
   maybeAutoCompactSession,
+  syncCompactionIndex,
 } from './auto-compaction.mjs'
 import {
   contextReferencesFromMessage,
@@ -1201,13 +1204,17 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
 
   const nextMessages = messages.slice(0, rollbackIndex)
   updateSessionMessages(session, nextMessages)
-  const compactedUpToIndex = Number(session.contextCompaction?.compactedUpToIndex) || 0
-  if (rollbackIndex < compactedUpToIndex) {
-    // 撤回越过压缩点，摘要覆盖的历史被截断，压缩失效
-    resetSessionCompaction(session)
-  } else {
-    // 撤回发生在压缩点之后，摘要仍然有效，保留压缩上下文
+  // 方案 B：压缩点就是一条消息。截断把它删掉 ⇒ 压缩自然失效；保留则重算派生下标。
+  const compactionIndex = lastCompactionMessageIndex(nextMessages)
+  const legacyCut = Number(session.contextCompaction?.compactedUpToIndex) || 0
+  if (compactionIndex >= 0) {
+    syncCompactionIndex(session, compactionIndex, nextMessages.length)
     session.lastTransformedContextMessages = null
+  } else if (session.contextCompaction && legacyCut > 0 && rollbackIndex >= legacyCut) {
+    // 还没迁移成消息的旧会话：截断点仍在压缩点之后，摘要依然有效。
+    session.lastTransformedContextMessages = null
+  } else if (session.contextCompaction) {
+    resetSessionCompaction(session)
   }
   session.status = 'idle'
   session.finishedAt = new Date().toISOString()
@@ -1547,13 +1554,16 @@ export async function continueSession(sessionId, modelAccessContext = null, appe
     ? messages.concat(continuedUserMessage)
     : messages.slice(0, lastUserIndex).concat(continuedUserMessage)
   updateSessionMessages(session, trimmedMessages)
-  const compactedUpToIndex = Number(session.contextCompaction?.compactedUpToIndex) || 0
-  if (lastUserIndex < compactedUpToIndex) {
-    // 重试点越过压缩点，摘要覆盖的历史被截断（或按追加模式保留），压缩失效
-    resetSessionCompaction(session)
-  } else {
-    // 重试点位于压缩点之后，摘要仍然有效，保留压缩上下文
+  // 同一套判定：压缩消息还在就保留压缩，被截断就自然失效。
+  const retryCompactionIndex = lastCompactionMessageIndex(trimmedMessages)
+  const retryLegacyCut = Number(session.contextCompaction?.compactedUpToIndex) || 0
+  if (retryCompactionIndex >= 0) {
+    syncCompactionIndex(session, retryCompactionIndex, trimmedMessages.length)
     session.lastTransformedContextMessages = null
+  } else if (session.contextCompaction && retryLegacyCut > 0 && lastUserIndex >= retryLegacyCut) {
+    session.lastTransformedContextMessages = null
+  } else if (session.contextCompaction) {
+    resetSessionCompaction(session)
   }
 
   resetIdleTimer(session)
@@ -1816,6 +1826,10 @@ export async function syncSessionFromStorage(sessionId) {
     session.startedAt = stored.taskStartedAt || null
     session.finishedAt = stored.taskFinishedAt || null
     session.contextCompaction = stored.contextCompaction || null
+    // 从存储同步过来的旧会话同样需要把摘要补成消息（幂等）。
+    if (ensureCompactionMessage(session)) {
+      await persistSession(session, { forceMessagesReplace: true }).catch(() => null)
+    }
     // Storage is authoritative for the goal too, but only when it is actually
     // newer: an in-memory mutation that has not been persisted yet must win.
     const storedGoal = normalizeGoalState(stored.goal, { sessionId })
@@ -1925,7 +1939,7 @@ async function restoreAgentUnlocked(sessionId) {
       ? storedMessagesState(sessionId)
       : null
 
-    return await createAgent(sessionId, {
+    const restored = await createAgent(sessionId, {
       scope: sessionData.scope || 'global',
       projectId: sessionData.projectId || null,
       source: sessionData.source || null,
@@ -1958,6 +1972,18 @@ async function restoreAgentUnlocked(sessionId) {
       goalEvents: Array.isArray(sessionData.goalEvents) ? sessionData.goalEvents : null,
       goalEngine: sessionData.goalEngine === 'v2' ? 'v2' : undefined,
     })
+    // 旧会话的摘要只存在 contextCompaction 里；方案 B 要求它同时也是一条消息。
+    if (restored && ensureCompactionMessage(restored)) {
+      await persistSession(restored, { forceMessagesReplace: true }).catch(() => null)
+      emitSessionEvent(restored, {
+        type: 'messages_replaced',
+        reason: 'compaction_migration',
+        messages: restored.agent.state.messages,
+        contextCompaction: restored.contextCompaction,
+        contextUsage: getSessionContextUsage(restored),
+      })
+    }
+    return restored
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })
     if (err?.statusCode === 503) throw err

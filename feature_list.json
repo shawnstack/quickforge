@@ -1,6 +1,28 @@
 {
   "features": [
     {
+      "id": "sqlite-legacy-auto-upgrade",
+      "title": "兼容期旧库（v1..v18）启动时自动升级到 baseline v19，并保留升级前快照",
+      "status": "done",
+      "summary": "新增 server/sqlite/legacy-migrations.mjs 冻结退役的 v1..v18 迁移链（只读历史，不再追加）；initializeSqliteStorage 在配置 PRAGMA 后先只读校验旧库元数据，再用 VACUUM INTO 在数据库旁写 <db>.pre-v19-from-v<旧版本>-<时间戳>.bak 一致性快照（备份失败即中止，原库不变），随后 applySqliteMigrations 在 BEGIN IMMEDIATE 内重新读取版本（并发安全）并补齐旧链，删除兼容期对象（*_storage_state / *_json_mirror_queue / *_v10_backup / scheduled_runs_state）与退役列 sessions.harness，把 schema_migrations 改写为单条 baseline 并置 user_version=19；升级成功后执行一次 VACUUM，让 auto_vacuum=INCREMENTAL 在旧文件上生效并回收空闲页（压缩失败仅 WARN，不回滚已提交升级）。inspectSqliteMigrationState 对可升级旧库返回 legacy:true；schema_migrations 行数/版本/名称与冻结链不一致仍 fail closed，不写任何数据。",
+      "files": [
+        "server/sqlite/legacy-migrations.mjs（新）",
+        "server/sqlite/migrations.mjs",
+        "server/sqlite/database.mjs",
+        "tests/server/sqlite-legacy-upgrade.test.mjs（新）",
+        "tests/server/sqlite-storage-foundation.test.mjs",
+        "docs/architecture/sqlite-storage-foundation.zh-CN.md",
+        "docs/architecture/session-storage-v2.zh-CN.md",
+        "docs/wiki/server/README.md",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 468 files / 5408 passed / 1 skipped（新增 sqlite-legacy-upgrade 21 个用例：v1..v18 全版本升级、数据保留与 harness 删除、初始化自动备份、auto_vacuum=2、异常元数据拒绝；foundation 11 passed；5 个 SQLite 测试文件共 46 passed）；npx eslint 改动文件 → 0 problems；npm run lint → 0 errors（3 条 coverage/ 生成文件旧 warning）；npm run build → 成功（precompress 224 files: 12.67MB → 6.48MB）。真实 v12 备份（754MB / 313 会话 / 17,341 消息）用新路径升级耗时约 9s，计数与数据指纹一致；线上库已补 VACUUM（auto_vacuum=2，quick_check ok，313 会话 / 17,343 消息）并重启验证 health ok。",
+      "updatedAt": "2026-11-01"
+    },
+    {
       "id": "frontend-review-p0-a11y-and-sidebar-props",
       "title": "前端评审 P0 跟进：核心输入框与两个弹窗的可访问名称、桌面/移动侧栏共享 props",
       "status": "done",

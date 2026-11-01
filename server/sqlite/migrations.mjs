@@ -1,14 +1,17 @@
 // SQLite schema baseline.
 //
 // The compat-era migration chain (v1..v18: JSON→SQLite cutover phases, mirror
-// queues, *_v10_backup rollback tables) is retired. Schema changes are applied
-// append-only from BASELINE_VERSION onwards: each entry runs in its own
-// immediate transaction, records itself in schema_migrations and bumps
-// PRAGMA user_version.
+// queues, *_v10_backup rollback tables) is retired from the live schema.
+// Schema changes are applied append-only from BASELINE_VERSION onwards: each
+// entry runs in its own immediate transaction, records itself in
+// schema_migrations and bumps PRAGMA user_version.
 //
-// A database created before the baseline carries an older user_version and is
-// rejected by database.mjs with recovery guidance; there is no in-place upgrade
-// path from the compat-era layout.
+// Existing databases still on the retired chain are upgraded automatically:
+// the frozen v1..v18 list in legacy-migrations.mjs catches the database up,
+// compat-era objects and retired columns are dropped, and the result is
+// stamped as BASELINE_VERSION. database.mjs writes a pre-upgrade backup first.
+
+import { LEGACY_COMPAT_TABLES, LEGACY_DROPPED_COLUMNS, LEGACY_MIGRATIONS } from './legacy-migrations.mjs'
 
 export const BASELINE_VERSION = 19
 
@@ -318,7 +321,57 @@ function readAppliedMigrations(database, tableExists) {
   }
 }
 
-export function inspectSqliteMigrationState(database, { migrations = SQLITE_MIGRATIONS } = {}) {
+function assertLegacyMigrationMetadata(applied, { userVersion, legacyMigrations }) {
+  if (userVersion > legacyMigrations.length) {
+    throw new Error(`SQLite schema version ${userVersion} predates the supported baseline and has no upgrade path in this build`)
+  }
+  if (applied.length !== userVersion) {
+    throw new Error(`SQLite migration metadata is inconsistent: user_version is ${userVersion} but ${applied.length} migration rows exist`)
+  }
+  for (let index = 0; index < userVersion; index += 1) {
+    const expected = legacyMigrations[index]
+    const actual = applied[index]
+    if (Number(actual.version) !== expected.version || actual.name !== expected.name) {
+      throw new Error(`SQLite migration metadata is inconsistent at version ${expected.version}`)
+    }
+  }
+}
+
+function upgradeLegacySchema(database, { userVersion, migrations, legacyMigrations, now }) {
+  assertLegacyMigrationMetadata(readAppliedMigrations(database, true), { userVersion, legacyMigrations })
+
+  for (const migration of legacyMigrations.slice(userVersion)) {
+    try {
+      migration.up(database)
+      database.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run(migration.version, migration.name, now())
+      database.exec(`PRAGMA user_version = ${migration.version}`)
+    } catch (error) {
+      throw new Error(`SQLite legacy migration ${migration.version} (${migration.name}) failed during auto-upgrade: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+    }
+  }
+
+  for (const table of LEGACY_COMPAT_TABLES) {
+    database.exec(`DROP TABLE IF EXISTS "${table}"`)
+  }
+
+  for (const [table, columns] of Object.entries(LEGACY_DROPPED_COLUMNS)) {
+    const tableExists = database.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table)
+    if (!tableExists) continue
+    const existing = new Set(database.prepare(`PRAGMA table_info("${table}")`).all().map((column) => column.name))
+    for (const column of columns) {
+      if (existing.has(column)) database.exec(`ALTER TABLE "${table}" DROP COLUMN "${column}"`)
+    }
+  }
+
+  const baseline = migrations[0]
+  database.exec('DELETE FROM schema_migrations')
+  database.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+    .run(baseline.version, baseline.name, now())
+  database.exec(`PRAGMA user_version = ${baseline.version}`)
+}
+
+export function inspectSqliteMigrationState(database, { migrations = SQLITE_MIGRATIONS, legacyMigrations = LEGACY_MIGRATIONS } = {}) {
   validateMigrationList(migrations)
   const baseVersion = migrations[0].version
   const latestVersion = migrations[migrations.length - 1].version
@@ -329,17 +382,25 @@ export function inspectSqliteMigrationState(database, { migrations = SQLITE_MIGR
   if (userVersion > latestVersion) {
     throw new Error(`SQLite schema version ${userVersion} is newer than supported version ${latestVersion}`)
   }
-  // Pre-baseline layouts (the retired v1..v18 chain) are not readable: this
-  // build has no upgrade path from them and refuses to touch the database
-  // rather than half-migrating user data.
-  if (userVersion > 0 && userVersion < baseVersion) {
-    throw new Error(`SQLite schema version ${userVersion} predates the supported baseline (${baseVersion}); this build cannot read the legacy layout. Back up the data directory, then restore from an export or start with an empty database.`)
-  }
   if (userVersion === 0 && tableExists) {
     throw new Error('SQLite migration metadata is inconsistent: schema_migrations exists while user_version is 0')
   }
   if (userVersion > 0 && !tableExists) {
     throw new Error(`SQLite migration metadata is inconsistent: user_version is ${userVersion} but schema_migrations is missing`)
+  }
+  // Pre-baseline layouts are still on the retired chain: inspect reports them
+  // as-is, applySqliteMigrations upgrades them in place.
+  if (userVersion > 0 && userVersion < baseVersion) {
+    validateMigrationList(legacyMigrations)
+    assertLegacyMigrationMetadata(applied, { userVersion, legacyMigrations })
+    return {
+      userVersion,
+      latestVersion,
+      tableExists,
+      applied,
+      consistent: true,
+      legacy: true,
+    }
   }
   if (applied.length !== userVersion - baseVersion + 1 && userVersion > 0) {
     throw new Error(`SQLite migration metadata is inconsistent: user_version is ${userVersion} but ${applied.length} migration rows exist`)
@@ -359,10 +420,11 @@ export function inspectSqliteMigrationState(database, { migrations = SQLITE_MIGR
     tableExists,
     applied,
     consistent: true,
+    legacy: false,
   }
 }
 
-export function applySqliteMigrations(database, { migrations = SQLITE_MIGRATIONS, now = () => new Date().toISOString() } = {}) {
+export function applySqliteMigrations(database, { migrations = SQLITE_MIGRATIONS, legacyMigrations = LEGACY_MIGRATIONS, now = () => new Date().toISOString() } = {}) {
   validateMigrationList(migrations)
   let transactionOpen = false
   let currentMigration = null
@@ -371,7 +433,15 @@ export function applySqliteMigrations(database, { migrations = SQLITE_MIGRATIONS
     database.exec('BEGIN IMMEDIATE')
     transactionOpen = true
 
-    const before = inspectSqliteMigrationState(database, { migrations })
+    // Read after taking the write lock: a concurrent process may have already
+    // upgraded this database while we were waiting for BEGIN IMMEDIATE.
+    const startingVersion = readUserVersion(database)
+    if (startingVersion > 0 && startingVersion < migrations[0].version) {
+      validateMigrationList(legacyMigrations)
+      upgradeLegacySchema(database, { userVersion: startingVersion, migrations, legacyMigrations, now })
+    }
+
+    const before = inspectSqliteMigrationState(database, { migrations, legacyMigrations })
     for (const migration of migrations.slice(before.applied.length)) {
       currentMigration = migration
       try {
@@ -384,7 +454,7 @@ export function applySqliteMigrations(database, { migrations = SQLITE_MIGRATIONS
       }
     }
 
-    const after = inspectSqliteMigrationState(database, { migrations })
+    const after = inspectSqliteMigrationState(database, { migrations, legacyMigrations })
     database.exec('COMMIT')
     transactionOpen = false
     return after

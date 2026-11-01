@@ -1,6 +1,6 @@
 # SQLite 存储基础层设计（F2）
 
-> 状态：F2 基础层已接入；F2 当时不迁移 JSON 业务数据且不创建业务表。F3 后续追加了空的 `scheduled_task_runs` 非权威表，详见 [`scheduled-task-runs-repository.zh-CN.md`](./scheduled-task-runs-repository.zh-CN.md)。**当前 schema 为单条 baseline v19**：F3–F11 的 migration 链已整体折叠，历史对象不再存在（见 §4）。
+> 状态：F2 基础层已接入；F2 当时不迁移 JSON 业务数据且不创建业务表。F3 后续追加了空的 `scheduled_task_runs` 非权威表，详见 [`scheduled-task-runs-repository.zh-CN.md`](./scheduled-task-runs-repository.zh-CN.md)。**当前 schema 为单条 baseline v19**：F3–F11 的 migration 链已整体折叠，历史对象不再存在（见 §4）；仍停留在 v1..v18 的旧库会在启动时自动升级到 v19（见 §4.3）。
 
 ## 1. 范围与稳定依赖方向
 
@@ -137,13 +137,24 @@ baseline 建出 15 张表 + 13 个索引，按域归组：
 以下情况会明确失败（fail closed，不做半迁移）：
 
 - `user_version` 高于代码支持的最新版本（旧版代码打开新库会被拒绝）；
-- `user_version` 在 1..18 之间：属兼容期旧布局，本版本**没有就地升级路径**，打开即报错并提示“备份数据目录后从导出恢复或使用空库”；
+- `user_version` 在 1..18 之间：属兼容期旧布局，启动时会就地自动升级到 baseline（见 §4.3）；若 `schema_migrations` 的行数、版本号或名称与冻结的 v1..v18 链对不上，则 fail closed，不触碰数据；
 - `user_version = 0` 但 `schema_migrations` 已存在，或 `user_version > 0` 但没有 `schema_migrations`；
 - 已应用迁移行数/版本/名称与当前列表不一致；
 - migration SQL 或记录写入失败；
 - migration 列表不连续或名称重复。
 
 该设计允许多个进程同时首次打开同一数据库：等待写锁的进程获得锁后重新读取版本，不会重复应用 migration。
+
+### 4.3 兼容期旧库自动升级（v1..v18 → v19）
+
+`server/sqlite/legacy-migrations.mjs` 冻结保存退役的 v1..v18 迁移链，只服务于旧库升级，不参与新库建表，也不允许再追加新迁移。初始化流程：
+
+1. `configurePragmas` 之后先做只读校验：`user_version` 落在 1..18 且 `schema_migrations` 的行数、版本号、名称与冻结链逐条一致，才判定为可升级的旧库；不一致立即失败，不写任何数据。
+2. 在数据库旁用 `VACUUM INTO` 写出一致性快照 `<db>.pre-v19-from-v<旧版本>-<时间戳>.bak`（包含 WAL 中已提交内容）；备份失败则中止升级，原库保持不变。
+3. 在 `BEGIN IMMEDIATE` 事务内重新读取版本（并发启动时可能已被其他进程升级），补齐剩余迁移到 v18，然后删除兼容期对象（`*_storage_state`、`*_json_mirror_queue`、`*_v10_backup`、`scheduled_runs_state`）与退役列（`sessions.harness`），把 `schema_migrations` 改写为单条 baseline、`user_version` 置为 19。
+4. 升级成功后执行一次 `VACUUM`：回收删除兼容期对象留下的空闲页，并让 `auto_vacuum=INCREMENTAL` 在旧文件上生效；压缩失败只记录 WARN，不回滚已提交的升级。
+
+旧库升级只在首次启动发生一次，之后的启动就是普通 v19 校验。`inspectSqliteMigrationState` 对可升级旧库返回 `legacy: true`，升级完成后恒为 `false`。
 
 ## 5. 事务 API
 
@@ -191,6 +202,7 @@ F5 若要让 SQLite 成为权威业务存储，必须先设计并实现 SQLite *
 ## 8. 已知风险
 
 - 多个 QuickForge 版本共用同一 dataDir 时，旧版本遇到更高 `user_version` 会在任何业务写入前拒绝打开；这是防止旧代码破坏新 schema 的硬保护。
+- 兼容期旧库首次启动会写一份约等于库体积的 `.bak` 快照并执行一次 `VACUUM`，超大库会明显延长首次启动窗口；确认升级成功后可按需删除该快照。
 - WAL 不适合所有网络盘、同步盘或不完整文件锁实现；默认数据库应位于本机文件系统。
 - F1/F2 已在 Windows 的 Node 24 与 Electron Run-as-Node（内置 Node 22）验证；macOS、Linux、网络文件系统及最终 Electron 安装包环境仍需单独验证。
 - `node:sqlite` 在当前运行时仍可能输出 ExperimentalWarning；该警告不改变上述一致性和失败策略。

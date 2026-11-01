@@ -301,13 +301,13 @@ describe('SQLite storage foundation', () => {
     }
   })
 
-  it('rejects a pre-baseline database that still carries schema_migrations', () => {
+  it('rejects a pre-baseline database whose migration metadata does not match the retired chain', () => {
     const databasePath = path.join(temporaryDirectory, 'pre-baseline.sqlite3')
     const database = new DatabaseSync(databasePath)
     const legacyVersion = BASE_SCHEMA_VERSION - 1
     try {
-      // Shaped like the retired v18 layout: migration metadata exists, but the
-      // user_version predates the baseline this build understands.
+      // Shaped like the retired v18 layout, but the recorded row does not
+      // match the frozen legacy chain, so the auto-upgrade must refuse it.
       database.exec(`
         CREATE TABLE schema_migrations (
           version INTEGER PRIMARY KEY CHECK (version > 0),
@@ -319,8 +319,8 @@ describe('SQLite storage foundation', () => {
         .run(legacyVersion, 'session_state_v2_storage', '2026-01-01T00:00:00.000Z')
       database.exec(`PRAGMA user_version = ${legacyVersion}`)
 
-      expect(() => inspectSqliteMigrationState(database)).toThrow(/predates the supported baseline/)
-      expect(() => applySqliteMigrations(database)).toThrow(/predates the supported baseline/)
+      expect(() => inspectSqliteMigrationState(database)).toThrow(/inconsistent/)
+      expect(() => applySqliteMigrations(database)).toThrow(/inconsistent/)
 
       // Refusing to migrate must leave the legacy database untouched.
       expect(database.prepare('PRAGMA user_version').get().user_version).toBe(legacyVersion)

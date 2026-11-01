@@ -1,5 +1,29 @@
 # Current Session Handoff
 
+## sqlite-legacy-auto-upgrade（done，2026-11-01）
+
+- Current Objective（当前目标）：把 v12 旧库的启动失败改为程序自动升级，避免用户手工迁移，并保留可回退快照。
+- 结论（一句话）：退役的 v1..v18 链冻结为 legacy 模块，启动时先做一致性备份、再在单事务内补齐并归一化到 baseline v19，之后一次 `VACUUM` 应用 incremental auto_vacuum；异常元数据仍拒绝且不写库。
+- 改动文件：
+  - `server/sqlite/legacy-migrations.mjs`（新，冻结 v1..v18 + 兼容期对象/退役列清单）
+  - `server/sqlite/migrations.mjs`（`inspect` 返回 `legacy:true`；`apply` 在 `BEGIN IMMEDIATE` 内完成旧库升级与归一化）
+  - `server/sqlite/database.mjs`（旧库预检、`VACUUM INTO` 快照、升级后 `VACUUM`、启动日志字段 `upgradedFrom`/`preUpgradeBackupPath`）
+  - `tests/server/sqlite-legacy-upgrade.test.mjs`（新，21 用例）
+  - `tests/server/sqlite-storage-foundation.test.mjs`（旧库拒绝用例改为元数据不一致拒绝）
+  - `docs/architecture/sqlite-storage-foundation.zh-CN.md`、`docs/architecture/session-storage-v2.zh-CN.md`、`docs/wiki/server/README.md`、`CHANGELOG.md`
+  - `feature_list.json`、`progress.md`、本文件
+- Evidence（验证）：`npm run test` → 468 files / 5408 passed / 1 skipped；`npx eslint` 改动文件 → 0 problems；`npm run lint` → 0 errors；`npm run build` → 成功（precompress 224 files: 12.67MB → 6.48MB）。真实 v12 备份（754MB / 313 会话 / 17,341 消息）升级约 9s，数据指纹一致；线上库补 `VACUUM` 后 `auto_vacuum=2`、quick_check ok，重启后 health ok（313 会话 / 17,343 消息）。未创建 Git commit/tag/push。
+- 关键约束（别踩）：
+  - `legacy-migrations.mjs` 是冻结历史，禁止追加；新迁移只加在 `migrations.mjs` 的 baseline 列表（当前仍只有 v19）。
+  - 自动升级要求 `schema_migrations` 的行数/版本/名称与冻结链逐条一致；不要放宽成“版本号对了就迁移”，否则可能半迁移。
+  - 顺序不能变：预检 → `VACUUM INTO` 快照 → `BEGIN IMMEDIATE` 内重新读取版本并升级 → 提交 → `VACUUM`；任一失败都保持原库可读。
+  - 旧的“无就地升级路径”文档表述已更新，勿再按旧说法写恢复指引。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 若要发布，按 `docs/architecture/patch-release-runbook.zh-CN.md` 走 patch 发布流程（本次未创建 commit/tag/push）。
+  2. 可考虑为大库升级增加阶段耗时日志或 health 字段；当前只有开始/完成日志。
+  3. `closeSqliteStorage` 日志 `schemaVersion=1` 为既有小 bug（把迁移条数当版本号），可单独修复。
+
 ## frontend-review-p0-a11y-and-sidebar-props（done，2026-10-31）
 
 - Current Objective（当前目标）：前端代码评审后，按用户确认落地两条「保持行为与交互不变」的 P0（可访问名称 + 双份侧栏 props 去重）。

@@ -87,7 +87,7 @@ repository 的 `normalizeRecord` 对任何带 `messages` 数组的 body（内联
 3. UPSERT 墓碑（`deleted_at` = epoch 毫秒，`WITHOUT ROWID` 极小）；
 4. **事务外** best-effort `PRAGMA incremental_vacuum(512)`：`auto_vacuum = INCREMENTAL` 下把释放页归还 OS；失败仅记 warn，不影响业务操作成功。
 
-`auto_vacuum` 说明（`server/sqlite/database.mjs`）：连接打开时（`busy_timeout` 之后、`applySqliteMigrations` 之前）执行 `PRAGMA auto_vacuum = INCREMENTAL`。该标志只对"尚未建出任何表"的库生效，因此 baseline 在同一连接内建库时天然带上增量回收。兼容期旧库（`user_version` < 19）会被版本门禁直接拒绝打开（见 `sqlite-storage-foundation.zh-CN.md` §4.2），不存在"旧布局库缺 auto_vacuum"的残留状态；需要重建数据时按 §5 的导出/导入路径走。
+`auto_vacuum` 说明（`server/sqlite/database.mjs`）：连接打开时（`busy_timeout` 之后、`applySqliteMigrations` 之前）执行 `PRAGMA auto_vacuum = INCREMENTAL`。该标志只对"尚未建出任何表"的库生效，因此 baseline 在同一连接内建库时天然带上增量回收。兼容期旧库（`user_version` < 19）会在启动时自动升级并执行一次 `VACUUM`（见 `sqlite-storage-foundation.zh-CN.md` §4.3），同样落到 INCREMENTAL 布局；若压缩失败则保留旧布局，只影响后续删除的空间回收。
 
 墓碑语义：同 key 墓碑在下一次成功 save 时清除；从未复活的会话墓碑按设计保留（每行几十字节）。同长度同尾但中部的并发写靠 CAS 拒绝，不依赖墓碑。
 
@@ -114,7 +114,7 @@ session-state-service  →  session-state-import  →  session-state-restore-pla
 
 导入在启动维护窗口内执行：`/api/*` 维持 503 门控（进程状态 `starting`，白名单只有 `/api/health`）直到初始化链完成，避免导入期间读到半量数据；前端这段时间只显示启动画面。
 
-**用户重导路径**：关闭进程 → 备份并按需删除 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm`）→ 重启。空库 + JSON 文件存在即自动重导。若手上是兼容期旧库（`user_version` < 19），本版本不会就地升级：先用能读旧库的版本导出 v1 备份，再按上面的路径重建空库并从备份恢复。
+**用户重导路径**：关闭进程 → 备份并按需删除 `~/.quickforge/storage/quickforge.sqlite3`（连同 `-wal`/`-shm`）→ 重启。空库 + JSON 文件存在即自动重导。若手上是兼容期旧库（`user_version` < 19），启动时会先自动升级并留下 `.bak` 快照（见 `sqlite-storage-foundation.zh-CN.md` §4.3），无需先导出；只有迁移元数据与冻结链不一致时才会拒绝打开，此时再用旧版本导出、重建空库并恢复。
 
 ## 6. 删除的机制清单
 

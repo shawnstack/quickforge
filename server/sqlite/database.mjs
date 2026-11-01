@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { logger } from '../utils/logger.mjs'
-import { applySqliteMigrations, inspectSqliteMigrationState, SQLITE_MIGRATIONS } from './migrations.mjs'
+import { applySqliteMigrations, BASELINE_VERSION, inspectSqliteMigrationState, SQLITE_MIGRATIONS } from './migrations.mjs'
 
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000
 export const SQLITE_JOURNAL_MODE = 'wal'
@@ -291,6 +291,17 @@ function createHandle(state) {
   })
 }
 
+function createPreUpgradeBackup(database, databasePath, schemaVersion) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupPath = `${databasePath}.pre-v${BASELINE_VERSION}-from-v${schemaVersion}-${stamp}.bak`
+  try {
+    database.prepare('VACUUM INTO ?').run(backupPath)
+  } catch (error) {
+    throw new Error(`Failed to back up the legacy SQLite database before auto-upgrade (${backupPath}): ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+  return backupPath
+}
+
 export function initializeSqliteStorage({ dataDir, databasePath, migrations = SQLITE_MIGRATIONS } = {}) {
   const resolvedPath = resolveSqliteDatabasePath({ dataDir, databasePath })
   if (openState) {
@@ -312,7 +323,35 @@ export function initializeSqliteStorage({ dataDir, databasePath, migrations = SQ
       await mkdir(path.dirname(resolvedPath), { recursive: true })
       database = new DatabaseSync(resolvedPath)
       const pragmas = configurePragmas(database)
+      // Legacy layouts (retired v1..v18 chain) are upgraded in place. Take a
+      // consistent pre-upgrade snapshot first: VACUUM INTO cannot run on a
+      // half-migrated database later, and without it an upgrade failure would
+      // leave the operator with no copy of the original file. Inconsistent
+      // metadata fails here before the backup is written.
+      const startingState = inspectSqliteMigrationState(database, { migrations })
+      let preUpgradeBackupPath = null
+      if (startingState.legacy) {
+        preUpgradeBackupPath = createPreUpgradeBackup(database, resolvedPath, startingState.userVersion)
+        sqliteLogger.warn('Legacy SQLite schema detected; upgrading in place', {
+          fromVersion: startingState.userVersion,
+          toVersion: BASELINE_VERSION,
+          backupPath: preUpgradeBackupPath,
+        })
+      }
       const migration = applySqliteMigrations(database, { migrations })
+      if (preUpgradeBackupPath) {
+        // Dropping compat-era tables leaves free pages and the pre-upgrade
+        // pragma cannot switch auto_vacuum on an existing file. One VACUUM
+        // applies INCREMENTAL and reclaims both; failure only loses the
+        // compaction (the database is already upgraded and consistent).
+        try {
+          database.exec('VACUUM')
+        } catch (error) {
+          sqliteLogger.warn('Legacy SQLite upgrade compaction failed; database keeps its previous auto_vacuum layout', {
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
       const sqliteVersion = String(database.prepare('SELECT sqlite_version() AS version').get().version)
       const state = {
         database,
@@ -329,6 +368,7 @@ export function initializeSqliteStorage({ dataDir, databasePath, migrations = SQ
         migrationCount: migration.applied.length,
         journalMode: pragmas.journalMode,
         busyTimeout: pragmas.busyTimeout,
+        ...(preUpgradeBackupPath ? { upgradedFrom: startingState.userVersion, preUpgradeBackupPath } : {}),
       })
       return state.handle
     } catch (error) {

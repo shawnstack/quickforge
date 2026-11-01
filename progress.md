@@ -2,6 +2,21 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## sqlite-legacy-auto-upgrade（done，2026-11-01）
+
+- Goal：旧库（`user_version` 1..18）不再因 baseline v19 的版本门禁而启动失败，改由程序在启动时自动升级，并保证可回退。
+- 结论（一句话）：冻结退役的 v1..v18 迁移链，启动时先 `VACUUM INTO` 备份、再在同一写事务内补齐旧链并归一化为 baseline v19；元数据不一致仍 fail closed。
+- 逐项：
+  1. **冻结旧链**：`server/sqlite/legacy-migrations.mjs` 保存 v1..v18，仅用于旧库升级，不再参与新库建表；`LEGACY_COMPAT_TABLES` 列 11 个兼容期对象，`LEGACY_DROPPED_COLUMNS` 处理历史漂移列 `sessions.harness`。
+  2. **只读预检 + 快照**：`initializeSqliteStorage` 在 `configurePragmas` 后调用 `inspectSqliteMigrationState`，仅当旧库元数据与冻结链逐条一致时，才用 `VACUUM INTO` 写 `<db>.pre-v19-from-v<旧版本>-<时间戳>.bak`；备份失败中止升级。
+  3. **事务内升级**：`applySqliteMigrations` 在 `BEGIN IMMEDIATE` 之后重新读取 `user_version`（并发启动时若已被其他进程升级则跳过），补齐剩余旧迁移、删除兼容期表与退役列、把 `schema_migrations` 改写为单条 baseline、`user_version=19`；任一步失败整体回滚。
+  4. **升级后压缩**：成功后执行一次 `VACUUM`，让 `auto_vacuum=INCREMENTAL` 在旧文件上生效并回收空闲页；失败只 WARN，不回滚已提交的 schema 升级。
+  5. **测试**：新增 `tests/server/sqlite-legacy-upgrade.test.mjs`，用冻结链构造 v1..v18 全版本旧库，断言升级后的表/索引集合与全新 baseline 完全一致、数据保留、快照内容为旧版本、`auto_vacuum=2`、异常元数据不写库；foundation 原有的“旧库拒绝”用例改为“元数据不一致拒绝”。
+- 验证：`npm run test` → 468 files / 5408 passed / 1 skipped；`npx eslint` 改动文件 → 0 problems；`npm run lint` → 0 errors（仅 coverage/ 3 条既有 warning）；`npm run build` → 成功。真实 v12 备份（754MB / 313 会话 / 17,341 消息）用新路径升级约 9s，计数/指纹一致；线上库补 `VACUUM` 后 `auto_vacuum=2`、quick_check ok，已重启并 health ok。
+- Notes（未扩大范围内的问题）：
+  - `closeSqliteStorage` 的日志把 `state.migrations.length` 当成 `schemaVersion` 输出（`server/sqlite/database.mjs:430`），关闭日志恒为 `schemaVersion=1`；与本次功能无关，未修改。
+  - 升级快照命名为 `<db>.pre-v19-from-v<旧版本>-<时间戳>.bak`，确认无误后可手动删除；文档 §8 已记录超大库首次启动的时间与磁盘成本。
+
 ## frontend-review-p0-a11y-and-sidebar-props（done，2026-10-31）
 
 - Goal：按前端评审结论，落地两条「不改行为与交互」的 P0——核心控件的可访问名称、桌面/移动侧栏共享 props。

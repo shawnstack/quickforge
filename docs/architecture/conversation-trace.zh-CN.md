@@ -177,7 +177,7 @@ src/components/chat/trace/ConversationTraceView.tsx
 `useUIState` 存 `conversationViewScope: { scopeId, view } | null`，**不是裸字符串**：
 
 - App 派生 `conversationView = scope.scopeId === currentRuntimeScopeId ? scope.view : 'chat'`。
-- 效果：切到别的会话自动回到对话视图，且不需要 `useEffect` 里 `setState` 重置（那会被 `react-hooks/set-state-in-effect` 判 error）。这与 `workspaceInspectorOpenScopeId` 的既有模式一致。
+- 效果：切到别的会话自动回到对话视图，且不需要 `useEffect` 里 `setState` 重置（那会被 `react-hooks/set-state-in-effect` 判 error）。这与 `workspaceInspectorOpenScopeId` 的既有模式一致（该状态后来又在 scope 变化的渲染里同步清空记录，使切回曾展开面板的会话也不会重新弹开；`conversationViewScope` 只记最新值，无需这层清理）。
 
 ## 9. 视觉约束（对齐 DESIGN_LANGUAGE）
 

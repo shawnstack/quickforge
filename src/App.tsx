@@ -367,15 +367,24 @@ function MainApp() {
   useLayoutEffect(() => {
     workspaceInspectorScopeRef.current = workspaceInspectorScope
   }, [workspaceInspectorScope])
-  // 面板开合改为页面生命周期内的用户选择，默认收起，切换 session 不再自动展开；
-  // tab 列表仍按 (projectId, sessionId) 持久化恢复。
+  // 面板开合是页面生命周期内的瞬时选择，默认收起，不做任何跨会话记忆；tab 列表仍按
+  // (projectId, sessionId) 持久化恢复。
   //
   // 这里记的不是布尔值，而是「在哪个 runtimeScope 里打开的」：`workspaceInspectorOpen`
   // 由它和当前 scope 派生。`WorkspaceInspector` 的 key 是 `projectId:runtimeScopeId`，
   // 切 session 只会让子组件重挂载、不会重置 App 级开合状态，所以用布尔量时用户手动
   // 展开过的面板会跨会话残留（表现为「切过去自己弹出来」）。改成按 scope 记之后，
-  // scope 一变派生值就是 false，不需要额外 effect 去同步。
+  // scope 一变派生值就是 false。但只按 scope 记仍会记住每个会话的开合——切走再切回
+  // 曾展开的会话会重新弹开；因此下方在 scope 变化的渲染里同步清空记录，切换会话后
+  // 一律默认收起，开合不做任何记忆。
   const [workspaceInspectorOpenScopeId, setWorkspaceInspectorOpenScopeId] = useState<string | null>(null)
+  // scope 变化时在渲染期同步清空「打开者」记录（React 官方的 render 期调态模式，
+  // 避免 effect 级联渲染，也绕开 react-hooks/set-state-in-effect）。
+  const [workspaceInspectorObservedScopeId, setWorkspaceInspectorObservedScopeId] = useState(workspaceInspectorRuntimeScopeId)
+  if (workspaceInspectorObservedScopeId !== workspaceInspectorRuntimeScopeId) {
+    setWorkspaceInspectorObservedScopeId(workspaceInspectorRuntimeScopeId)
+    setWorkspaceInspectorOpenScopeId(null)
+  }
   const workspaceInspectorOpen = workspaceInspectorOpenScopeId === workspaceInspectorRuntimeScopeId
   const [desktopInspectorViewport, setDesktopInspectorViewport] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(320)

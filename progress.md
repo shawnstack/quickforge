@@ -2,6 +2,14 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## inspector-open-state-no-memory（done，2026-11-01）
+
+- Goal：用户要求「不要记住右边侧边栏的打开状态」（Workspace Inspector 开合零记忆）。
+- 结论（一句话）：App.tsx 的开合记录 `workspaceInspectorOpenScopeId` 改为零记忆——runtime scope 变化的渲染里同步清空（新增 `workspaceInspectorObservedScopeId` 做 render 期调态），切走再切回曾展开面板的会话不再自动弹开，任何会话切换后一律默认收起。
+- 根因：开合按「在哪个 runtimeScope 打开的」派生，切走会话派生值变 false 但记录残留；切回旧会话时 scope 重新匹配即恢复展开（表现为「记住打开状态」）。
+- 实现要点：React 官方 render 期调态模式，不用 useEffect 同步 setState（`react-hooks/set-state-in-effect` error）；打开路径（PanelRight toggle、`requestWorkspaceInspector` 各请求、Inspector `onOpenChange`、ChatPanelHost live present_files 自动预览）与 tab 按 (projectId, sessionId) 的持久化恢复全部不变；deferred 会话晋升真实 session 沿用同一 scope，首条发送期间已展开的面板不受影响。
+- 验证：定向 `npx vitest run`（workspace-inspector-session-switch-close / workspace-inspector-request / auto-preview-fresh-present / conversation-trace-contract）→ 4 files / 47 tests 全通过；`npx eslint src/App.tsx` → 0 problems；`npx tsc -b` → 0 错误。未跑全量。
+
 ## zustand-store-migration（done，2026-11-01）
 
 - Goal：把 App.tsx 手写 useState + 自定义 hook + props 下发的应用级状态迁移到 Zustand（P0–P4 全阶段），替换 3 个 window CustomEvent 事件桥。

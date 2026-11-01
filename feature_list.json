@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "inspector-open-state-no-memory",
+      "title": "右侧 Workspace Inspector 开合状态零记忆：切回曾展开面板的会话不再自动弹开",
+      "status": "done",
+      "summary": "用户反馈右侧侧边栏的打开状态被记住。根因：App.tsx 按 runtimeScope 记录「在哪个会话打开过面板」（workspaceInspectorOpenScopeId），切走会话时派生开合值为 false 但记录残留，切回曾展开面板的会话时 scope 重新匹配即自动恢复展开。修复：新增 workspaceInspectorObservedScopeId state，在 runtime scope 变化的渲染里同步清空打开者记录（React 官方 render 期调态模式；不用 useEffect，因 react-hooks/set-state-in-effect 判 error），开合不做任何跨会话记忆，任何会话切换后一律默认收起。打开路径（PanelRight 手动 toggle、requestWorkspaceInspector 各请求、Inspector onOpenChange、ChatPanelHost live present_files 自动预览）与 tab 列表按 (projectId, sessionId) 的 localStorage 持久化恢复均不受影响。",
+      "files": [
+        "src/App.tsx（改：渲染期清空打开者记录 + 注释）",
+        "tests/frontend/workspace-inspector-session-switch-close.test.ts（改：新增「切回不弹开」源码契约）",
+        "docs/wiki/src/components/README.md（改：置顶摘要与 Inspector 条目两处开合描述）",
+        "docs/architecture/conversation-trace.zh-CN.md（改：workspaceInspectorOpenScopeId 模式引用说明）",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run workspace-inspector-session-switch-close + workspace-inspector-request + auto-preview-fresh-present + conversation-trace-contract → 4 files / 47 tests 全通过；npx eslint src/App.tsx → 0 problems；npx tsc -b --pretty false → 0 错误。未跑全量 test/lint/build（小改动定向验证）。",
+      "updatedAt": "2026-11-01"
+    },
+    {
       "id": "sqlite-legacy-auto-upgrade",
       "title": "兼容期旧库（v1..v18）启动时自动升级到 baseline v19，并保留升级前快照",
       "status": "done",

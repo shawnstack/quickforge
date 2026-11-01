@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## inspector-open-state-no-memory（done，2026-11-01）
+
+- Current Objective（当前目标）：右侧 Workspace Inspector 开合状态不做任何记忆（用户提出「不要记住右边侧边栏的打开状态」）。
+- 结论（一句话）：`workspaceInspectorOpenScopeId` 在 runtime scope 变化的渲染里被同步清空（新增 `workspaceInspectorObservedScopeId` render 期调态，绕开 `react-hooks/set-state-in-effect`），切回曾展开面板的会话不再自动弹开，切换会话后一律默认收起；打开路径与 tab 持久化不变。
+- 改动文件：`src/App.tsx`、`tests/frontend/workspace-inspector-session-switch-close.test.ts`（新增源码契约）、`docs/wiki/src/components/README.md`（两处）、`docs/architecture/conversation-trace.zh-CN.md`、`CHANGELOG.md`、三件套。
+- Evidence（验证）：定向 vitest 4 files / 47 tests 全通过；`npx eslint src/App.tsx` 0 problems；`npx tsc -b` 0 错误。未跑全量，未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续；如需发布按 `docs/architecture/patch-release-runbook.zh-CN.md` patch 流程。
+
 ## zustand-store-migration（done，2026-11-01）
 
 - Current Objective（当前目标）：按用户确认的方案把前端应用级状态迁移到 Zustand（P0–P4 全阶段），替换 3 个 window CustomEvent 事件桥。

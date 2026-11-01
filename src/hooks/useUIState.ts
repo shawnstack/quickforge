@@ -1,44 +1,51 @@
-import { useCallback, useState } from 'react'
-import type { SkillsScope } from '@/lib/types'
-import type { SettingsInitialTab } from '@/lib/settings-tabs'
-import type { ProjectInfo } from '@/lib/types'
-import type { WorkspaceInspectorOpenRequest } from '@/components/workspace/workspace-types'
+import { useUIStore } from '@/stores/ui-store'
 
 /**
- * Pure UI state — sidebar, dialogs, overlays, inspector, and reader toggles.
+ * UI 状态已迁入 useUIStore（zustand）。
+ * 本 hook 保留为兼容层：字段与旧实现完全一致（含 useState 风格的
+ * Dispatch<SetStateAction<T>> setter 签名），App.tsx 及 useMobileSidebar
+ * 的既有接线/类型引用不变；action 引用恒定，等价于旧 useCallback([])。
  *
- * Kept separate from business-logic hooks (useAgentManager, useAppBootstrap, etc.)
- * so that App.tsx can stay focused on orchestration.
+ * 注意：conversationViewScope 保持 { scopeId, view } 结构（而非裸字符串），
+ * 以维持「切会话自动回到对话视图」的派生设计（App 用 scopeId 与当前
+ * runtimeScopeId 比较派生实际视图，不在 effect 里 setState 重置）。
  */
 export function useUIState() {
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [projectsCollapsed, setProjectsCollapsed] = useState(false)
-  const [pinnedCollapsed, setPinnedCollapsed] = useState(false)
-  const [conversationsCollapsed, setConversationsCollapsed] = useState(false)
-  const [skillsDialog, setSkillsDialog] = useState<{ scope: SkillsScope; project?: ProjectInfo }>()
-  const [shareDialogOpen, setShareDialogOpen] = useState(false)
-  const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
-  const [workspaceInspectorRequest, setWorkspaceInspectorRequest] = useState<WorkspaceInspectorOpenRequest>()
-  const [artifactPreviewOpen, setArtifactPreviewOpen] = useState(false)
-  const [activeArtifactPath, setActiveArtifactPath] = useState<string>()
-  const [firstUseGuideDismissed, setFirstUseGuideDismissed] = useState(false)
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
-  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsInitialTab>('defaults')
-  const [settingsCustomProvider, setSettingsCustomProvider] = useState<string>()
-  /**
-   * 对话区视图选择，绑定到打开它的会话作用域（runtimeScopeId）。
-   *
-   * 存成 { scopeId, view } 而不是裸字符串，是为了「切会话自动回到对话视图」：
-   * App 用 scopeId 是否等于当前 runtimeScopeId 派生实际视图，不需要在 effect 里
-   * setState 重置（那会被 react-hooks/set-state-in-effect 判 error，也与
-   * workspaceInspectorOpenScopeId 的既有做法一致）。
-   */
-  const [conversationViewScope, setConversationViewScope] = useState<{ scopeId: string; view: 'chat' | 'trace' } | null>(null)
-
-  const toggleProjectsCollapsed = useCallback(() => setProjectsCollapsed(v => !v), [])
-  const togglePinnedCollapsed = useCallback(() => setPinnedCollapsed(v => !v), [])
-  const toggleConversationsCollapsed = useCallback(() => setConversationsCollapsed(v => !v), [])
+  const sidebarOpen = useUIStore((s) => s.sidebarOpen)
+  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
+  const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen)
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen)
+  const projectsCollapsed = useUIStore((s) => s.projectsCollapsed)
+  const setProjectsCollapsed = useUIStore((s) => s.setProjectsCollapsed)
+  const pinnedCollapsed = useUIStore((s) => s.pinnedCollapsed)
+  const setPinnedCollapsed = useUIStore((s) => s.setPinnedCollapsed)
+  const conversationsCollapsed = useUIStore((s) => s.conversationsCollapsed)
+  const setConversationsCollapsed = useUIStore((s) => s.setConversationsCollapsed)
+  const skillsDialog = useUIStore((s) => s.skillsDialog)
+  const setSkillsDialog = useUIStore((s) => s.setSkillsDialog)
+  const shareDialogOpen = useUIStore((s) => s.shareDialogOpen)
+  const setShareDialogOpen = useUIStore((s) => s.setShareDialogOpen)
+  const conversationMenuOpen = useUIStore((s) => s.conversationMenuOpen)
+  const setConversationMenuOpen = useUIStore((s) => s.setConversationMenuOpen)
+  const workspaceInspectorRequest = useUIStore((s) => s.workspaceInspectorRequest)
+  const setWorkspaceInspectorRequest = useUIStore((s) => s.setWorkspaceInspectorRequest)
+  const artifactPreviewOpen = useUIStore((s) => s.artifactPreviewOpen)
+  const setArtifactPreviewOpen = useUIStore((s) => s.setArtifactPreviewOpen)
+  const activeArtifactPath = useUIStore((s) => s.activeArtifactPath)
+  const setActiveArtifactPath = useUIStore((s) => s.setActiveArtifactPath)
+  const firstUseGuideDismissed = useUIStore((s) => s.firstUseGuideDismissed)
+  const setFirstUseGuideDismissed = useUIStore((s) => s.setFirstUseGuideDismissed)
+  const settingsDialogOpen = useUIStore((s) => s.settingsDialogOpen)
+  const setSettingsDialogOpen = useUIStore((s) => s.setSettingsDialogOpen)
+  const settingsInitialTab = useUIStore((s) => s.settingsInitialTab)
+  const setSettingsInitialTab = useUIStore((s) => s.setSettingsInitialTab)
+  const settingsCustomProvider = useUIStore((s) => s.settingsCustomProvider)
+  const setSettingsCustomProvider = useUIStore((s) => s.setSettingsCustomProvider)
+  const conversationViewScope = useUIStore((s) => s.conversationViewScope)
+  const setConversationViewScope = useUIStore((s) => s.setConversationViewScope)
+  const toggleProjectsCollapsed = useUIStore((s) => s.toggleProjectsCollapsed)
+  const togglePinnedCollapsed = useUIStore((s) => s.togglePinnedCollapsed)
+  const toggleConversationsCollapsed = useUIStore((s) => s.toggleConversationsCollapsed)
 
   return {
     sidebarOpen, setSidebarOpen,

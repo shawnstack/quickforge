@@ -213,12 +213,15 @@ describe('ChatSidebar section reorder wiring', () => {
     expect(projectExpansionResetEffect).toContain('invalidateSidebarSessionShowMore(showMoreStateRef.current, `project:${projectId}`)')
     expect(projectExpansionResetEffect).toContain('expandedProjectIds.has(projectId)')
     // 桌面与移动抽屉共用同一份 props 对象（sidebarCommonProps）：每项只定义一次，
-    // 两个挂载点各展开一次，避免两份手写列表漂移。
+    // 两个挂载点各展开一次，避免两份手写列表漂移。UI 开合/排序状态已内联到
+    // ChatSidebar（直连 ui-store / sidebar-ordering-store），不得回到 props。
     const sharedSidebarPropsSource = appSource.match(/const sidebarCommonProps = \{[\s\S]*?\n {2}\}/)?.[0] ?? ''
-    expect(sharedSidebarPropsSource).toContain('sessionViewMode: sidebarSessionViewMode')
-    expect(sharedSidebarPropsSource).toContain('projectsCollapsed: ui.projectsCollapsed')
-    expect(sharedSidebarPropsSource).toContain('conversationsCollapsed: ui.conversationsCollapsed')
     expect(sharedSidebarPropsSource).toContain('expandedProjectIds,')
+    expect(sharedSidebarPropsSource).not.toContain('projectsCollapsed:')
+    expect(sharedSidebarPropsSource).not.toContain('sidebarOpen')
+    expect(sharedSidebarPropsSource).not.toContain('sectionOrder')
+    expect(sidebarSource).toContain('useUIStore((s) => s.sidebarOpen)')
+    expect(sidebarSource).toContain('useSidebarOrderingStore((s) => s.sidebarSectionOrder)')
     expect(appSource.match(/\{\.\.\.sidebarCommonProps\}/g)).toHaveLength(2)
   })
 
@@ -334,11 +337,14 @@ describe('ChatSidebar section reorder wiring', () => {
   })
 
   it('shares one App state and localStorage persistence across desktop and mobile sidebars', () => {
-    const orderingSource = readFileSync(new URL('../../src/hooks/useSidebarOrdering.ts', import.meta.url), 'utf8')
-    expect(orderingSource).toContain('useState<SidebarSectionOrder>(loadSidebarSectionOrder)')
-    expect(orderingSource).toContain('saveSidebarSectionOrder(sidebarSectionOrder)')
-    expect(appSource.match(/sectionOrder: sidebarSectionOrder,/g)).toHaveLength(1)
-    expect(appSource.match(/onReorderSections: handleSidebarSectionReorder,/g)).toHaveLength(1)
+    const orderingStoreSource = readFileSync(new URL('../../src/stores/sidebar-ordering-store.ts', import.meta.url), 'utf8')
+    const orderingHookSource = readFileSync(new URL('../../src/hooks/useSidebarOrdering.ts', import.meta.url), 'utf8')
+    expect(orderingStoreSource).toContain('sidebarSectionOrder: loadSidebarSectionOrder()')
+    expect(orderingStoreSource).toContain('saveSidebarSectionOrder(next)')
+    expect(orderingHookSource).toContain('useSidebarOrderingStore')
+    // 两个 ChatSidebar 实例改为直连 store 订阅，App 不再逐字段下发 ordering props。
+    expect(sidebarSource).toContain('useSidebarOrderingStore((s) => s.sidebarSectionOrder)')
+    expect(sidebarSource).toContain('useSidebarOrderingStore((s) => s.handleSidebarSectionReorder)')
     expect(appSource.match(/\{\.\.\.sidebarCommonProps\}/g)).toHaveLength(2)
   })
 })

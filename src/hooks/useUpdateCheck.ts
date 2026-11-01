@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { initializePiStorage } from '@/lib/pi-chat'
 import {
   loadUpdateCheckSettings,
@@ -7,28 +7,15 @@ import {
 } from '@/lib/update-check-settings'
 import { requestUpdateCheck } from '@/lib/update-check-poll'
 import { logger } from '@/lib/logger'
+import { useUpdateCheckStore } from '@/stores/update-check-store'
+import type { UpdateCheckResult } from '@/stores/update-check-store'
 
 type PiStorage = Awaited<ReturnType<typeof initializePiStorage>>
-
-type UpdateCheckStatus = 'idle' | 'checking' | 'done' | 'error'
-
-type UpdateCheckResult = {
-  status: UpdateCheckStatus
-  currentVersion?: string
-  latestVersion?: string
-  /** true when a newer version exists and has not been dismissed by the user. */
-  updateAvailable: boolean
-}
 
 type UpdateCheckInfo = {
   result: UpdateCheckResult
   /** Dismiss the current new-version reminder (persists ignoredVersion). */
   dismissUpdate: () => void
-}
-
-const INITIAL_RESULT: UpdateCheckResult = {
-  status: 'idle',
-  updateAvailable: false,
 }
 
 function isDesktopApp() {
@@ -37,16 +24,17 @@ function isDesktopApp() {
   return document.body.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
 }
 
-/**
- * Background update checker. On first `ready`, reads the configured frequency
- * and — if due — fires a single non-blocking request to the backend. Any
- * failure is silent: it never blocks startup or nags the user.
+/** 更新检查结果状态已迁入 useUpdateCheckStore（zustand）。
+ *  本 hook 保留为兼容层：返回结构与旧实现一致，App.tsx 接线不变；
+ *  setResult 引用恒定（等价于旧 useState setter），fetch / localStorage
+ *  持久化副作用逻辑仍在此处。
  */
 export function useUpdateCheck(
   storageRef: React.MutableRefObject<PiStorage | null>,
   ready: boolean,
 ): UpdateCheckInfo {
-  const [result, setResult] = useState<UpdateCheckResult>(INITIAL_RESULT)
+  const result = useUpdateCheckStore((s) => s.result)
+  const setResult = useUpdateCheckStore((s) => s.setResult)
   const startedRef = useRef(false)
 
   useEffect(() => {
@@ -97,7 +85,7 @@ export function useUpdateCheck(
         setResult((prev) => ({ ...prev, status: 'error' }))
       }
     })()
-  }, [ready, storageRef])
+  }, [ready, storageRef, setResult])
 
   const dismissUpdate = useCallback(() => {
     const storage = storageRef.current
@@ -115,7 +103,7 @@ export function useUpdateCheck(
         logger.error('Failed to persist ignored update version:', error)
       }
     })()
-  }, [result.latestVersion, storageRef])
+  }, [result.latestVersion, storageRef, setResult])
 
   return { result, dismissUpdate }
 }

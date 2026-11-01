@@ -158,6 +158,11 @@
   outline: none;
 }
 
+.quickforge-goal-strip-edit-input:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 65%, transparent);
+  outline-offset: 1px;
+}
+
 .quickforge-goal-strip-error {
   min-width: 0;
   max-width: 12rem;

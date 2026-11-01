@@ -27,6 +27,7 @@ import { InfoTip } from '@/components/ui/info-tip'
 import { createSettingsTabs, type SettingsInitialTab } from '@/lib/settings-tabs'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/stores/ui-store'
 
 type SettingsWorkspacePageProps = {
   initialTab: SettingsInitialTab
@@ -131,19 +132,18 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
 
   // Cross-tab jump. Dreaming lives under "Automation" while memory lives under
   // "Basic"; without this the memory page can only *describe* Dreaming, never
-  // take you there.
+  // take you there.（原 window CustomEvent 桥已由 ui-store 请求信号替代，
+  // MemorySettingsTab 经 useUIStore.getState().requestSettingsTab 发起。）
+  const settingsTabRequest = useUIStore((s) => s.settingsTabRequest)
   useEffect(() => {
-    // Guarded for non-DOM renders (unit tests render this page without a window).
-    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
-    const handler = (event: Event) => {
-      const key = (event as CustomEvent<{ tab?: SettingsInitialTab }>).detail?.tab
-      if (!key) return
-      const index = settings.indexOf(key)
-      if (index >= 0) selectTab(index)
-    }
-    window.addEventListener('quickforge:open-settings-tab', handler)
-    return () => window.removeEventListener('quickforge:open-settings-tab', handler)
-  }, [settings])
+    const request = settingsTabRequest
+    if (!request) return
+    useUIStore.getState().clearSettingsTabRequest()
+    const index = settings.indexOf(request.tab)
+    // 响应外部一次性信号（等价旧 window 事件回调的异步时机），非级联渲染。
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (index >= 0) selectTab(index)
+  }, [settingsTabRequest, settings])
   const selectMobileTab = (index: number) => {
     setSelectedTabIndex(index)
     setSearchQuery('')

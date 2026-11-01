@@ -324,6 +324,12 @@ button.quickforge-empty-project-branch[aria-expanded="true"] {
   color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
 }
 
+/* 搜索框自身 `outline: 0`，焦点环由容器承接（与 settings/skills.css 的搜索框同套配方）。 */
+.quickforge-project-picker-search:focus-within {
+  border-radius: calc(var(--radius) - 0.125rem);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 55%, transparent);
+}
+
 .quickforge-project-picker-search input {
   min-width: 0;
   flex: 1;

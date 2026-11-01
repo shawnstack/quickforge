@@ -18,14 +18,16 @@ import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
+import { useUIStore } from '@/stores/ui-store'
+import { useCallback } from 'react'
 
 type GitBranchMenuCallbacks = React.ComponentProps<typeof GitBranchMenu>
 
 /** 主区顶栏：移动端菜单按钮、会话标题（含小屏项目/分支副行）、项目 chip、Git 分支
- *  菜单、「对话 / 轨迹」视图切换与会话「⋯」菜单（置顶 / 重命名 / 分享 / 归档）。 */
+ *  菜单、「对话 / 轨迹」视图切换与会话「⋯」菜单（置顶 / 重命名 / 分享 / 归档）。
+ *  conversationMenu 开合与「打开移动侧栏」直连 ui-store（原 props 已去除）。 */
 export function ConversationHeader({
   headerRef,
-  onOpenMobileSidebar,
   title,
   projectName,
   projectId,
@@ -41,8 +43,6 @@ export function ConversationHeader({
   showViewSwitch,
   conversationView,
   onSetConversationView,
-  conversationMenuOpen,
-  onConversationMenuToggle,
   conversationMenuDisabled,
   currentSessionPinned,
   onTogglePinned,
@@ -52,7 +52,6 @@ export function ConversationHeader({
   mobileShell,
 }: {
   headerRef: React.RefObject<HTMLElement | null>
-  onOpenMobileSidebar: () => void
   title: string
   projectName?: string
   projectId?: string
@@ -68,8 +67,6 @@ export function ConversationHeader({
   showViewSwitch: boolean
   conversationView: 'chat' | 'trace'
   onSetConversationView: (view: 'chat' | 'trace') => void
-  conversationMenuOpen: boolean
-  onConversationMenuToggle: () => void
   conversationMenuDisabled: boolean
   currentSessionPinned: boolean
   onTogglePinned: () => void
@@ -78,9 +75,14 @@ export function ConversationHeader({
   onArchive: () => void
   mobileShell: boolean
 }) {
+  const conversationMenuOpen = useUIStore((s) => s.conversationMenuOpen)
+  const setConversationMenuOpen = useUIStore((s) => s.setConversationMenuOpen)
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen)
+  const toggleConversationMenu = useCallback(() => setConversationMenuOpen((v) => !v), [setConversationMenuOpen])
+
   return (
     <header ref={headerRef} className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-3 pr-20">
-      <Button variant="ghost" size="icon" className="md:hidden" onClick={onOpenMobileSidebar} aria-label={t('toggleSidebar')}>
+      <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
         <Menu className="size-[18px]" />
       </Button>
 
@@ -165,7 +167,7 @@ export function ConversationHeader({
               variant="ghost"
               size="icon"
               className={cn(conversationMenuOpen && '')}
-              onClick={onConversationMenuToggle}
+              onClick={toggleConversationMenu}
               disabled={conversationMenuDisabled}
               aria-label={t('moreOptions')}
               aria-haspopup="menu"

@@ -1,5 +1,30 @@
 # Current Session Handoff
 
+## zustand-store-migration（done，2026-11-01）
+
+- Current Objective（当前目标）：按用户确认的方案把前端应用级状态迁移到 Zustand（P0–P4 全阶段），替换 3 个 window CustomEvent 事件桥。
+- 结论（一句话）：`src/stores/` 新增十个 store 承载全部可序列化应用级状态；原 hook 全部保留为薄兼容层（selector 订阅、返回结构不变、调用方零改动）；ChatSidebar/ConversationHeader/useMobileSidebar 已去 props 直连 store；事件桥由 ui-store 请求信号（payload+nonce、处理即清除）替代。
+- 改动文件（核心）：
+  - 依赖/配置：`package.json`+`package-lock.json`（zustand ^5.0.16 devDeps）、`vitest.config.ts`（inline zustand）
+  - 新 store（10）：`src/stores/{task-toasts,sidebar-ordering,ui,runtime-statuses,update-check,agent-access-mode,sessions,project,git,agent-session}-store.ts`
+  - hook 兼容层（11）：`src/hooks/` 下 useTaskToasts/useSidebarOrdering/useUIState/useMobileSidebar/useVisibleRuntimeStatuses/useUpdateCheck/useAgentAccessMode/useSessionPagination/useProject/useAppGit/useAgentManager
+  - 去 props：`src/components/sidebar/ChatSidebar.tsx`（删 14 个 UI/ordering props）、`src/components/app/ConversationHeader.tsx`
+  - 事件桥：`src/App.tsx`、`src/components/settings/SettingsWorkspacePage.tsx`、`src/components/settings/tabs/MemorySettingsTab.tsx`、`src/lib/tool-renderers/shared.tsx`、`src/lib/react-settings-tabs.tsx`、`src/lib/system-notifications.ts`
+  - 测试：`tests/frontend/helpers/hook-lifecycle.ts`（useSyncExternalStore/useDebugValue/reactMockWithRuntime）+ 10 个新 store 单测 + 6 个契约测试更新
+  - 文档：`docs/architecture/zustand-migration.zh-CN.md`（新）、wiki 三处、三件套
+- Evidence（验证）：全量 `npm run test` → 478 files / 5459 passed / 1 skipped（中途 scheduled-tasks 一次超时为与 lint 并行资源竞争，单独复跑通过）；`npx tsc -b` → 0 错误；`npm run lint` → 0 errors；`npm run build` → 成功。未创建 Git commit。
+- 关键约束（别踩）：
+  - **只 selector 订阅**（`useStore(s => s.x)`），禁止整对象订阅——ChatSidebar 的 memo 与 SessionViewPool 保活依赖引用稳定。
+  - **非序列化对象不进 store**（ServerAgent 实例、taskMap、unsubscribe、abort controller 留 hook ref/闭包）；**副作用留 hook**（fetch/SSE/轮询/debounce；localStorage 可 action 内直写）。
+  - mock react 的测试必须用 `reactMockWithRuntime`（zustand 消费 default 导出）；store 单测 beforeEach 必须复位（模块级单例）。
+  - `src/stores/`（UI/会话域内存状态）与 `src/storage/stores/`（IndexedDB 持久化层）是两个概念，文档已区分。
+  - ChatSidebar 移动实例 `onToggleSidebar` = 关抽屉（按 variant 分派），不是桌面 toggle。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 若要发布，按 `docs/architecture/patch-release-runbook.zh-CN.md` 走 patch 流程（本次未 commit）。
+  2. 可选后续：其余兼容层域（sessions/project/git/agent-session 的 props 链）按需渐进去 props；useChatActions/useModelActions 等编排 hook 维持依赖注入不动。
+  3. 剩余 4 个 window 事件桥（view-command-log、OPEN_BACKGROUND_TASKS、OPEN_GOAL_SUMMARY、OPEN_SUBAGENT_RUN/OPEN_WORKFLOW_RUN）不在本次范围，仍是事件模式。
+
 ## sqlite-legacy-auto-upgrade（done，2026-11-01）
 
 - Current Objective（当前目标）：把 v12 旧库的启动失败改为程序自动升级，避免用户手工迁移，并保留可回退快照。
@@ -23,6 +48,30 @@
   1. 若要发布，按 `docs/architecture/patch-release-runbook.zh-CN.md` 走 patch 发布流程（本次未创建 commit/tag/push）。
   2. 可考虑为大库升级增加阶段耗时日志或 health 字段；当前只有开始/完成日志。
   3. `closeSqliteStorage` 日志 `schemaVersion=1` 为既有小 bug（把迁移条数当版本号），可单独修复。
+
+## a11y-focus-ring-invariant（done，2026-10-31）
+
+- Current Objective（当前目标）：用户授权「能做的直接做」，按评审 A 档补齐键盘焦点可见性并加护栏。
+- 结论（一句话）：19 处「去环无替代」全部补齐（17 个 TSX 控件 + 3 条 CSS 规则），并新增一条 AST 不变式测试防止回归；鼠标聚焦视觉完全不变。
+- 改动文件：
+  - `src/components/agent-profiles/AgentProfilesPage.tsx`（11 个表单控件补 `focus-visible:*ring*`）
+  - `src/components/workspace/WorkspaceTreePanel.tsx`、`src/components/preview/WebPreviewContent.tsx`、`src/components/sidebar/chat-sidebar/SidebarSearchDialog.tsx`（容器补 `focus-within:*ring*`）
+  - `src/components/git/GitCommitPushDialog.tsx`（textarea 补 `focus-visible:ring-inset`）
+  - `src/components/share/SharedConversationPage.tsx`（密码输入补标准环）
+  - `src/styles/chat/empty-state.css`、`src/styles/chat/goal-workflow.css`、`src/styles/chat/runtime-notices.css`（各追加上下文/元素级焦点规则，未改原 `outline: none`）
+  - `tests/frontend/focus-ring-invariant.test.ts`（新）
+  - `feature_list.json`、`progress.md`、本文件
+- Evidence（验证）：新测试 2 passed（扫描 402 个 tsx，5 条豁免全命中）；`css-architecture` 5 + `semantic-color-class-parity` 3 + `chat-surface-css-contract` 37 = 45 passed；全量 `npm run test` 467 files / 5387 passed / 1 skipped；`npx eslint` 改动文件 0 problems；`npx tsc -b` 0 错误；`npm run build` 成功（8.19s / precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit。
+- 关键约束（别踩）：
+  - 原规则的 `outline: none` 必须保留（鼠标点击不出环是既有视觉），只在 `:focus-visible` / `:focus-within` 分支补环。
+  - 无边框的内联编辑用 `ring-inset` / `outline-offset: 1px`，外扩环会溢出弹窗与卡片。
+  - `focus-ring-invariant` 的白名单只能放「焦点确实由容器承接」的元素并写 reason；元素自带环后要从白名单删掉，否则第二条用例会红。
+  - `MobileServerConnectPage` 用 `focus:shadow-quickforge`（webview 触摸聚焦不触发 `focus-visible`），不要统一改成 `focus-visible`。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 真机/浏览器逐页键盘走查：Agent Profile 表单、工作区文件过滤、预览 URL、会话搜索、提交信息框、分享密码、项目选择器、Goal/队列就地编辑——确认只有 `:focus-visible` 出环、鼠标点击不出环、无「双环」。
+  2. 若要继续评审 B 档（结构重构），建议顺序：`server-agent.ts` 按职责拆模块（纯逻辑、有测试兜底）→ 会话事件分发器（先迁两个低频订阅者）→ `ChatPanelHost` 910 行 effect 拆段 → `ChatSidebarProps` 分组 → `App.tsx` 按 route 拆。
+  3. 需产品批准才能做：全弹窗 focus trap（含把 `aria-modal` 补到 `prompt-dialog`/`GitGraphDialog`）、工具卡文件预览入口键盘化、侧栏整行改 `<button>`、KaTeX / i18n 首屏拆分。
 
 ## frontend-review-p0-a11y-and-sidebar-props（done，2026-10-31）
 

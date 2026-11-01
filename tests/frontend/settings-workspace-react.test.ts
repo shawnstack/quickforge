@@ -6,10 +6,11 @@ import { HookLifecycle } from './helpers/hook-lifecycle'
 const language = vi.hoisted(() => ({ current: 'en' }))
 const customProviders = vi.hoisted(() => ({ getAll: vi.fn(async () => [] as unknown[]) }))
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => `${language.current}:${key}` }))
-vi.mock('react', async (importOriginal) => ({
-  ...await importOriginal<typeof import('react')>(),
-  ...(await import('./helpers/hook-lifecycle')).hookRuntime,
-}))
+vi.mock('react', async (importOriginal) => {
+  const original = await importOriginal<typeof import('react')>()
+  const { reactMockWithRuntime } = await import('./helpers/hook-lifecycle')
+  return reactMockWithRuntime(original)
+})
 // 只渲染自定义模型 tab 以验证重新激活重载；存储/连接层替换为最小桩，避免拉入无关实现。
 vi.mock('@/storage', () => ({
   getAppStorage: () => ({
@@ -29,6 +30,7 @@ import { createSettingsTabs, type SettingsInitialTab } from '../../src/lib/setti
 import { ReactSettingsTabContent } from '../../src/lib/react-settings-tabs'
 import { SettingsWorkspacePage } from '../../src/components/settings/SettingsWorkspacePage'
 import { CustomProvidersSettingsTab } from '../../src/components/settings/tabs/CustomProvidersSettingsTab'
+import { useUIStore } from '../../src/stores/ui-store'
 
 const keys: SettingsInitialTab[] = ['defaults', 'appearance', 'memory', 'network', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'hooks', 'scheduledTasks', 'dreaming', 'projectCommands', 'data', 'about']
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
@@ -83,10 +85,10 @@ describe('pure React settings registry', () => {
     expect(components[4].props.customProvider).toBe('chosen')
     expect(components[6].props).toMatchObject({ active: true, scope: 'global', embedded: true })
     expect(components[7].props.active).toBe(true)
-    const dispatchEvent = vi.fn()
-    vi.stubGlobal('window', { dispatchEvent })
+    // 原 window CustomEvent 桥已由 ui-store 请求信号替代（tab 工厂零 props）。
+    useUIStore.setState({ openSessionRequest: null })
     ;(components[10].props.onOpenSession as (sessionId: string) => void)('session-1')
-    expect(dispatchEvent.mock.calls[0][0]).toMatchObject({ type: 'quickforge:open-session-from-settings', detail: { sessionId: 'session-1' } })
+    expect(useUIStore.getState().openSessionRequest).toMatchObject({ sessionId: 'session-1' })
   })
 
   it('forwards the workspace active flag into the tabs that can be reactivated', () => {

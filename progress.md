@@ -2,6 +2,26 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## zustand-store-migration（done，2026-11-01）
+
+- Goal：把 App.tsx 手写 useState + 自定义 hook + props 下发的应用级状态迁移到 Zustand（P0–P4 全阶段），替换 3 个 window CustomEvent 事件桥。
+- 结论（一句话）：新增 `src/stores/` 十个 zustand store 承载全部可序列化应用级状态，原 hook 全部保留为薄兼容层（selector 订阅 + 返回结构不变，调用方零改动），ChatSidebar/ConversationHeader/useMobileSidebar 已去 props 直连 store，3 个事件桥由 ui-store 请求信号（payload+nonce）替代。
+- 逐项：
+  1. **P0 基础**：zustand@^5.0.16（devDependencies，与 react 同列）；`vitest.config.ts` inline zustand（外部化依赖内部 `import React from 'react'` 不经 `vi.mock('react')` 拦截，mock-react 测试会拿到真实 React 崩溃）；`tests/frontend/helpers/hook-lifecycle.ts` 补 `useSyncExternalStore`/`useDebugValue` + `reactMockWithRuntime(original)`（mock 的 react 必须带 default 导出，zustand 以 `React.*` 消费）。
+  2. **P1 试点**：task-toasts-store（action 恒定，非 React 代码可 `getState().addToast()`）、sidebar-ordering-store（action 内直写 localStorage；初始加载不再回写默认值）。
+  3. **P2 UI 域**：ui-store（16 项 UI 状态，setter 全部 `Dispatch<SetStateAction<T>>` 签名兼容函数式更新）+ 请求信号（settingsTabRequest/artifactPreviewRequest/openSessionRequest）；MemorySettingsTab、tool-renderers/shared、react-settings-tabs、system-notifications 的 dispatch 改 `useUIStore.getState().requestXxx()`，App/SettingsWorkspacePage 订阅处理即清除（丢弃语义与旧事件一致）。ChatSidebar 去 14 个 UI/ordering props（内部直连 ui-store + sidebar-ordering-store；`onToggleSidebar` 按 variant 分派：desktop=toggle 栏宽、mobile=关抽屉；toggle*Collapsed 的 show-more 失效包装版由 useSidebarSessionDisplay 返回，裸 store toggle 经入参传入）；ConversationHeader 去 conversationMenu/移动侧栏 3 props；useMobileSidebar 去 ui 参数。
+  4. **P3 数据域**（并行 4 subagent）：sessions-store（四路分页；refs 镜像删除改 `getState()` 同步读；requestVersion 守卫与 250ms 合并轮留 hook）、project-store（expandedProjectIds 持久化直写）、git-store（titleGitStatus+4 开合；fetch/SSE 400ms debounce/请求守卫 ref 留 hook）、runtime-statuses/update-check/agent-access-mode 三小域。
+  5. **P4 核心域**：agent-session-store（currentSessionId/currentRuntimeScopeId/currentTitle/chatScope/currentToolProject/taskStatuses/chatPanelRevision/loadingSessionId 8 项）；agent 实例（ServerAgent 不可序列化）、全部 ref（稳定回调公共接口）、LRU 淘汰/in-flight 去重/事件订阅留 hook；`currentRuntimeScopeId` 初值改为 store 模块创建时的 `randomId()`（等价旧 lazy useState）。
+  6. **契约测试**：sidebar-section-order（断言指向 store 订阅 + sharedSidebarProps 不含已迁字段）、conversation-trace-contract（conversationViewScope 结构断言指向 ui-store）、tool-renderer-file-icon/settings-workspace-react/system-notifications（dispatch 断言改 store 状态断言）、session-pagination-bootstrap（reactStub.states 改 getState）、app-domain-hooks（reactMockWithRuntime + beforeEach 复位全局 store）。
+- 关键约束（别踩）：
+  - **只 selector 订阅**：整对象订阅会让 ChatSidebar（memo）全列表重渲染；SessionViewPool 保活依赖引用稳定。
+  - **非序列化对象不进 store**：ServerAgent 实例、taskMap、unsubscribe、abort controller 留 hook 的 useRef/闭包。
+  - **副作用留 hook**：fetch/SSE/轮询/debounce/持久化不进 store；localStorage 域可用 action 内直写（sidebar-ordering 先例）。
+  - store 单测必须 `beforeEach` 显式复位（模块级单例跨用例泄漏）。
+- 已知差异（有意为之）：dev StrictMode 重挂/HMR 下已迁域状态跨挂载保留（原 useState 重置）；生产整页加载语义不变。
+- 明确不做：usePinnedSummaryModel（派生 view-model）、useAppTheme/useCodeFontMetrics（DOM 镜像多实例）、useAppBootstrap 编排层、useChatActions/useModelActions/useSessionActions 等无状态依赖注入 hook（改写为 store action 收益低风险高）；src/storage/stores 持久化层与本次无关未动。
+- 验证：分阶段针对性 vitest 全绿；全量 `npm run test` → 478 files / 5459 passed / 1 skipped（中途 scheduled-tasks.commands 一次 12 用例超时为与 lint 并行跑的资源竞争 flaky，单独复跑通过）；`npx tsc -b` → 0 错误；`npm run lint` → 0 errors；`npm run build` → 成功。未创建 Git commit，未手工修改生成产物。
+
 ## sqlite-legacy-auto-upgrade（done，2026-11-01）
 
 - Goal：旧库（`user_version` 1..18）不再因 baseline v19 的版本门禁而启动失败，改由程序在启动时自动升级，并保证可回退。
@@ -16,6 +36,29 @@
 - Notes（未扩大范围内的问题）：
   - `closeSqliteStorage` 的日志把 `state.migrations.length` 当成 `schemaVersion` 输出（`server/sqlite/database.mjs:430`），关闭日志恒为 `schemaVersion=1`；与本次功能无关，未修改。
   - 升级快照命名为 `<db>.pre-v19-from-v<旧版本>-<时间戳>.bak`，确认无误后可手动删除；文档 §8 已记录超大库首次启动的时间与磁盘成本。
+
+## a11y-focus-ring-invariant（done，2026-10-31）
+
+- Goal：评审 A 档——把「移除了默认焦点环但没有替代」的控件补齐，并用一条不变式测试防止以后再丢。
+- 结论（一句话）：19 处缺口全部补上（TSX 侧 17 个控件、CSS 侧 3 条规则），新增 `focus-ring-invariant` 测试用 TS AST 扫描全部 tsx 守住这条线；鼠标聚焦视觉不变（原 `outline: none` 保留，只在 `:focus-visible`/`:focus-within` 上加环）。
+- 逐项：
+  1. **`AgentProfilesPage.tsx` 11 处**（textarea ×2 / input ×5 / select ×3 / 模型选择 button 触发器 ×1）：追加 `focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring`，与 `ui/input.tsx:9` 完全同套。该文件改前 `focus`/`focus-visible` 命中为 0，是最大单点缺口。
+  2. **容器承接焦点的 3 处**：`WorkspaceTreePanel`（label）、`WebPreviewContent`（胶囊 label）、`SidebarSearchDialog`（div）加 `focus-within:border-ring focus-within:ring-2 focus-within:ring-ring`，内部 input 保持 `outline-none`——这是项目既有做法（`skills.css:243-246`）。
+  3. **`GitCommitPushDialog` 提交信息 textarea**：`focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset`（无边框容器，inset 才不会溢出弹窗）。
+  4. **`SharedConversationPage` 分享密码输入**：标准 `focus-visible` 环（该输入 `autoFocus`，此前完全无焦点反馈）。
+  5. **CSS 三处**（只追加新规则，不动原 `outline: none`）：`empty-state.css` 的项目选择器搜索用容器 `:focus-within`（父容器没有 border，所以用 `box-shadow` 环 + 临时圆角，与 skills 搜索同配方）；`goal-workflow.css` 的 Goal 就地编辑输入、`runtime-notices.css` 的队列消息就地编辑输入各补 `:focus-visible` 的 2px `outline`（沿用本文件已有 `--ring` 65%/70% 的写法）。
+  6. **新增 `tests/frontend/focus-ring-invariant.test.ts`**：用 TypeScript AST 遍历 402 个 tsx，规则是「className 含 `outline-none` 就必须在同元素出现 `focus-visible:`/`focus:`，或由容器 `focus-within:` 承接并登记在 `EXEMPTIONS`」；第二条用例反向校验白名单不过期。当前 5 条豁免：`App.tsx` 的抽屉容器（`tabIndex={-1}`，非控件）、composer textarea（`.quickforge-composer:focus-within` 承接）、以及上面第 2 条的 3 个 input。
+- 关键约束（别踩）：
+  - **不要动原规则的 `outline: none`**：那是「鼠标点击不出环」的既有视觉，补的只是 `:focus-visible`/`:focus-within` 分支。
+  - 内联编辑（无边框容器）用 `ring-inset` / `outline-offset: 1px`，不要用外扩环，否则会溢出弹窗或卡片边缘。
+  - 白名单只能加在「焦点确实由容器承接」的元素上，并且必须写 reason；元素自带环以后要从白名单移除（第二条用例会红）。
+  - 移动端 webview 触摸聚焦不触发 `focus-visible`：`MobileServerConnectPage` 保持 `focus:shadow-quickforge`，不要改成 `focus-visible`。
+- 明确不做（记录理由，避免下次重复评估）：
+  - **img width/height**：实测全仓只有 15 个 `<img>`（此前说的 17 把注释算进去了）。其中 9 个是 `size-*` 图标，CSS 已给固定像素、CLS 为 0，加 `width/height` 是零收益噪声；其余 6 个是内容大图（附件预览、SVG 代码预览、Markdown 图片、Mermaid 输出），靠 `max-w-full` 自适应，硬编码尺寸会比例失真。真要压 CLS 只能配 `aspect-ratio` 占位，属可见行为变化，不在本次范围。
+  - **`app-domain-fixture` 指纹守卫**：上一轮评审说它「用硬编码行号切 `App.tsx`」是**说重了**——它切的是 `.goal-runtime-refactor-baseline/App-before-split.tsx` 这份冻结快照（由 `QUICKFORGE_APP_DOMAIN_AUDIT` 开关启用），不是活动文件，因此不会随 `App.tsx` 改动错位。真正脆弱的是 74 处源码文本断言，那个只能靠逐个替换成真渲染来消解。
+  - **i18n mock 去重**：74 处 `vi.mock('@/lib/i18n')` 形态各异（有 `virtual: true`、有自定义 `t` 实现、有 `t: (key) => \`${lang}:${key}\``），批量替换到公共 stub 收益小、改坏测试的风险大。
+- 验证：新增 `focus-ring-invariant` 2 passed；`css-architecture` 5 + `semantic-color-class-parity` 3 + `chat-surface-css-contract` 37 → 45 passed；全量 `npm run test` → 467 files / 5387 passed / 1 skipped（基线 466/5385，多出本次新增文件与其 2 个用例）；`npx eslint` 改动文件 → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功（8.19s，`[precompress] 224 files: 12.67MB → 6.49MB`）。未创建 Git commit，未手工修改生成产物。
+- 未更新 wiki 的原因：仅样式/焦点可见性与测试护栏变化，组件契约、公共入口与发布流程未变。
 
 ## frontend-review-p0-a11y-and-sidebar-props（done，2026-10-31）
 

@@ -136,6 +136,11 @@
   outline: none;
 }
 
+.quickforge-msg-queue-edit-input:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+  outline-offset: 1px;
+}
+
 .quickforge-msg-queue-actions {
   display: inline-flex;
   align-items: center;

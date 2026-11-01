@@ -15,6 +15,7 @@ const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const view = readFileSync(new URL('../../src/components/chat/trace/ConversationTraceView.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/components/chat/trace/conversation-trace.css', import.meta.url), 'utf8')
 const uiState = readFileSync(new URL('../../src/hooks/useUIState.ts', import.meta.url), 'utf8')
+const uiStore = readFileSync(new URL('../../src/stores/ui-store.ts', import.meta.url), 'utf8')
 const projection = readFileSync(new URL('../../src/lib/conversation-trace.ts', import.meta.url), 'utf8')
 
 describe('trace view mounting', () => {
@@ -40,7 +41,10 @@ describe('trace view mounting', () => {
 
   it('binds the view choice to the session scope so switching sessions returns to chat', () => {
     expect(uiState).toMatch(/conversationViewScope/)
-    expect(uiState).toMatch(/useState<\{ scopeId: string; view: 'chat' \| 'trace' \} \| null>\(null\)/)
+    // conversationViewScope 迁入 ui-store 后仍保持 { scopeId, view } 结构（非裸字符串），
+    // 以维持「切会话自动回对话」的派生设计。
+    expect(uiStore).toContain('conversationViewScope: ConversationViewScope | null')
+    expect(uiStore).toContain("export type ConversationViewScope = { scopeId: string; view: 'chat' | 'trace' }")
     // Derived, never reset through a setState-in-effect side channel.
     expect(app).toContain('ui.conversationViewScope?.scopeId === agentManager.currentRuntimeScopeId')
     expect(app).not.toMatch(/useEffect\(\(\) => \{\s*setConversationViewScope/)

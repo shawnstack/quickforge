@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { HttpStorageBackend } from '@/lib/http-storage-backend'
 import type { QuickForgeSessionMetadata, SidebarSessionSortMode, SidebarSessionViewMode } from '@/lib/types'
 import {
@@ -9,6 +9,7 @@ import {
   upsertSessionPage,
   type SessionPage,
 } from '@/lib/session-list-updates'
+import { useSessionsStore } from '@/stores/sessions-store'
 
 const PAGE_SIZE = 20
 
@@ -37,6 +38,22 @@ type RefreshRound = {
   promise: Promise<void>
 }
 
+/** 会话分页兼容层：四路分页状态已迁入 useSessionsStore（zustand）。
+ *
+ *  返回结构与签名和旧实现完全一致，唯一调用方 App.tsx 接线不变；
+ *  store 的 action 引用恒定（等价于旧 useCallback 固定依赖），下游
+ *  依赖数组的稳定性不受影响。
+ *
+ *  保留在 hook 内（而非 store）的手写并发控制（见 sessions-store.ts 注释）：
+ *  - requestVersionRef 版本守卫：hook 实例级（useRef），新一轮刷新开始时
+ *    使在飞的旧响应作废；
+ *  - refreshRoundRef 的 250ms in-flight 合并轮：同一 hook 实例内复用
+ *    同一轮请求 Promise，合并的 broadcast 需求在轮尾只广播一次；
+ *  - expandedProjectIdsRef：prop（展开项目集合）的 ref 镜像，渲染提交后同步。
+ *  旧的 globalPageRef / projectPagesRef / projectTimelinePageRef 镜像已删除：
+ *  zustand 的 set 同步应用，`useSessionsStore.getState()` 恒为最新值，
+ *  即旧镜像手工维护的同一保证。
+ */
 export function useSessionPagination({
   backendRef,
   expandedProjectIds,
@@ -44,28 +61,17 @@ export function useSessionPagination({
   sortMode,
   onBroadcastSessionsChanged,
 }: UseSessionPaginationOptions) {
-  const [globalPage, setGlobalPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
-  const [pinnedPage, setPinnedPage] = useState<SessionPage>({ items: [], total: 0, loading: false })
-  const [projectPages, setProjectPages] = useState<Record<string, SessionPage>>({})
-  const [projectTimelinePage, setProjectTimelinePage] = useState<SessionPage>({ items: [], total: 0, loading: false })
-  const globalPageRef = useRef(globalPage)
-  const projectPagesRef = useRef(projectPages)
-  const projectTimelinePageRef = useRef(projectTimelinePage)
+  const globalPage = useSessionsStore((s) => s.globalPage)
+  const pinnedPage = useSessionsStore((s) => s.pinnedPage)
+  const projectPages = useSessionsStore((s) => s.projectPages)
+  const projectTimelinePage = useSessionsStore((s) => s.projectTimelinePage)
+  const setGlobalPage = useSessionsStore((s) => s.setGlobalPage)
+  const setPinnedPage = useSessionsStore((s) => s.setPinnedPage)
+  const setProjectPages = useSessionsStore((s) => s.setProjectPages)
+  const setProjectTimelinePage = useSessionsStore((s) => s.setProjectTimelinePage)
   const expandedProjectIdsRef = useRef(expandedProjectIds)
   const requestVersionRef = useRef(0)
   const refreshRoundRef = useRef<RefreshRound | null>(null)
-
-  useEffect(() => {
-    globalPageRef.current = globalPage
-  }, [globalPage])
-
-  useEffect(() => {
-    projectPagesRef.current = projectPages
-  }, [projectPages])
-
-  useEffect(() => {
-    projectTimelinePageRef.current = projectTimelinePage
-  }, [projectTimelinePage])
 
   useEffect(() => {
     expandedProjectIdsRef.current = expandedProjectIds
@@ -113,13 +119,12 @@ export function useSessionPagination({
       if (!isCurrentRequest(version)) return
       setPinnedPage((prev) => ({ ...prev, loading: false, appending: false }))
     }
-  }, [backendRef, isCurrentRequest, sortMode])
+  }, [backendRef, isCurrentRequest, setPinnedPage, sortMode])
 
   const loadGlobalSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
     if (!backend) return
     setGlobalPage((prev) => ({ ...prev, loading: true, appending: offset > 0 }))
-    globalPageRef.current = { ...globalPageRef.current, loading: true, appending: offset > 0 }
     try {
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
@@ -130,34 +135,26 @@ export function useSessionPagination({
       setGlobalPage((prev) => {
         const merged = offset === 0 ? result.values : uniqueSessions([...prev.items, ...result.values])
         const stalled = offset > 0 && result.values.length > 0 && merged.length === prev.items.length
-        const nextPage = {
+        return {
           items: sortSessions(merged, sortMode),
           total: stalled ? merged.length : result.total,
           loading: false,
           appending: false,
         }
-        globalPageRef.current = nextPage
-        return nextPage
       })
     } catch {
       if (!isCurrentRequest(version)) return
-      setGlobalPage((prev) => {
-        const nextPage = { ...prev, loading: false, appending: false }
-        globalPageRef.current = nextPage
-        return nextPage
-      })
+      setGlobalPage((prev) => ({ ...prev, loading: false, appending: false }))
     }
-  }, [backendRef, isCurrentRequest, sortMode])
+  }, [backendRef, isCurrentRequest, setGlobalPage, sortMode])
 
   const loadProjectSessions = useCallback(async (projectId: string, offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
     if (!backend) return
-    setProjectPages((prev) => {
-      const page = prev[projectId]
-      const nextPage = { ...(page ?? { items: [], total: 0 }), loading: true, appending: offset > 0 }
-      projectPagesRef.current = { ...projectPagesRef.current, [projectId]: nextPage }
-      return { ...prev, [projectId]: nextPage }
-    })
+    setProjectPages((prev) => ({
+      ...prev,
+      [projectId]: { ...(prev[projectId] ?? { items: [], total: 0 }), loading: true, appending: offset > 0 },
+    }))
     try {
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
@@ -170,7 +167,7 @@ export function useSessionPagination({
         const prevItems = page?.items ?? []
         const merged = offset === 0 ? result.values : uniqueSessions([...prevItems, ...result.values])
         const stalled = offset > 0 && result.values.length > 0 && merged.length === prevItems.length
-        const nextPages = {
+        return {
           ...prev,
           [projectId]: {
             items: sortSessions(merged, sortMode),
@@ -179,25 +176,20 @@ export function useSessionPagination({
             appending: false,
           },
         }
-        projectPagesRef.current = nextPages
-        return nextPages
       })
     } catch {
       if (!isCurrentRequest(version)) return
-      setProjectPages((prev) => {
-        const page = prev[projectId]
-        const nextPages = { ...prev, [projectId]: { ...(page ?? { items: [], total: 0 }), loading: false, appending: false } }
-        projectPagesRef.current = nextPages
-        return nextPages
-      })
+      setProjectPages((prev) => ({
+        ...prev,
+        [projectId]: { ...(prev[projectId] ?? { items: [], total: 0 }), loading: false, appending: false },
+      }))
     }
-  }, [backendRef, isCurrentRequest, sortMode])
+  }, [backendRef, isCurrentRequest, setProjectPages, sortMode])
 
   const loadProjectTimelineSessions = useCallback(async (offset: number, version = requestVersionRef.current) => {
     const backend = backendRef.current
     if (!backend) return
     setProjectTimelinePage((prev) => ({ ...prev, loading: true, appending: offset > 0 }))
-    projectTimelinePageRef.current = { ...projectTimelinePageRef.current, loading: true, appending: offset > 0 }
     try {
       const indexName = sortMode === 'createdAt' ? 'createdAt' : 'lastModified'
       const result = await backend.fetchPaginatedFromIndex<QuickForgeSessionMetadata>(
@@ -208,24 +200,18 @@ export function useSessionPagination({
       setProjectTimelinePage((prev) => {
         const merged = offset === 0 ? result.values : uniqueSessions([...prev.items, ...result.values])
         const stalled = offset > 0 && result.values.length > 0 && merged.length === prev.items.length
-        const nextPage = {
+        return {
           items: sortSessions(merged, sortMode),
           total: stalled ? merged.length : result.total,
           loading: false,
           appending: false,
         }
-        projectTimelinePageRef.current = nextPage
-        return nextPage
       })
     } catch {
       if (!isCurrentRequest(version)) return
-      setProjectTimelinePage((prev) => {
-        const nextPage = { ...prev, loading: false, appending: false }
-        projectTimelinePageRef.current = nextPage
-        return nextPage
-      })
+      setProjectTimelinePage((prev) => ({ ...prev, loading: false, appending: false }))
     }
-  }, [backendRef, isCurrentRequest, sortMode])
+  }, [backendRef, isCurrentRequest, setProjectTimelinePage, sortMode])
 
   const refreshSessions = useCallback((opts?: { broadcast?: boolean }): Promise<void> => {
     if (!backendRef.current) return Promise.resolve()
@@ -271,7 +257,7 @@ export function useSessionPagination({
 
         setProjectTimelinePage((prev) => ({ ...prev, loading: false, appending: false }))
         const loadedProjectIds = new Set([
-          ...Object.keys(projectPagesRef.current),
+          ...Object.keys(useSessionsStore.getState().projectPages),
           ...expandedProjectIdsRef.current,
         ])
         if (loadedProjectIds.size === 0) {
@@ -287,7 +273,7 @@ export function useSessionPagination({
     })()
 
     return round.promise
-  }, [backendRef, isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, viewMode])
+  }, [backendRef, isCurrentRequest, loadGlobalSessions, loadPinnedSessions, loadProjectSessions, loadProjectTimelineSessions, nextRequestVersion, onBroadcastSessionsChanged, setProjectPages, setProjectTimelinePage, viewMode])
 
   const upsertSessionMetadata = useCallback((session: QuickForgeSessionMetadata) => {
     // 置顶会话只进置顶分区：其余列表以 pinned=exclude 拉取，不持有置顶会话；
@@ -308,7 +294,7 @@ export function useSessionPagination({
       return
     }
     setGlobalPage((page) => upsertSessionPage(page, session, sortMode))
-  }, [sortMode, viewMode])
+  }, [setGlobalPage, setPinnedPage, setProjectPages, setProjectTimelinePage, sortMode, viewMode])
 
   const updateSessionTitle = useCallback((sessionId: string, title: string) => {
     setPinnedPage((page) => patchSessionTitleInPage(page, sessionId, title))
@@ -323,7 +309,7 @@ export function useSessionPagination({
       }))
       return changed ? next : pages
     })
-  }, [])
+  }, [setGlobalPage, setPinnedPage, setProjectPages, setProjectTimelinePage])
 
   const removeSession = useCallback((sessionId: string) => {
     setPinnedPage((page) => removeSessionFromPage(page, sessionId))
@@ -338,7 +324,7 @@ export function useSessionPagination({
       }))
       return changed ? next : pages
     })
-  }, [])
+  }, [setGlobalPage, setPinnedPage, setProjectPages, setProjectTimelinePage])
 
   const sessionsForProject = useCallback((projectId: string) => {
     return projectPages[projectId]?.items ?? []
@@ -360,28 +346,27 @@ export function useSessionPagination({
   }, [loadPinnedSessions, pinnedPage.items.length, pinnedPage.loading, pinnedPage.total])
 
   const loadMoreGlobal = useCallback(async () => {
-    const page = globalPageRef.current
+    const page = useSessionsStore.getState().globalPage
     if (page.loading || page.items.length >= page.total) return false
     const previousCount = page.items.length
     await loadGlobalSessions(previousCount)
-    const nextPage = globalPageRef.current
-    return nextPage.items.length > previousCount
+    return useSessionsStore.getState().globalPage.items.length > previousCount
   }, [loadGlobalSessions])
 
   const loadMoreProject = useCallback(async (projectId: string) => {
-    const page = projectPagesRef.current[projectId]
+    const page = useSessionsStore.getState().projectPages[projectId]
     if (page?.loading || (page && page.items.length >= page.total)) return false
     const previousCount = page?.items.length ?? 0
     await loadProjectSessions(projectId, previousCount)
-    return (projectPagesRef.current[projectId]?.items.length ?? 0) > previousCount
+    return (useSessionsStore.getState().projectPages[projectId]?.items.length ?? 0) > previousCount
   }, [loadProjectSessions])
 
   const loadMoreProjectTimeline = useCallback(async () => {
-    const page = projectTimelinePageRef.current
+    const page = useSessionsStore.getState().projectTimelinePage
     if (page.loading || page.items.length >= page.total) return false
     const previousCount = page.items.length
     await loadProjectTimelineSessions(previousCount)
-    return projectTimelinePageRef.current.items.length > previousCount
+    return useSessionsStore.getState().projectTimelinePage.items.length > previousCount
   }, [loadProjectTimelineSessions])
 
   useEffect(() => {

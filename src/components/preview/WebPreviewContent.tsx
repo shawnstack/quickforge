@@ -206,7 +206,7 @@ export function WebPreviewContent({ url, onUrlChange, projectId, externalReloadT
           <Button type="button" variant="ghost" size="icon" onClick={refreshPreview} disabled={!previewUrl} aria-label={t('refreshPreview')} title={t('refreshPreview')}>
             <RefreshCw className="size-4" />
           </Button>
-          <label className="mx-auto flex h-9 min-w-0 max-w-xl flex-1 items-center rounded-full border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-muted/30 px-3 text-sm">
+          <label className="mx-auto flex h-9 min-w-0 max-w-xl flex-1 items-center rounded-full border border-[color-mix(in_oklab,var(--border)_42%,transparent)] bg-muted/30 px-3 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring">
             <span className="sr-only">{t('previewUrl')}</span>
             <input
               value={draftUrl}

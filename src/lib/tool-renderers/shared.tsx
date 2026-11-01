@@ -11,6 +11,7 @@ import { FileIcon } from '@/components/workspace/file-icon'
 import { formatManageGlobalMemoryOutput } from '@/lib/global-memory-tool-output'
 import { ToolMarqueeController, type ToolMarqueeEnv, type ToolMarqueeView } from '@/lib/tool-marquee'
 import { parseDiffFileInfo, parseDiffRows, diffLineNumber, type DiffRow } from '@/lib/diff-view'
+import { useUIStore } from '@/stores/ui-store'
 
 /**
  * T4（self-hosted-chat-ui）：QuickForge 工具渲染器的 React 公共构件。
@@ -556,10 +557,9 @@ export function renderTerminateCommandButton(toolName: string, status: ToolStatu
   )
 }
 
-// 工具卡片通过 window CustomEvent 桥接触发预览：点击预览按钮 → 派发事件 →
-// App.tsx 监听 → 复用现有预览逻辑（与 React ChatSurface 树外组件共享同一入口）。
-export const PREVIEW_ARTIFACT_EVENT = 'quickforge:preview-artifact'
-
+// 工具卡片预览桥接：点击预览按钮 → 经 ui-store 请求信号 →
+// App.tsx 订阅 → 复用现有预览逻辑（与 React ChatSurface 树外组件共享同一入口，
+// 原 window CustomEvent 桥已由 useUIStore.requestArtifactPreview 替代）。
 type PreviewableArtifact = {
   path: string
   kind?: ArtifactKind
@@ -597,12 +597,12 @@ function resolvePreviewableArtifact(toolName: string, params: Record<string, unk
 
 /** 预览点击桥接：预览按钮与摘要行文件图标共用同一入口——先
  * preventDefault + stopPropagation 阻断 summary 的 details 折叠开关，
- * 再经 window CustomEvent 派发给 App.tsx 的 openArtifactPreview。 */
+ * 再经 ui-store 请求信号转发给 App.tsx 的 openArtifactPreview。 */
 function previewArtifactClickHandler(artifact: PreviewableArtifact) {
   return (event: { preventDefault(): void; stopPropagation(): void }) => {
     event.preventDefault()
     event.stopPropagation()
-    window.dispatchEvent(new CustomEvent(PREVIEW_ARTIFACT_EVENT, { detail: artifact }))
+    useUIStore.getState().requestArtifactPreview(artifact.path, artifact.kind)
   }
 }
 
@@ -629,7 +629,7 @@ function presentedFileEntries(params: Record<string, unknown> | undefined): Pres
 // 而展示出来的每个文件都值得直接点击跳转；文件名下划线也比眼睛图标更直白。
 // 与 renderToolFileSummary 相同的 HTML 约束：元素恒为静态 span（无 role / tabindex，
 // 不进 tab 序列），仅在可预览时挂 click，经 previewArtifactClickHandler 阻断
-// summary 折叠后派发 PREVIEW_ARTIFACT_EVENT；不可预览（含工作区外绝对路径）时纯静态。
+// summary 折叠后发起 ui-store 预览请求；不可预览（含工作区外绝对路径）时纯静态。
 export function renderPresentedFilesSummary(params: Record<string, unknown> | undefined) {
   const entries = presentedFileEntries(params)
   if (!entries.length) return null
@@ -671,7 +671,7 @@ export function renderPresentedFilesSummary(params: Record<string, unknown> | un
 // HTML 规范禁止 <summary> 内嵌交互元素（button / a 等，Chrome DevTools 会报 a11y
 // 警告），但普通元素挂 click 不在禁止之列：路径可预览（resolvePreviewableArtifact
 // 有值）时文件元素仍是静态 span（无 role / tabindex、不进 tab 序列），仅挂 click——
-// 复用 previewArtifactClickHandler（阻断 summary 折叠后派发 PREVIEW_ARTIFACT_EVENT），
+// 复用 previewArtifactClickHandler（阻断 summary 折叠后发起 ui-store 预览请求），
 // 点击文件名即预览（本工具唯一的预览入口，右侧不再渲染眼睛按钮去重）；hover 反馈
 // 克制为仅 basename 文本下划线（underline-offset-4，对齐 MarkdownReader 链接模式），
 // 颜色与透明度保持不变；不可预览时纯静态、不可点击。

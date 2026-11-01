@@ -31,7 +31,7 @@ export function SidebarSearchDialog({
   return (
     <div className={searchDialogClass} role="dialog" aria-modal="true" onMouseDown={() => onClose()}>
       <div className="w-full max-w-xl rounded-2xl border border-border bg-popover p-3 shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="flex items-center gap-2 rounded-xl border border-input bg-background px-3 py-2">
+        <div className="flex items-center gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-4 shrink-0" />
           <input
             ref={inputRef}

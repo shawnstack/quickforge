@@ -31,7 +31,7 @@ export function WorkspaceTreePanel({ projectId, filter, setFilter, trimmedFilter
   return (
     <>
       <div className="mb-2 flex items-center gap-1">
-        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2.5 py-2 text-sm">
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-md border-[0.5px] border-[color-mix(in_oklab,var(--border)_34%,transparent)] bg-background px-2.5 py-2 text-sm focus-within:border-ring focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-4 shrink-0" />
           <input
             value={filter}

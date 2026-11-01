@@ -248,7 +248,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
             }}
             placeholder={t('gitCommitMessagePlaceholder')}
             disabled={Boolean(busy)}
-            className="min-h-40 w-full resize-none bg-transparent pr-12 text-base leading-7 outline-none disabled:opacity-60"
+            className="min-h-40 w-full resize-none bg-transparent pr-12 text-base leading-7 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-60"
           />
           <button
             type="button"

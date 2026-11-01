@@ -244,7 +244,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             onKeyDown={(event) => { if (event.key === 'Enter') void unlock() }}
-            className="mt-5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none"
+            className="mt-5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
             placeholder="密码"
             autoFocus
           />

@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/stores/ui-store'
 
 const AppearanceSettingsTab = lazy(() => import('@/components/settings/tabs/AppearanceSettingsTab').then((m) => ({ default: m.AppearanceSettingsTab })))
 const DefaultOptionsSettingsTab = lazy(() => import('@/components/settings/tabs/DefaultOptionsSettingsTab').then((m) => ({ default: m.DefaultOptionsSettingsTab })))
@@ -23,7 +24,9 @@ function SettingsPanel({ children, wide = false }: { children: ReactNode; wide?:
 }
 
 function openScheduledTaskSession(sessionId: string) {
-  window.dispatchEvent(new CustomEvent('quickforge:open-session-from-settings', { detail: { sessionId } }))
+  // 原 window CustomEvent 桥（quickforge:open-session-from-settings）已由
+  // ui-store 请求信号替代：tab 工厂零 props，App 订阅 useUIStore 处理。
+  useUIStore.getState().requestOpenSession(sessionId)
 }
 
 // Lazy components stay module-scoped so rerendering the workspace never remounts a tab.

@@ -25,6 +25,7 @@ import type {
 } from '@/lib/types'
 import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
 import { randomId } from '@/lib/random-id'
+import { useAgentSessionStore } from '@/stores/agent-session-store'
 import { disposeAgentTask, selectAgentTaskEvictions, touchAgentTask } from '@/lib/agent-task-retention'
 import { drainStoredMessageQueue, pauseStoredMessageQueue } from '@/lib/message-queue-drainer'
 import { showAlert } from '@/components/ui/confirm-dialog'
@@ -97,12 +98,16 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   } = deps
 
   // --- Refs (stable) ---
+  // 可序列化会话域状态已迁入 useAgentSessionStore（见下），但以下 ref 镜像保留：
+  // 它们是 AgentManager 公共接口的一部分（useChatActions 等依赖注入方在稳定
+  // 回调里读取），且 zustand 的 set 同步应用，`useAgentSessionStore.getState()`
+  // 读到的恒为最新值——ref 与 store 在每个写入点同步更新，行为与迁移前完全
+  // 等价（选择保留 ref：改动最小，接口签名不变）。
   const agentRef = useRef<ServerAgent | DeferredSessionAgent | null>(null)
   const taskMapRef = useRef<Map<string, BackgroundTask>>(new Map())
   const currentChatScopeRef = useRef<ChatScope>('global')
   const currentSessionIdRef = useRef<string | undefined>(undefined)
-  const initialRuntimeScopeId = useState(randomId)[0]
-  const currentRuntimeScopeIdRef = useRef(initialRuntimeScopeId)
+  const currentRuntimeScopeIdRef = useRef(useAgentSessionStore.getState().currentRuntimeScopeId)
   const currentTitleRef = useRef('New chat')
   const currentCreatedAtRef = useRef<string | undefined>(undefined)
   const loadSessionRef = useRef<AgentManager['loadSession'] | null>(null)
@@ -121,15 +126,31 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   }, [])
 
   // --- State ---
+  // agent 实例保留 useState：ServerAgent / DeferredSessionAgent 不可序列化、
+  // 含 dispose / unsubscribe 生命周期，属于 hook 实例而非可共享的域状态。
   const [agent, setAgent] = useState<ServerAgent | DeferredSessionAgent | null>(null)
-  const [currentSessionId, setCurrentSessionId] = useState<string | undefined>()
-  const [currentRuntimeScopeId, setCurrentRuntimeScopeId] = useState(initialRuntimeScopeId)
-  const [currentTitle, setCurrentTitle] = useState('New chat')
-  const [chatScope, setChatScope] = useState<ChatScope>('global')
-  const [currentToolProject, setCurrentToolProject] = useState<ProjectInfo>()
-  const [taskStatuses, setTaskStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
-  const [chatPanelRevision, setChatPanelRevision] = useState(0)
-  const [loadingSessionId, setLoadingSessionId] = useState<string>()
+  // 其余可序列化会话域状态已迁入 useAgentSessionStore（zustand）；本 hook 为
+  // 兼容层：经 selector 订阅返回，字段与旧 useState 实现完全一致。setter 从
+  // getState() 解构一次——action 引用恒定（store 工厂创建后不变），等价于旧
+  // useState setter 的稳定性，可在任意回调（含 agent 事件订阅）中直接调用。
+  const currentSessionId = useAgentSessionStore((s) => s.currentSessionId)
+  const currentRuntimeScopeId = useAgentSessionStore((s) => s.currentRuntimeScopeId)
+  const currentTitle = useAgentSessionStore((s) => s.currentTitle)
+  const chatScope = useAgentSessionStore((s) => s.chatScope)
+  const currentToolProject = useAgentSessionStore((s) => s.currentToolProject)
+  const taskStatuses = useAgentSessionStore((s) => s.taskStatuses)
+  const chatPanelRevision = useAgentSessionStore((s) => s.chatPanelRevision)
+  const loadingSessionId = useAgentSessionStore((s) => s.loadingSessionId)
+  const {
+    setCurrentSessionId,
+    setCurrentRuntimeScopeId,
+    setCurrentTitle,
+    setChatScope,
+    setCurrentToolProject,
+    setTaskStatuses,
+    setChatPanelRevision,
+    setLoadingSessionId,
+  } = useAgentSessionStore.getState()
 
   const removeTaskStatuses = useCallback((sessionIds: string[]) => {
     if (sessionIds.length === 0) return
@@ -143,7 +164,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return changed ? next : current
     })
-  }, [])
+  }, [setTaskStatuses])
 
   const pruneIdleTasks = useCallback((currentSessionId?: string) => {
     const sessionIds = selectAgentTaskEvictions(taskMapRef.current.values(), currentSessionId)
@@ -172,7 +193,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       await refreshSessions({ broadcast: true })
     },
-    [refreshSessions],
+    [refreshSessions, setCurrentTitle],
   )
 
   // --- Attach a task to the current view ---
@@ -195,7 +216,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     const url = new URL(window.location.href)
     url.searchParams.set('session', task.sessionId)
     window.history.replaceState({}, '', url)
-  }, [disposeDetachedAgent])
+  }, [disposeDetachedAgent, setChatScope, setCurrentRuntimeScopeId, setCurrentSessionId, setCurrentTitle, setCurrentToolProject])
 
   // --- Create or retrieve an agent ---
   const createAgent = useCallback(
@@ -383,7 +404,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
       }
       return nextAgent
     },
-    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode],
+    [attachTaskToView, disposeDetachedAgent, pruneIdleTasks, refreshSessions, syncSessionUI, updateSessionTitle, storageRef, activeModelRef, agentAccessModeRef, activeProjectRef, defaultWorkspaceRef, setAgentAccessMode, setChatPanelRevision, setCurrentTitle, setTaskStatuses],
   )
 
   const startDeferredSession = useCallback(async (options: { scope: ChatScope; project?: ProjectInfo; shouldAttachToView?: () => boolean }) => {
@@ -443,7 +464,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     // 否则它会滞留在 taskMap 里直到下一次 create/load 事件。
     pruneIdleTasks(undefined)
     return deferredAgent
-  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, pruneIdleTasks, storageRef, agentAccessModeRef])
+  }, [activeModelRef, createAgent, defaultWorkspaceRef, disposeDetachedAgent, pruneIdleTasks, storageRef, agentAccessModeRef, setChatPanelRevision, setChatScope, setCurrentRuntimeScopeId, setCurrentSessionId, setCurrentTitle, setCurrentToolProject])
 
   // --- Load a persisted session ---
   const performLoadSession = useCallback(
@@ -651,7 +672,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         if (loadSessionRequestRef.current === requestId) setLoadingSessionId(undefined)
       }
     },
-    [activeModelRef, activeProjectRef, agentAccessModeRef, attachTaskToView, defaultWorkspaceRef, pruneIdleTasks, refreshSessions, setAgentAccessMode, switchActiveProject, syncSessionUI, updateSessionTitle],
+    [activeModelRef, activeProjectRef, agentAccessModeRef, attachTaskToView, defaultWorkspaceRef, pruneIdleTasks, refreshSessions, setAgentAccessMode, switchActiveProject, syncSessionUI, updateSessionTitle, setChatPanelRevision, setCurrentTitle, setLoadingSessionId, setTaskStatuses],
   )
 
   const loadSession = useCallback<AgentManager['loadSession']>((sessionId, hints) => {
@@ -694,7 +715,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   const setCurrentTitleRef = useCallback((title: string) => {
     currentTitleRef.current = title
     setCurrentTitle(title)
-  }, [])
+  }, [setCurrentTitle])
 
   return {
     agentRef,

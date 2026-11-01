@@ -7,6 +7,8 @@ const reactStub = vi.hoisted(() => ({
   refs: [] as Array<{ current: unknown }>,
   memos: [] as Array<{ deps?: unknown[]; value: unknown }>,
   effects: [] as Array<{ deps?: unknown[]; cleanup?: () => void }>,
+  // zustand useStore（useSyncExternalStore）按 cursor 槽位持有退订函数
+  subscriptions: [] as Array<(() => void) | undefined>,
 }))
 
 const serverAgentMocks = vi.hoisted(() => ({
@@ -21,51 +23,72 @@ function sameDeps(previous: unknown[] | undefined, next: unknown[] | undefined) 
 
 // 与真实 React 对齐的最小测试桩：deps 不变时 effect/useMemo 不重跑，
 // useCallback 每次渲染返回新函数（真实场景中 sessions 数组身份变化即如此）。
-vi.mock('react', () => ({
-  useCallback<T>(callback: T) {
-    return callback
-  },
-  useEffect(effect: () => void | (() => void), deps?: unknown[]) {
-    const index = reactStub.cursor
-    reactStub.cursor += 1
-    const previous = reactStub.effects[index]
-    if (previous && sameDeps(previous.deps, deps)) return
-    previous?.cleanup?.()
-    const cleanup = effect()
-    reactStub.effects[index] = { deps, cleanup: typeof cleanup === 'function' ? cleanup : undefined }
-  },
-  useMemo<T>(factory: () => T, deps?: unknown[]) {
-    const index = reactStub.cursor
-    reactStub.cursor += 1
-    const previous = reactStub.memos[index]
-    if (previous && sameDeps(previous.deps, deps)) return previous.value as T
-    const value = factory()
-    reactStub.memos[index] = { deps, value }
-    return value
-  },
-  useRef<T>(initialValue: T) {
-    const index = reactStub.cursor
-    reactStub.cursor += 1
-    if (!reactStub.refs[index]) reactStub.refs[index] = { current: initialValue }
-    return reactStub.refs[index] as { current: T }
-  },
-  useState<T>(initialValue: T | (() => T)) {
-    const index = reactStub.cursor
-    reactStub.cursor += 1
-    if (!(index in reactStub.states)) {
-      reactStub.states[index] = typeof initialValue === 'function'
-        ? (initialValue as () => T)()
-        : initialValue
-    }
-    const setState = (update: T | ((previous: T) => T)) => {
-      const previous = reactStub.states[index] as T
-      reactStub.states[index] = typeof update === 'function'
-        ? (update as (value: T) => T)(previous)
-        : update
-    }
-    return [reactStub.states[index] as T, setState] as const
-  },
-}))
+// 状态已迁入 zustand store，故额外提供 zustand useStore 所需的
+// useSyncExternalStore/useDebugValue 及 default 导出（esm/react.mjs 经
+// `import React from 'react'` 调用 React.* hooks）。
+vi.mock('react', () => {
+  const stub = {
+    useCallback<T>(callback: T) {
+      return callback
+    },
+    useEffect(effect: () => void | (() => void), deps?: unknown[]) {
+      const index = reactStub.cursor
+      reactStub.cursor += 1
+      const previous = reactStub.effects[index]
+      if (previous && sameDeps(previous.deps, deps)) return
+      previous?.cleanup?.()
+      const cleanup = effect()
+      reactStub.effects[index] = { deps, cleanup: typeof cleanup === 'function' ? cleanup : undefined }
+    },
+    useMemo<T>(factory: () => T, deps?: unknown[]) {
+      const index = reactStub.cursor
+      reactStub.cursor += 1
+      const previous = reactStub.memos[index]
+      if (previous && sameDeps(previous.deps, deps)) return previous.value as T
+      const value = factory()
+      reactStub.memos[index] = { deps, value }
+      return value
+    },
+    useRef<T>(initialValue: T) {
+      const index = reactStub.cursor
+      reactStub.cursor += 1
+      if (!reactStub.refs[index]) reactStub.refs[index] = { current: initialValue }
+      return reactStub.refs[index] as { current: T }
+    },
+    useState<T>(initialValue: T | (() => T)) {
+      const index = reactStub.cursor
+      reactStub.cursor += 1
+      if (!(index in reactStub.states)) {
+        reactStub.states[index] = typeof initialValue === 'function'
+          ? (initialValue as () => T)()
+          : initialValue
+      }
+      const setState = (update: T | ((previous: T) => T)) => {
+        const previous = reactStub.states[index] as T
+        reactStub.states[index] = typeof update === 'function'
+          ? (update as (value: T) => T)(previous)
+          : update
+      }
+      return [reactStub.states[index] as T, setState] as const
+    },
+    // 同步渲染模型下取当次快照即可；订阅仅按槽位持有退订函数，本测试不依赖跨渲染通知。
+    useSyncExternalStore<T>(
+      subscribe: (onStoreChange: () => void) => () => void,
+      getSnapshot: () => T,
+    ): T {
+      const index = reactStub.cursor
+      reactStub.cursor += 1
+      if (!reactStub.subscriptions[index]) {
+        reactStub.subscriptions[index] = subscribe(() => {})
+      }
+      return getSnapshot()
+    },
+    useDebugValue(): void {
+      /* noop */
+    },
+  }
+  return { ...stub, default: stub }
+})
 
 vi.mock('@/lib/server-agent', () => serverAgentMocks)
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
@@ -137,6 +160,7 @@ describe('useVisibleRuntimeStatuses', () => {
     reactStub.refs = []
     reactStub.memos = []
     reactStub.effects = []
+    reactStub.subscriptions = []
     serverAgentMocks.fetchActiveAgentStatuses.mockClear()
     serverAgentMocks.subscribeToAgentEvents.mockClear()
     windowEnv = createWindowEnv()

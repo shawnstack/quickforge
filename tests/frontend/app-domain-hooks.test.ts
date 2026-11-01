@@ -7,6 +7,7 @@ import { shouldRefreshTitleGitStatusOnToolEnd } from '../../src/lib/title-git-st
 import { HookLifecycle, deferred, flushPromises } from './helpers/hook-lifecycle'
 import { useAppTerminal, useAppTerminalState } from '../../src/hooks/useAppTerminal'
 import { useAppGit, useAppGitMenu, useAppGitState } from '../../src/hooks/useAppGit'
+import { useGitStore } from '../../src/stores/git-store'
 import { useAppLoadingState, useAppStartupMinimum, useAppLoadingEffects, useAppLoadingTransitions, useAppStartupExit } from '../../src/hooks/useAppLoadingTransitions'
 
 const { showAlert, showConfirm, getGitStatus, checkoutGitBranch, logger, listeners, subscribeToAgentEvents } = vi.hoisted(() => {
@@ -20,7 +21,13 @@ const { showAlert, showConfirm, getGitStatus, checkoutGitBranch, logger, listene
     }),
   }
 })
-vi.mock('react', async () => (await import('./helpers/hook-lifecycle')).hookRuntime)
+vi.mock('react', async (importOriginal) => {
+  const original = await importOriginal<typeof import('react')>()
+  const { reactMockWithRuntime } = await import('./helpers/hook-lifecycle')
+  // default 导出必须指向带 runtime hooks 的对象：useAppGitState 兼容层经
+  // zustand useStore 消费 `import React from 'react'`。
+  return reactMockWithRuntime(original)
+})
 vi.mock('@/components/ui/confirm-dialog', () => ({ showAlert, showConfirm }))
 vi.mock('@/components/workspace/workspace-api', () => ({ getGitStatus, checkoutGitBranch }))
 vi.mock('@/lib/logger', () => ({ logger }))
@@ -93,6 +100,15 @@ beforeEach(() => {
   checkoutGitBranch.mockReset()
   showConfirm.mockReset()
   listeners.clear()
+  // git 域状态已迁入全局 zustand store，HookLifecycle 每用例新建 slots 但
+  // store 是模块级单例，需显式重置避免跨用例泄漏。
+  useGitStore.setState({
+    titleGitStatus: undefined,
+    branchMenuOpen: false,
+    gitToolsExpanded: false,
+    gitCommitDialogOpen: false,
+    gitGraphOpen: false,
+  })
   lifecycle = new HookLifecycle()
   target = new EventTarget()
   frames = new Map()

@@ -3,6 +3,7 @@ import type { BackgroundTaskStatus } from './types'
 import { t } from './i18n'
 import { logger } from './logger'
 import { isRemoteQuickForgeClient } from './mobile-server'
+import { useUIStore } from '@/stores/ui-store'
 
 const ENABLED_STORAGE_KEY = 'quickforge:system-notifications-enabled'
 const ANDROID_REMOTE_PERMISSION_REQUESTED_STORAGE_KEY = 'quickforge:android-remote-notification-permission-requested:v1'
@@ -106,9 +107,9 @@ function openSession(sessionId?: string): void {
   if (typeof window === 'undefined') return
   window.focus()
   if (!sessionId) return
-  window.dispatchEvent(new CustomEvent('quickforge:open-session-from-settings', {
-    detail: { sessionId },
-  }))
+  // OS 通知回调完全在 React 树外：经 ui-store 请求信号转发给 App
+  //（原 window CustomEvent 桥 quickforge:open-session-from-settings）。
+  useUIStore.getState().requestOpenSession(sessionId)
 }
 
 function stableNotificationId(value: string): number {

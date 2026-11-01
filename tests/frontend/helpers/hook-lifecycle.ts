@@ -82,6 +82,25 @@ export const hookRuntime = {
     return hookRuntime.useMemo(() => callback, deps)
   },
   useEffect(effect: Effect, deps?: DependencyList) { current().effect(effect, deps) },
+  /** DevTools 钩子，同步渲染模型下为 no-op（zustand useStore 会调用）。 */
+  useDebugValue(): void { /* noop */ },
+  /** zustand useStore（useSyncExternalStore）所需的最小实现：
+   *  首次取快照并订阅；同步模型下由订阅回调直接更新 slot.value，
+   *  下一次 render() 返回最新快照；cleanup 挂卸载退订。 */
+  useSyncExternalStore<T>(
+    subscribe: (onStoreChange: () => void) => () => void,
+    getSnapshot: () => T,
+  ): T {
+    const slot = current().slot()
+    if (!slot.cleanup) {
+      slot.value = getSnapshot()
+      slot.cleanup = subscribe(() => {
+        const next = getSnapshot()
+        if (!Object.is(slot.value, next)) slot.value = next
+      })
+    }
+    return slot.value as T
+  },
 }
 
 export function deferred<T>() {
@@ -93,4 +112,14 @@ export function deferred<T>() {
 
 export async function flushPromises() {
   for (let i = 0; i < 10; i += 1) await Promise.resolve()
+}
+
+/** 组装可传给 vi.mock('react') 的模块对象：真实 react 展开 + hookRuntime 覆盖。
+ *  关键点：zustand（esm/react.mjs）经 `import React from 'react'` 消费 default
+ *  导出并调用 React.useCallback / React.useSyncExternalStore，因此 default 也
+ *  必须指向带 runtime hooks 的对象，否则 store selector 在 mock 下崩溃。 */
+export function reactMockWithRuntime(original: typeof import('react')) {
+  const mockModule = { ...original, ...hookRuntime } as typeof original & typeof hookRuntime
+  ;(mockModule as unknown as { default: unknown }).default = { ...mockModule }
+  return mockModule
 }

@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ProjectInfo } from '@/lib/types'
-import type { useUIState } from './useUIState'
-
-type UIState = ReturnType<typeof useUIState>
+import { useUIStore } from '@/stores/ui-store'
 
 /** 移动端侧栏抽屉：role=dialog + aria-modal，所以 Escape 必须关闭、打开时焦点移入、
  *  关闭时还原给打开者。这里的 `*FromSidebar` 包装先收抽屉再转发桌面同名动作，
- *  与桌面直连处理器分开保持引用稳定（memo 的桌面 ChatSidebar 不随无关状态重渲染）。 */
+ *  与桌面直连处理器分开保持引用稳定（memo 的桌面 ChatSidebar 不随无关状态重渲染）。
+ *  抽屉开合状态直连 ui-store（原 ui 参数已去除）。 */
 export function useMobileSidebar(options: {
-  ui: UIState
   loadSessionWithTransition: (sessionId: string) => void
   startNewDefaultSession: () => void
   startNewExplicitGlobalSession: () => void
@@ -19,15 +17,18 @@ export function useMobileSidebar(options: {
   openScheduledTasks: () => void
   openProjectSkills: (project: ProjectInfo) => void
 }) {
-  const { ui, loadSessionWithTransition, startNewDefaultSession, startNewExplicitGlobalSession, startNewProjectChatWithInspectorReset, openGlobalSkills, openMcp, openAgents, openScheduledTasks, openProjectSkills } = options
+  const { loadSessionWithTransition, startNewDefaultSession, startNewExplicitGlobalSession, startNewProjectChatWithInspectorReset, openGlobalSkills, openMcp, openAgents, openScheduledTasks, openProjectSkills } = options
+
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen)
+  const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen)
 
   const closeMobileSidebar = useCallback(() => {
-    ui.setMobileSidebarOpen(false)
-  }, [ui])
+    setMobileSidebarOpen(false)
+  }, [setMobileSidebarOpen])
 
   const mobileSidebarDrawerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!ui.mobileSidebarOpen) return
+    if (!mobileSidebarOpen) return
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
     mobileSidebarDrawerRef.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
@@ -41,7 +42,7 @@ export function useMobileSidebar(options: {
       document.removeEventListener('keydown', handleKey)
       if (previouslyFocused && previouslyFocused.isConnected) previouslyFocused.focus()
     }
-  }, [ui.mobileSidebarOpen, closeMobileSidebar])
+  }, [mobileSidebarOpen, closeMobileSidebar])
 
   const loadSessionFromSidebar = useCallback((sessionId: string) => {
     closeMobileSidebar()

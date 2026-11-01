@@ -1,29 +1,14 @@
-import { useCallback, useState } from 'react'
-import type { ToastItem } from '@/components/ui/toast'
-import type { BackgroundTaskStatus } from '@/lib/types'
-import { randomId } from '@/lib/random-id'
+import { useTaskToastsStore } from '@/stores/task-toasts-store'
 
+/** Toast 状态已迁入 useTaskToastsStore（zustand）。
+ *  本 hook 保留为兼容层：返回结构与旧实现一致，App.tsx 接线不变；
+ *  action 引用恒定（等价于旧 useCallback([])），下游依赖数组的稳定性不受影响。
+ */
 export function useTaskToasts() {
-  const [toasts, setToasts] = useState<ToastItem[]>([])
-
-  const addToast = useCallback((toast: Omit<ToastItem, 'id' | 'createdAt'>) => {
-    setToasts((prev) => [...prev, {
-      ...toast,
-      id: randomId(),
-      createdAt: Date.now(),
-    }])
-  }, [])
-
-  const handleTaskComplete = useCallback(
-    (sessionId: string, title: string, status: BackgroundTaskStatus) => {
-      addToast({ sessionId, title, status })
-    },
-    [addToast],
-  )
-
-  const dismissToast = useCallback((id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id))
-  }, [])
+  const toasts = useTaskToastsStore((s) => s.toasts)
+  const handleTaskComplete = useTaskToastsStore((s) => s.handleTaskComplete)
+  const addToast = useTaskToastsStore((s) => s.addToast)
+  const dismissToast = useTaskToastsStore((s) => s.dismissToast)
 
   return {
     toasts,

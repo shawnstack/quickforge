@@ -4,6 +4,7 @@ import { loadMemorySettings, saveMemorySettings } from '@/lib/memory-settings'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { SettingsSwitch } from './shared'
+import { useUIStore } from '@/stores/ui-store'
 
 type MemoryDocument = {
   enabled: boolean
@@ -226,7 +227,9 @@ export function MemorySettingsTab() {
               className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
               type="button"
               onClick={() => {
-                window.dispatchEvent(new CustomEvent('quickforge:open-settings-tab', { detail: { tab: 'dreaming' } }))
+                // 跨 tab 跳转（原 window CustomEvent 桥 quickforge:open-settings-tab
+                // 已由 ui-store 请求信号替代，SettingsWorkspacePage 订阅处理）。
+                useUIStore.getState().requestSettingsTab('dreaming')
               }}
             >{t('memoryDreamingOpen')}</button>
           </div>

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { fetchActiveAgentStatuses, subscribeToAgentEvents } from '@/lib/server-agent'
 import type { BackgroundTaskStatus, QuickForgeSessionMetadata } from '@/lib/types'
 import { logger } from '@/lib/logger'
+import { useRuntimeStatusesStore } from '@/stores/runtime-statuses-store'
 
 function toBackgroundTaskStatus(status: unknown): BackgroundTaskStatus | undefined {
   return status === 'running' || status === 'idle' || status === 'error' || status === 'aborted'
@@ -9,9 +10,16 @@ function toBackgroundTaskStatus(status: unknown): BackgroundTaskStatus | undefin
     : undefined
 }
 
+/** 运行态状态已迁入 useRuntimeStatusesStore（zustand）。
+ *  本 hook 保留为兼容层：返回结构与旧实现一致，App.tsx 接线不变；
+ *  setter 引用恒定（等价于旧 useState setter），轮询 / SSE / visibilitychange
+ *  副作用逻辑仍在此处，只是 setState 改为调用 store 的 set action。
+ */
 export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[]) {
-  const [statuses, setStatuses] = useState<Record<string, BackgroundTaskStatus>>({})
-  const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(() => new Set())
+  const statuses = useRuntimeStatusesStore((s) => s.statuses)
+  const completedSessionIds = useRuntimeStatusesStore((s) => s.completedSessionIds)
+  const setStatuses = useRuntimeStatusesStore((s) => s.setStatuses)
+  const setCompletedSessionIds = useRuntimeStatusesStore((s) => s.setCompletedSessionIds)
 
   const visibleSessionIds = useMemo(() => {
     return new Set(sessions.map((session) => session.id))
@@ -53,7 +61,7 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
     } catch (error) {
       logger.error('Failed to refresh visible agent statuses:', error)
     }
-  }, [visibleSessionIds])
+  }, [visibleSessionIds, setStatuses])
 
   // sessions 数组身份变化会重建 refreshVisibleStatuses（其闭包依赖 visibleSessionIds），
   // 用 ref 持有最新回调，让刷新只在可见 id 集合真正变化时触发。
@@ -101,7 +109,7 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
     })
 
     return unsubscribe
-  }, [visibleSessionIds])
+  }, [visibleSessionIds, setStatuses, setCompletedSessionIds])
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -120,7 +128,7 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
       next.delete(sessionId)
       return next
     })
-  }, [])
+  }, [setCompletedSessionIds])
 
   return { statuses, completedSessionIds, markSessionRead }
 }

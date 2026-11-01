@@ -29,7 +29,9 @@ import { SIDEBAR_SESSION_DISPLAY_STEP } from '@/lib/sidebar-session-display'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
-import type { SidebarSectionId, SidebarSectionOrder } from '@/lib/sidebar-section-order'
+import { useUIStore } from '@/stores/ui-store'
+import { useSidebarOrderingStore } from '@/stores/sidebar-ordering-store'
+import type { SidebarSectionId } from '@/lib/sidebar-section-order'
 import type {
   ProjectInfo,
   QuickForgeSessionMetadata,
@@ -83,19 +85,12 @@ import { useSidebarResize } from './chat-sidebar/useSidebarResize'
 import { useSidebarSessionDisplay } from './chat-sidebar/useSidebarSessionDisplay'
 
 type ChatSidebarProps = {
-  sidebarOpen: boolean
   variant?: 'desktop' | 'mobile'
-  projectsCollapsed: boolean
-  pinnedCollapsed: boolean
-  conversationsCollapsed: boolean
-  sectionOrder: SidebarSectionOrder
   projects: ProjectInfo[]
   expandedProjectIds: Set<string>
   activeProject?: ProjectInfo
   currentSessionId?: string
   loadingSessionId?: string
-  sessionViewMode: SidebarSessionViewMode
-  sessionSortMode: SidebarSessionSortMode
   globalSessions: QuickForgeSessionMetadata[]
   pinnedSessions: QuickForgeSessionMetadata[]
   pinnedHasMore: boolean
@@ -120,10 +115,6 @@ type ChatSidebarProps = {
   sessionTaskStatus: (session: QuickForgeSessionMetadata) => BackgroundTaskStatus
   completedSessionIds: Set<string>
   selectingProject: boolean
-  onTogglePinnedCollapsed: () => void
-  onToggleProjectsCollapsed: () => void
-  onToggleConversationsCollapsed: () => void
-  onReorderSections: (activeId: SidebarSectionId, overId: SidebarSectionId) => void
   onToggleProjectExpanded: (projectId: string) => void
   onToggleAllProjectsExpanded: () => void
   onReorderProjects: (orderedIds: string[]) => void
@@ -137,8 +128,6 @@ type ChatSidebarProps = {
   onOpenProjectInExplorer?: (project: ProjectInfo) => void
   onDeleteProject: (projectId: string) => void | Promise<void>
   onLoadSession: (sessionId: string) => void
-  onSessionViewModeChange: (mode: SidebarSessionViewMode) => void
-  onSessionSortModeChange: (mode: SidebarSessionSortMode) => void
   onTogglePinSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void | Promise<void>
   onStartNewDefaultChat: () => void
@@ -152,7 +141,6 @@ type ChatSidebarProps = {
   updateAvailable?: boolean
   latestVersion?: string
   currentVersion?: string
-  onToggleSidebar: () => void
   onWidthChange?: (width: number) => void
   currentSessionHoverInfo?: {
     sessionId?: string
@@ -170,19 +158,12 @@ const deleteSessionFadeMs = 140
 const sessionHoverTipDelayMs = 400
 
 export const ChatSidebar = memo(function ChatSidebar({
-  sidebarOpen,
   variant = 'desktop',
-  projectsCollapsed,
-  pinnedCollapsed,
-  conversationsCollapsed,
-  sectionOrder,
   projects,
   expandedProjectIds,
   activeProject,
   currentSessionId,
   loadingSessionId,
-  sessionViewMode,
-  sessionSortMode,
   globalSessions,
   pinnedSessions,
   pinnedHasMore,
@@ -205,10 +186,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   sessionTaskStatus,
   completedSessionIds,
   selectingProject,
-  onTogglePinnedCollapsed,
-  onToggleProjectsCollapsed,
-  onToggleConversationsCollapsed,
-  onReorderSections,
   onToggleProjectExpanded,
   onToggleAllProjectsExpanded,
   onReorderProjects,
@@ -222,8 +199,6 @@ export const ChatSidebar = memo(function ChatSidebar({
   onOpenProjectInExplorer,
   onDeleteProject,
   onLoadSession,
-  onSessionViewModeChange,
-  onSessionSortModeChange,
   onTogglePinSession,
   onDeleteSession,
   onStartNewDefaultChat,
@@ -237,11 +212,36 @@ export const ChatSidebar = memo(function ChatSidebar({
   updateAvailable,
   latestVersion,
   currentVersion,
-  onToggleSidebar,
   onWidthChange,
   currentSessionHoverInfo,
 }: ChatSidebarProps) {
   const isMobile = variant === 'mobile'
+
+  // UI 开合 / 排序状态直连 ui-store 与 sidebar-ordering-store（原 props 已去除；
+  // 桌面与移动两个实例天然共享同一份状态）。内部变量名保持与原 props 一致，
+  // 契约测试（sidebar-section-order）锁定的调用形式不变。
+  const sidebarOpen = useUIStore((s) => s.sidebarOpen)
+  const projectsCollapsed = useUIStore((s) => s.projectsCollapsed)
+  const pinnedCollapsed = useUIStore((s) => s.pinnedCollapsed)
+  const conversationsCollapsed = useUIStore((s) => s.conversationsCollapsed)
+  const storeToggleProjectsCollapsed = useUIStore((s) => s.toggleProjectsCollapsed)
+  const togglePinnedCollapsed = useUIStore((s) => s.togglePinnedCollapsed)
+  const storeToggleConversationsCollapsed = useUIStore((s) => s.toggleConversationsCollapsed)
+  const setSidebarOpen = useUIStore((s) => s.setSidebarOpen)
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen)
+  const sectionOrder = useSidebarOrderingStore((s) => s.sidebarSectionOrder)
+  const onReorderSections = useSidebarOrderingStore((s) => s.handleSidebarSectionReorder)
+  const sessionViewMode = useSidebarOrderingStore((s) => s.sidebarSessionViewMode)
+  const sessionSortMode = useSidebarOrderingStore((s) => s.sidebarSessionSortMode)
+  const onSessionViewModeChange = useSidebarOrderingStore((s) => s.setSidebarSessionViewMode)
+  const onSessionSortModeChange = useSidebarOrderingStore((s) => s.setSidebarSessionSortMode)
+  const toggleDesktopSidebar = useCallback(() => setSidebarOpen((v) => !v), [setSidebarOpen])
+  const closeMobileSidebarDrawer = useCallback(() => setMobileSidebarOpen(false), [setMobileSidebarOpen])
+  const onToggleSidebar = isMobile ? closeMobileSidebarDrawer : toggleDesktopSidebar
+  const onTogglePinnedCollapsed = togglePinnedCollapsed
+  // storeToggleProjects/ConversationsCollapsed（裸 toggle）在下方作为
+  // useSidebarSessionDisplay 的入参传入，其返回的包装版（带 show-more 失效
+  // 逻辑）才是 JSX 实际调用的 toggleXxxCollapsed()。
 
   const { asideRef, sidebarWidth, isResizing, startResizing, resizeSidebar, stopResizing, resetSidebarWidth } =
     useSidebarResize({ isMobile, sidebarOpen })
@@ -395,8 +395,8 @@ export const ChatSidebar = memo(function ChatSidebar({
     onLoadMoreProject,
     onToggleProjectExpanded,
     onToggleAllProjectsExpanded,
-    onToggleProjectsCollapsed,
-    onToggleConversationsCollapsed,
+    onToggleProjectsCollapsed: storeToggleProjectsCollapsed,
+    onToggleConversationsCollapsed: storeToggleConversationsCollapsed,
   })
 
   const visibleTimelineSessions = timelineSessions.slice(0, timelineVisibleCount)

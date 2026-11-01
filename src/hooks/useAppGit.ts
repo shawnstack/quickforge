@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { RefObject } from 'react'
 import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 import { checkoutGitBranch, getGitStatus } from '@/components/workspace/workspace-api'
+import { useGitStore } from '@/stores/git-store'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
 import { shouldRefreshTitleGitStatusOnToolEnd } from '@/lib/title-git-status-refresh'
@@ -10,14 +11,29 @@ import { t } from '@/lib/i18n'
 import { logger } from '@/lib/logger'
 import type { useTaskToasts } from './useTaskToasts'
 
+/** Git 域 UI 状态已迁入 useGitStore（zustand）。
+ *  本 hook 保留为兼容层：字段与旧实现完全一致（含 useState 风格的
+ *  Dispatch<SetStateAction<T>> setter 签名），App.tsx 接线不变；
+ *  action 引用恒定，等价于旧 useState setter 的稳定引用。
+ *
+ *  注意：titleGitStatus 的 fetch、SSE 工具结束 400ms debounce 与请求守卫
+ *  （titleGitRequestIdRef / titleGitAbortRef）是有副作用的 ref 逻辑，
+ *  不进 store 响应式状态，仍由本 hook 以 useRef 创建并经参数传递
+ *  （useAppGit 的副作用链与 App.tsx 的项目切换中止 effect 依赖它们）。
+ */
 export function useAppGitState() {
-  const [titleGitStatus, setTitleGitStatus] = useState<GitStatusResponse | undefined>()
+  const titleGitStatus = useGitStore((s) => s.titleGitStatus)
+  const setTitleGitStatus = useGitStore((s) => s.setTitleGitStatus)
+  const branchMenuOpen = useGitStore((s) => s.branchMenuOpen)
+  const setBranchMenuOpen = useGitStore((s) => s.setBranchMenuOpen)
+  const gitToolsExpanded = useGitStore((s) => s.gitToolsExpanded)
+  const setGitToolsExpanded = useGitStore((s) => s.setGitToolsExpanded)
+  const gitCommitDialogOpen = useGitStore((s) => s.gitCommitDialogOpen)
+  const setGitCommitDialogOpen = useGitStore((s) => s.setGitCommitDialogOpen)
+  const gitGraphOpen = useGitStore((s) => s.gitGraphOpen)
+  const setGitGraphOpen = useGitStore((s) => s.setGitGraphOpen)
   const titleGitRequestIdRef = useRef(0)
   const titleGitAbortRef = useRef<AbortController | null>(null)
-  const [branchMenuOpen, setBranchMenuOpen] = useState(false)
-  const [gitToolsExpanded, setGitToolsExpanded] = useState(false)
-  const [gitCommitDialogOpen, setGitCommitDialogOpen] = useState(false)
-  const [gitGraphOpen, setGitGraphOpen] = useState(false)
   return { titleGitStatus, setTitleGitStatus, titleGitRequestIdRef, titleGitAbortRef, branchMenuOpen, setBranchMenuOpen, gitToolsExpanded, setGitToolsExpanded, gitCommitDialogOpen, setGitCommitDialogOpen, gitGraphOpen, setGitGraphOpen }
 }
 

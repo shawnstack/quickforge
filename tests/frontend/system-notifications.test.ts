@@ -252,10 +252,10 @@ describe('system notifications', () => {
     const handler = addEventListener.mock.calls[0]?.[1] as (event: MessageEvent) => void
     handler({ data: { type: 'quickforge:open-session', sessionId: 'session-clicked' } } as MessageEvent)
     expect(window.focus).toHaveBeenCalledTimes(1)
-    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'quickforge:open-session-from-settings',
-      detail: { sessionId: 'session-clicked' },
-    }))
+    // 原 window CustomEvent 桥已由 ui-store 请求信号替代（resetModules 后与被测
+    // 模块同一模块图，动态 import 拿到同一 store 实例）。
+    const { useUIStore } = await import('../../src/stores/ui-store')
+    expect(useUIStore.getState().openSessionRequest).toMatchObject({ sessionId: 'session-clicked' })
   })
 
   it('requests notification permission once on the first valid Android remote send', async () => {
@@ -396,10 +396,9 @@ describe('system notifications', () => {
 
     openSessionCallback?.('desktop-session-clicked')
     expect(window.focus).toHaveBeenCalledTimes(1)
-    expect(window.dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'quickforge:open-session-from-settings',
-      detail: { sessionId: 'desktop-session-clicked' },
-    }))
+    // 原 window CustomEvent 桥已由 ui-store 请求信号替代。
+    const { useUIStore } = await import('../../src/stores/ui-store')
+    expect(useUIStore.getState().openSessionRequest).toMatchObject({ sessionId: 'desktop-session-clicked' })
   })
 
   it('keeps Capacitor delivery ahead of the Desktop bridge', async () => {

@@ -7,29 +7,29 @@
 | Hook 文件 | 行数 | 用途 |
 |-----------|------|------|
 | [useAppBootstrap.ts](../../../../src/hooks/useAppBootstrap.ts) | 257 | 应用启动引导：Settings 快照预应用（SWR）+ Storage 初始化 + 设置校准 + 会话恢复 |
-| [useAgentManager.ts](../../../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话；后台 task 的 `agent_end` 触发该会话排队消息后台续发（正常结束 drain / aborted、error 暂停，仅后台 task） |
+| [useAgentManager.ts](../../../../src/hooks/useAgentManager.ts) | 537 | Agent 生命周期管理：创建、加载、切换会话；可序列化会话域状态（currentSessionId/currentTitle/chatScope/taskStatuses 等 8 项）在 `src/stores/agent-session-store.ts`，agent 实例与全部 ref/副作用（LRU 淘汰、in-flight 去重、事件订阅）留 hook；后台 task 的 `agent_end` 触发该会话排队消息后台续发（正常结束 drain / aborted、error 暂停，仅后台 task） |
 | [useChatActions.ts](../../../../src/hooks/useChatActions.ts) | 311 | 聊天操作：发送消息、回滚、分叉、复制 |
 | [useModelActions.ts](../../../../src/hooks/useModelActions.ts) | 232 | 模型操作：选择模型、切换访问模式、管理工具 |
 | [useSessionActions.ts](../../../../src/hooks/useSessionActions.ts) | 105 | 会话操作：归档、置顶、重命名、刷新 |
-| [useSessionPagination.ts](../../../../src/hooks/useSessionPagination.ts) | 429 | 会话分页加载；`refreshSessions()` 带 `REFRESH_SESSIONS_MERGE_MS`（250ms）in-flight 合并——窗口内重复调用复用同一轮 Promise，合并进来的 `broadcast` 需求仍在轮尾触发一次广播 |
-| [useProject.ts](../../../../src/hooks/useProject.ts) | 221 | 项目状态管理；含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造）与 `createProjectInWorkspace(name)`（`POST /api/project/create`，在默认 workspace 下建目录并激活） |
+| [useSessionPagination.ts](../../../../src/hooks/useSessionPagination.ts) | 406 | 会话分页加载兼容层：四路分页状态（pinned/global/projectPages/projectTimelinePage）已迁入 `src/stores/sessions-store.ts`（zustand），本 hook 保留请求编排与返回契约；`refreshSessions()` 带 `REFRESH_SESSIONS_MERGE_MS`（250ms）in-flight 合并——窗口内重复调用复用同一轮 Promise，合并进来的 `broadcast` 需求仍在轮尾触发一次广播 |
+| [useProject.ts](../../../../src/hooks/useProject.ts) | 254 | 项目域兼容层：activeProject / projects / defaultWorkspace / expandedProjectIds / selectingProject / projectPickerOpen 已迁入 `src/stores/project-store.ts`（zustand，expandedProjectIds 的 localStorage 持久化为 action 内直写），返回结构与签名不变，仅 App.tsx 消费；fetch/api-cache 与 switch/path/create/reorder 等 POST 副作用编排保留在 hook。含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造）与 `createProjectInWorkspace(name)`（`POST /api/project/create`，在默认 workspace 下建目录并激活） |
 | [useProjectActions.ts](../../../../src/hooks/useProjectActions.ts) | 58 | 项目操作：切换、添加、删除 |
 | [useAgentAccessActions.ts](../../../../src/hooks/useAgentAccessActions.ts) | 66 | Agent 访问模式操作 |
-| [useAgentAccessMode.ts](../../../../src/hooks/useAgentAccessMode.ts) | 17 | Agent 访问模式状态 |
+| [useAgentAccessMode.ts](../../../../src/hooks/useAgentAccessMode.ts) | 17 | Agent 访问模式兼容层（状态在 `src/stores/agent-access-mode-store.ts`，initialize 副作用留 hook） |
 | [useAppTheme.ts](../../../../src/hooks/useAppTheme.ts) | 23 | 应用主题状态 |
 | [useCodeFontMetrics.ts](../../../../src/hooks/useCodeFontMetrics.ts) | 17 | 代码字体尺寸状态 |
 | [useCrossTabSync.ts](../../../../src/hooks/useCrossTabSync.ts) | 104 | 跨标签页同步 |
 | [useSentinel.ts](../../../../src/hooks/useSentinel.ts) | 57 | 哨兵元素（用于 Infinite Scroll） |
-| [useTaskToasts.ts](../../../../src/hooks/useTaskToasts.ts) | 35 | 后台任务 Toast 通知管理 |
-| [useUIState.ts](../../../../src/hooks/useUIState.ts) | 57 | 应用 UI 状态管理 |
-| [useUpdateCheck.ts](../../../../src/hooks/useUpdateCheck.ts) | 121 | 应用更新检查（启动后台静默检查；经 `update-check-poll.ts` 轮询非阻塞快照接口，失败静默） |
-| [useVisibleRuntimeStatuses.ts](../../../../src/hooks/useVisibleRuntimeStatuses.ts) | 127 | 可见会话的后台任务状态轮询；刷新 effect 只依赖会话 id 集合内容（`visibleSessionKey`），列表数组身份变化不再重复请求 `/api/agents` |
-| [useSidebarOrdering.ts](../../../../src/hooks/useSidebarOrdering.ts) | 52 | 侧栏「区块顺序 + 视图/排序模式」的 App 级状态（localStorage 持久化），桌面/移动两处 `ChatSidebar` 共享 |
+| [useTaskToasts.ts](../../../../src/hooks/useTaskToasts.ts) | 23 | 后台任务 Toast 兼容层（状态在 `src/stores/task-toasts-store.ts`，action 恒定） |
+| [useUIState.ts](../../../../src/hooks/useUIState.ts) | 68 | 应用 UI 状态兼容层（16 项状态在 `src/stores/ui-store.ts`；ChatSidebar/ConversationHeader 已直连 store 订阅，其余经 props） |
+| [useUpdateCheck.ts](../../../../src/hooks/useUpdateCheck.ts) | 121 | 应用更新检查兼容层（result 在 `src/stores/update-check-store.ts`；启动后台静默检查 + `update-check-poll.ts` 轮询非阻塞快照接口，失败静默） |
+| [useVisibleRuntimeStatuses.ts](../../../../src/hooks/useVisibleRuntimeStatuses.ts) | 127 | 可见会话的后台任务状态轮询兼容层（statuses 在 `src/stores/runtime-statuses-store.ts`）；刷新 effect 只依赖会话 id 集合内容（`visibleSessionKey`），列表数组身份变化不再重复请求 `/api/agents` |
+| [useSidebarOrdering.ts](../../../../src/hooks/useSidebarOrdering.ts) | 23 | 侧栏「区块顺序 + 视图/排序模式」兼容层（状态在 `src/stores/sidebar-ordering-store.ts`，localStorage 持久化），桌面/移动两处 `ChatSidebar` 共享（组件已直连订阅） |
 | [useProjectExternalOpen.ts](../../../../src/hooks/useProjectExternalOpen.ts) | 67 | 「在资源管理器 / VS Code / IDEA 中打开项目」：裸请求 + 带 alert 反馈的两层封装 |
 | [useDesktopTitlebarMenu.ts](../../../../src/hooks/useDesktopTitlebarMenu.ts) | 41 | 桌面标题栏菜单（关于 / 检查更新 / 退出）开合状态与动作，点击外部/失焦自动收起 |
 | [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 74 | 工具审批 / ask_user 应答 / auto-compact 审批统一出口（走当前 agent，失败统一抛错）；auto-compact 的批准/拒绝由 `ChatPanelHost` 传入 `ChatSurface`，绑定在 React 决策行上 |
 | [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
-| [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 104 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装 |
+| [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 101 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |
 | [usePinnedSummaryModel.ts](../../../../src/hooks/usePinnedSummaryModel.ts) | 126 | 置顶摘要 view-model：从 agent 快照派生 Todo/Subagent/后台命令/Goal，内部订阅相关 Agent 事件递增 revision，并同步 Goal UI store；ACP 会话排除 Goal，`invalidate()` 供 Goal 动作后强制刷新 |
 
 ---
@@ -39,7 +39,7 @@
 | 模块 | 职责 / 调用阶段 |
 |------|----------------|
 | [useAppTerminal.ts](../../../../src/hooks/useAppTerminal.ts) | state/ref 独立初始化；原晚期位置订阅 Markdown 命令，保留 remote 拒绝、确认流程、递增 ID 与匹配回执消费、监听清理 |
-| [useAppGit.ts](../../../../src/hooks/useAppGit.ts) | 顶栏 Git state、full status 请求与旧结果隔离、0ms 初刷、工具结束 400ms force debounce、checkout/toast；菜单 click/blur 清理由独立晚期 hook 承担 |
+| [useAppGit.ts](../../../../src/hooks/useAppGit.ts) | 顶栏 Git state、full status 请求与旧结果隔离、0ms 初刷、工具结束 400ms force debounce、checkout/toast；菜单 click/blur 清理由独立晚期 hook 承担；开合与 titleGitStatus 状态在 `src/stores/git-store.ts`（hook 为兼容层） |
 | [useAppLoadingTransitions.ts](../../../../src/hooks/useAppLoadingTransitions.ts) | state/minimum/loading effects/actions/exit 分阶段调用；1350ms splash 最短展示、280ms退出与会话淡出、双 RAF 延后加载、token 防旧回调和卸载取消；**另含 10s 过渡看门狗**——遮罩只由面板的 ready 回调下马（单信号），信号一旦丢失就是永久卡死，故到时把 `rendered` 置为当前 `visible`（复用正常 280ms 淡出）并 `logger.warn`。它只是安全网：正常打开在 300ms 量级，绝不走这条 |
 
 这些模块由 `MainApp` 实际调用，不重建 `useAppBootstrap` / `useAgentManager`。拆开 phase 是为了保持与其他 hooks/effects 的原相对顺序，不能为了集中调用而一并移到组件顶部。Git 与聊天文件请求仍共用 App 的 `currentToolProjectIdRef`，跨域 scope invalidation 留 App；URL 恢复/写入仍由既有 Bootstrap/AgentManager 管理，JSX及产品时序不变。
@@ -94,9 +94,11 @@
 - 同步事件: `sessions-changed`, `projects-changed`, `settings-changed`
 - 页面可见性变化时自动刷新 (`visibilitychange`)
 
-### useSessionPagination.ts (312 行)
+### useSessionPagination.ts (406 行)
 
 - 全局/项目会话分页 (每页 20 条)
+- 四路分页状态存于 `src/stores/sessions-store.ts`（zustand，action 引用恒定，set 同步应用）；hook 为兼容层，返回结构与签名不变，仅 App.tsx 消费
+- requestVersion 版本守卫与 250ms in-flight 合并轮保留在 hook 内（hook 实例级 useRef 语义，不随状态下沉 store）；旧的 pagesRef 手动镜像由 `useSessionsStore.getState()` 同步读取替代
 - 首次刷新并行请求置顶与全局首屏，随后按视图加载已展开项目或项目时间线，避免无必要的串行等待
 - 支持 `session_created` 局部插入与 `title_updated` 局部标题更新，避免纯标题变化触发全列表刷新
 - 展开/折叠项目时自动加载；启动阶段会等待 Storage backend 就绪后再刷新已恢复的展开项目，避免残留虚假的加载状态

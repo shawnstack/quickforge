@@ -1,39 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HttpStorageBackend } from '../../src/lib/http-storage-backend'
+import type { SessionPage } from '../../src/lib/session-list-updates'
 
-const reactStub = vi.hoisted(() => ({
-  cursor: 0,
-  states: [] as unknown[],
-}))
-
-vi.mock('react', () => ({
-  useCallback<T>(callback: T) {
-    return callback
-  },
-  useEffect(effect: () => void | (() => void)) {
-    effect()
-  },
-  useMemo<T>(factory: () => T) {
-    return factory()
-  },
-  useRef<T>(initialValue: T) {
-    return { current: initialValue }
-  },
-  useState<T>(initialValue: T | (() => T)) {
-    const index = reactStub.cursor
-    reactStub.cursor += 1
-    reactStub.states[index] = typeof initialValue === 'function'
-      ? (initialValue as () => T)()
-      : initialValue
-    const setState = (update: T | ((previous: T) => T)) => {
-      const previous = reactStub.states[index] as T
-      reactStub.states[index] = typeof update === 'function'
-        ? (update as (value: T) => T)(previous)
-        : update
-    }
-    return [reactStub.states[index] as T, setState] as const
-  },
-}))
+// react mock：同步测试模型（无渲染器，effect 立即执行）。分页状态已迁入
+// zustand store，其 react 绑定（esm/react.mjs 经 `import React from 'react'`）
+// 需要 useSyncExternalStore / useDebugValue 与 default 导出，故一并提供。
+vi.mock('react', () => {
+  const stub = {
+    useCallback<T>(callback: T) {
+      return callback
+    },
+    useEffect(effect: () => void | (() => void)) {
+      effect()
+    },
+    useMemo<T>(factory: () => T) {
+      return factory()
+    },
+    useRef<T>(initialValue: T) {
+      return { current: initialValue }
+    },
+    useSyncExternalStore<T>(
+      _subscribe: (onStoreChange: () => void) => () => void,
+      getSnapshot: () => T,
+    ) {
+      return getSnapshot()
+    },
+    useDebugValue() {},
+  }
+  return { ...stub, default: stub }
+})
 
 vi.mock('@/lib/session-list-updates', () => ({
   patchSessionTitleInPage: (page: unknown) => page,
@@ -44,6 +39,7 @@ vi.mock('@/lib/session-list-updates', () => ({
 }))
 
 import { REFRESH_SESSIONS_MERGE_MS, useSessionPagination } from '../../src/hooks/useSessionPagination'
+import { useSessionsStore } from '../../src/stores/sessions-store'
 
 async function flushMicrotasks() {
   for (let index = 0; index < 10; index += 1) await Promise.resolve()
@@ -69,8 +65,13 @@ function session(id: string, scope: 'global' | 'project' = 'global', projectId?:
 
 describe('session pagination bootstrap', () => {
   beforeEach(() => {
-    reactStub.cursor = 0
-    reactStub.states = []
+    // 分页状态在模块级 zustand store 中，跨测试持久，需在每条用例前复位。
+    useSessionsStore.setState({
+      pinnedPage: { items: [], total: 0, loading: false } satisfies SessionPage,
+      globalPage: { items: [], total: 0, loading: false } satisfies SessionPage,
+      projectPages: {},
+      projectTimelinePage: { items: [], total: 0, loading: false } satisfies SessionPage,
+    })
   })
 
   it('does not leave restored projects in a fake loading state before the backend is ready', async () => {
@@ -83,7 +84,7 @@ describe('session pagination bootstrap', () => {
 
     await flushMicrotasks()
 
-    expect(reactStub.states[2]).toEqual({})
+    expect(useSessionsStore.getState().projectPages).toEqual({})
   })
 
   it('starts pinned and global initial-page requests in parallel', async () => {
@@ -149,7 +150,7 @@ describe('session pagination bootstrap', () => {
       'lastModified',
       expect.objectContaining({ scope: 'project', projectId: 'project-1', pinned: 'exclude' }),
     )
-    expect(reactStub.states[2]).toEqual({
+    expect(useSessionsStore.getState().projectPages).toEqual({
       'project-1': {
         items: [projectSession],
         total: 1,
@@ -199,7 +200,7 @@ describe('session pagination bootstrap', () => {
     await pagination.loadGlobalSessions(2)
     await flushMicrotasks()
 
-    expect(reactStub.states[0]).toEqual({
+    expect(useSessionsStore.getState().globalPage).toEqual({
       items: [globalSessionA, globalSessionB],
       total: 2,
       loading: false,
@@ -311,7 +312,7 @@ describe('session pagination bootstrap', () => {
     await pagination.loadProjectSessions('project-1', 2)
     await flushMicrotasks()
 
-    expect(reactStub.states[2]).toEqual({
+    expect(useSessionsStore.getState().projectPages).toEqual({
       'project-1': {
         items: [projectSessionA, projectSessionB],
         total: 2,
@@ -353,7 +354,7 @@ describe('session pagination bootstrap', () => {
 
     // Refocus refresh in flight: loading true, appending false — mounted "show more"
     // buttons read appending, so they must not flip to spinner.
-    expect(reactStub.states[0]).toEqual({
+    expect(useSessionsStore.getState().globalPage).toEqual({
       items: [globalSession],
       total: 1,
       loading: true,
@@ -362,7 +363,7 @@ describe('session pagination bootstrap', () => {
 
     refresh.resolve({ values: [globalSession], total: 1 })
     await flushMicrotasks()
-    expect(reactStub.states[0]).toEqual({
+    expect(useSessionsStore.getState().globalPage).toEqual({
       items: [globalSession],
       total: 1,
       loading: false,
@@ -395,7 +396,7 @@ describe('session pagination bootstrap', () => {
     void pagination.loadMoreGlobal()
     await flushMicrotasks()
 
-    expect(reactStub.states[0]).toEqual({
+    expect(useSessionsStore.getState().globalPage).toEqual({
       items: firstPage,
       total: 21,
       loading: true,
@@ -404,8 +405,8 @@ describe('session pagination bootstrap', () => {
 
     nextPage.resolve({ values: [session('global-20')], total: 21 })
     await flushMicrotasks()
-    expect(reactStub.states[0].loading).toBe(false)
-    expect(reactStub.states[0].appending).toBe(false)
+    expect(useSessionsStore.getState().globalPage.loading).toBe(false)
+    expect(useSessionsStore.getState().globalPage.appending).toBe(false)
   })
 
   it('coalesces refreshSessions calls within the merge window into one round of requests', async () => {

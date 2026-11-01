@@ -69,6 +69,7 @@ import { useProjectActions } from '@/hooks/useProjectActions'
 import { useSessionActions } from '@/hooks/useSessionActions'
 import { useAgentAccessActions } from '@/hooks/useAgentAccessActions'
 import { useUIState } from '@/hooks/useUIState'
+import { useUIStore } from '@/stores/ui-store'
 import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
@@ -233,15 +234,9 @@ function MainApp() {
     sessionId?: string
     artifacts: AiTurnArtifact[]
   }>({ artifacts: [] })
-  // 侧栏区块顺序 + 视图/排序模式（带持久化，桌面/移动两处 ChatSidebar 共享）
-  const {
-    sidebarSectionOrder,
-    handleSidebarSectionReorder,
-    sidebarSessionViewMode,
-    setSidebarSessionViewMode,
-    sidebarSessionSortMode,
-    setSidebarSessionSortMode,
-  } = useSidebarOrdering()
+  // 侧栏视图/排序模式（带持久化）；区块顺序与回调由 ChatSidebar 直连
+  // sidebar-ordering-store 订阅（桌面/移动两处实例共享）。
+  const { sidebarSessionViewMode, sidebarSessionSortMode } = useSidebarOrdering()
   // 用户在新对话空状态主动清除项目预选后，本次空状态内不再默认预选上次激活的项目。
   const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
   const wasNewChatEmptyStateRef = useRef(false)
@@ -688,18 +683,21 @@ function MainApp() {
     setWorkspaceInspectorRequest(undefined)
   }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspaceInspectorRequest])
 
-  // 监听工具卡片预览按钮的桥接事件（事件名与 tool-renderers/shared.tsx 的 PREVIEW_ARTIFACT_EVENT 对应），
-  // 转调 openArtifactPreview，复用与自动预览完全一致的逻辑。
+  // 监听工具卡片预览按钮的桥接请求（tool-renderers/shared.tsx 经 useUIStore 发起，
+  // 原 window CustomEvent 桥已由 ui-store 的请求信号替代），转调 openArtifactPreview，
+  // 复用与自动预览完全一致的逻辑。
+  const artifactPreviewRequest = useUIStore((s) => s.artifactPreviewRequest)
   useEffect(() => {
-    if (!openArtifactPreview) return
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ path?: string; kind?: Parameters<typeof artifactPreviewMode>[1] }>).detail
+    const request = artifactPreviewRequest
+    if (!request) return
+    if (openArtifactPreview) {
       const projectId = agentManager.currentToolProject?.id
-      if (projectId && detail && typeof detail.path === 'string') openArtifactPreview(projectId, detail.path, detail.kind)
+      if (projectId && typeof request.path === 'string') {
+        openArtifactPreview(projectId, request.path, request.kind)
+      }
     }
-    window.addEventListener('quickforge:preview-artifact', handler as EventListener)
-    return () => window.removeEventListener('quickforge:preview-artifact', handler as EventListener)
-  }, [agentManager.currentToolProject?.id, openArtifactPreview])
+    useUIStore.getState().clearArtifactPreviewRequest()
+  }, [artifactPreviewRequest, agentManager.currentToolProject?.id, openArtifactPreview])
 
   // 「查看完整日志」桥接（tool-renderers/shared.tsx 的 VIEW_COMMAND_LOG_EVENT）：
   // 命令日志在 <dataDir>/logs/commands 下（工作区外），走 command-log reader tab。
@@ -1096,14 +1094,15 @@ function MainApp() {
     [closeSettingsPage, loadAgentSession, scheduleSessionLoad],
   )
 
+  // 设置页/OS 系统通知打开会话的桥接请求（react-settings-tabs、system-notifications
+  // 经 useUIStore 发起，原 window CustomEvent 桥已由 ui-store 的请求信号替代）。
+  const openSessionRequest = useUIStore((s) => s.openSessionRequest)
   useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: unknown }>).detail
-      if (typeof detail?.sessionId === 'string') handleOpenSessionFromSettings(detail.sessionId)
-    }
-    window.addEventListener('quickforge:open-session-from-settings', handler)
-    return () => window.removeEventListener('quickforge:open-session-from-settings', handler)
-  }, [handleOpenSessionFromSettings])
+    const request = openSessionRequest
+    if (!request) return
+    handleOpenSessionFromSettings(request.sessionId)
+    useUIStore.getState().clearOpenSessionRequest()
+  }, [openSessionRequest, handleOpenSessionFromSettings])
 
   // 桌面标题栏菜单（关于 / 检查更新 / 退出），开合状态与动作见 useDesktopTitlebarMenu。
   const { desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen, openDesktopAbout, openDesktopUpdatePage, exitDesktopApp } =
@@ -1276,9 +1275,9 @@ function MainApp() {
   }, [agentManager.currentSessionId, archiveSession, ui])
 
   // Stable UI setters used by the desktop sidebar handlers below.  Destructuring
-  // them keeps the callbacks referentially stable (a useState setter never changes)
+  // them keeps the callbacks referentially stable (a store action never changes)
   // without dragging the whole `ui` object into the dependency array.
-  const { setSkillsDialog, setSidebarOpen } = ui
+  const { setSkillsDialog } = ui
 
   const openGlobalSkills = useCallback(() => {
     openSettingsPage('skills')
@@ -1308,8 +1307,6 @@ function MainApp() {
     openProjectInIDEAWithFeedback,
   } = useProjectExternalOpen()
 
-  const toggleSidebar = useCallback(() => setSidebarOpen((value) => !value), [setSidebarOpen])
-
   // 移动端侧栏抽屉（Escape/焦点管理 + 先收抽屉再转发桌面动作的 `*FromSidebar` 包装，
   // 见 useMobileSidebar）。
   const {
@@ -1325,7 +1322,6 @@ function MainApp() {
     openScheduledTasksFromSidebar,
     openProjectSkillsFromSidebar,
   } = useMobileSidebar({
-    ui,
     loadSessionWithTransition,
     startNewDefaultSession,
     startNewExplicitGlobalSession,
@@ -1383,17 +1379,11 @@ function MainApp() {
   // callbacks differ (mobile closes the drawer first). Shared here so the two
   // prop lists cannot drift apart.
   const sidebarCommonProps = {
-    projectsCollapsed: ui.projectsCollapsed,
-    pinnedCollapsed: ui.pinnedCollapsed,
-    conversationsCollapsed: ui.conversationsCollapsed,
-    sectionOrder: sidebarSectionOrder,
     projects,
     expandedProjectIds,
     activeProject,
     currentSessionId: agentManager.currentSessionId,
     loadingSessionId: agentManager.loadingSessionId,
-    sessionViewMode: sidebarSessionViewMode,
-    sessionSortMode: sidebarSessionSortMode,
     globalSessions,
     pinnedSessions,
     pinnedHasMore,
@@ -1416,16 +1406,10 @@ function MainApp() {
     sessionTaskStatus,
     completedSessionIds,
     selectingProject,
-    onTogglePinnedCollapsed: ui.togglePinnedCollapsed,
-    onToggleProjectsCollapsed: ui.toggleProjectsCollapsed,
-    onToggleConversationsCollapsed: ui.toggleConversationsCollapsed,
-    onReorderSections: handleSidebarSectionReorder,
     onToggleProjectExpanded: toggleProjectExpanded,
     onToggleAllProjectsExpanded: toggleAllProjectsExpanded,
     onReorderProjects: reorderProjects,
     onDeleteProject: deleteProjectInline,
-    onSessionViewModeChange: setSidebarSessionViewMode,
-    onSessionSortModeChange: setSidebarSessionSortMode,
     onTogglePinSession: togglePinSession,
     onDeleteSession: archiveSession,
     currentServerUrl: mobileServerUrl,
@@ -1591,7 +1575,6 @@ function MainApp() {
       <PluginUiToasts />
       <ChatSidebar
         {...sidebarCommonProps}
-        sidebarOpen={ui.sidebarOpen}
         onSelectProjectDirectory={remoteClient ? undefined : selectProjectDirectory}
         onStartNewProjectChat={startNewProjectChatWithInspectorReset}
         onOpenGlobalSkills={openGlobalSkills}
@@ -1606,7 +1589,6 @@ function MainApp() {
         onOpenSettings={openDefaultOptionsSettings}
         onOpenServer={mobileShell ? openServerPicker : undefined}
         onOpenUpdate={openAboutSettings}
-        onToggleSidebar={toggleSidebar}
         onWidthChange={handleSidebarWidthChange}
       />
 
@@ -1627,7 +1609,6 @@ function MainApp() {
           <div className="absolute inset-y-0 left-0 shadow-quickforge">
             <ChatSidebar
               variant="mobile"
-              sidebarOpen
               {...sidebarCommonProps}
               onSelectProjectDirectory={remoteClient ? undefined : () => {
                 closeMobileSidebar()
@@ -1661,7 +1642,6 @@ function MainApp() {
                 closeMobileSidebar()
                 openAboutSettings()
               }}
-              onToggleSidebar={closeMobileSidebar}
             />
           </div>
         </div>
@@ -1672,7 +1652,6 @@ function MainApp() {
       )}>
         <ConversationHeader
           headerRef={conversationHeaderRef}
-          onOpenMobileSidebar={() => ui.setMobileSidebarOpen(true)}
           title={agentManager.currentTitle}
           projectName={agentManager.currentToolProject?.name}
           projectId={agentManager.currentToolProject?.id}
@@ -1694,8 +1673,6 @@ function MainApp() {
           showViewSwitch={Boolean(agentManager.currentSessionId)}
           conversationView={conversationView}
           onSetConversationView={setConversationView}
-          conversationMenuOpen={ui.conversationMenuOpen}
-          onConversationMenuToggle={() => ui.setConversationMenuOpen((value) => !value)}
           conversationMenuDisabled={!agentManager.currentSessionId || needsModelSetup}
           currentSessionPinned={currentSessionPinned}
           onTogglePinned={handleToggleCurrentSessionPinned}

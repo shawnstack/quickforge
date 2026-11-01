@@ -1304,3 +1304,19 @@
   - 附件端点 `cache-control: immutable`，改了响应形状后旧浏览器缓存仍可能返回旧 JSON（多一个 `preview` 字段）；客户端解析不依赖它。未做 URL 版本化，避免为一个未消费字段引入缓存失效逻辑。
   - 未做 SSE delta 协议、增量 Markdown、虚拟列表库、DB 压缩；939MB 会话库与服务端 idle retention 属独立议题。
   - 未创建 Git commit/tag/push；`dist/` 由 build 产出，未手工修改。
+
+## running-command-stop-button-alignment（done，2026-11-01）
+
+- Goal：用户反馈「运行命令 tools 旁边的暂停按钮没对齐、不像上下居中」，评审确认后修复并推送。
+- 结论（一句话）：根因是 `.quickforge-tool-header` 用 `align-items: flex-start` + `.quickforge-tool-actions` 硬编码 `margin-top: 0.0625rem`，而摘要行有 `min-height: 1.625rem`（26px）、按钮 `size-5`（20px）；正确补偿应是 3px，写 1px 导致按钮偏高约 2px，且随「消息字号」漂移。改为父级 `align-items: center` 并删除该 1px，对齐由真实行高推导。
+- 关键点：
+  - 无按钮的普通工具行视觉零变化：header 只有一个 `details` 子项时 `flex-start` 与 `center` 等价。
+  - 摘要行是独立横向滚动容器（`overflow-x: auto`）且滚动条已隐藏，按钮锚在 header 上不再随命令长度漂移。
+  - 同行的 chevron/状态图标/工具图标（14px，行内 `items-center`）与按钮现在共用同一条视觉轴（对齐 `DESIGN_LANGUAGE.md` 94–98「统一视觉轴」）。
+- 验证 / Evidence：
+  - 定向 `npx vitest run local-tool-running-sweep / chat-surface-css-contract / css-architecture` → 3 files / 51 tests 全绿。
+  - 浏览器几何实测（vite dev + Playwright，注入同构 DOM）：修复前按钮中心比摘要行中心高 **1.88px**，修复后差 **0.01px**。
+  - 全量 `npm run lint` / `npm run build` / `npm run test` 见下方 Evidence 记录。
+- Notes / 已知取舍：
+  - 顺带发现（本次未改，避免扩大范围）：该终止按钮缺 `rounded`/`focus-visible` 焦点环，与 `DESIGN_LANGUAGE.md` 278–284「图标按钮或状态点用全圆」不一致；点击区 20px 也小于常见 24px 触控目标。若要做，需单独评审按钮形态（全圆无背景时视觉变化需设计确认）。
+  - `tests/frontend/local-tool-running-sweep.test.ts` 已补 `align-items: center` 与「actions 不得再有 margin」两条断言，防止硬编码补偿回归。

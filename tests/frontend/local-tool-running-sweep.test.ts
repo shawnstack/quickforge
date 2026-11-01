@@ -115,6 +115,11 @@ describe('ordinary local tool running sweep CSS', () => {
     // 紧跟摘要末尾；面板在 details 外，展开日志不会把按钮重新推回行尾。
     expect(ruleFor('.quickforge-tool-header').body).toMatch(/display:\s*flex/)
     expect(ruleFor('.quickforge-tool-header').body).toMatch(/gap:\s*0\.375rem/)
+    // 终止按钮（size-5 = 20px）与摘要行（min-height 26px）必须在交叉轴居中：
+    // 曾用 align-items: flex-start + actions 的 margin-top: 1px，按钮偏高约 2px。
+    // 对齐只能由父级 center 推导，禁止再给 actions 加硬编码 margin 补偿。
+    expect(ruleFor('.quickforge-tool-header').body).toMatch(/align-items:\s*center/)
+    expect(ruleFor('.quickforge-tool-header > .quickforge-tool-actions').body).not.toMatch(/margin/)
     expect(ruleFor('.quickforge-tool-header:has(> .quickforge-tool-actions > button)').body).toMatch(/width:\s*fit-content/)
     expect(ruleFor('.quickforge-tool-header:has(> .quickforge-tool-actions > button) > .quickforge-local-tool').body).toMatch(/flex:\s*0 1 auto/)
     expect(ruleFor('.quickforge-tool-header > .quickforge-tool-actions').body).toMatch(/flex:\s*0 0 auto/)

@@ -1559,6 +1559,22 @@
       ],
       "verification": "分阶段针对性 vitest 全绿；全量 npm run test → 478 files / 5459 passed / 1 skipped（中途 scheduled-tasks 一次超时为并行资源竞争 flaky，单独复跑通过）；npx tsc -b → 0 错误；npm run lint → 0 errors；npm run build → 成功",
       "updatedAt": "2026-11-01"
+    },
+    {
+      "id": "running-command-stop-button-alignment",
+      "title": "运行命令卡片的终止按钮与摘要行垂直未居中（偏高约 2px）",
+      "status": "done",
+      "summary": "用户反馈运行命令工具行右侧的停止按钮不像上下居中。根因：.quickforge-tool-header 用 align-items: flex-start（交叉轴不居中），只靠 .quickforge-tool-actions 的 margin-top: 0.0625rem 硬编码补偿；而摘要行有 .qf-chat-panel .quickforge-tool-summary { min-height: 1.625rem }（26px）、按钮 size-5（20px），正确补偿应为 (26-20)/2 = 3px，写 1px 使按钮中心落在 11px、行中心 13px，偏高约 2px，且字号（--quickforge-message-font-size）变化后偏移会漂移。修复：header 改 align-items: center 并从 actions 删除该 1px，对齐由真实行高推导；无按钮的普通工具行只有一个 details 子项，flex-start 与 center 等价，视觉零变化。同行 chevron/状态图标/工具图标（14px 行内 items-center）与按钮回到同一条视觉轴，符合 DESIGN_LANGUAGE.md 94–98「统一视觉轴」。",
+      "files": [
+        "src/styles/chat/tool-summary.css（改：header align-items: center + 注释；删除 actions 的 margin-top）",
+        "tests/frontend/local-tool-running-sweep.test.ts（改：补 align-items: center 断言 + actions 不得再有 margin 的回归断言）",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run local-tool-running-sweep / chat-surface-css-contract / css-architecture → 3 files / 51 tests 全绿；浏览器几何实测（vite dev + Playwright 注入同构 DOM）修复前按钮中心比摘要行中心高 1.88px、修复后 0.01px；全量 npm run lint / npm run build / npm run test 见 session-handoff",
+      "updatedAt": "2026-11-01"
     }
   ]
 }

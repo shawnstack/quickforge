@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## running-command-stop-button-alignment（done，2026-11-01）
+
+- Current Objective（当前目标）：用户反馈「运行命令 tools 旁边的暂停按钮没对齐、不像上下居中」，先评审再修复并推送。
+- 结论（一句话）：`.quickforge-tool-header` 的 `align-items: flex-start` + `.quickforge-tool-actions` 的 `margin-top: 0.0625rem` 是硬编码补偿，而摘要行 `min-height: 1.625rem`（26px）、按钮 `size-5`（20px），正确补偿应为 3px；改 header 为 `align-items: center` 并删除该 1px，对齐由真实行高推导。
+- 改动文件：`src/styles/chat/tool-summary.css`（两处规则 + 注释）、`tests/frontend/local-tool-running-sweep.test.ts`（补 `align-items: center` + 「actions 不得再有 margin」断言）、`CHANGELOG.md`、三件套。
+- Evidence（验证）：浏览器几何实测（vite dev + Playwright 注入同构 DOM）修复前按钮中心比摘要行中心高 1.88px、修复后 0.01px；全量 `npm run lint` → 0 problems、`npm run build` → 成功、`npm run test` → 478 files / 5460 passed / 1 skipped。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续。顺带发现但未处理（需单独评审）：终止按钮缺 `rounded`/`focus-visible` 焦点环（与 `DESIGN_LANGUAGE.md` 278–284「图标按钮用全圆」不一致），点击区 20px 小于常见 24px 触控目标。
+
 ## inspector-open-state-no-memory（done，2026-11-01）
 
 - Current Objective（当前目标）：右侧 Workspace Inspector 开合状态不做任何记忆（用户提出「不要记住右边侧边栏的打开状态」）。

@@ -8,9 +8,13 @@
 /* 标题行与展开面板分层：details 只包 summary，面板作为兄弟节点铺满整行。
    标题行在运行中的命令卡（存在终止按钮）里按内容收缩，按钮紧跟摘要末尾；
    普通工具行没有按钮时 details 仍占满整行，保持原有点击热区。 */
+/* 交叉轴居中：摘要行有 1.625rem 最小高度（process-timeline.css），终止按钮只有
+   size-5（1.25rem）。用 center 让按钮按真实行高推导中心，不再依赖字号写死的
+   margin 补偿（曾用 align-items: flex-start + margin-top: 1px，结果偏高约 2px）。
+   无按钮的普通工具行只有 details 一个子项，两种对齐结果等价。 */
 .quickforge-tool-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.375rem;
   min-width: 0;
   max-width: 100%;
@@ -32,12 +36,13 @@
   width: auto;
 }
 
+/* 对齐交给父级 align-items: center，这里不能再补 margin（任何硬编码偏移都会
+   随摘要行高/字号漂移，导致按钮偏离视觉中心）。 */
 .quickforge-tool-header > .quickforge-tool-actions {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 0.25rem;
-  margin-top: 0.0625rem;
 }
 
 /* 面板移出 details 后由 open 属性驱动可见性；展开时仍保持整行宽度。 */

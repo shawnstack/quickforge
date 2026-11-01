@@ -10,6 +10,8 @@ All notable changes to QuickForge will be documented in this file.
 
 ### Changed
 
+- The stop button on a running `run_command` tool row is now vertically centered with the summary line: `.quickforge-tool-header` uses `align-items: center` instead of `flex-start` plus a hard-coded `margin-top: 0.0625rem` on `.quickforge-tool-actions`. The old pair placed the 20px button about 2px above the centre of the 26px summary row and drifted with the message font size; centering now derives from the real row height (measured delta 1.88px before, 0.01px after). No-button tool rows are unaffected, and a regression assertion pins the alignment.
+
 - The right workspace inspector no longer remembers its open state per session: the recorded "opener" runtime scope (`workspaceInspectorOpenScopeId`) is cleared in the same render where the runtime scope changes (React's render-time state adjustment pattern, keeping `react-hooks/set-state-in-effect` satisfied), so switching back to a session whose panel was previously expanded no longer re-opens it. Every session switch starts collapsed; manual opens (PanelRight toggle, workspace requests, Inspector open/close) and the live `present_files` auto-preview are unchanged, and the per-session tab list persistence is untouched.
 
 ### Removed

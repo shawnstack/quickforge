@@ -144,19 +144,32 @@ export function resolveCompactionBoundary(options: {
  * One divider to render.
  *
  * Rolling compaction happens repeatedly during a long session, and each pass
- * only summarizes "previous summary + the delta since the last cut", so every
- * pass deserves its own line at the moment it ran. Two coordinates are kept
- * apart on purpose:
- * - `occurredAtIndex` (absolute) is the messages length at the instant
- *   compaction ran → the physical timeline position, which never moves again;
- * - `boundaryIndex` is the right edge of the summarized range, which sits
- *   several messages earlier whenever recent turns are kept.
+ * only summarizes previous summary + the delta since the last cut, so every pass
+ * keeps its own line.
+ *
+ * Two coordinates are recorded and kept apart:
+ * - occurredAtIndex (absolute) is the messages length at the instant compaction
+ *   ran. It is the fallback anchor when the payload has no usable timestamp or
+ *   nothing was produced yet;
+ * - boundaryIndex is the right edge of the summarized range (the cut), i.e. how
+ *   much history the pass replaced. Diagnostics and second fallback.
+ *
+ * The rendered position combines the recorded moment with a content check (see
+ * locateAfterCompaction) and takes the earlier one; neither index alone is
+ * trusted. anchorIndex is the absolute position actually used, which doubles as
+ * a stable React key while the list is windowed.
  */
+
 export type CompactionMarker = {
   /** Row index within the rendered message rows. */
   rowIndex: number
-  /** Range edge, relative to the rendered window. */
+  /** Summarized range edge, relative to the rendered window (diagnostics). */
   boundaryIndex: number
+  /**
+   * Anchor (the moment compaction ran), absolute in the session's message array.
+   * Window independent, so it is a stable React key while the list is windowed.
+   */
+  anchorIndex: number
   /** Physical position, absolute in the session's message array. */
   occurredAtIndex: number
   summaryText: string
@@ -181,20 +194,85 @@ function compactionEntries(compaction: ContextCompactionState): ContextCompactio
   }]
 }
 
+/** Epoch ms of a message timestamp; NaN when absent or unparsable. */
+function messageTimestampMs(message: AgentMessage): number {
+  const raw = (message as { timestamp?: unknown }).timestamp
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string') {
+    const parsed = Date.parse(raw)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return Number.NaN
+}
+
+/**
+ * Fallback position: the first row whose timestamp is at/after the round.
+ *
+ * Only used when the payload has no recorded message count (old history entries
+ * carry just `compactedAt`). It cannot be the primary anchor: a message's
+ * timestamp is the moment its *stream started*, and compaction can run while
+ * that same message is still streaming. Such a message keeps a timestamp older
+ * than `compactedAt`, so this scan skips it and lands on the next round's user
+ * row - the divider then sat *below* the row, leaving every tool call produced
+ * after the compaction above the line (the reported regression).
+ *
+ * `>=` is intentional: when the summary message is present it shares its
+ * millisecond with `compactedAt`, and it is the first row of the summarized
+ * context.
+ */
+function locateAfterCompaction(options: {
+  compactedAt?: string
+  messages: readonly AgentMessage[]
+}): { boundaryIndex: number } | null {
+  const { compactedAt, messages } = options
+  const at = Date.parse(compactedAt || '')
+  if (!Number.isFinite(at)) return null
+  for (let index = 0; index < messages.length; index++) {
+    const timestamp = messageTimestampMs(messages[index])
+    if (Number.isFinite(timestamp) && timestamp >= at) return { boundaryIndex: index }
+  }
+  return null
+}
+
 /**
  * Resolve every divider position.
  *
- * Unlike `resolveCompactionBoundary` (kept for the single-record shape and its
+ * Two independent position signals are combined, and the line takes the
+ * **earlier** of them:
+ *
+ * 1. `occurredAtIndex` (absolute in the session, already shifted into window
+ *    coordinates by the caller): the messages length at the instant compaction
+ *    ran. It is the physical place the run stopped at, so a message that was
+ *    still streaming across the compaction - and the tool calls it produces
+ *    afterwards - lands below the line. This is the primary anchor.
+ * 2. `locateAfterCompaction`: the first row whose timestamp is at/after the
+ *    round. Timestamps do not drift with the window, but a message that started
+ *    streaming before the compaction keeps an older timestamp, so this signal
+ *    can point *past* it.
+ *
+ * Taking the earlier one fixes both failure modes that were reported: the line
+ * pinned to the window bottom while rows kept appearing above it (stale recorded
+ * index clamped to the end), and the line landing under the row whose tool calls
+ * the compaction had just produced (timestamp signal skipping the in-flight
+ * message). Neither signal alone is enough; together they agree whenever the
+ * payload is well formed.
+ *
+ * `boundaryIndex` (the summarized range edge) is deliberately not an anchor: it
+ * sits several rows earlier, which lifted the line to the top of the turn the
+ * reader was watching.
+ *
+ * Unlike resolveCompactionBoundary (kept for the single-record shape and its
  * stale-boundary contract), a marker outside the rendered window is **clamped**
  * to the window edge instead of being dropped: a compaction that silently
  * produces no line is the failure mode this list exists to prevent.
  *
- * Clamping is safe because `occurredAtIndex` is immutable — the line never
- * drifts afterwards. A marker above the window lands on the first row, one below
- * lands on the last row, and markers that collapse onto the same row keep only
- * the newest (scrolling up through history would otherwise stack one identical
- * line per past compaction at the window top).
+ * Clamping is safe because the anchor is immutable - the line never drifts
+ * afterwards. A marker above the window lands on the first row, one below lands
+ * on the last row, and markers that collapse onto the same row keep only the
+ * newest (scrolling up through history would otherwise stack one identical line
+ * per past compaction at the window top).
  */
+
 export function resolveCompactionMarkers(options: {
   compaction: ContextCompactionState | null | undefined
   messages: readonly AgentMessage[]
@@ -209,9 +287,17 @@ export function resolveCompactionMarkers(options: {
   const entries = compactionEntries(compaction)
   const byRow = new Map<number, CompactionMarker>()
   entries.forEach((entry, entryIndex) => {
-    const absolute = Math.max(0, Number(entry.occurredAtIndex ?? entry.boundaryIndex) || 0)
-    if (absolute <= 0) return
-    const clamped = Math.min(Math.max(absolute, windowStart), windowEnd)
+    // Recorded length first, timestamp as the second opinion - see the header.
+    const moment = Math.max(0, Number(entry.occurredAtIndex) || 0)
+    const cut = Math.max(0, Number(entry.boundaryIndex) || 0)
+    const recorded = moment > 0 ? moment : cut
+    const located = locateAfterCompaction({ compactedAt: entry.compactedAt, messages })
+    if (!located && recorded <= 0) return
+    const byPosition = recorded > 0 ? Math.min(Math.max(recorded, windowStart), windowEnd) : null
+    const byContent = located ? windowStart + located.boundaryIndex : null
+    const clamped = byPosition === null
+      ? byContent as number
+      : byContent === null ? byPosition : Math.min(byPosition, byContent)
     const boundaryIndex = clamped - windowStart
     let rowIndex = 0
     for (let index = 0; index < messages.length && index < boundaryIndex; index++) {
@@ -220,7 +306,8 @@ export function resolveCompactionMarkers(options: {
     byRow.set(rowIndex, {
       rowIndex,
       boundaryIndex,
-      occurredAtIndex: absolute,
+      anchorIndex: clamped,
+      occurredAtIndex: moment || clamped,
       summaryText: entry.summaryMessage ? readCompactionSummaryText(entry.summaryMessage) : '',
       compactedAt: entry.compactedAt,
       isLatest: entryIndex === entries.length - 1,

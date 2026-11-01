@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "edit-first-message-resend-stay-in-session",
+      "title": "编辑第一条消息后重发不再跳到新对话（留在当前会话）",
+      "status": "done",
+      "summary": "用户反馈：编辑会话第一条消息并发送后，界面切到/跳回新的对话页。根因：useChatActions.performRollback 在截断后按 shouldSaveSession(nextMessages)（需同时有 user + assistant）决定是否销毁会话；编辑第一条时 nextMessages 为空 → 走销毁分支：disposeAgentTask + storage.sessions.delete(previousSessionId) + refreshSessions(broadcast) + randomId() 新建 session + createAgent(..., attachToView:true)，而 attachTaskToView 会 history.replaceState 写入新的 ?session=，UI 因此跳回新对话页，紧接着由 composer 发出的新文案也落到新会话里。修复：抽出 keepCurrentSession = !restoreDraft || shouldSaveSession(nextMessages)；就地编辑重发（rollbackForResend → restoreDraft=false）无论截断后是否为空都留在当前会话（只 setCurrentAgentMessages + setChatPanelRevision + syncSessionUI），删空会话/重建 agent 仅保留给传统 rollbackFromMessage（restoreDraft=true）。ChatPanelHost 的 waitForComposerSend 注释同步改为「消息区重渲染」，行为不变（首帧即命中 bridge）。",
+      "files": [
+        "src/hooks/useChatActions.ts（改：performRollback 保留当前会话分支）",
+        "src/components/chat/ChatPanelHost.tsx（改：两处注释，不再声称重建会话）",
+        "tests/frontend/edit-first-message-resend-keeps-session.test.ts（新增：3 例）",
+        "docs/wiki/src/hooks/README.md（改：rollbackForResend 语义 + 行数）",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 479 files / 5467 passed / 1 skipped；npm run lint → 0 errors（仅 coverage/ 3 条既有 warning）；npm run build → 成功",
+      "updatedAt": "2026-11-01"
+    },
+    {
       "id": "inspector-open-state-no-memory",
       "title": "右侧 Workspace Inspector 开合状态零记忆：切回曾展开面板的会话不再自动弹开",
       "status": "done",
@@ -1574,6 +1592,25 @@
         "session-handoff.md"
       ],
       "verification": "定向 npx vitest run local-tool-running-sweep / chat-surface-css-contract / css-architecture → 3 files / 51 tests 全绿；浏览器几何实测（vite dev + Playwright 注入同构 DOM）修复前按钮中心比摘要行中心高 1.88px、修复后 0.01px；全量 npm run lint / npm run build / npm run test 见 session-handoff",
+      "updatedAt": "2026-11-01"
+    },
+    {
+      "id": "compaction-divider-anchor-cut",
+      "title": "压缩分割线：锚定压缩发生的实际位置（方案 B），摘要仍留在 pill 内",
+      "status": "done",
+      "summary": "分割线位置原先按消息索引计算（occurredAtIndex / boundaryIndex），但列表渲染的是移动窗口（会话 messageBaseSeq + 回合窗口）。长会话运行时两者一起滑动，索引换算漂移后被 clamp 到窗口末尾，表现为「线固定贴在列表底部、后续 tool 调用全在它上面」。第三版改为双信号取更靠前者：occurredAtIndex（ChatSurface 用 messageBaseSeq 经 shiftCompactionToLocal 换成本地窗口坐标，代表压缩瞬间的精确位置）与 locateAfterCompaction()（第一条时间戳 >= compactedAt 的消息）。单用时间戳会在「压缩发生在某条消息流式期间」时失效——该消息 timestamp 是首个 token 时刻、早于 compactedAt，扫描跳过它、线被压到该行下面，压缩后继续产生的 tool 调用又跑回线上方（用户复测的现象）；单用索引记录则会在窗口滑动后变旧、被 clamp 到末尾（线贴底）。两条信号取 min：记录索引偏大时由时间戳拉回正确行，跨压缩点的流式消息由记录索引挡住。marker 的 anchorIndex 是实际使用的绝对位置，兼作 React key，窗口滑动不换 key。 布局裁定（2026-11-01，用户看 docs/design/compaction-anchor-preview.html 后选方案 B）：线只表达压缩发生/生效的位置，摘要仍留在 pill 自己的 details 折叠区（复制按钮与 1200ms 反馈不变），**不在消息流里额外插入摘要行**；方案 A（切点）与方案 C（线下紧邻摘要行）均已放弃。",
+      "files": [
+        "src/components/chat/surface/ContextCompactionNotice.tsx",
+        "src/components/chat/surface/MessageList.tsx",
+        "tests/frontend/context-compaction-notice.test.ts",
+        "docs/wiki/src/components/README.md",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md",
+        "tests/frontend/context-compaction-anchor.test.ts"
+      ],
+      "verification": "npx vitest run tests/frontend/context-compaction-anchor.test.ts tests/frontend/context-compaction-notice.test.ts tests/frontend/context-compaction-rows.test.ts tests/frontend/assistant-waiting-bubble.test.ts → 4 files / 50 tests 全过；npx tsc -b → 0 错误；npx eslint 改动文件 → 0 problems；npm run build → 成功。",
       "updatedAt": "2026-11-01"
     }
   ]

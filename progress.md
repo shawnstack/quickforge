@@ -2,6 +2,30 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## edit-first-message-resend-stay-in-session（done，2026-11-01）
+
+- Goal：用户反馈「编辑第一条消息后点发送，会话被切到/跳回新的对话页面」，期望留在当前对话继续。
+- 结论（一句话）：`performRollback` 把「截断后为空」当成「删会话 + 新建 agent」的理由；就地编辑重发路径（`restoreDraft=false`）现在无条件留在当前会话，删空会话只保留给传统 `rollbackFromMessage`。
+- 根因链：编辑第一条 → `rollbackIndex = 0` → `nextMessages = []` → `shouldSaveSession`（需 user + assistant）为 false → `disposeAgentTask` + `storage.sessions.delete` + `refreshSessions(broadcast)` + `randomId()` 新建 session + `createAgent(..., attachToView: true)` → `attachTaskToView` 的 `history.replaceState` 写入新 `?session=`，视图跳走，随后 composer 发出的新文案也进了新会话。
+- 实现要点：`const keepCurrentSession = !restoreDraft || shouldSaveSession(nextMessages)`；命中即 `setChatPanelRevision` + （有 task 时）`syncSessionUI` 后返回 true。`restoreDraft` 分支行为完全不变。分享页 `SharedConversationPage.rollbackForResend` 早已是「只 `agent.rollback` 后返回 true」，本次让主聊天对齐。
+- 改动文件：`src/hooks/useChatActions.ts`、`src/components/chat/ChatPanelHost.tsx`（两处注释不再声称重建会话，`waitForComposerSend` 逻辑不变）、`tests/frontend/edit-first-message-resend-keeps-session.test.ts`（新增 3 例：留在当前会话 / 仍有历史时同样不重建 / 传统回滚仍重建）、`docs/wiki/src/hooks/README.md`、`CHANGELOG.md`、三件套。
+- 验证：`npm run test` → 479 files / 5467 passed / 1 skipped；`npm run lint` → 0 errors（仅 coverage/ 3 条既有 warning）；`npm run build` → 成功。未创建 Git commit，未触碰生成产物。
+- Notes（未扩大范围）：
+  - 会话标题仍是旧的：`syncSessionUI` 只在 `titleNeedsGeneration(task.title)` 时重算，保留会话后标题不会被重置为 `New chat`；旧行为靠「新会话 + New chat」自然重算。要修需把 `setCurrentTitle` 或标题重置能力下沉到 `useChatActions`，属独立改动。
+  - 若用户编辑第一条后**没**发送就切走，当前会话会以「0 条消息」留在列表里（旧行为是删掉）。是否需要在空会话离开时清理，需产品口径。
+  - `performRollback` 中 `restoreDraft=false` 时仍会走 `resolveAttachmentsForDraft`（结果只写进未使用的 `restoredRollbackDraft`），属既有冗余，本次未动。
+
+## compaction-divider-anchor-cut（done，2026-11-01）
+
+- Goal：压缩分割线要出现在「正在压缩上下文」的位置，且压缩之后继续执行的内容（tool 调用等）必须排在线下方；运行中不能出现「线固定贴在列表底部」。
+- 根因：位置是按消息**索引**算的（`occurredAtIndex` / `boundaryIndex`），而列表渲染的是移动窗口（会话 `messageBaseSeq` + 回合窗口）。长会话运行时两者一起滑动，索引换算漂移后被 clamp 到窗口末尾——线就固定贴在底部，后续 rows 全都在它上面。
+- 结论（一句话）：改成**按内容锚定**——`locateAfterCompaction()` 用 `compactedAt` 与消息时间戳比较，找到「本轮压缩之后产生的第一条消息」，线插在它之前；摘要行、之后的回答和所有 tool 调用天然都在线下方，不会再漂。记录索引降级为回退（payload 没有可用时间戳，或刚写完摘要还没有新消息）。
+- 过程：先后试过「切点 `boundaryIndex`」和「发生时刻 `occurredAtIndex`」两种索引锚点，前者把线抬到当前回合开头、后者在长会话里贴底，都被用户否掉；索引方案在窗口态下不可靠，故改为时间戳（内容）锚定。
+- 追加修复（2026-11-01，用户复测「压缩后线上方仍有 tool 在跑」）：时间戳单锚点在「压缩发生在某条消息的流式期间」时必然失效——那条消息的 `timestamp` 是首个 token 的时刻，早于 `compactedAt`，扫描跳过它并把线压到该行下面，压缩后继续产生的 tool 调用于是全留在线之上。改为**双信号取更靠前者**：`ChatSurface` 已把 `occurredAtIndex` 经 `shiftCompactionToLocal` 换成本地窗口坐标，这条记录（精确物理位置）与 `locateAfterCompaction`（时间戳）取 `min`——记录索引变旧/偏大时时间戳把线拉回正确行，跨压缩点的流式消息则由记录索引挡住。真实会话 `bb43345d`（18:10:28 / 18:11:28 两次压缩，135 条消息）复算：`baseSeq=0` 时两条线仍落在 seq 23 / 48 之前（row 9 / 19），窗口态压缩点在窗口外时钳到窗口首行。
+- 改动文件：`src/components/chat/surface/ContextCompactionNotice.tsx`（新增 `messageTimestampMs` / `locateAfterCompaction`，marker 新增绝对值 `anchorIndex`）、`src/components/chat/surface/MessageList.tsx`（key 用 `anchorIndex`）、`tests/frontend/context-compaction-anchor.test.ts`（新，4 例）、`tests/frontend/context-compaction-notice.test.ts`、`docs/wiki/src/components/README.md`、`CHANGELOG.md`、三件套。
+- 验证：`npx vitest run`（context-compaction-anchor / -notice / -rows / assistant-waiting-bubble）→ 4 files / 52 tests 全过；`npx tsc -b` 0 错误；`npx eslint` 改动文件 0 problems；`npm run build` 成功。未创建 Git commit，未触碰 dist 手工修改（仅 build 生成）。
+- 布局裁定（2026-11-01，用户看 docs/design/compaction-anchor-preview.html 后选方案 B）：线只表达压缩发生/生效的位置，摘要仍留在 pill 自己的折叠区（复制按钮与 1200ms 反馈不变），**不在消息流里额外插一行摘要**；候选方案 A（锚定切点，线被抬到当前回合开头）与 C（线下紧邻一条摘要行）均已放弃，先落地的 C 记录行已回退。
+- Notes：顺带观察到自动压缩会在长运行里反复触发（实测某会话 7 分钟内压了两次，每次都在当时末尾留一条线）；如果仍觉得「每次都在底部冒新线」，下一步应考虑对同一回合内的连续压缩合并为一条，而不是继续调锚点。
 ## inspector-open-state-no-memory（done，2026-11-01）
 
 - Goal：用户要求「不要记住右边侧边栏的打开状态」（Workspace Inspector 开合零记忆）。

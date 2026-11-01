@@ -41,9 +41,9 @@ import { getGitStatus } from '../workspace/workspace-api'
 import type { WorkspaceExternalOpenTarget } from '../workspace/workspace-api'
 
 /**
- * 等一帧再读 composer 绑定：就地编辑提交时，回滚可能重建会话（回滚到第一条
- * 消息会删掉旧会话并新建 agent），新的 `.qf-message-editor` bridge 要等 React
- * 提交后才存在。非 DOM 环境（单测）直接放行。
+ * 等一帧再读 composer 绑定：就地编辑提交时，回滚会让消息区重渲染，读取
+ * `.qf-message-editor` bridge 时 React 可能还没提交完。正常情况下不重建会话
+ * （见 useChatActions.performRollback），首帧即可读到。非 DOM 环境（单测）直接放行。
  */
 function nextAnimationFrame(): Promise<void> {
   if (typeof requestAnimationFrame !== 'function') return Promise.resolve()
@@ -57,9 +57,9 @@ type ComposerSendBridge = HTMLElement & {
 /**
  * 等 composer 的发送桥就绪后返回一个发送函数。
  *
- * 回滚到第一条消息会删掉旧会话并新建 agent，ChatSurface 随之重挂载，
- * `.qf-message-editor` 上的 onSend 要等 React 提交后才可用；这里轮询几帧
- * 而不是死等一帧，避免在重建路径上偶发「回滚成功但没发出去」。
+ * 就地编辑提交前会先回滚（截断历史），消息区随之重渲染；`.qf-message-editor`
+ * 上的 onSend 要等 React 提交后才稳定，这里轮询几帧而不是死等一帧，避免偶发
+ * 「回滚成功但没发出去」。
  */
 async function waitForComposerSend(
   panel: HTMLElement,

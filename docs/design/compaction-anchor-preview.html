@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang=zh-CN>
+<head>
+<meta charset=utf-8>
+<title>压缩分割线位置对齐</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;padding:24px;background:#f7f7f8;color:#18181b;font:14px/1.6 system-ui,-apple-system,sans-serif}
+h1{font-size:16px;margin:0 0 4px}
+p.hint{margin:0 0 16px;color:#6b7280;font-size:12px}
+.switch{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+button{border:1px solid #d4d4d8;background:#fff;border-radius:10px;padding:8px 14px;font:inherit;font-size:13px;cursor:pointer;color:#3f3f46}
+button[aria-pressed=true]{border-color:#18181b;background:#18181b;color:#fff}
+.chat{max-width:720px;margin:0 auto;background:#fff;border:1px solid #e4e4e7;border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px}
+.row{border:1px solid #e4e4e7;border-radius:10px;padding:10px 12px;background:#fafafa}
+.row.user{background:#fff;border-color:#d4d4d8}
+.row .who{font-size:11px;letter-spacing:.04em;color:#71717a;margin-bottom:4px}
+.tools{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.tool{border:1px dashed #d4d4d8;border-radius:8px;padding:6px 8px;font-size:12px;color:#52525b;background:#fff}
+.divider{display:flex;align-items:center;gap:10px;padding:2px 0}
+.divider i{flex:1;height:1px;background:#d4d4d8}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#71717a;border:1px solid #e4e4e7;border-radius:999px;padding:3px 10px;background:#fff;white-space:nowrap}
+.pill b{color:#3f3f46;font-weight:600}
+.dot{width:6px;height:6px;border-radius:999px;background:#a1a1aa}
+.summary{border:1px solid #e4e4e7;border-radius:10px;padding:10px 12px;background:#fff;font-size:12px;color:#52525b}
+.summary b{color:#3f3f46}
+.legend{margin-top:14px;font-size:12px;color:#6b7280;max-width:720px}
+</style>
+</head>
+<body>
+<h1>压缩分割线的位置：三种布局对齐</h1>
+<p class=hint>同一段对话、同样的压缩时机，只有分割线的位置不同。点按钮切换，看看哪种符合你的预期。</p>
+<div class=switch>
+<button data-mode=A aria-pressed=true>A · 切点（线在保留回合之前）</button>
+<button data-mode=B aria-pressed=false>B · 压缩那一刻（线在末尾）</button>
+<button data-mode=C aria-pressed=false>C · 压缩那一刻 + 摘要行</button>
+</div>
+<div class=chat id=chat></div>
+<div class=legend id=legend></div>
+<script>
+const ITEMS=[
+  {role:`user`,text:`上一轮 · 用户提问`},
+  {role:`bot`,text:`上一轮 · 回答`,tools:[`read package.json`,`run lint`]},
+  {role:`user`,text:`本轮 · 用户提问`},
+  {role:`bot`,text:`本轮 · 工具链（压缩前已经跑完）`,tools:[`grep compact`,`edit ContextCompactionNotice.tsx`,`run build`]},
+  {role:`bot`,text:`本轮 · 工具链（压缩后新跑）`,tools:[`run test`]},
+  {role:`bot`,text:`本轮 · 最终回答（压缩后）`},
+];
+const AT={A:2,B:4,C:4};
+const LEGEND={
+  A:`线以上是被摘要掉的旧历史，线以下是保留的最近回合（含本轮全部工具链）与之后的新内容。缺点：线上方紧邻的上一轮其实没被摘要，压缩刚完成时线会落在可视区顶部附近。`,
+  B:`线以上包含本轮已经跑完的工具链，线以下是压缩之后新产生的内容。压缩刚完成时线在列表末尾，线下暂时为空。`,
+  C:`同 B，但线下方紧接着一条「已压缩上下文 / 摘要」行，再是之后的新内容。线永远不会孤零零挂在末尾。`
+};
+function row(item){
+  const el=document.createElement(`div`);
+  el.className=`row `+(item.role===`user`?`user`:``);
+  const who=document.createElement(`div`);
+  who.className=`who`;
+  who.textContent=item.role===`user`?`用户`:`助手`;
+  el.appendChild(who);
+  const body=document.createElement(`div`);
+  body.textContent=item.text;
+  el.appendChild(body);
+  if(item.tools){
+    const box=document.createElement(`div`);
+    box.className=`tools`;
+    item.tools.forEach(function(name){
+      const t=document.createElement(`div`);
+      t.className=`tool`;
+      t.textContent=`工具 · `+name;
+      box.appendChild(t);
+    });
+    el.appendChild(box);
+  }
+  return el;
+}
+function divider(){
+  const el=document.createElement(`div`);
+  el.className=`divider`;
+  const l=document.createElement(`i`);
+  const pill=document.createElement(`span`);
+  pill.className=`pill`;
+  const dot=document.createElement(`span`);
+  dot.className=`dot`;
+  const label=document.createElement(`span`);
+  const b=document.createElement(`b`);
+  b.textContent=`已压缩上下文`;
+  label.appendChild(b);
+  label.appendChild(document.createTextNode(` · 较早上下文已整理为摘要供模型使用`));
+  pill.appendChild(dot);
+  pill.appendChild(label);
+  const r=document.createElement(`i`);
+  el.appendChild(l);
+  el.appendChild(pill);
+  el.appendChild(r);
+  return el;
+}
+function summaryRow(){
+  const el=document.createElement(`div`);
+  el.className=`summary`;
+  const b=document.createElement(`b`);
+  b.textContent=`压缩摘要`;
+  el.appendChild(b);
+  el.appendChild(document.createTextNode(` · 之前的对话已整理为这段摘要，模型从这里开始使用摘要上下文（可展开查看原文）`));
+  return el;
+}
+function render(mode){
+  const host=document.getElementById(`chat`);
+  host.textContent=``;
+  const at=AT[mode];
+  ITEMS.forEach(function(item,i){
+    if(i===at){
+      host.appendChild(divider());
+      if(mode===`C`)host.appendChild(summaryRow());
+    }
+    host.appendChild(row(item));
+  });
+  if(at>=ITEMS.length)host.appendChild(divider());
+  document.getElementById(`legend`).textContent=LEGEND[mode];
+  document.querySelectorAll(`button[data-mode]`).forEach(function(btn){
+    btn.setAttribute(`aria-pressed`,String(btn.dataset.mode===mode));
+  });
+}
+document.querySelectorAll(`button[data-mode]`).forEach(function(btn){
+  btn.addEventListener(`click`,function(){render(btn.dataset.mode)});
+});
+render(`A`);
+</script>
+</body>
+</html>

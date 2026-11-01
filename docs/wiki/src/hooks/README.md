@@ -71,12 +71,12 @@
 - **对话压缩**: 支持 `/summary` 创建总结后的新对话，支持 `/compact` 在当前会话内滚动压缩上下文
 - **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
 
-### useChatActions.ts (311 行)
+### useChatActions.ts (389 行)
 
 聊天交互操作:
 - `startNewGlobalChat()` / `startNewProjectChat()` — 创建延迟会话，首条消息发送时才创建真实 Session
 - `rollbackFromMessage(index)` — 回滚到指定消息，并把原文案回填到输入框（`performRollback(index, true)`）
-- `rollbackForResend(index)` — 就地编辑「发送」的截断半步：只移除该条及之后的历史、不回填输入框（`performRollback(index, false)`），新文案由 `ChatPanelHost` 立刻交给 composer 的 `onSend`
+- `rollbackForResend(index)` — 就地编辑「发送」的截断半步：只移除该条及之后的历史、不回填输入框（`performRollback(index, false)`），新文案由 `ChatPanelHost` 立刻交给 composer 的 `onSend`；无论截断后是否还有消息（编辑的是第一条时为空）都**留在当前会话**，绝不删会话/新建 agent，否则 `attachToView` 的 `?session=` 改写会表现为「跳回新对话页」。删空会话 + 重建只保留给 `rollbackFromMessage` 的传统回滚
 - `forkFromMessage(index)` — 从指定消息分叉新对话（新 sessionId + `[fork] ` 标题前缀；服务端 createAgent 会立即持久化该会话，因此无需再发消息就出现在侧栏）
 - `copyAnswer(text)` — 复制回答到剪贴板
 

@@ -206,14 +206,16 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
   // (inserting the divider shifts every later position by one), so a divider
   // above the waiting row pushed the bubble one row too far.
   // One divider per compaction (rolling compaction appends a record each time),
-  // keyed by its immutable physical position so each line keeps its own
-  // disclosure state and never moves again.
+  // keyed by the immutable moment it ran so each line keeps its own disclosure
+  // state and never moves again — `anchorIndex` is absolute, so a window shift
+  // does not re-key (and remount) the line.
   const markers: CompactionMarker[] = compactionMarkers && compactionMarkers.length > 0
     ? compactionMarkers
     : compactionBoundary?.kind === 'at'
       ? [{
         rowIndex: compactionBoundary.rowIndex,
         boundaryIndex: compactionBoundary.boundaryIndex,
+        anchorIndex: compactionBoundary.boundaryIndex,
         occurredAtIndex: compactionBoundary.boundaryIndex,
         summaryText: compactionBoundary.summaryText,
         isLatest: true,
@@ -221,8 +223,9 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
       : []
   const markersByRow = new Map<number, CompactionMarker[]>()
   for (const marker of markers) {
-    // Clamp to the row count: a compaction that just ran belongs at the bottom
-    // edge of the list, not dropped.
+    // Clamp to the row count: a marker whose moment sits at/after the last
+    // rendered row stays visible at the list's trailing edge instead of being
+    // dropped.
     const row = Math.min(marker.rowIndex, rows.length)
     const bucket = markersByRow.get(row)
     if (bucket) bucket.push(marker)
@@ -241,7 +244,7 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
       for (const marker of rowMarkers) {
         children.push(
           <ContextCompactionNotice
-            key={`quickforge-context-compaction-${marker.occurredAtIndex}`}
+            key={`quickforge-context-compaction-${marker.anchorIndex}-${marker.occurredAtIndex}`}
             summaryText={marker.summaryText}
             boundaryIndex={marker.boundaryIndex}
             compactedAt={marker.compactedAt}

@@ -181,10 +181,17 @@ export function useChatActions({
       ? taskMapRef.current.get(currentSessionIdRef.current)
       : undefined
 
-    if (shouldSaveSession(nextMessages) && currentTask) {
+    // 就地编辑「发送」（restoreDraft=false）必须留在当前会话：编辑第一条消息时
+    // 截断后为空，`shouldSaveSession` 为 false，但这里不能删会话 + 新建 agent——
+    // attachTaskToView 会 replaceState 写入新的 ?session=，表现为「跳回新对话页」，
+    // 紧随其后的 composer 发送也落到新会话里。删空会话只保留给传统回滚。
+    const keepCurrentSession = !restoreDraft || shouldSaveSession(nextMessages)
+    if (keepCurrentSession) {
       if (restoreDraft) setRestoredDraft(restoredRollbackDraft)
       setChatPanelRevision((value) => value + 1)
-      syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI:', err))
+      if (currentTask) {
+        syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI:', err))
+      }
       return true
     }
 

@@ -1,5 +1,25 @@
 # Current Session Handoff
 
+## edit-first-message-resend-stay-in-session（done，2026-11-01）
+
+- Current Objective（当前目标）：修复「编辑第一条消息后发送会跳回新对话页」，要求在**当前对话**里继续。
+- 结论（一句话）：`useChatActions.performRollback` 现在用 `keepCurrentSession = !restoreDraft || shouldSaveSession(nextMessages)` 判定；就地编辑重发（`restoreDraft=false`，含编辑第一条截断为空）留在当前会话，删会话 + `createAgent` 只服务传统回滚。
+- 根因：截断为空 → `shouldSaveSession` false → `storage.sessions.delete` + 新建 agent + `attachTaskToView` 的 `history.replaceState(?session=)`，视图跳走、新文案也发到新会话。
+- 改动文件：`src/hooks/useChatActions.ts`、`src/components/chat/ChatPanelHost.tsx`（仅注释）、`tests/frontend/edit-first-message-resend-keeps-session.test.ts`（新增 3 例）、`docs/wiki/src/hooks/README.md`、`CHANGELOG.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npm run test` → 479 files / 5467 passed / 1 skipped；`npm run lint` → 0 errors（仅 coverage/ 3 条既有 warning）；`npm run build` → 成功。未创建 Git commit，未触碰生成产物。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续。若要修「编辑第一条后会话标题仍是旧文案」，需把标题重算能力（`setCurrentTitle` / 重置为 `New chat`）下沉到 `useChatActions`，属独立 feature；`progress.md` Notes 另有「0 条消息的空会话留在列表里」待定产品口径。
+
+## compaction-divider-anchor-cut（done，2026-11-01）
+
+- Current Objective（当前目标）：压缩分割线必须在压缩之后继续执行的内容之前，运行中不能固定贴在列表底部。
+- 结论（一句话）：位置由**两个信号取更靠前者**决定——`occurredAtIndex`（`ChatSurface` 已用 `messageBaseSeq` 换成本地窗口坐标，代表压缩瞬间的精确位置）与 `locateAfterCompaction()`（第一条时间戳 >= `compactedAt` 的消息）；摘要行与之后所有 tool 调用天然在线下方，线也不会随窗口滑动漂到末尾。
+- 过程：先试切点 `boundaryIndex`（线被抬到当前回合开头）、再试发生时刻 `occurredAtIndex`（长会话贴底）被否；第三版改成纯时间戳锚定，用户复测仍报「压缩后线上方还有 tool 在跑」——根因是压缩可能发生在**某条消息的流式期间**，该消息 `timestamp` 是首个 token 时刻、早于 `compactedAt`，时间戳扫描跳过它、线被压到该行下面。现改成位置与时间戳取 `min`：记录索引偏大（窗口变旧）时由时间戳拉回，跨压缩点的流式消息由记录索引挡住。
+- 改动文件：`src/components/chat/surface/ContextCompactionNotice.tsx`、`src/components/chat/surface/MessageList.tsx`、`tests/frontend/context-compaction-anchor.test.ts`（新）、`tests/frontend/context-compaction-notice.test.ts`、`docs/wiki/src/components/README.md`、`CHANGELOG.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run tests/frontend/context-compaction-{anchor,notice,rows}.test.ts tests/frontend/assistant-waiting-bubble.test.ts` → 4 files / 52 tests 全过；`npx tsc -b` 0 错误；`npx eslint` 改动文件 0 problems；`npm run build` 成功。未跑全量 `npm run test`，未创建 Git commit。
+- 布局裁定（方案 B，用户看 docs/design/compaction-anchor-preview.html 后指定）：线只表达压缩发生/生效的位置，摘要留在 pill 折叠区内，不在消息流中额外插行；先前落地的 C 摘要行已回退。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：若用户仍觉得「每次压缩都在底部冒一条新线」，那是自动压缩在一个长回合里反复触发的产品行为（实测 7 分钟内两次），应对同一回合内的连续压缩合并成一条，而不是继续调锚点。
 ## running-command-stop-button-alignment（done，2026-11-01）
 
 - Current Objective（当前目标）：用户反馈「运行命令 tools 旁边的暂停按钮没对齐、不像上下居中」，先评审再修复并推送。

@@ -2,6 +2,15 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## drop-compaction-legacy-migration（done，2026-11-02）
+
+- Goal：用户裁定「新对话没问题，旧的不需要兼容」，据此删除只为旧存档服务的压缩迁移。
+- 结论（一句话）：`ensureCompactionMessage()` 整段删除，`restoreAgent` / `syncSessionFromStorage` 两处挂点与 `compaction_migration` 广播一并去掉；新对话每次压缩都由 `compactSessionInPlace` 自己写摘要消息，从不经过迁移。
+- 根因（为什么该删）：迁移里的 `history.map(entry => ({ ...entry, occurredAtIndex: insertAt, boundaryIndex: insertAt }))` 会把旧会话所有记录的位置折叠成同一个 `insertAt`，与实际插入位置无关；上一版放开条数上限后「多条记录」成为常态，这个折叠更不合理。它只在「有 `contextCompaction.summaryMessage` 但消息数组里没有摘要」时触发，即纯旧数据。
+- 关键改动：`server/auto-compaction.mjs`（删函数与注释改述兼容分支；`buildAutoCompactLoopMessages` 的只读虚拟拼接兜底保留，用于 run 内快照与未迁移旧会话）、`server/agent-manager.mjs`（删 import 与两处调用+落库+广播）、`tests/server/compaction-message.test.mjs`（删迁移用例与 import）、`docs/wiki/src/components/README.md`、`CHANGELOG.md`。
+- 行为影响：旧会话不再被补写摘要消息，打开时按其原样显示；模型上下文仍由兜底分支拼出摘要，不会丢上下文。新对话完全无变化。
+- 验证：定向 `npx vitest run tests/server/compaction-message.test.mjs tests/server/auto-compaction-history.test.mjs` → 2 files / 9 tests 通过；全量 `npm run test` → 480 files / 5446 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit。
+
 ## compaction-record-no-truncation（done，2026-11-02）
 
 - Goal：用户要求「每次压缩的记录都保存，不要合并成全局一条线」，并裁定 **UI 完全不动，只保留过程**。

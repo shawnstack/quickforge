@@ -37,7 +37,6 @@ import {
 } from './conversation-compaction.mjs'
 import {
   buildAutoCompactLoopMessages,
-  ensureCompactionMessage,
   lastCompactionMessageIndex,
   maybeAutoCompactSession,
   syncCompactionIndex,
@@ -1826,10 +1825,6 @@ export async function syncSessionFromStorage(sessionId) {
     session.startedAt = stored.taskStartedAt || null
     session.finishedAt = stored.taskFinishedAt || null
     session.contextCompaction = stored.contextCompaction || null
-    // 从存储同步过来的旧会话同样需要把摘要补成消息（幂等）。
-    if (ensureCompactionMessage(session)) {
-      await persistSession(session, { forceMessagesReplace: true }).catch(() => null)
-    }
     // Storage is authoritative for the goal too, but only when it is actually
     // newer: an in-memory mutation that has not been persisted yet must win.
     const storedGoal = normalizeGoalState(stored.goal, { sessionId })
@@ -1972,17 +1967,6 @@ async function restoreAgentUnlocked(sessionId) {
       goalEvents: Array.isArray(sessionData.goalEvents) ? sessionData.goalEvents : null,
       goalEngine: sessionData.goalEngine === 'v2' ? 'v2' : undefined,
     })
-    // 旧会话的摘要只存在 contextCompaction 里；方案 B 要求它同时也是一条消息。
-    if (restored && ensureCompactionMessage(restored)) {
-      await persistSession(restored, { forceMessagesReplace: true }).catch(() => null)
-      emitSessionEvent(restored, {
-        type: 'messages_replaced',
-        reason: 'compaction_migration',
-        messages: restored.agent.state.messages,
-        contextCompaction: restored.contextCompaction,
-        contextUsage: getSessionContextUsage(restored),
-      })
-    }
     return restored
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })

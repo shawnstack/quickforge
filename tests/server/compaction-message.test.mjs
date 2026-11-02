@@ -17,7 +17,6 @@ vi.mock('../../server/conversation-compaction.mjs', async (importOriginal) => {
 const {
   buildAutoCompactLoopMessages,
   compactSessionInPlace,
-  ensureCompactionMessage,
   lastCompactionMessageIndex,
 } = await import('../../server/auto-compaction.mjs')
 const { isCompactSummaryMessage } = await import('../../server/conversation-compaction.mjs')
@@ -136,27 +135,5 @@ describe('compaction message (plan B)', () => {
 
     expect(loop[0]).toBe(summary)
     expect(loop).toHaveLength(2)
-  })
-
-  it('migrates a legacy session once and stays idempotent', () => {
-    const messages = [textMessage('user', 'q1', 1), textMessage('assistant', 'a1', 2), textMessage('user', 'q2', 3)]
-    const summary = summaryMessage('legacy')
-    const session = createSession(messages)
-    session.contextCompaction = {
-      summaryMessage: summary,
-      compactedUpToIndex: 2,
-      compactedAt: '2026-01-01T00:00:00.000Z',
-      sourceMessageCount: 3,
-      history: [{ occurredAtIndex: 2, boundaryIndex: 2, summaryMessage: summary }],
-    }
-
-    expect(ensureCompactionMessage(session)).toBe(true)
-    expect(session.agent.state.messages).toHaveLength(4)
-    expect(isCompactSummaryMessage(session.agent.state.messages[2])).toBe(true)
-    expect(session.contextCompaction.compactedUpToIndex).toBe(3)
-
-    // 再跑一次不再改动（幂等）。
-    expect(ensureCompactionMessage(session)).toBe(false)
-    expect(session.agent.state.messages).toHaveLength(4)
   })
 })

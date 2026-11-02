@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "drop-compaction-legacy-migration",
+      "title": "删除压缩的旧存档迁移（不兼容旧数据）",
+      "status": "done",
+      "summary": "用户裁定「新对话没问题，旧的不需要兼容」，据此删除仅为旧存档服务的压缩迁移。`ensureCompactionMessage()` 整段删除（连同 `restoreAgent` / `syncSessionFromStorage` 两处挂点、落库与 `compaction_migration` 的 `messages_replaced` 广播）：它会用 `history.map(entry => ({ ...entry, occurredAtIndex: insertAt, boundaryIndex: insertAt }))` 把旧会话所有记录位置折叠成同一个 `insertAt`，与实际插入位置无关；上一版放开条数上限后「多条记录」成为常态，折叠更不合理。触发条件仅为「有 `contextCompaction.summaryMessage` 但 messages 中没有摘要」，即纯旧数据；新对话每次压缩由 `compactSessionInPlace` 自己写摘要消息，从不经过迁移，行为零变化。`buildAutoCompactLoopMessages` 的只读虚拟拼接兜底保留（run 内快照 + 未迁移旧会话），旧存档模型上下文不丢，只是不再被回写。`tests/server/compaction-message.test.mjs` 删除迁移用例（5 → 4 例）。",
+      "files": [
+        "server/auto-compaction.mjs（删：ensureCompactionMessage + 注释改述）",
+        "server/agent-manager.mjs（删：import 与两处调用/落库/广播）",
+        "tests/server/compaction-message.test.mjs（删：迁移用例与 import）",
+        "docs/wiki/src/components/README.md（改：旧会话不再迁移）",
+        "CHANGELOG.md（改/删条目）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run tests/server/compaction-message.test.mjs tests/server/auto-compaction-history.test.mjs → 2 files / 9 tests 通过；npm run test → 480 files / 5446 passed / 2 skipped；npx tsc -b → 0 错误；npm run lint → 0 problems；npm run build → 成功",
+      "updatedAt": "2026-11-02"
+    },
+    {
       "id": "edit-first-message-resend-stay-in-session",
       "title": "编辑第一条消息后重发不再跳到新对话（留在当前会话）",
       "status": "done",

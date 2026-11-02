@@ -194,10 +194,9 @@ export function syncCompactionIndex(session, compactionIndex, messageCount) {
 /**
  * 模型上下文：压缩摘要本身就是一条消息，从最后一条压缩消息开始读即可。
  *
- * 传入数组里找不到摘要消息的两种情况都走兼容分支，把摘要拼回虚拟数组的
- * 开头：旧会话（摘要只在 contextCompaction.summaryMessage 里、messages 中
- * 还没有那条消息，待 `ensureCompactionMessage` 迁移）与 run 内快照（摘要
- * 只在 state 里，见 `compactionSnapshotShift`，下标需平移）。
+ * 传入数组里找不到摘要消息时走只读兼容分支，把摘要拼回虚拟数组的开头：
+ * run 内快照的摘要只在 state 里（见 `compactionSnapshotShift`，下标需平移）。
+ * 只有 contextCompaction、消息数组里没有摘要的旧会话不做迁移，同样落到这里。
  */
 export function buildAutoCompactLoopMessages(session, messages) {
   const source = Array.isArray(messages) ? messages : []
@@ -210,31 +209,6 @@ export function buildAutoCompactLoopMessages(session, messages) {
   let tailStart = compactedUpToIn(session, source)
   while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
   return [summaryMessage, ...source.slice(tailStart)]
-}
-
-/**
- * 幂等迁移：旧会话的摘要只存在 contextCompaction.summaryMessage 里，方案 B 下它
- * 必须同时是 messages 中的一条消息。返回是否发生变更（调用方据此决定是否落库）。
- */
-export function ensureCompactionMessage(session) {
-  const messages = Array.isArray(session?.agent?.state?.messages) ? session.agent.state.messages : null
-  if (!messages) return false
-  const compaction = session.contextCompaction
-  const summaryMessage = compaction?.summaryMessage
-  if (!summaryMessage) return false
-  if (lastCompactionMessageIndex(messages) >= 0) return false
-  const insertAt = Math.min(Math.max(0, Number(compaction?.compactedUpToIndex) || 0), messages.length)
-  const nextMessages = [...messages.slice(0, insertAt), summaryMessage, ...messages.slice(insertAt)]
-  replaceSessionMessages(session, nextMessages)
-  session.contextCompaction = {
-    ...compaction,
-    compactedUpToIndex: insertAt + 1,
-    sourceMessageCount: nextMessages.length,
-    history: Array.isArray(compaction.history)
-      ? compaction.history.map((entry) => ({ ...entry, occurredAtIndex: insertAt, boundaryIndex: insertAt }))
-      : compaction.history,
-  }
-  return true
 }
 
 function messageTimestampMs(message) {

@@ -1,5 +1,16 @@
 # Current Session Handoff
 
+## drop-compaction-legacy-migration（done，2026-11-02）
+
+- Current Objective（当前目标）：用户裁定「新对话没问题，旧的不需要兼容」，删除只为旧存档服务的压缩迁移。
+- 结论（一句话）：`ensureCompactionMessage()` 与其两处挂点（`restoreAgent`、`syncSessionFromStorage`）、`compaction_migration` 广播整段删除；新对话每次压缩自己写摘要消息，从不走迁移，旧存档按其原样显示。
+- 根因：迁移会把旧会话所有 `history` 记录的位置折叠成同一个 `insertAt`（与实际无关），上一版放开条数上限后更不合理；触发条件仅「有 `contextCompaction.summaryMessage` 但消息数组里没有摘要」。
+- 改动文件：server/auto-compaction.mjs（删函数 + `buildAutoCompactLoopMessages` 注释改述）、server/agent-manager.mjs（删 import 与两处调用/落库/广播）、tests/server/compaction-message.test.mjs（删迁移用例与 import）、docs/wiki/src/components/README.md、CHANGELOG.md、三件套。
+- 保留项：`buildAutoCompactLoopMessages` 的只读虚拟拼接兜底仍在（run 内快照 + 未迁移旧会话），旧会话模型上下文不丢。
+- Evidence（验证）：定向 vitest（compaction-message / auto-compaction-history）→ 2 files / 9 tests；全量 `npm run test` → 480 files / 5446 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续。若日后要彻底不兼容旧存档，可连带删除 `buildAutoCompactLoopMessages` 的兜底分支；当前保留是因为它只读、不写库、不改坐标。
+
 ## compaction-record-no-truncation（done，2026-11-02）
 
 - Current Objective（当前目标）：用户要求「每次压缩的记录都保存，不要合并成全局一条线」，并裁定 UI 完全不动、只保留过程。

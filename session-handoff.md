@@ -1,5 +1,34 @@
 # Current Session Handoff
 
+## release-2-3-7（done，2026-11-02）
+
+- Current Objective（当前目标）：用户问「可以撤回最近的包然后重新发么」。先判断可行性，再决定发布策略并把两处修复发出去。
+- 结论（一句话）：**不撤回 2.3.6**——npm 规则是「72 小时内可整版撤回，但撤回后该版本号永久作废，只能发新版本」，撤回的唯一收益（别让别人装到坏版本）会被 2.3.7 立刻取代；以 **2.3.7** 发布：test/lint/build 全绿，runtime/offline 包与 tarball 已生成，功能提交 + release commit + tag `v2.3.7` 推送 `origin/dev`；npm publish 留给用户手动执行。
+- 本版内容：① `fix(desktop)` 子进程 cwd 改用真实目录（安装版 `spawn … QuickForge.exe ENOENT`）；② `fix(chat)` Deferred → 真实会话交接携带首条消息（「任务旁 +」新建对话不再跳回欢迎页）。
+- 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：`npm run test` → 484 files / 5459 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功（built in 4.44s，precompress 224 files: 12.67MB → 6.49MB）；`npm pack` → `package-offline/shawnstack-quickforge-2.3.7.tgz`（14.5 MB / 1028 files，shasum `ed70b3ea24251aed65cfd05f98c38f32b48388b0`）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：用户执行 `cd package-offline && npm publish --access public`，再 `npm view @shawnstack/quickforge version` 校验；2.3.6 保持原样留在 registry，publish 后 `latest` 指向 2.3.7。
+
+## deferred-handoff-no-empty-frame（done，2026-11-02）
+
+- Current Objective（当前目标）：修掉「在任务旁 + 新建对话，输入文字后直接跳回初始化欢迎页、消息消失」。
+- 结论（一句话）：Deferred → 真实会话交接时不再让「0 条消息」的空 agent 先上屏——乐观消息随 `handoffMessages` 一起交给真实 agent，`prompt(message, { messageAlreadyInState: true })` 复用而不重复追加；空态判据不再被交接瞬间误触发，也就不会自动切到项目空对话。
+- 根因：`createAgent` 建好真实 `ServerAgent` 时 `state.messages` 为空，先 attach 后 prompt，中间一帧命中 `showNewChatEmptyState`，`App.tsx` 的「默认项目自动接管」effect 随即 `startNewProjectChat(activeProject)`，把进行中的会话顶掉且 prompt 从未发出（日志 `16:56:04` 的 global 会话无 prompt）。
+- 改动文件：`src/lib/deferred-session-agent.ts`、`src/lib/server-agent.ts`、`src/hooks/useAgentManager.ts`、`tests/frontend/deferred-session-agent.test.ts`、`tests/frontend/server-agent.test.ts`、`tests/frontend/deferred-handoff-contract.test.ts`（新增）、`docs/wiki/src/lib/README.md`、`docs/wiki/src/hooks/README.md`、`CHANGELOG.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：定向 vitest 3 files / 153 tests 全过；`npm run test` → 484 files / 5459 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：需要实机复测一次（点「任务」旁 +，输入并发送、观察是否停在原会话）；若要让交接链路更彻底，可评估把「默认项目自动接管」从 effect 改成显式用户动作，但那属产品语义变更，需单独立项。
+
+## desktop-fork-cwd-real-directory（done，2026-11-02）
+
+- Current Objective（当前目标）：解释并修掉安装版启动即报 `spawn …\QuickForge.exe ENOENT`（用户在 Windows 安装版 2.3.6 上遇到）。
+- 结论（一句话）：根因是 fork 子进程把 `app.asar`（归档路径）当成了 cwd；现在 `projectRoot` 只用于定位资源，子进程 cwd 一律用真实目录（桌面端 = 用户主目录，CLI/SDK 默认继承调用方），重启与更新链路一并改掉。
+- 改动文件：`server/public-api.mjs`、`server/index.mjs`、`desktop/electron-main.mjs`、`tests/server/public-api-child-cwd.test.mjs`（新增）、`tests/frontend/desktop-fork-default.test.ts`、`docs/wiki/README.md`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：asar runtime 实测 `/api/health` 200 + `GET /` 200；变异验证（改回 projectRoot 测试即红）；`npm run test` → 483 files / 5454 passed / 2 skipped；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功；`npm run desktop:build:win` → 成功（2m1s），产物 asar 内含修复，直接启动 `desktop-dist/win-unpacked/QuickForge.exe` 后 `/api/health` 200（2.3.6）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：安装 `desktop-dist/QuickForge Setup 2.3.6.exe`（覆盖现有 2.3.6）即可拿到修复；若不重装，可设 `QUICKFORGE_DESKTOP_INLINE=1` 临时走 inline 模式。
+
 ## release-2-3-6（done，2026-11-02）
 
 - Current Objective（当前目标）：用户「发布一个小版本」——按 `docs/architecture/patch-release-runbook.zh-CN.md` 走手动流程发布 patch 版本。

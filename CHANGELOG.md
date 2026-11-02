@@ -4,6 +4,24 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [2.3.7] - 2026-11-02
+
+### Fixed
+
+- Desktop and CLI no longer hand the package directory to a child process as its `cwd`. A packaged desktop install keeps `server/` inside `app.asar`, and libuv cannot `chdir` into an archive path, so the fork failed at startup with `spawn …\QuickForge.exe ENOENT` (the message names the executable, which looks like a missing binary). `projectRoot` now only locates resources: forked servers inherit the caller's real working directory (CLI/SDK) and the desktop app passes `app.getPath('home')`. The restart/update supervisor does the same, so an update-restart cannot land on the same failure.
+
+- The first message typed into a fresh "New chat" (the `+` next to "Tasks") no longer jumps back to the welcome screen and swallows the text. When a `DeferredSessionAgent` promotes to a real session, `createAgent` now loads the optimistic messages the user can already see into the real agent (`handoffMessages`) before it is attached to the view, so the agent never paints a frame with zero messages; the following `prompt(message, { messageAlreadyInState: true })` reuses that message instead of appending it a second time. That empty frame used to read as a brand-new empty chat by the "default project takes over" rule, which replaced the session in progress and never sent the prompt.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.3.7` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.3.7.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.3.7.tgz
+  ```
+
 ## [2.3.6] - 2026-11-02
 
 ### Added

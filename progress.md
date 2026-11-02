@@ -2,6 +2,59 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## release-2-3-7（done，2026-11-02）
+
+- 触发：用户问「可以撤回最近的包然后重新发么」（想处理有 bug 的 2.3.6）。
+- 结论（一句话）：不撤回，直接发 **2.3.7**。npm 政策是 72 小时内可以整版撤回，但一旦撤回，该版本号永久作废、不能再用它重发；而撤回的唯一收益「别人别装到坏版本」会被新版本立刻取代，代价却是锁了 2.3.6 的安装直接 404。
+- 发布内容：
+  1. `fix(desktop)`: 子进程 `cwd` 改用真实目录（`projectRoot` 只定位资源），修复安装版 `spawn … QuickForge.exe ENOENT`；restart/update supervisor 同步。
+  2. `fix(chat)`: Deferred → 真实会话交接携带首条消息（`handoffMessages` + `prompt(message, { messageAlreadyInState: true })`），「任务旁 +」新建对话不再跳回欢迎页。
+- 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`（新增 2.3.7 章节与 Released 小节）、`README.md`（版本徽章 2.3.7）、`feature_list.json`、`progress.md`、`session-handoff.md`；功能代码见上面两段与各自的提交。
+- 验证 / Evidence：
+  - `npm run test` → 484 files / 5459 passed / 2 skipped（退出码 0）；`npm run lint` → 0 problems；`npm run build` → 成功（built in 4.44s，precompress 224 files: 12.67MB → 6.49MB）。
+  - `node scripts/prepare-runtime-package.cjs`、`node scripts/prepare-offline-package.cjs` 均成功；`npm pack` → `package-offline/shawnstack-quickforge-2.3.7.tgz`（14.5 MB / 1028 files，shasum `ed70b3ea24251aed65cfd05f98c38f32b48388b0`）。
+  - Git：`fix(desktop)` → `1ad4a8db`；`fix(chat)` → `eaf4f765`；release commit + tag `v2.3.7` 推送 `origin/dev`。
+- Notes：
+  - 未撤回 2.3.6，`npm deprecate` 也无需执行——2.3.7 发布后 `latest` 覆盖即可。
+  - `package-offline/` 内的 tarball 属生成产物，不入 Git（`.gitignore` 已忽略）；`dist/` 由 `npm run build` 生成，未手工修改。
+
+## deferred-handoff-no-empty-frame（done，2026-11-02）
+
+- 触发：用户反馈「在任务旁的 + 新建对话，输入文字后直接跳出去回到初始化对话框」。确认点是「任务」分组标题旁的 +（`startNewExplicitGlobalSession`），不是项目行那个 +。
+- 根因（交接空窗）：`createAgent` 建好真实 `ServerAgent` 时它的 `state.messages` 是空的，`attachTaskToView` 立刻把这个「0 条消息」的 agent 挂上视图；App 的空态判据 `!isStreaming && messages.length === 0` 因此成立，`App.tsx` 里「默认项目必须进入真实会话」的 effect 立刻又跑了一次 `startNewProjectChat(activeProject)`，把正在进行的全局会话换成了项目空对话 —— 用户看到的是欢迎页，刚打的字也没发出去。
+- 日志证据（`~/.quickforge/logs/server-2026-11-02.log`）：`16:55:58` 点 + 只读了模型清单与思考等级；`16:56:04.064` 创建 global 会话 `ba70ed7c`（POST `/api/agents` 耗时 5536ms）；10ms 后（`.074`）又出现一次「新对话初始化」；该会话全程没有 `prompt` 请求；`16:58:12` 才有新的 project 会话被创建（用户重新打的字）。
+- 修法（消除中间态，不给空态规则打补丁）：
+  1. `useAgentManager.createAgent` 新增 `handoffMessages`：在 `ServerAgent.create` 之后、`attachTaskToView` 之前，把交接消息写进真实 agent 的 `state.messages`。只写前端 state，不进 create 的 payload（那份会被服务端持久化，紧接着的 prompt 又会再发一次）。
+  2. `DeferredSessionAgent.ensureRealAgent` 用 `handoffMessages: this.state.messages` 交接乐观消息，真实 agent 上屏的第一帧就带着用户那句话。
+  3. `ServerAgent.prompt(input, { messageAlreadyInState })`：交接消息引用相等时直接复用，不再追加第二遍；失败回滚的 `msgCountBeforeOptimistic` 同步按「已含该消息」计算，仍只删这一条。
+- 改动文件：`src/lib/deferred-session-agent.ts`、`src/lib/server-agent.ts`、`src/hooks/useAgentManager.ts`、`tests/frontend/deferred-session-agent.test.ts`（改）、`tests/frontend/server-agent.test.ts`（改）、`tests/frontend/deferred-handoff-contract.test.ts`（新增）、`docs/wiki/src/lib/README.md`、`docs/wiki/src/hooks/README.md`、`CHANGELOG.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证 / Evidence：
+  - 定向 `npx vitest run deferred-session-agent / server-agent / deferred-handoff-contract` → 3 files / 153 tests 全过。
+  - 全量 `npm run test` → 484 files / 5459 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功（built in 4.20s，precompress 224 files: 12.67MB → 6.49MB）。
+- Notes：
+  - 契约测试 `deferred-handoff-contract.test.ts` 锁住三处：`handoffMessages` 必须传给 `createAgent`、必须在 attach 之前装进真实 agent、`ServerAgent.prompt` 必须保留复用分支（并排在乐观追加之前）。任何一处被删都会直接变红。
+  - 行为变化（符合预期）：全新建会话在首条消息发出前就会触发一次 `refreshSessions`，侧栏能更早看到该会话条目；此前是等 prompt 之后才刷新。
+  - 未创建 Git commit / tag / push；`dist/` 由 `npm run build` 正常生成，未手工修改。
+
+## desktop-fork-cwd-real-directory（done，2026-11-02）
+
+- 触发：用户发来安装版启动弹窗「QuickForge failed to start → spawn C:\Users\…\Programs\QuickForge\QuickForge.exe ENOENT」，问原因并要求修掉。
+- 根因：桌面端默认把 server 跑成独立子进程，`spawn` 的 `cwd` 取 `projectRoot`；打包后这个值是 `resources/app.asar`——归档文件不是磁盘目录，libuv chdir 失败直接返回 `ENOENT`（错误文本显示可执行文件路径，看起来像 exe 缺失，实际 exe 完好）。旧版本默认 inline 启动，所以这个坑到「默认 fork」之后才暴露。
+- 修法（统一语义：`projectRoot` 只负责定位资源，子进程 `cwd` 必须是真实目录）：
+  1. `server/public-api.mjs`：fork 子进程默认继承调用方 `process.cwd()`（与 CLI 一致），显式 `options.cwd` 仍 `path.resolve`；不再把包目录当默认 cwd。
+  2. `desktop/electron-main.mjs`：桌面启动显式传 `cwd: app.getPath('home')`（`app.asar` 不是目录，安装目录还可能只读）。
+  3. `server/index.mjs`：restart / update supervisor 传给新服务的 `cwd` 由 `projectRoot` 改为 `process.cwd()`，重启与更新后重启在打包版不再命中同一 ENOENT。
+- 改动文件：`server/public-api.mjs`、`server/index.mjs`、`desktop/electron-main.mjs`、`tests/server/public-api-child-cwd.test.mjs`（新增）、`tests/frontend/desktop-fork-default.test.ts`、`docs/wiki/README.md`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证 / Evidence：
+  - 安装版 2.3.6 的 asar runtime 实测：`ELECTRON_RUN_AS_NODE=1 QuickForge.exe resources/app.asar/server/index.mjs`，cwd 设为用户主目录 → `/api/health` 200（version 2.3.6）、`GET /` 返回 index.html（1840 bytes，含 `id="root"`），证明 asar 内 runtime 可读、只差一个真实 cwd。
+  - 变异验证：把 `public-api.mjs` 的 cwd 改回 `projectRoot`，`tests/server/public-api-child-cwd.test.mjs` 立即失败；恢复后通过。
+  - `npm run test` → 483 files / 5454 passed / 2 skipped（退出码 0）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run build` → 成功（4.64s，precompress 224 files: 12.67MB → 6.49MB）。
+  - 重新打包：`npm run desktop:build:win` 成功（2m1s，退出码 0），产出 `desktop-dist/QuickForge Setup 2.3.6.exe`、`QuickForge Setup 2.3.6.exe.blockmap` 与 `QuickForge-Portable-2.3.6.exe`；从产物 asar 中确认三处修复都在（public-api 的 `childCwd`、electron-main 的 `cwd: app.getPath('home')`、index 的 supervisor `childCwd`）。
+  - 真机验证：直接启动 `desktop-dist/win-unpacked/QuickForge.exe`，`/api/health` 返回 200（version 2.3.6，server pid 19844），随后 `taskkill /T /F` 清理，端口 5177 释放、无残留进程 —— 原来必现的 ENOENT 弹窗不再出现。
+- Notes：
+  - 用户机器上现装的 2.3.6 仍是旧代码，需重新打包/安装（`npm run desktop:build:win`）才能拿到修复；临时绕过可设 `QUICKFORGE_DESKTOP_INLINE=1` 走 inline 启动。
+  - 本次未改 `bin/quickforge.mjs`：CLI 本来就不传 cwd、继承调用方目录，行为已正确。
+
 ## release-2-3-6（done，2026-11-02）
 
 - 触发：「发布一个小版本」。

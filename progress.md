@@ -2,6 +2,30 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## release-2-3-6（done，2026-11-02）
+
+- 触发：「发布一个小版本」。
+- 结论（一句话）：把 v2.3.5 之后 dev 上的 21 个提交以 **2.3.6** 发布——版本递增、CHANGELOG/README 更新、test/lint/build 硬门禁通过、runtime/offline 包与 tarball 生成、release commit + tag `v2.3.6` 推送 `origin/dev`；`npm publish` 按 runbook 留给用户手动执行。
+- 发布内容概要（按 CHANGELOG 章节）：
+  1. Added：压缩记录改为纯追加（去掉 20 条上限）；兼容期旧库（v1..v18）启动时自动升级到 baseline v19 并留升级前 `VACUUM INTO` 快照。
+  2. Changed/Refactor：前端应用级状态迁入 `src/stores/` 十个 Zustand store（hook 全部保留为兼容层，`ChatSidebar` 去 14 个 props，3 个 window 事件桥换成 `ui-store` 请求信号）；消息投递重构为「消息日志 + 每连接游标」（`server/message-log.mjs` / `server/event-log.mjs`、SSE `id:`/`Last-Event-ID` 重放、缺口 `resync`、`applyLog` 唯一写入入口、`ensureFullHistory` 退避补齐）；流式链路 SSE 单份帧 + 只缓存定稿内容；首屏裁剪 pi-ai/xterm 并生成 br/gz（3.6MB → 2.1MB 原始 / 0.53MB gzip）；渲染窗口有界（12 轮 / 160k 字符）+ IndexedDB 快照 schema 2 尾部 200 条；附件出站改引用（≤128KB preview + `assetUrl` + 新附件端点）；`ask_user` 同会话串行化与待答期间输入框归属；两批 a11y（19 处焦点环 + 焦点环不变式测试、可访问名称与侧栏共享 props）；三批渲染性能优化。
+  3. Removed：压缩旧存档迁移、存储向后兼容层（四个域的 cutover 与阶段状态机）、启动迁移窗口与进度页、迁移链折叠为单一 baseline v19。
+  4. Fixed：回滚动作索引与消息窗口坐标（两处根因）；编辑首条消息重发不再跳新对话；压缩分割线锚定压缩发生点且摘要作为真实消息；翻页回弹/跳底（视口保护 + 滚动事务 + scroll-owner）；窗口化后复制错内容；粘贴文本附件删不掉；模型抽屉勾选即时移动；展开工具卡整列左右抖动（scrollbar-gutter）。
+- 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证 / Evidence：
+  - `npm run test` → 482 files / 5451 passed / 2 skipped（单跑，退出码 0，56.46s）。
+  - `npm run lint` → `eslint .` 无输出（0 problems）。
+  - `npm run build` → 成功（`✓ built in 4.27s`，`[precompress] 224 files: 12.67MB → 6.49MB`，仅既有 >500kB chunk 提示）。
+  - `node scripts/prepare-runtime-package.cjs` → `package-dist/`（package.json 版本 2.3.6）。
+  - `node scripts/prepare-offline-package.cjs` → `package-offline/`（package.json 版本 2.3.6）。
+  - `cd package-offline && npm pack` → `shawnstack-quickforge-2.3.6.tgz`（14.5 MB packed / 29.1 MB unpacked / 1028 files、shasum `e8935179…`）。
+- Notes：
+  - 本次首次手动流程遗漏一处：`npm pack` 第一次在仓库根目录执行，生成了根目录下的 `shawnstack-quickforge-2.3.6.tgz`（打包的是根 package.json）；已删除该文件并在 `package-offline/` 内重新 pack，提交前 `git status` 只剩 4 个文档/版本文件。
+  - 离线包体积较 2.3.5（7.9MB/578 files）明显变大，原因是 `dist/` 现在带 br/gz 预压缩兄弟文件，属预期。
+  - 未推送 `master`，只推 `origin/dev` 与 tag，与 2.3.4/2.3.5 一致。
+  - 未执行 `npm publish`；`dist/`、`package-dist/`、`package-offline/` 均在 `.gitignore` 覆盖范围内，不进入提交。
+  - CHANGELOG 补齐说明：`[Unreleased]` 只覆盖了 21 个提交中的 13 条内容，其余 17 条据 `feature_list.json` 各 feature 的 summary 补写，未改动任何功能代码；wiki/架构文档本次无需更新（发布流程与公共入口均未变）。
+
 ## rollback-action-coordinate-integrity（done，2026-11-02）
 
 - Goal：用户反馈「对话的回滚按钮偶发显示的消息不对」，要求在不改交互与体验的前提下把架构做到约束内最优（允许等价重构），一次性落地全部可优化项。

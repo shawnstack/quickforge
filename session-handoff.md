@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## release-2-3-6（done，2026-11-02）
+
+- Current Objective（当前目标）：用户「发布一个小版本」——按 `docs/architecture/patch-release-runbook.zh-CN.md` 走手动流程发布 patch 版本。
+- 结论（一句话）：v2.3.5 之后的 21 个提交以 **2.3.6** 发布，test/lint/build 全绿，runtime/offline 包与 tarball 已生成，release commit + tag `v2.3.6` 推送 `origin/dev`；npm publish 留给用户在 `package-offline` 下手动执行。
+- 改动文件：`package.json`、`package-lock.json`、`CHANGELOG.md`、`README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：`npm run test` → 482 files / 5451 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功（4.27s，precompress 224 files: 12.67MB → 6.49MB）；`npm pack` → `package-offline/shawnstack-quickforge-2.3.6.tgz`（14.5 MB / 1028 files，shasum `e8935179…`）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：用户执行 `cd package-offline && npm publish --access public` 后，用 `npm view @shawnstack/quickforge version` 校验。若继续开发，注意本版把状态管理迁到 Zustand、消息投递改成消息日志 + 每连接游标，改消息链路前先读 `docs/architecture/message-log-consistency.zh-CN.md` 与 `docs/architecture/zustand-migration.zh-CN.md`。
+
 ## rollback-action-coordinate-integrity（done，2026-11-02）
 
 - Current Objective（当前目标）：修掉「点回滚按钮偶发显示的消息不对」，要求零交互变化、按架构约束做最优等价重构并一次性落地全部可优化项。

@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "release-2-3-6",
+      "title": "v2.3.6 小版本发布",
+      "status": "done",
+      "summary": "按 docs/architecture/patch-release-runbook.zh-CN.md 把 v2.3.5 之后 dev 上的 21 个提交发布为 2.3.6：package.json / package-lock.json 递增到 2.3.6；CHANGELOG 新增 [2.3.6] 章节（[Unreleased] 原有 13 条保留，并按 v2.3.5..HEAD 实际内容补齐 17 条——Zustand 状态迁移、消息日志双游标投递、流式定稿缓存边界、首屏依赖裁剪与 br/gz、有界渲染窗口与快照尾部、附件传输边界、ask_user 同会话串行化、两批 a11y（焦点环不变式 + 可访问名称/侧栏共享 props）、三批渲染性能优化（稳定块冻结与缓存预算、DOM 强制布局与合成层、流式围栏分块与订阅收窄）、窗口滚动事务、复制索引窗口换算、粘贴附件删除、模型抽屉勾选、scrollbar-gutter 预留——并写 Released）；README 当前版本号同步；test/lint/build 硬门禁通过；生成 runtime 包、离线包与 npm tarball；release commit + tag v2.3.6 推送 origin/dev。默认不执行 npm publish，留给用户在 package-offline 下手动发布。",
+      "files": [
+        "package.json",
+        "package-lock.json",
+        "CHANGELOG.md",
+        "README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 482 files / 5451 passed / 2 skipped（单跑，未与 lint 并行）；npm run lint → 0 problems；npm run build → 成功（built in 4.27s，[precompress] 224 files: 12.67MB → 6.49MB，仅既有 >500kB chunk 提示）；node scripts/prepare-runtime-package.cjs、node scripts/prepare-offline-package.cjs → package-dist / package-offline 版本 2.3.6；cd package-offline && npm pack → shawnstack-quickforge-2.3.6.tgz（14.5 MB packed / 29.1 MB unpacked / 1028 files、shasum e8935179…）。",
+      "updatedAt": "2026-11-02"
+    },
+    {
       "id": "rollback-action-coordinate-integrity",
       "title": "回滚后显示错误历史：动作索引与消息窗口坐标的根因修复",
       "status": "done",

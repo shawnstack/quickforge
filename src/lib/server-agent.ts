@@ -982,6 +982,14 @@ export class ServerAgent {
 
   /**
    * Roll back from a message index on the authoritative server state.
+   *
+   * 响应带的是**截断后的完整会话历史**（不是本连接的尾部窗口），所以采纳也
+   * 必须按「全量」坐标来：`baseSeq` 归零 + 整体替换 + 广播刷新。交给调用方
+   * 去写 `state.messages` 是错的——本地可能正处于尾部窗口（`baseSeq > 0`），
+   * 直接覆盖会让「数组」与「起点」拆开，之后所有下标换算、增量落位整体偏移
+   * （表现为回滚后显示的历史不对）；而同一时刻 SSE 的 `messages_replaced`
+   * 帧只带尾部窗口，两路谁后到决定本地是否自洽。收进本方法后两路都走
+   * `applyLog`，无论先后都收敛到同一份自洽状态。
    */
   async rollback(messageIndex: number): Promise<ServerRollbackResult> {
     if (!this.canWrite()) throw new Error('Another window is writing to this session')
@@ -997,7 +1005,35 @@ export class ServerAgent {
     })
     const payload = await res.json().catch(() => null) as (ServerRollbackResult & ServerErrorPayload) | null
     if (!res.ok) throw new Error(serverErrorMessage(payload, `Failed to roll back: HTTP ${res.status}`))
+    this.acceptRolledBackHistory(payload?.session?.messages)
     return payload as ServerRollbackResult
+  }
+
+  /** 采纳回滚接口返回的全量历史（坐标口径见 `rollback`）。 */
+  private acceptRolledBackHistory(messages?: AgentMessage[]): void {
+    if (!Array.isArray(messages)) return
+    this.applyLog({ kind: 'snapshot', baseSeq: 0, messages })
+    this.state.streamingMessage = undefined
+    this.stateVersion++
+    this.notifyMessageMetadataChanged()
+  }
+
+  /**
+   * 本地乐观截断尾部（重试的「先剪再续」半步）。
+   *
+   * 只截**窗口内的尾部**，`baseSeq` 语义不变，所以可以走 `applyLog` 的
+   * snapshot 而对齐坐标；这里刻意不广播：这次操作的权威结果由紧随其后的
+   * `continue()` 服务端帧给出，提前通知会让列表在流式开始前白抖一次。
+   */
+  trimTrailingMessages(keepCount: number): void {
+    const limit = Number.isFinite(keepCount) ? Math.max(0, Math.trunc(keepCount)) : this.state.messages.length
+    const count = Math.min(limit, this.state.messages.length)
+    if (count === this.state.messages.length) return
+    this.applyLog({
+      kind: 'snapshot',
+      baseSeq: this.messageBaseSeq,
+      messages: this.state.messages.slice(0, count),
+    })
   }
 
   /** 每轮产物卡「撤销本轮」预检：只读安全检查；执行必须使用预检返回的 revision。 */

@@ -2,6 +2,28 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## rollback-action-coordinate-integrity（done，2026-11-02）
+
+- Goal：用户反馈「对话的回滚按钮偶发显示的消息不对」，要求在不改交互与体验的前提下把架构做到约束内最优（允许等价重构），一次性落地全部可优化项。
+- 结论（一句话）：两个独立缺陷都在根因层修掉了——动作按钮的索引/正文改为**触发时现读**（行上 `data-message-index` + 宿主 `getMessageAt`），回滚响应改由 `ServerAgent.rollback()` 按**全量坐标**采纳并广播，消息数组只剩 `applyLog` 一个写入入口。
+- 根因：
+  - 装饰层的动作组（回滚/重试/分叉/复制）只在建行时创建一次、之后复用，索引被冻在建行闭包里；分页、回滚重切片、压缩都会改窗口起点，于是回滚截到另一条消息、复制读到别人的正文（旧的 `messageAtFullIndex` 还用冻结的 `messageIndexOffset` 反算窗口位置）。
+  - `performRollback` 把回滚响应直接赋给 `state.messages`（绕过 `applyLog`）。响应是**截断后的全量历史**，同一调用的 SSE `messages_replaced` 帧只带尾部 ≤200 条；本地仍处于窗口态（`baseSeq>0`）时「数组 + 起点」被拆开，之后所有下标换算、增量落位整体偏移——会话超过 200 条且全量历史补齐未完成时必现，补齐成功后消失，所以表现为「偶发」。
+- 关键改动：
+  - `message-actions.ts`：新增 `rowMessageIndex(element, fallback)`（`data-message-index` 为权威，缺失回退装饰期值）与 `getMessageAtFullIndex` 依赖；回滚（就地编辑提交 / 确认气泡）、重试（含错误行 fallback）、分叉、复制全部改用实时索引与实时正文；删除冻结偏移的窗口反算。
+  - `ChatSurface`：句柄新增 `getMessageAt(fullIndex)`（读已提交窗口）；`ChatPanelHost` 注入。
+  - `ServerAgent.rollback()`：新增私有 `acceptRolledBackHistory()`，`applyLog({kind:'snapshot', baseSeq:0})` + 清流式片段 + 广播；新增 `trimTrailingMessages(n)`（前缀截断、起点不变、不广播）。`DeferredSessionAgent` 补等价实现。
+  - `useChatActions`：不再写消息数组，回滚只用返回结果判断会话去留，重试改调 `trimTrailingMessages`。
+  - 删除 `useAgentManager.setCurrentAgentMessages` 及 `App`/`useChatActions` 接线（该钩子是绕过不变式的唯一入口）。
+  - 测试：新增 `message-action-index-freshness.test.ts`（偏移变化后回滚/重试/复制仍取实时坐标）与 `server-agent-rollback-adoption.test.ts`（采纳后 `baseSeq + length` 等于服务端总数、后续增量落到尾部、重试截断保持起点）；两个 hook harness 对齐新写入口。
+  - 文档：`docs/architecture/message-log-consistency.zh-CN.md`（坐标表补 `data-message-index`、写入入口仅 `applyLog`、测试矩阵两行）、`docs/wiki/src/components/README.md`（窗口化段 + `message-actions` 段）、`docs/wiki/src/hooks/README.md`（`performRollback` 不写数组）、`docs/wiki/src/lib/README.md`（改写 `messageWindowOffset`/`mergeWindowedMessages` 过期条目为当前 `baseSeq`/`applyLog` 口径）、`CHANGELOG.md`。
+- 测试：`npx vitest run` 定向 8 文件全过（含新增 5 例）；全量 `npm run test` → 482 files / 5451 passed / 2 skipped。
+- 验证：`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit，未手工修改生成产物。
+- Notes：
+  - 动作按钮的「正文现读」依赖宿主注入的 `getMessageAtFullIndex`；未注入的调用方（目前只有测试）回退到本行装饰时捕获的消息对象，行为与改动前等价。
+  - `trimTrailingMessages` 刻意不广播（与改动前的直写时机一致），权威结果仍由紧随其后的 `continue()` 服务端帧给出；若日后想让重试界面更早刷新，需要单独评估滚动锚点。
+  - `ChatSurface` 句柄新增了 `getMessageAt`，属公共入口扩展；分享页/Side Chat 未使用（它们不经过该装饰依赖注入路径）。
+
 ## drop-compaction-legacy-migration（done，2026-11-02）
 
 - Goal：用户裁定「新对话没问题，旧的不需要兼容」，据此删除只为旧存档服务的压缩迁移。

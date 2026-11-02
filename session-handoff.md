@@ -1,5 +1,15 @@
 # Current Session Handoff
 
+## rollback-action-coordinate-integrity（done，2026-11-02）
+
+- Current Objective（当前目标）：修掉「点回滚按钮偶发显示的消息不对」，要求零交互变化、按架构约束做最优等价重构并一次性落地全部可优化项。
+- 结论（一句话）：动作按钮的索引与正文改为触发时现读（行上 `data-message-index` + 宿主 `getMessageAt`），回滚响应由 `ServerAgent.rollback()` 按全量坐标采纳并广播，消息数组只剩 `applyLog` 一个写入入口。
+- 根因：① 动作组只在建行时创建、之后复用，闭包里冻结的行索引随窗口分页/回滚重切片过期；② 回滚响应（全量历史）被直接赋给 `state.messages`，与只带尾部 ≤200 条的 SSE 替换帧赛跑，窗口态下「数组 + 起点」被拆开，之后下标换算与增量落位整体偏移。
+- 改动文件：`src/components/chat/panel-decoration/message-actions.ts`、`src/components/chat/surface/ChatSurface.tsx`、`src/components/chat/ChatPanelHost.tsx`、`src/lib/server-agent.ts`、`src/lib/deferred-session-agent.ts`、`src/hooks/useChatActions.ts`、`src/hooks/useAgentManager.ts`、`src/App.tsx`；新增 `tests/frontend/message-action-index-freshness.test.ts`、`tests/frontend/server-agent-rollback-adoption.test.ts`，改 `tests/frontend/edit-first-message-resend-keeps-session.test.ts`、`tests/frontend/project-new-chat-reuse-guard.test.ts`；文档 `docs/architecture/message-log-consistency.zh-CN.md`、`docs/wiki/src/{components,hooks,lib}/README.md`、`CHANGELOG.md` 与三件套。
+- Evidence（验证）：定向 vitest 8 文件全过（新增 5 例）；全量 `npm run test` → 482 files / 5451 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续。若要进一步收紧坐标契约，可评估把「行索引」直接换成消息身份（`id`/`toolCallId`）寻址，让回滚 API 天然免疫窗口坐标；这会改服务端协议与分享页链路，需单独立项。
+
 ## drop-compaction-legacy-migration（done，2026-11-02）
 
 - Current Objective（当前目标）：用户裁定「新对话没问题，旧的不需要兼容」，删除只为旧存档服务的压缩迁移。

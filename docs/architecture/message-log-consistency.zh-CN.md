@@ -81,6 +81,7 @@
 | `baseSeq` | 本地 `messages[0]` 的绝对 seq（`ServerAgent.messageOffset`） | `applyLog`、窗口换算 |
 | `localIndex` | `seq - baseSeq` | 数组访问 |
 | `renderIndex` | 渲染窗口内序号（`windowed-messages`） | 仅渲染层 |
+| `data-message-index` | 行上写回的全量索引（`renderIndex + messageIndexOffset`） | 滚动锚点；装饰层动作按钮**触发时现读** |
 
 **唯一写入入口**：`ServerAgent.applyLog(op)` → `applyMessageLogOp`（`src/lib/message-log.ts`）。
 op 只有四种：`snapshot` / `append` / `replace` / `update`。
@@ -89,6 +90,9 @@ op 只有四种：`snapshot` / `append` / `replace` / `update`。
   **绝不猜测拼接**。
 - 所有「整体替换」路径（state 帧、agent_end 全量、turn_end、messages_replaced、
   `/state` 刷新、补齐）都经由它，保证「数组 + baseSeq + logVersion」三者成对更新。
+- hook / 组件层**没有**写 `state.messages` 的能力：回滚结果由
+  `ServerAgent.rollback()` 自己按「全量坐标（`baseSeq = 0`）」采纳，重试的乐观截断走
+  `trimTrailingMessages(n)`（前缀截断，起点不变）。
 
 ## 5. 一致性与收敛
 
@@ -122,7 +126,9 @@ op 只有四种：`snapshot` / `append` / `replace` / `update`。
 | 服务端只读视图 | `tests/server/routes/session-view.test.mjs` | `messagesSummary.logVersion`、`messagesAfter` |
 | 客户端投影 | `tests/frontend/message-log.test.ts` | 四种 op、空洞、前缀跳过、替换、单条更新 |
 | 客户端收敛 | `tests/frontend/server-agent-history-convergence.test.ts` | 拉取期间 SSE 落地不丢、失败返回 false、已全量早退、退避后收敛 |
+| 客户端回滚采纳 | `tests/frontend/server-agent-rollback-adoption.test.ts` | 回滚响应按全量坐标采纳（起点归零）、后续增量落到尾部、重试截断保持起点 |
 | 客户端回归 | `tests/frontend/server-agent.test.ts` | 增量合并经统一入口、终态帧、回滚帧、goal/lease |
+| 装饰层索引 | `tests/frontend/message-action-index-freshness.test.ts` | 回滚/重试/复制的索引与正文按行上 `data-message-index` 现读，偏移变化后不漂移 |
 
 ## 8. 已知边界
 

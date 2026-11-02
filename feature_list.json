@@ -1,6 +1,30 @@
 {
   "features": [
     {
+      "id": "rollback-action-coordinate-integrity",
+      "title": "回滚后显示错误历史：动作索引与消息窗口坐标的根因修复",
+      "status": "done",
+      "summary": "用户反馈「点回滚按钮偶发显示的消息不对」，定位到两个独立缺陷并按架构约束修根：① 装饰层的回滚/重试/分叉/复制把行索引冻在建行闭包里，而动作组只在建行时创建一次、之后复用（分页、回滚重切片、压缩都会改窗口起点），过期索引会把回滚截在另一条消息上、把复制指向别人的正文。改为一律在**触发时**经 `rowMessageIndex(element, fallback)` 读行上的 `data-message-index`（`MessageList` 每次提交写回，滚动锚点同源），属性缺失才回退装饰期值；正文改为宿主注入的 `getMessageAtFullIndex`（新增 `ChatSurface.getMessageAt(fullIndex)` 读已提交窗口）现取，删掉「冻结 `messageIndexOffset` 反算窗口位置」的旧算法。② `performRollback` 把回滚响应（截断后的**全量**历史）直接赋给 `state.messages`，绕过 `applyLog`；同一调用的 SSE `messages_replaced` 帧只带尾部窗口（≤200 条），本地仍处于窗口态（`baseSeq>0`）时「数组 + 起点」被拆开，之后所有下标换算与增量落位整体偏移。改为 `ServerAgent.rollback()` 自己按全量坐标采纳（`applyLog` snapshot + `baseSeq` 归零 + 广播 `message_metadata_updated`），HTTP 与 SSE 谁后到都收敛；删除 `setCurrentAgentMessages`，重试的乐观截断改走 `trimTrailingMessages(n)`（前缀截断、起点不变、刻意不广播），消息数组从此只剩 `applyLog` 一个写入入口。交互与视觉零变化。",
+      "files": [
+        "src/components/chat/panel-decoration/message-actions.ts（改：动作索引/正文触发时现读，新增行索引解析器与 `getMessageAtFullIndex` 依赖）",
+        "src/components/chat/surface/ChatSurface.tsx（改：句柄新增 `getMessageAt`）",
+        "src/components/chat/ChatPanelHost.tsx（改：注入 `getMessageAtFullIndex`）",
+        "src/lib/server-agent.ts（改：`rollback()` 采纳全量历史 + `trimTrailingMessages`）",
+        "src/lib/deferred-session-agent.ts（改：等价 `trimTrailingMessages`）",
+        "src/hooks/useChatActions.ts（改：不再直写消息数组，重试走 agent 截断）",
+        "src/hooks/useAgentManager.ts、src/App.tsx（删：`setCurrentAgentMessages` 接线）",
+        "tests/frontend/message-action-index-freshness.test.ts（新增：3 例）",
+        "tests/frontend/server-agent-rollback-adoption.test.ts（新增：2 例）",
+        "tests/frontend/edit-first-message-resend-keeps-session.test.ts、tests/frontend/project-new-chat-reuse-guard.test.ts（改：harness 对齐新写入口）",
+        "docs/architecture/message-log-consistency.zh-CN.md、docs/wiki/src/components/README.md、docs/wiki/src/hooks/README.md、docs/wiki/src/lib/README.md、CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 npx vitest run（message-action-index-freshness / server-agent-rollback-adoption / message-actions / inline-message-editor / server-agent / message-log / server-agent-events / chat-surface-behavior-alignment）→ 全过；npm run test → 482 files / 5451 passed / 2 skipped；npx tsc -b → 0 错误；npm run lint → 0 problems；npm run build → 成功",
+      "updatedAt": "2026-11-02"
+    },
+    {
       "id": "drop-compaction-legacy-migration",
       "title": "删除压缩的旧存档迁移（不兼容旧数据）",
       "status": "done",

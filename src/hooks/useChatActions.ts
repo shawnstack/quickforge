@@ -32,7 +32,6 @@ type UseChatActionsOptions = {
   startDeferredSession: AgentManager['startDeferredSession']
   createAgent: AgentManager['createAgent']
   syncSessionUI: AgentManager['syncSessionUI']
-  setCurrentAgentMessages: AgentManager['setCurrentAgentMessages']
   setChatPanelRevision: AgentManager['setChatPanelRevision']
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
   needsModelSetup: boolean
@@ -61,7 +60,6 @@ export function useChatActions({
   startDeferredSession,
   createAgent,
   syncSessionUI,
-  setCurrentAgentMessages,
   setChatPanelRevision,
   refreshSessions,
   needsModelSetup,
@@ -165,17 +163,18 @@ export function useChatActions({
       attachments: rollbackAttachments,
     }
 
-    let nextMessages = currentAgent.state.messages.slice(0, rollbackIndex)
+    let nextMessages: AgentMessage[]
     try {
       const result = await currentAgent.rollback(messageIndex)
-      nextMessages = result.session.messages ?? nextMessages
+      // 服务端返回的全量历史已由 agent 自己按「全量坐标」采纳（见
+      // `ServerAgent.rollback`）：这里只取权威结果做会话去留判断，绝不再写
+      // 消息数组——那条旁路会把「数组」和「窗口起点」拆开。
+      nextMessages = result.session.messages ?? currentAgent.state.messages
     } catch (error) {
       logger.error('Failed to rollback conversation:', error)
       void showAlert(error instanceof Error ? error.message : t('rollbackFailed'))
       return false
     }
-
-    setCurrentAgentMessages(nextMessages)
 
     const currentTask = currentSessionIdRef.current
       ? taskMapRef.current.get(currentSessionIdRef.current)
@@ -244,7 +243,6 @@ export function useChatActions({
     currentSessionIdRef,
     refreshSessions,
     setChatPanelRevision,
-    setCurrentAgentMessages,
     setRestoredDraft,
     storageRef,
     syncSessionUI,
@@ -353,8 +351,9 @@ export function useChatActions({
         await currentAgent.continue(continueMessage)
         setChatPanelRevision((value) => value + 1)
       } else {
-        // Trim local messages to keep the user message (server will do the same)
-        setCurrentAgentMessages(messages.slice(0, messageIndex + 1))
+        // Trim local messages to keep the user message (server will do the same).
+        // 走 agent 的截断入口而不是直接写数组：`baseSeq` 必须跟着数组一起成立。
+        currentAgent.trimTrailingMessages(messageIndex + 1)
         setChatPanelRevision((value) => value + 1)
 
         // Continue generation from the user message (server trims + regenerates in place)
@@ -374,7 +373,7 @@ export function useChatActions({
       syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI after retry:', err))
       setChatPanelRevision((value) => value + 1)
     }
-  }, [agentRef, currentSessionIdRef, setChatPanelRevision, setCurrentAgentMessages, syncSessionUI, taskMapRef])
+  }, [agentRef, currentSessionIdRef, setChatPanelRevision, syncSessionUI, taskMapRef])
 
   return {
     startNewGlobalChat,

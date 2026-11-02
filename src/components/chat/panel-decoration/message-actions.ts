@@ -119,9 +119,16 @@ function decorateAssistantStoppedText(element: HTMLElement, message: MessageWith
 type RollbackPopoverDeps = {
   panel: HTMLElement
   row: HTMLElement
-  messageIndex: number
-  /** 就地编辑器的预填文本（该条消息的原文）。 */
-  initialText: string
+  /**
+   * 该行的**全量索引**，触发时才读。
+   *
+   * 装饰不能把它冻在闭包里：按钮被复用（`message-decoration` 只在建行时创建
+   * 一次动作组），而行索引会随窗口分页/回滚重切片变化，冻结的旧索引会让回滚
+   * 截在另一条消息上。
+   */
+  resolveIndex: () => number
+  /** 就地编辑器的预填文本（该条消息此刻的原文）。 */
+  resolveText: () => string
   isDisabled: boolean
   title: string
   description: string
@@ -147,8 +154,8 @@ function createRollbackAction(options: RollbackPopoverDeps) {
       closeInlineMessageEditors(options.panel)
       openInlineMessageEditor({
         row: options.row,
-        initialText: options.initialText,
-        onSubmit: (text) => options.onEditSubmit!(options.messageIndex, text),
+        initialText: options.resolveText(),
+        onSubmit: (text) => options.onEditSubmit!(options.resolveIndex(), text),
       })
       return
     }
@@ -157,7 +164,7 @@ function createRollbackAction(options: RollbackPopoverDeps) {
       button,
       title: options.title,
       description: options.description,
-      onConfirm: () => options.onConfirm(options.messageIndex),
+      onConfirm: () => options.onConfirm(options.resolveIndex()),
     })
   })
   rollbackButton.disabled = options.isDisabled
@@ -183,6 +190,14 @@ export type MessageDecorationDeps = {
    * leading `end - start` entries keep their full-array positions.
    */
   messageIndexOffset?: number
+  /**
+   * 按**全量索引**现读消息内容（宿主从已提交窗口取）。
+   *
+   * 复制/就地编辑要的是「这条消息此刻的正文」，不能用装饰那一刻冻结的
+   * `messageIndexOffset` 反算窗口位置——偏移过期时会读到窗口里另一条消息
+   * （复制到别人的内容）。缺省时回退到本行装饰捕获的消息对象。
+   */
+  getMessageAtFullIndex?: (fullIndex: number) => MessageWithUsage | undefined
   isStreaming: () => boolean
   onCopyAnswer: (text: string) => Promise<void> | void
   onRollbackFromMessage: (messageIndex: number) => Promise<void> | void
@@ -440,6 +455,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     panel,
     getMessages,
     messageIndexOffset = 0,
+    getMessageAtFullIndex,
     isStreaming,
     onCopyAnswer,
     onRollbackFromMessage,
@@ -479,12 +495,13 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     decorationPanelGates.set(panel, decorationGate)
   }
 
-  const lastUserEntry = (() => {
+  const lastUserDisplayIndex = (() => {
     for (let i = displayEntries.length - 1; i >= 0; i--) {
-      if (displayEntries[i].message.role !== 'assistant') return displayEntries[i]
+      if (displayEntries[i].message.role !== 'assistant') return i
     }
-    return undefined
+    return -1
   })()
+  const lastUserEntry = lastUserDisplayIndex >= 0 ? displayEntries[lastUserDisplayIndex] : undefined
 
   // 用户主动停止的回合（尾部 assistant stopReason='aborted'）不提供重试入口：
   // 停止是用户意图而非失败；服务端对用户停止也不再合成 "Request was aborted"
@@ -495,6 +512,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   })()
 
   const messageElements = messageRows ?? getPrimaryMessageElements(panel)
+  const lastUserElement = lastUserDisplayIndex >= 0 ? messageElements[lastUserDisplayIndex] : undefined
   const streaming = isStreaming()
   // 就地编辑期间不隐藏用户输入：流式开始或切到只读时直接收起编辑器，
   // 避免按钮被禁用后仍停留在不可提交的编辑态。
@@ -529,19 +547,33 @@ export function decorateMessages(deps: MessageDecorationDeps) {
   const lastUserIndex = lastUserEntry ? lastUserEntry.index : -1
 
   /**
-   * 按全对话索引取消息。
+   * 行的**全量索引**：以行上 `data-message-index` 为准，取不到才回退装饰时算出的值。
    *
-   * `entry.index` 是绝对索引（`messageIndexOffset + 窗口内序号`），而
-   * `getMessages()` 返回的是已提交窗口的切片，起点正是 `messageIndexOffset`；
-   * 直接拿绝对索引去读切片，窗口起点 > 0 时会越界或命中窗口里另一条消息
-   * （复制到别人的内容或空文本）。
+   * `MessageList` 在每次提交时把 `messageIndexOffset + 窗口内序号` 写回每个消息行
+   * （滚动锚点也读它），所以它是「此刻这一行到底是第几条」的唯一权威来源。动作组
+   * 只在建行时创建一次、之后复用，任何闭包里冻结的索引都会随分页/回滚过期——
+   * 那会让回滚截在另一条消息上、重试重跑错轮、复制读到别人的正文。
    */
-  const messageAtFullIndex = (fullIndex: number) => {
-    const windowMessages = getMessages()
-    const localIndex = fullIndex - messageIndexOffset
-    if (localIndex < 0 || localIndex >= windowMessages.length) return undefined
-    return windowMessages[localIndex]
+  const rowMessageIndex = (element: HTMLElement, fallback: number): number => {
+    const raw = element.dataset?.messageIndex
+    if (typeof raw === 'string' && raw !== '') {
+      const value = Number(raw)
+      if (Number.isInteger(value) && value >= 0) return value
+    }
+    return fallback
   }
+
+  /**
+   * 按全对话索引取「此刻」的消息（宿主按已提交窗口现算）。
+   *
+   * 缺省时返回 undefined，由调用方回退到本行装饰时捕获的消息——两者的语义都是
+   * 「这条消息」，绝不拿冻结的窗口偏移去切片（旧实现在偏移变化后会命中窗口里
+   * 另一条消息，复制到别人的内容）。
+   */
+  const messageAtFullIndex = (fullIndex: number) => getMessageAtFullIndex?.(fullIndex)
+
+  /** 最后一条用户行的实时索引（错误行的「重试」用它定位要重跑的那一轮）。 */
+  const lastUserLiveIndex = () => (lastUserElement ? rowMessageIndex(lastUserElement, lastUserIndex) : lastUserIndex)
 
   const createCopyButton = (getText: () => string) => {
     const title = t('copy')
@@ -567,6 +599,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     // 就地编辑中的行保持原样：不要重建动作行或重写 dataset key，
     // 否则用户正在输入的编辑框会被装饰层冲掉。
     if (element.dataset[EDITING_ATTR] === 'true') return
+    // 这一行此刻的全量索引 / 消息：动作回调进入时才求值，绝不在闭包里冻结。
+    const liveIndex = () => rowMessageIndex(element, entry.index)
+    const liveMessage = (fallback: MessageWithUsage) => messageAtFullIndex(liveIndex()) ?? fallback
     const showAssistantActions = entry.message.role !== 'assistant' || assistantActionIndexes.has(displayIndex)
     const isLastUserRow = !readOnly
       && (allowRetry || historyActionsDisabled)
@@ -653,7 +688,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         tracker: turnErrorTracker,
         onRetry: showErrorRetryAction ? () => {
           onRetryAfterError?.(entry.message, () => {
-            if (lastUserEntry) onRetryFromMessage(lastUserEntry.index)
+            if (lastUserEntry) onRetryFromMessage(lastUserLiveIndex())
           })
         } : null,
         onSwitchModel,
@@ -701,7 +736,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         existingRetry.remove()
       } else if (!existingRetry && isLastUserRow) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
-          onRetryFromMessage(entry.index)
+          onRetryFromMessage(liveIndex())
         })
         retryButton.disabled = historyActionsDisabled || isStreaming()
         existingActions.append(retryButton)
@@ -722,15 +757,14 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       if (!text) return
 
       const copyBtn = createCopyButton(() => {
-        const currentMessage = messageAtFullIndex(entry.index)
-        if (!currentMessage) return text
+        const currentMessage = liveMessage(entry.message)
         return assistantText(currentMessage as Parameters<typeof assistantText>[0]) || text
       })
       actions.append(copyBtn)
 
       if (!readOnly && (!disableFork || historyActionsDisabled)) {
         const forkButton = createIconActionButton('fork', t('forkConversation'), forkIcon, () => {
-          onForkFromMessage(entry.index)
+          onForkFromMessage(liveIndex())
         })
         forkButton.disabled = historyActionsDisabled || isStreaming()
         actions.append(forkButton)
@@ -739,8 +773,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
       const text = draftTextFromUserMessage(entry.message as Parameters<typeof draftTextFromUserMessage>[0])
       if (text) {
         const copyBtn = createCopyButton(() => {
-          const currentMessage = messageAtFullIndex(entry.index)
-          if (!currentMessage) return text
+          const currentMessage = liveMessage(entry.message)
           return draftTextFromUserMessage(currentMessage as Parameters<typeof draftTextFromUserMessage>[0]) || text
         })
         actions.append(copyBtn)
@@ -750,8 +783,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         const rollbackAction = createRollbackAction({
           panel,
           row: element,
-          messageIndex: entry.index,
-          initialText: text,
+          resolveIndex: liveIndex,
+          resolveText: () => draftTextFromUserMessage(liveMessage(entry.message) as Parameters<typeof draftTextFromUserMessage>[0]) || text,
           isDisabled: historyActionsDisabled || isStreaming(),
           title: rollbackConfirmTitle,
           description: rollbackConfirmDescription,
@@ -761,9 +794,9 @@ export function decorateMessages(deps: MessageDecorationDeps) {
         actions.append(rollbackAction)
       }
 
-      if (!readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserEntry.index && !trailingTurnAborted) {
+      if (!readOnly && (allowRetry || historyActionsDisabled) && lastUserEntry && entry.index === lastUserIndex && !trailingTurnAborted) {
         const retryButton = createIconActionButton('retry', t('retry'), retryIcon, () => {
-          onRetryFromMessage(entry.index)
+          onRetryFromMessage(liveIndex())
         })
         retryButton.disabled = historyActionsDisabled || isStreaming()
         actions.append(retryButton)

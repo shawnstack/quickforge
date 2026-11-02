@@ -76,7 +76,6 @@ export interface AgentManager {
     hints?: { title?: string; createdAt?: string; scope?: ChatScope; projectId?: string; source?: 'acp' },
   ) => Promise<boolean>
   syncSessionUI: (task: BackgroundTask) => Promise<void>
-  setCurrentAgentMessages: (messages: AgentState['messages']) => void
   updateCurrentAgentModel: (model: Model<Api>) => void
   setCurrentTitleRef: (title: string) => void
 
@@ -697,12 +696,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
   }, [loadSession])
 
   // --- Mutations (exposed for App.tsx callbacks) ---
-  const setCurrentAgentMessages = useCallback((messages: AgentState['messages']) => {
-    if (agentRef.current) {
-      agentRef.current.state.messages = messages
-    }
-  }, [])
-
   const updateCurrentAgentModel = useCallback((model: Model<Api>) => {
     if (agentRef.current) {
       agentRef.current.state.model = model
@@ -740,7 +733,6 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     syncSessionUI,
     setChatPanelRevision,
 
-    setCurrentAgentMessages,
     updateCurrentAgentModel,
     setCurrentTitleRef,
   }

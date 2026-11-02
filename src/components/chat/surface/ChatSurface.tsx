@@ -779,6 +779,13 @@ const MessageArea = memo(function MessageArea({
 export type WindowedChatSurfaceHandle = ChatSurfaceHandle & {  getWindowMessages: () => AgentMessage[]
   getWindowStart: () => number
   /**
+   * 已提交窗口里按**全量索引**取消息（越界返回 undefined）。
+   *
+   * 装饰层的动作按钮用它现读内容：装饰为每一行冻结的偏移量会随分页/回滚过期，
+   * 只有这里读的是「此刻真的渲染着的那份窗口」。
+   */
+  getMessageAt: (fullIndex: number) => AgentMessage | undefined
+  /**
    * Whether the surface currently follows the conversation tail.
    *
    * The follow flag lives here (one writer: this surface) and the host's
@@ -1371,6 +1378,11 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
       coversTail: () => windowController.coversTail(),
       getWindowMessages: () => committedWindowRef.current.messages,
       getWindowStart: () => committedWindowRef.current.start,
+      getMessageAt: (fullIndex: number) => {
+        const window = committedWindowRef.current
+        const localIndex = fullIndex - window.start
+        return localIndex >= 0 && localIndex < window.messages.length ? window.messages[localIndex] : undefined
+      },
       loadMoreMessages: () => runWindowTransaction(() => windowController.loadMore() !== null),
       showMessageIndex: (index: number) => runWindowTransaction(
         () => windowController.showMessageIndex(index) !== null,

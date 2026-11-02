@@ -35,7 +35,15 @@ function useChatActionsHarness(options: { messages: unknown[]; rolledBackMessage
       model: { provider: 'custom', id: 'test-model' } as Model<Api>,
       thinkingLevel: 'off' as const,
     },
-    rollback: vi.fn(async () => ({ session: { messages: options.rolledBackMessages } })),
+    // 与真实 ServerAgent 一致：回滚接口返回的全量历史由 agent 自己采纳，
+    // hook 层不再写消息数组。
+    rollback: vi.fn(async () => {
+      agent.state.messages = options.rolledBackMessages
+      return { session: { messages: options.rolledBackMessages } }
+    }),
+    trimTrailingMessages: vi.fn((keepCount: number) => {
+      agent.state.messages = agent.state.messages.slice(0, keepCount)
+    }),
     dispose: vi.fn(),
   }
   const task = {
@@ -49,7 +57,6 @@ function useChatActionsHarness(options: { messages: unknown[]; rolledBackMessage
   const createAgent = vi.fn(async () => agent)
   const refreshSessions = vi.fn(async () => {})
   const syncSessionUI = vi.fn(async () => {})
-  const setCurrentAgentMessages = vi.fn()
   const setChatPanelRevision = vi.fn()
   const setRestoredDraft = vi.fn()
 
@@ -64,7 +71,6 @@ function useChatActionsHarness(options: { messages: unknown[]; rolledBackMessage
     startDeferredSession: vi.fn(async () => {}),
     createAgent,
     syncSessionUI,
-    setCurrentAgentMessages,
     setChatPanelRevision,
     refreshSessions,
     needsModelSetup: false,
@@ -82,7 +88,6 @@ function useChatActionsHarness(options: { messages: unknown[]; rolledBackMessage
     createAgent,
     refreshSessions,
     syncSessionUI,
-    setCurrentAgentMessages,
     setChatPanelRevision,
     setRestoredDraft,
   }
@@ -110,7 +115,8 @@ describe('edit-and-resend on the first message', () => {
 
     expect(rolledBack).toBe(true)
     expect(harness.agent.rollback).toHaveBeenCalledWith(0)
-    expect(harness.setCurrentAgentMessages).toHaveBeenCalledWith([])
+    // 消息数组由 agent 采纳回滚结果（hook 不再直写），这里是采纳后的空历史
+    expect(harness.agent.state.messages).toEqual([])
     // 关键断言：不删旧会话、不新建 agent、不写新的 ?session=
     expect(harness.deleteSession).not.toHaveBeenCalled()
     expect(harness.createAgent).not.toHaveBeenCalled()

@@ -61,7 +61,6 @@ function useChatActionsHarness(options: {
     startDeferredSession,
     createAgent: vi.fn(),
     syncSessionUI: vi.fn(),
-    setCurrentAgentMessages: vi.fn(),
     setChatPanelRevision: vi.fn(),
     refreshSessions: vi.fn(),
     needsModelSetup: false,

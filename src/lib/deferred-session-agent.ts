@@ -179,6 +179,16 @@ export class DeferredSessionAgent {
     throw new Error('Cannot roll back a pending chat')
   }
 
+  /**
+   * 本地乐观截断尾部（与 `ServerAgent.trimTrailingMessages` 同义）。
+   *
+   * 未提案的会话只有内存里的草稿消息，直接截断即可；提出后由真实 agent 接手。
+   */
+  trimTrailingMessages(keepCount: number): void {
+    const limit = Number.isFinite(keepCount) ? Math.max(0, Math.trunc(keepCount)) : this.state.messages.length
+    this.state.messages = this.state.messages.slice(0, Math.min(limit, this.state.messages.length))
+  }
+
   async continue(appendMessage?: AgentMessage): Promise<void> {
     const realAgent = await this.ensureRealAgent()
     await realAgent.continue(appendMessage)

@@ -79,6 +79,7 @@
 - `rollbackForResend(index)` — 就地编辑「发送」的截断半步：只移除该条及之后的历史、不回填输入框（`performRollback(index, false)`），新文案由 `ChatPanelHost` 立刻交给 composer 的 `onSend`；无论截断后是否还有消息（编辑的是第一条时为空）都**留在当前会话**，绝不删会话/新建 agent，否则 `attachToView` 的 `?session=` 改写会表现为「跳回新对话页」。删空会话 + 重建只保留给 `rollbackFromMessage` 的传统回滚
 - `forkFromMessage(index)` — 从指定消息分叉新对话（新 sessionId + `[fork] ` 标题前缀；服务端 createAgent 会立即持久化该会话，因此无需再发消息就出现在侧栏）
 - `copyAnswer(text)` — 复制回答到剪贴板
+- `performRollback`（内部）**不写消息数组**：服务的全量历史由 `ServerAgent.rollback()` 自己按「全量坐标（`messageBaseSeq` 归零）」采纳并广播，hook 只拿返回结果判断「截断后是否为空」以决定是否删除会话。重试的乐观截断同样走 agent 的 `trimTrailingMessages(n)`（前缀截断、起点不变），因此消息数组只剩 `ServerAgent.applyLog` 一个写入入口
 
 ### useModelActions.ts (232 行)
 

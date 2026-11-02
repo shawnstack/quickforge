@@ -1251,6 +1251,7 @@ export function ChatPanelHost({
           panel,
           getMessages: displayMessages,
           messageIndexOffset,
+          getMessageAtFullIndex: (fullIndex) => surfaceRef.current?.getMessageAt(fullIndex) as MessageWithUsage | undefined,
           messageRows,
           isStreaming: () => agent.state.isStreaming,
           onCopyAnswer: props.onCopyAnswer,

@@ -424,7 +424,7 @@ describe('createAutoCompactApprovalPromise', () => {
   function compactDetails() {
     return {
       usage: { totalTokens: 9000 },
-      settings: { thresholdPercent: 85, keepRecentTurns: 4 },
+      settings: { thresholdPercent: 85 },
     }
   }
 
@@ -442,13 +442,11 @@ describe('createAutoCompactApprovalPromise', () => {
     expect(entry.sessionId).toBe('session-3')
     expect(entry.usage).toEqual({ totalTokens: 9000 })
     expect(entry.thresholdPercent).toBe(85)
-    expect(entry.keepRecentTurns).toBe(4)
     expect(mocks.emitSessionEvent).toHaveBeenCalledWith(session, {
       type: 'auto_compact_approval_required',
       approvalId,
       usage: { totalTokens: 9000 },
       thresholdPercent: 85,
-      keepRecentTurns: 4,
     })
 
     entry.resolve(true)

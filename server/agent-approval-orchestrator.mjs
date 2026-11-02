@@ -317,7 +317,6 @@ export function createAutoCompactApprovalPromise(session, details = {}) {
       sessionId: session.sessionId,
       usage: details.usage,
       thresholdPercent: details.settings?.thresholdPercent,
-      keepRecentTurns: details.settings?.keepRecentTurns,
       requestedAt,
       expiresAt,
     })
@@ -328,7 +327,6 @@ export function createAutoCompactApprovalPromise(session, details = {}) {
       approvalId,
       usage: details.usage,
       thresholdPercent: details.settings?.thresholdPercent,
-      keepRecentTurns: details.settings?.keepRecentTurns,
     })
   })
 }

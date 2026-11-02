@@ -83,7 +83,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const [autoCompactRequireConfirmation, setAutoCompactRequireConfirmation] = useState(true)
   const [autoCompactThresholdPercent, setAutoCompactThresholdPercent] = useState(80)
   const [autoCompactThresholdPercentInput, setAutoCompactThresholdPercentInput] = useState('80')
-  const [autoCompactKeepRecentTurns, setAutoCompactKeepRecentTurns] = useState(0)
   const [goalMaxIterations, setGoalMaxIterations] = useState(20)
   const [goalMaxIterationsInput, setGoalMaxIterationsInput] = useState('20')
   const [autoArchiveEnabled, setAutoArchiveEnabled] = useState(false)
@@ -102,7 +101,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   // 保存排队/最新状态镜像：仅加载与事件回调更新，渲染读取 React state。
   const toolDisplayModeRef = useRef(toolDisplayMode)
   const showContextUsageRef = useRef(showContextUsage)
-  const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent, keepRecentTurns: autoCompactKeepRecentTurns, requireConfirmation: autoCompactRequireConfirmation })
+  const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent, requireConfirmation: autoCompactRequireConfirmation })
   const goalMaxIterationsRef = useRef(goalMaxIterations)
   const autoArchiveEnabledRef = useRef(autoArchiveEnabled)
   const terminalShellConfigRef = useRef(terminalShellConfig)
@@ -145,7 +144,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       setAutoCompactRequireConfirmation(autoCompactSettings.requireConfirmation)
       setAutoCompactThresholdPercent(autoCompactSettings.thresholdPercent)
       setAutoCompactThresholdPercentInput(String(autoCompactSettings.thresholdPercent))
-      setAutoCompactKeepRecentTurns(autoCompactSettings.keepRecentTurns)
       setGoalMaxIterations(goalSettings.maxIterations)
       setGoalMaxIterationsInput(String(goalSettings.maxIterations))
       setAutoArchiveEnabled(autoArchiveSettings.enabled)
@@ -294,14 +292,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
     setSaved(false)
   }
 
-  const updateAutoCompactKeepRecentTurns = (value: string) => {
-    const parsed = Number(value)
-    const normalized = Number.isFinite(parsed) ? parsed : 0
-    setAutoCompactKeepRecentTurns(normalized)
-    autoCompactRef.current = { ...autoCompactRef.current, keepRecentTurns: normalized }
-    setSaved(false)
-  }
-
   const commitAutoCompactThresholdPercent = (value: string) => {
     const parsed = Number(value)
     if (!Number.isFinite(parsed)) {
@@ -312,14 +302,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
     setAutoCompactThresholdPercent(normalized)
     setAutoCompactThresholdPercentInput(String(normalized))
     autoCompactRef.current = { ...autoCompactRef.current, thresholdPercent: normalized }
-    void saveAutoCompactOptions()
-  }
-
-  const commitAutoCompactKeepRecentTurns = (value: string) => {
-    const parsed = Number(value)
-    const normalized = Number.isFinite(parsed) ? Math.max(0, Math.min(20, Math.round(parsed))) : 0
-    setAutoCompactKeepRecentTurns(normalized)
-    autoCompactRef.current = { ...autoCompactRef.current, keepRecentTurns: normalized }
     void saveAutoCompactOptions()
   }
 
@@ -435,7 +417,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       await saveAutoCompactSettings(getAppStorage(), {
         enabled: autoCompactRef.current.enabled,
         thresholdPercent: autoCompactRef.current.thresholdPercent,
-        keepRecentTurns: autoCompactRef.current.keepRecentTurns,
         requireConfirmation: autoCompactRef.current.requireConfirmation,
       })
       markSaved()
@@ -708,7 +689,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">
               {t('autoCompactThresholdPercent')}
-              <InfoTip label={t('autoCompactThresholdDescription')} />
+              <InfoTip label={`${t('autoCompactThresholdDescription')} ${t('autoCompactHistoryPreserved')}`} />
             </div>
           </div>
           <div className="quickforge-settings-row-control">
@@ -722,28 +703,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
               disabled={!autoCompactEnabled}
               onInput={updateAutoCompactThresholdPercent}
               onCommit={commitAutoCompactThresholdPercent}
-            />
-          </div>
-        </div>
-
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">
-              {t('autoCompactKeepRecentTurns')}
-              <InfoTip label={`${t('autoCompactHistoryPreserved')} ${t('autoCompactKeepRecentTurnsDescription')}`} />
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control">
-            <SettingsNumberInput
-              className="quickforge-settings-input quickforge-settings-number-input"
-              min="0"
-              max="20"
-              step="1"
-              aria-label={t('autoCompactKeepRecentTurns')}
-              value={String(autoCompactKeepRecentTurns)}
-              disabled={!autoCompactEnabled}
-              onInput={updateAutoCompactKeepRecentTurns}
-              onCommit={commitAutoCompactKeepRecentTurns}
             />
           </div>
         </div>

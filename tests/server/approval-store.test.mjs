@@ -103,7 +103,6 @@ describe('pending approval queues', () => {
       sessionId: 'session-9',
       usage: { totalTokens: 1234 },
       thresholdPercent: 85,
-      keepRecentTurns: 4,
       requestedAt: 10,
       expiresAt: 10 + APPROVAL_TIMEOUT_MS,
     })
@@ -112,7 +111,6 @@ describe('pending approval queues', () => {
       approvalId: 'approval-1',
       usage: { totalTokens: 1234 },
       thresholdPercent: 85,
-      keepRecentTurns: 4,
       requestedAt: 10,
       expiresAt: 10 + APPROVAL_TIMEOUT_MS,
     })

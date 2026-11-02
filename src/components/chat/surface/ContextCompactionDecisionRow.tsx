@@ -55,7 +55,7 @@ export function ContextCompactionDecisionRow({
   const threshold = Math.round(Number(notice.thresholdPercent) || 0)
   const title = t('autoCompactApprovalTitle')
   const waiting = t('autoCompactApprovalWaiting', { percent, threshold })
-  const description = t('autoCompactApprovalPreview', { keepRecentTurns: notice.keepRecentTurns ?? 0 })
+  const description = t('autoCompactApprovalPreview')
   const disabled = readOnly || approveDisabled || rejectDisabled
 
   return (

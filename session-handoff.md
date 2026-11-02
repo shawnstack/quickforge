@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## compaction-anchor-at-occurrence（done，2026-11-02）
+
+- Current Objective（当前目标）：按用户裁定实现审查项 P1——压缩分割线显示在压缩发生点（方案 B：线在压缩那一刻的数组末尾），后续 tool 调用排在线下方，不再抬到用户消息上方；当前用户请求由摘要承载；P2–P5 不修。
+- 结论（一句话）：`compactSessionInPlace` 切点恒为 `source.length`（自动/手动同语义），摘要作为最后一条消息追加、`compactedUpToIndex = nextMessages.length`；`AUTO_COMPACT_MIN_TAIL_USER_TURNS` / `resolveAutoCompactTailStart` / `tailStartForRecentTurns` / `DEFAULT_MAX_TAIL_CHARS` / `keepRecentTurns` 设置全链删除；run 内 loop 快照与 state 的坐标分叉由新增 `compactionSnapshotShift()` / `compactedUpToIn()` 平移修复（压缩后第一条新消息不再被挤出模型上下文——这是 P1「线后继续调用的 tools 必须真正进上下文」的必要部分）。
+- 改动文件：server/auto-compaction.mjs（切点+平移+删尾保留链）、server/agent-compaction.mjs、server/agent-approval-orchestrator.mjs、server/approval-store.mjs、server/agent-persistence.mjs、server/agent-manager.mjs（注释）、src/lib/auto-compact-settings.ts、src/components/settings/tabs/DefaultOptionsSettingsTab.tsx、src/lib/i18n.ts、src/components/chat/surface/ContextCompactionDecisionRow.tsx、src/components/chat/surface/compaction-message.ts、src/lib/server-agent-types.ts、src/components/chat/panel-wiring/approval-cards.ts、src/components/chat/ChatPanelHost.tsx；测试 10 个文件改写/同步；docs/wiki/server/README.md、docs/wiki/src/components/README.md、docs/design/{compaction-anchor-preview,compaction-as-message}.html、CHANGELOG.md、三件套。
+- Evidence（验证）：定向 `npx vitest run`（auto-compaction / compaction-message / auto-compaction-history / auto-compaction-notice / agent-approval-orchestrator / approval-store / agent-compaction / agent-manager.rollback-compaction / agent-manager.persist-session-state / context-compaction-notice / context-compaction-rows / settings-normalizers / default-options-settings-tab / default-options-settings-react / approval-card）→ 15 files / 175 tests 全过；全量 `npm run test` → 480 files / 5447 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit，未手工改生成产物。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续。审查留档未修项（用户裁定）：P3 `effectiveContextMessages`（ChatPanelHost.tsx:130-137）用绝对 `compactedUpToIndex` 切窗口数组，窗口非尾部时上下文百分比算错；P4 压缩行被 windowed-messages/turn-navigation 当一个 user turn（pinned 序号错一轮、导航多一条）；P5 `messages_replaced` 后无滚动锚点恢复。另：压缩刚完成时线为列表最后一行、下方暂空属预期过渡态。
+
 ## compaction-as-message（done，2026-11-01）
 
 - Current Objective（当前目标）：按用户裁定完整实现「架构 B（压缩即消息）+ 视觉 A（既有分割线样式）」，并提交推送。
@@ -215,7 +224,7 @@
   - `WorkspaceInspector` 不要再给 `width/min-width/max-width` 加 `will-change`；它们不是可合成属性。
   - `ConsoleScrollArea` 的顺序是「读水平几何 + 读 scrollHeight → 写 data 属性 → 写 scrollTop」，不要把任何读放到写后面。
   - 不改 `content-visibility`、虚拟列表、`width` 过渡、shimmer/box-shadow/backdrop-filter、`startTransition`、scroll rAF 节流——理由见性能评审 §7.2。
-- Evidence（验证）：定向 11 files / 206 passed；新增断言后 scroll-to-bottom-button 12 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量 `npm run test` → 465 files / 5376 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`）。未创建 Git commit，未手工修改生成产物。
+- Evidence（验证）：定向 11 files / 206 passed；新增断言后 scroll-to-bottom-button 13 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量 `npm run test` → 465 files / 5377 passed / 2 skipped（首轮一次 session-index-query 临时目录 ENOTEMPTY 竞态，单文件复跑 11/11 通过；复跑全量全绿）；`npm run lint` → 0 problems；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`）。未创建 Git commit，未手工修改生成产物。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：真机用 Performance 面板 / `PerformanceObserver({entryTypes:['longtask']})` 对比「长会话 + 长代码块流式 + 消息队列拖动」的布局阻塞；若要继续优化，优先 profile 后再决定是否动 shimmer、backdrop-filter 或装饰 pass 的测量顺序。
 

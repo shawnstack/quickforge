@@ -32,7 +32,6 @@ export type PendingAutoCompactApproval = {
   approvalId: string
   usage?: { percent?: number }
   thresholdPercent?: number
-  keepRecentTurns?: number
   sessionId: string
 }
 

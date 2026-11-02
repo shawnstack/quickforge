@@ -9,7 +9,6 @@
 export type CompactionMessageDetails = {
   kind?: string
   compactedAt?: string
-  keepRecentTurns?: number
   sourceMessageCount?: number
   usageBefore?: unknown
   thresholdPercent?: number

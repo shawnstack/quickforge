@@ -950,7 +950,7 @@ export async function createAgent(sessionId, config = {}) {
     autoCompacting: false,
     /**
      * In-flight compaction notice (`{ phase, usage, thresholdPercent,
-     * keepRecentTurns, requestedAt }`) or null. Projected by
+     * requestedAt }`) or null. Projected by
      * `getSessionState` and mirrored to `state.compactionNotice` on the client;
      * see `COMPACTION_NOTICE_PHASES` in `auto-compaction.mjs` for why the whole
      * pipeline is projected instead of fire-and-forget events.

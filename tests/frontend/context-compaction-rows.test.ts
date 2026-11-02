@@ -36,7 +36,6 @@ function notice(overrides: Partial<ServerAgentCompactionNotice> = {}): ServerAge
     phase: 'summarizing',
     usage: { percent: 82 },
     thresholdPercent: 80,
-    keepRecentTurns: 0,
     requestedAt: new Date().toISOString(),
     ...overrides,
   }

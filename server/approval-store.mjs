@@ -50,7 +50,7 @@ export const safeReadTools = new Set([
 /** toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout, requestedAt, expiresAt } */
 export const pendingApprovals = new Map()
 
-/** approvalId → { resolve, reject, sessionId, timeout, usage, thresholdPercent, keepRecentTurns, requestedAt, expiresAt } */
+/** approvalId → { resolve, reject, sessionId, timeout, usage, thresholdPercent, requestedAt, expiresAt } */
 export const pendingAutoCompactApprovals = new Map()
 
 export function getPendingApprovalForSession(sessionId) {
@@ -76,7 +76,6 @@ export function getPendingAutoCompactApprovalForSession(sessionId) {
         approvalId,
         usage: approval.usage,
         thresholdPercent: approval.thresholdPercent,
-        keepRecentTurns: approval.keepRecentTurns,
         requestedAt: approval.requestedAt,
         expiresAt: approval.expiresAt,
       }

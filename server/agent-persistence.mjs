@@ -304,7 +304,6 @@ async function persistSessionUnlocked(session, options = {}) {
     contextCompaction: contextCompaction ? {
       compactedAt: contextCompaction.compactedAt,
       compactedUpToIndex: contextCompaction.compactedUpToIndex,
-      keepRecentTurns: contextCompaction.keepRecentTurns,
       thresholdPercent: contextCompaction.thresholdPercent,
       usageBefore: contextCompaction.usageBefore,
     } : undefined,

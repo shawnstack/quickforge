@@ -241,7 +241,6 @@ export async function compactSession(session, initialUserMessage, compactOptions
     const result = await compactSessionInPlace({
       session,
       messages,
-      keepRecentTurns: 0,
       usage,
       thresholdPercent: settings.thresholdPercent,
       emitSessionEvent,

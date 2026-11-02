@@ -4,7 +4,7 @@ vi.mock('react', async (original) => ({ ...await original<typeof import('react')
 const mocks = vi.hoisted(() => ({ compact: vi.fn(), goal: vi.fn() }))
 vi.mock('@/storage', () => ({ getAppStorage: () => ({}) }))
 vi.mock('@/lib/tool-display-settings', () => ({ loadToolDisplaySettings: async () => ({ toolDisplayMode: 'compact', showContextUsage: false }), saveToolDisplaySettings: vi.fn() }))
-vi.mock('@/lib/auto-compact-settings', () => ({ loadAutoCompactSettings: async () => ({ enabled: true, requireConfirmation: true, thresholdPercent: 80, keepRecentTurns: 0 }), saveAutoCompactSettings: mocks.compact }))
+vi.mock('@/lib/auto-compact-settings', () => ({ loadAutoCompactSettings: async () => ({ enabled: true, requireConfirmation: true, thresholdPercent: 80 }), saveAutoCompactSettings: mocks.compact }))
 vi.mock('@/lib/goal-settings', () => ({ loadGoalSettings: async () => ({ maxIterations: 20 }), saveGoalSettings: mocks.goal }))
 vi.mock('@/lib/auto-archive-settings', () => ({ loadAutoArchiveSettings: async () => ({ enabled: false }), saveAutoArchiveSettings: vi.fn() }))
 vi.mock('@/lib/i18n', () => ({ applyAppLanguage: vi.fn(), getAppLanguage: () => 'zh', t: (key: string) => key }))
@@ -40,7 +40,7 @@ describe('React default settings tab', () => {
   })
 })
 describe('React default numeric settings', () => {
-  it.each([['autoCompactThresholdPercent', '99', '95', 'thresholdPercent', 95], ['autoCompactKeepRecentTurns', '23.5', '20', 'keepRecentTurns', 20]] as const)('normalizes %s only on commit and preserves siblings', async (label, draft, display, key, expected) => {
+  it.each([['autoCompactThresholdPercent', '99', '95', 'thresholdPercent', 95]] as const)('normalizes %s only on commit and preserves siblings', async (label, draft, display, key, expected) => {
     await mount(); numberInput(label).props.onInput(draft)
     expect(mocks.compact).not.toHaveBeenCalled()
     numberInput(label).props.onCommit(draft)

@@ -47,7 +47,7 @@ function summaryMessage(text = 'legacy summary') {
 }
 
 describe('compaction message (plan B)', () => {
-  it('inserts the summary as a real message at the cut', async () => {
+  it('inserts the summary as a real message at the compaction point (the array end)', async () => {
     const messages = [
       textMessage('user', 'q1', 1),
       textMessage('assistant', 'a1', 2),
@@ -56,19 +56,39 @@ describe('compaction message (plan B)', () => {
     ]
     const session = createSession(messages)
 
-    const result = await compactSessionInPlace({ session, messages, keepRecentTurns: 1, reason: 'auto_compact' })
+    const result = await compactSessionInPlace({ session, messages, reason: 'auto_compact' })
 
     expect(result.compacted).toBe(true)
     const next = session.agent.state.messages
     expect(next).toHaveLength(5)
-    // 切点 = 最后一个用户回合的起点，摘要消息就插在那里。
-    expect(isCompactSummaryMessage(next[2])).toBe(true)
-    expect(next[2].details.quickforgeCompaction.kind).toBe('summary')
-    // 插入点之后的消息原样保留（纯插入，不是重建）。
-    expect(next.slice(3)).toEqual(messages.slice(2))
+    // 压缩点 = 压缩发生那一刻的数组末尾，摘要消息就是最后一行：线以上的
+    // 全部历史（含本轮用户回合）并入摘要，之后的流式消息排在线下方。
+    expect(isCompactSummaryMessage(next[4])).toBe(true)
+    expect(next[4].details.quickforgeCompaction.kind).toBe('summary')
+    // 插入点之前的消息原样保留（纯追加，不是重建）。
+    expect(next.slice(0, 4)).toEqual(messages)
     // 派生下标 = 压缩消息下标 + 1。
-    expect(session.contextCompaction.compactedUpToIndex).toBe(3)
+    expect(session.contextCompaction.compactedUpToIndex).toBe(5)
     expect(session.contextCompaction.sourceMessageCount).toBe(5)
+  })
+
+  it('appends the divider after an in-flight tool chain instead of hoisting it above the user turn', async () => {
+    const messages = [
+      textMessage('user', 'current request', 1),
+      { role: 'assistant', content: [{ type: 'toolCall', name: 'grep', arguments: { query: 'x' } }], timestamp: 2 },
+      { role: 'toolResult', toolCallId: 'tc1', content: [{ type: 'text', text: 'hits' }], timestamp: 3 },
+    ]
+    const session = createSession(messages)
+
+    const result = await compactSessionInPlace({ session, messages, reason: 'auto_compact' })
+
+    expect(result.compacted).toBe(true)
+    const next = session.agent.state.messages
+    // run 内压缩发生在工具链之后：线在链尾，而不是被抬到用户消息上方。
+    expect(isCompactSummaryMessage(next[3])).toBe(true)
+    expect(next[3]).toBe(result.messages.at(-1))
+    // 模型上下文 = 摘要 + 线后新消息；线以上不再重放。
+    expect(buildAutoCompactLoopMessages(session, next)).toEqual([next[3]])
   })
 
   it('leaves messages untouched when the summary call fails', async () => {
@@ -76,7 +96,7 @@ describe('compaction message (plan B)', () => {
     const messages = [textMessage('user', 'q1', 1), textMessage('assistant', 'a1', 2)]
     const session = createSession(messages)
 
-    await expect(compactSessionInPlace({ session, messages, keepRecentTurns: 0, reason: 'auto_compact' }))
+    await expect(compactSessionInPlace({ session, messages, reason: 'auto_compact' }))
       .rejects.toThrow('summary failed')
 
     expect(session.agent.state.messages).toEqual(messages)

@@ -86,32 +86,31 @@ describe('settings normalizers', () => {
 
   it('normalizes auto compact settings with defaults, clamps, and booleans', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
-    expect(normalizeAutoCompactSettings({})).toMatchObject({
+    expect(normalizeAutoCompactSettings({})).toEqual({
       enabled: true,
-      keepRecentTurns: 0,
+      thresholdPercent: 80,
       requireConfirmation: true,
     })
-    expect(normalizeAutoCompactSettings({ enabled: false, requireConfirmation: false })).toMatchObject({
+    expect(normalizeAutoCompactSettings({ enabled: false, requireConfirmation: false })).toEqual({
       enabled: false,
+      thresholdPercent: 80,
       requireConfirmation: false,
     })
     expect(normalizeAutoCompactSettings({
       enabled: true,
       thresholdPercent: 99.7,
-      keepRecentTurns: 0,
-      minSourceChars: Number.POSITIVE_INFINITY,
       requireConfirmation: false,
     })).toEqual({
       enabled: true,
       thresholdPercent: 95,
-      keepRecentTurns: 0,
       requireConfirmation: false,
     })
-    // Legacy `minSourceChars` in stored settings is dropped by the normalizer.
+    // Legacy `keepRecentTurns` / `minSourceChars` in stored settings are dropped
+    // by the normalizer: the cut is anchored to the compaction point now.
     expect(normalizeAutoCompactSettings({ thresholdPercent: 49.2, keepRecentTurns: 20.4, minSourceChars: -1 })).toMatchObject({
       thresholdPercent: 50,
-      keepRecentTurns: 20,
     })
+    expect(normalizeAutoCompactSettings({ keepRecentTurns: 7 })).not.toHaveProperty('keepRecentTurns')
   })
 
   it('loads and saves normalized auto compact settings', async () => {
@@ -120,11 +119,10 @@ describe('settings normalizers', () => {
     })
 
     await expect(loadAutoCompactSettings(storage)).resolves.toMatchObject({ thresholdPercent: 95 })
-    await saveAutoCompactSettings(storage, { enabled: true, thresholdPercent: 60.8, keepRecentTurns: 4.2, requireConfirmation: true })
+    await saveAutoCompactSettings(storage, { enabled: true, thresholdPercent: 60.8, requireConfirmation: true })
     expect(values.get('auto-compact-settings')).toEqual({
       enabled: true,
       thresholdPercent: 61,
-      keepRecentTurns: 4,
       requireConfirmation: true,
     })
   })

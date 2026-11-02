@@ -41,15 +41,14 @@ describe('contextCompaction.history', () => {
     const first = await compactSessionInPlace({
       session,
       messages,
-      keepRecentTurns: 0,
       reason: 'auto_compact',
     })
     expect(first.compacted).toBe(true)
     const firstHistory = session.contextCompaction.history
     expect(firstHistory).toHaveLength(1)
-    // The divider anchor is the messages length at the instant it ran ...
+    // The divider anchor is the messages length at the instant it ran; with the
+    // cut anchored at the compaction point the boundary is the same coordinate.
     expect(firstHistory[0].occurredAtIndex).toBe(2)
-    // ... and the range edge may differ once recent turns are kept.
     expect(firstHistory[0].boundaryIndex).toBe(2)
     expect(typeof firstHistory[0].compactedAt).toBe('string')
 
@@ -62,7 +61,6 @@ describe('contextCompaction.history', () => {
     const second = await compactSessionInPlace({
       session,
       messages,
-      keepRecentTurns: 0,
       reason: 'auto_compact',
     })
     expect(second.compacted).toBe(true)
@@ -77,7 +75,7 @@ describe('contextCompaction.history', () => {
     expect(session.contextCompaction.compactedAt).toBe(history[1].compactedAt)
   })
 
-  it('records a range edge earlier than the moment it ran when recent turns are kept', async () => {
+  it('records the compaction point as both the boundary and the divider anchor', async () => {
     const messages = [
       textMessage('user', 'first question', 1),
       textMessage('assistant', 'first answer', 2),
@@ -89,23 +87,23 @@ describe('contextCompaction.history', () => {
     const result = await compactSessionInPlace({
       session,
       messages,
-      keepRecentTurns: 1,
       reason: 'auto_compact',
     })
 
     expect(result.compacted).toBe(true)
     const entry = session.contextCompaction.history[0]
-    // 方案 B：摘要消息插在切点（index 2），所以两个坐标现在指的是同一处。
-    expect(entry.boundaryIndex).toBe(2)
-    expect(entry.occurredAtIndex).toBe(2)
-    const inserted = session.agent.state.messages[2]
+    // 压缩点 = 当时数组末尾（index 4）：线锚与摘要边界是同一个坐标，
+    // 用户回合不再被整轮保留在线下方。
+    expect(entry.occurredAtIndex).toBe(4)
+    expect(entry.boundaryIndex).toBe(4)
+    const inserted = session.agent.state.messages[4]
     expect(inserted.details.quickforgeCompaction.kind).toBe('summary')
-    expect(session.contextCompaction.compactedUpToIndex).toBe(3)
+    expect(session.contextCompaction.compactedUpToIndex).toBe(5)
   })
 
   it('still compacts a single-user-turn session with an empty tail', async () => {
-    // The only user turn starts at index 0, so keeping "one turn" keeps
-    // everything. Compaction must run with an empty tail instead of returning
+    // The only user turn starts at index 0 and the whole history (including it)
+    // is summarized. Compaction must run instead of returning
     // `not_enough_history` forever.
     const messages = [
       textMessage('user', 'question', 1),
@@ -118,7 +116,6 @@ describe('contextCompaction.history', () => {
     const result = await compactSessionInPlace({
       session,
       messages,
-      keepRecentTurns: 1,
       reason: 'auto_compact',
     })
 
@@ -140,7 +137,7 @@ describe('contextCompaction.history', () => {
       })),
     }
 
-    await compactSessionInPlace({ session, messages, keepRecentTurns: 0, reason: 'auto_compact' })
+    await compactSessionInPlace({ session, messages, reason: 'auto_compact' })
 
     const history = session.contextCompaction.history
     expect(history).toHaveLength(MAX_CONTEXT_COMPACTION_HISTORY)

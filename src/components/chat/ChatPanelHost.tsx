@@ -737,7 +737,7 @@ export function ChatPanelHost({
   // project prop may change (same source as the /api/project/commands fetch).
   const slashCatalogProjectIdRef = useRef<string | undefined>(project?.id)
   const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource } | null>(null)
-  const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string } | null>(null)
+  const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; sessionId: string } | null>(null)
   const pendingAskRef = useRef<(ServerAgentPendingAsk & { sessionId: string }) | null>(null)
 
   // Keep the slash-catalog project source in sync with the latest props.
@@ -1686,12 +1686,11 @@ export function ChatPanelHost({
         }
       }
       if (!sideChatMode && (event as Record<string, unknown>).type === 'auto_compact_approval_required') {
-        const approvalEvent = event as unknown as { approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; keepRecentTurns?: number; sessionId: string }
+        const approvalEvent = event as unknown as { approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; sessionId: string }
         pendingAutoCompactApprovalRef.current = {
           approvalId: approvalEvent.approvalId,
           usage: approvalEvent.usage,
           thresholdPercent: approvalEvent.thresholdPercent,
-          keepRecentTurns: approvalEvent.keepRecentTurns,
           sessionId: approvalEvent.sessionId,
         }
         scheduleDecorateRef.current?.()

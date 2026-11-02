@@ -2,6 +2,19 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## compaction-anchor-at-occurrence（done，2026-11-02）
+
+- Goal：用户裁定压缩分割线必须显示在「压缩发生点」（选定 docs/design/compaction-anchor-preview.html 方案 B），线以下是压缩之后继续的 tool 调用，不再被抬到用户消息上方；当前用户请求由摘要承载，其余审查问题（P2–P5）不修。
+- 结论（一句话）：压缩点锚定改为 `compactSessionInPlace` 切点恒等于 `source.length`（压缩那一刻的数组末尾），摘要作为最后一条消息追加，自动/手动同语义；`AUTO_COMPACT_MIN_TAIL_USER_TURNS`/`resolveAutoCompactTailStart`/`tailStartForRecentTurns`/`DEFAULT_MAX_TAIL_CHARS` 与 `keepRecentTurns` 设置整链删除。
+- 根因：`insertAt ≡ tailStart` 且自动切点被强制对齐到最后一个用户回合起点（默认 keepRecentTurns=0 下恒等于最后一条 user 下标），分割线必然紧贴用户消息上方；「压缩发生点」在数据模型里根本不可表达。
+- 关键改动：
+  - `server/auto-compaction.mjs`：`tailStart = source.length`、`nextMessages = [...source, summary]`、`compactedUpToIndex = nextMessages.length`；`occurredAtIndex = boundaryIndex = tailStart`。新增 `compactionSnapshotShift()` / `compactedUpToIn()`：run 内 pi-agent-core loop 快照不含摘要（state 恰好比传入数组多一条且摘要在 `compactedUpToIndex-1`），派生下标平移回快照坐标——修复压缩后同 run 后续模型调用会挤掉「压缩后第一条新消息」的同源索引缺陷（`buildAutoCompactLoopMessages` 兼容分支、`buildCompactionSourceMessages`、`minimumProviderUsageIndex` 三处复用）。
+  - `keepRecentTurns` 全链移除：server（默认值/归一化、notice×2、审批事件与 pending 投影、persistence 投影、手动 /compact 传参）与前端（`auto-compact-settings.ts`、`DefaultOptionsSettingsTab` 设置行、i18n 三键 + `autoCompactApprovalRisk` 孤儿键、`DecisionRow` preview、`server-agent-types`/`compaction-message`/`approval-cards`/`ChatPanelHost` 类型与事件字段）；`autoCompactApprovalPreview` 文案改为「总结到目前为止的对话（含当前回合）」。旧存储值由 normalizer 丢弃。
+  - 测试：`tests/server/compaction-message.test.mjs` 改写为「插入点=数组末尾」并新增 run 内工具链场景（线在链尾、上下文=摘要）；`tests/server/auto-compaction.test.mjs` 删掉两个 tail 解析 describe，新增「快照平移：压缩后第一条消息不丢」「快照含摘要时不平移」；history/notice/orchestrator/approval-store/agent-compaction 与 6 个前端测试文件断言同步。
+- 前端零改动即可生效：分割线位置本就由消息下标决定（方案 B），改的是服务端插入位置。
+- 验证：定向 `npx vitest run`（15 文件 / 175 用例）全过；全量 `npm run test` → 480 files / 5447 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run build` → 成功。未创建 Git commit，未触碰生成产物。
+- Notes：压缩刚完成时线在列表末尾、下方暂时为空，直到下一条流式消息出现（mockup 方案 B 明示的过渡态，用户已接受）。审查中列出的 P3（`effectiveContextMessages` 用绝对下标切窗口数组，仅影响上下文百分比）、P4（压缩行被当 turn 边界 / 轮次导航多一条）、P5（`messages_replaced` 后无滚动锚点恢复）按用户裁定不修，留档备查。
+
 ## compaction-as-message（done，2026-11-01）
 
 - Goal：按用户裁定完整实现「架构 B（压缩即消息）+ 视觉 A（既有分割线样式）」，测试/构建通过后提交并推送。
@@ -175,7 +188,7 @@
   7. `context-usage.ts`：tooltip 的 scroll/resize 定位合并到 rAF，关闭时取消挂起帧。
   8. `WorkspaceTabStrip.tsx`：关闭按钮的 `transition-all` 收窄为 `opacity/background-color/color`。
 - 明确不做（原因）：`content-visibility`/CSS containment（测试禁止消息宿主、破坏滚动锚定）；虚拟列表（既有否决）；`width` 过渡改 `transform`（改变动画观感）；shimmer/box-shadow/backdrop-filter（可见视觉，需先 profile）；`startTransition`（改变流式调度）；scroll rAF 节流（既有否决）；装饰 pass 写后读重排（测量依赖装饰后布局）。
-- 验证：定向 11 files / 206 passed；新增断言后 scroll-to-bottom-button 12 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量：`npm run test` → 465 files / 5376 passed / 2 skipped；`npm run lint` → 0 problems；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`），`tsc -b` 随 build 通过。
+- 验证：定向 11 files / 206 passed；新增断言后 scroll-to-bottom-button 13 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量：`npm run test` → 465 files / 5377 passed / 2 skipped（首轮曾出现一次 `tests/server/routes/session-index-query.test.mjs` 的 Windows 临时目录 `ENOTEMPTY` 清理竞态，该文件单独复跑 11/11 通过；复跑全量全绿）；`npm run lint` → 0 problems；`npm run build` → 成功（`[precompress] 224 files: 12.67MB → 6.48MB`），`tsc -b` 随 build 通过。
 - 未创建 Git commit，未手工修改生成产物。
 
 ## model-sheet-check-immediate（done，2026-10-30）

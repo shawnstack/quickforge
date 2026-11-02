@@ -1,33 +1,35 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_AUTO_COMPACT_SETTINGS,
-  DEFAULT_MAX_TAIL_CHARS,
   buildAutoCompactLoopMessages,
   estimateSessionContextUsage,
   hasNewMessagesSinceCompaction,
   normalizeAutoCompactSettings,
-  resolveAutoCompactTailStart,
-  tailStartForRecentTurns,
 } from '../../server/auto-compaction.mjs'
 
 describe('auto compact settings', () => {
-  it('defaults to enabled with confirmation and no recent turns while preserving explicit settings', () => {
+  it('defaults to enabled with confirmation and preserves explicit settings', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
-    expect(normalizeAutoCompactSettings({})).toMatchObject({
+    expect(normalizeAutoCompactSettings({})).toEqual({
       enabled: true,
-      keepRecentTurns: 0,
+      thresholdPercent: 80,
       requireConfirmation: true,
     })
-    expect(normalizeAutoCompactSettings({ enabled: false, keepRecentTurns: 2, requireConfirmation: false })).toMatchObject({
+    expect(normalizeAutoCompactSettings({ enabled: false, thresholdPercent: 90, requireConfirmation: false })).toEqual({
       enabled: false,
-      keepRecentTurns: 2,
+      thresholdPercent: 90,
       requireConfirmation: false,
     })
-    expect(normalizeAutoCompactSettings({ keepRecentTurns: 0 }).keepRecentTurns).toBe(0)
+    // 旧存储里的 keepRecentTurns 已随「压缩点锚定」移除：读取时直接丢弃。
+    expect(normalizeAutoCompactSettings({ thresholdPercent: 85, keepRecentTurns: 7 })).toEqual({
+      enabled: true,
+      thresholdPercent: 85,
+      requireConfirmation: true,
+    })
   })
 })
 
-describe('tailStartForRecentTurns', () => {
+describe('buildAutoCompactLoopMessages', () => {
   function textMessage(role, text) {
     return { role, content: [{ type: 'text', text }] }
   }
@@ -36,53 +38,7 @@ describe('tailStartForRecentTurns', () => {
     return { role, content: [{ type: role === 'assistant' ? 'toolCall' : 'toolResult', name: 'tool', arguments: { query: 'x'.repeat(80) } }] }
   }
 
-  it('returns the whole history length when manual compaction keeps no recent turns', () => {
-    const messages = [textMessage('user', 'u1'), textMessage('assistant', 'a1')]
-    expect(tailStartForRecentTurns(messages, 0)).toBe(messages.length)
-  })
-
-  it('keeps the last keepRecentTurns user turns in a normal conversation', () => {
-    const messages = [
-      textMessage('user', 'u1'),
-      textMessage('assistant', 'a1'),
-      textMessage('user', 'u2'),
-      textMessage('assistant', 'a2'),
-      textMessage('user', 'u3'),
-      textMessage('assistant', 'a3'),
-    ]
-    expect(tailStartForRecentTurns(messages, 2)).toBe(2)
-    expect(tailStartForRecentTurns(messages, 2, DEFAULT_MAX_TAIL_CHARS)).toBe(2)
-  })
-
-  it('does not walk back past the tail char budget when user turns are sparse among tool messages', () => {
-    // 2 个 user 回合（index 0 与 102），中间夹大量工具消息；按回合数回溯会回到 0，
-    // 预算截断应停留在更靠后的位置
-    const messages = []
-    messages.push(textMessage('user', 'start'))
-    for (let i = 0; i < 100; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
-    messages.push(textMessage('user', 'latest question'))
-    for (let i = 0; i < 40; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
-
-    const tailStart = tailStartForRecentTurns(messages, 2, 8000)
-    expect(tailStart).toBeGreaterThan(100)
-    expect(tailStart).toBeLessThan(messages.length)
-  })
-
-  it('aligns a tail char budget cut to the start of the containing user turn', () => {
-    // 预算会在 latest question 后面的工具链中命中，但边界必须回到该轮 user，
-    // 不能把 assistant/toolResult 链从中间切开。
-    const messages = []
-    messages.push(textMessage('user', 'start'))
-    for (let i = 0; i < 100; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
-    const latestUserIndex = messages.length
-    messages.push(textMessage('user', 'latest question'))
-    for (let i = 0; i < 40; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
-
-    expect(tailStartForRecentTurns(messages, 2, 8000)).toBe(latestUserIndex)
-    expect(messages[latestUserIndex].role).toBe('user')
-  })
-
-  it('buildAutoCompactLoopMessages skips leading orphaned toolResults after compaction', () => {
+  it('skips leading orphaned toolResults after compaction', () => {
     const summaryMessage = textMessage('user', 'summary')
     const messages = [
       textMessage('user', 'start'),
@@ -108,10 +64,70 @@ describe('tailStartForRecentTurns', () => {
     ])
   })
 
-  it('buildAutoCompactLoopMessages passes messages through unchanged without compaction', () => {
+  it('passes messages through unchanged without compaction', () => {
     const messages = [textMessage('user', 'u1'), textMessage('assistant', 'a1')]
     expect(buildAutoCompactLoopMessages({}, messages)).toBe(messages)
   })
+
+  it('resolves the in-run loop snapshot that lacks the summary message', () => {
+    // 压缩发生在 run 内：state 已追加摘要，loop 快照是压缩前的数组副本。
+    // 快照里没有摘要 → 兼容分支必须把 compactedUpToIndex 平移回快照坐标，
+    // 否则会把压缩后新产生的第一条消息从模型上下文里挤掉。
+    const summaryMessage = textMessage('user', 'summary')
+    const preCompaction = [textMessage('user', 'request'), textMessage('assistant', 'tool call 0')]
+    const stateMessages = [...preCompaction, summaryMessage]
+    const session = {
+      agent: { state: { messages: stateMessages } },
+      contextCompaction: {
+        summaryMessage,
+        compactedUpToIndex: stateMessages.length,
+        sourceMessageCount: stateMessages.length,
+        compactedAt: new Date().toISOString(),
+      },
+    }
+
+    // 压缩刚完成、还没有新消息：上下文就是摘要本身。
+    expect(buildAutoCompactLoopMessages(session, preCompaction.slice())).toEqual([summaryMessage])
+
+    // run 继续产生的消息（含第一条）必须全部进入上下文。
+    const grownSnapshot = [...preCompaction, textMessage('assistant', 'tool call 1'), { role: 'toolResult', toolCallId: 'tc1', content: [{ type: 'text', text: 'result' }] }]
+    session.agent.state.messages = [...stateMessages, ...grownSnapshot.slice(preCompaction.length)]
+    const loop = buildAutoCompactLoopMessages(session, grownSnapshot)
+    expect(loop[0]).toBe(summaryMessage)
+    expect(loop.slice(1)).toEqual(grownSnapshot.slice(preCompaction.length))
+  })
+
+  it('does not shift when the snapshot already contains the summary', () => {
+    // 下一次 run 的快照来自 state（含摘要）：主分支直接从最后一条摘要切片。
+    const summaryMessage = textMessage('user', 'summary')
+    const snapshot = [
+      textMessage('user', 'old'),
+      summaryMessage,
+      textMessage('user', 'new request'),
+      textMessage('assistant', 'answer'),
+    ]
+    const session = {
+      agent: { state: { messages: snapshot } },
+      contextCompaction: {
+        summaryMessage,
+        compactedUpToIndex: 2,
+        sourceMessageCount: 2,
+        compactedAt: new Date().toISOString(),
+      },
+    }
+
+    expect(buildAutoCompactLoopMessages(session, snapshot)).toEqual([
+      summaryMessage,
+      snapshot[2],
+      snapshot[3],
+    ])
+  })
+})
+
+describe('context usage after compaction', () => {
+  function textMessage(role, text) {
+    return { role, content: [{ type: 'text', text }] }
+  }
 
   it('recomputes compacted usage without stale provider usage from the preserved tail', () => {
     const messages = [
@@ -295,81 +311,5 @@ describe('tailStartForRecentTurns', () => {
 
     expect(hasNewMessagesSinceCompaction(session, [{ ...textMessage('user', 'old'), timestamp: compactedAt - 1 }])).toBe(false)
     expect(hasNewMessagesSinceCompaction(session, [{ ...textMessage('user', 'new'), timestamp: compactedAt + 1 }])).toBe(true)
-  })
-
-  it('falls back to the second user turn when the budget is effectively unlimited', () => {
-    const messages = []
-    messages.push(textMessage('user', 'start'))
-    for (let i = 0; i < 100; i += 1) messages.push(toolMessage('assistant'), toolMessage('toolResult'))
-    messages.push(textMessage('user', 'latest question'))
-
-    expect(tailStartForRecentTurns(messages, 2, Infinity)).toBe(0)
-  })
-})
-
-describe('resolveAutoCompactTailStart', () => {
-  function textMessage(role, text) {
-    return { role, content: [{ type: 'text', text }] }
-  }
-
-  function toolMessage(role) {
-    return { role, content: [{ type: role === 'assistant' ? 'toolCall' : 'toolResult', name: 'tool', arguments: { query: 'x'.repeat(80) } }] }
-  }
-
-  function conversation(turns, toolCallsPerTurn = 0) {
-    const messages = []
-    for (let turn = 0; turn < turns; turn++) {
-      messages.push(textMessage('user', `q${turn}`))
-      for (let call = 0; call < toolCallsPerTurn; call++) {
-        messages.push(toolMessage('assistant'))
-        messages.push(toolMessage('toolResult'))
-      }
-      messages.push(textMessage('assistant', `a${turn}`))
-    }
-    return messages
-  }
-
-  it('keeps the current user turn even when keepRecentTurns is 0', () => {
-    const messages = conversation(4, 2)
-
-    // The automatic path runs *inside* a turn, so "keep nothing" would put the
-    // divider in the middle of the turn the user is watching. Aligning to the
-    // current user turn gives the divider a real referent.
-    const tailStart = resolveAutoCompactTailStart(messages, 0)
-    expect(tailStart).toBe(messages.length - 6)
-    expect(messages[tailStart].role).toBe('user')
-  })
-
-  it('does not shrink a configured tail of one or more turns', () => {
-    const messages = conversation(4, 1)
-    expect(resolveAutoCompactTailStart(messages, 2)).toBe(tailStartForRecentTurns(messages, 2))
-    expect(resolveAutoCompactTailStart(messages, 1)).toBe(tailStartForRecentTurns(messages, 1))
-  })
-
-  it('falls back to the configured cut when the history has no user turn', () => {
-    const messages = [textMessage('assistant', 'a1'), textMessage('assistant', 'a2')]
-    // No user message to align to: returning 0 would compact nothing, so the
-    // configured semantics (keep everything) is kept instead.
-    expect(resolveAutoCompactTailStart(messages, 0)).toBe(tailStartForRecentTurns(messages, 0))
-  })
-
-  it('degrades the kept-turn count instead of compacting nothing', () => {
-    // 5 turns requested, only 2 exist. A cut at index 0 keeps the whole history,
-    // so the setting must degrade (5 → 4 → 3 → 2 → 1) rather than skip forever.
-    const messages = conversation(2, 2)
-
-    const tailStart = resolveAutoCompactTailStart(messages, 5)
-    expect(tailStart).toBeGreaterThan(0)
-    expect(tailStart).toBe(tailStartForRecentTurns(messages, 1))
-    expect(messages[tailStart].role).toBe('user')
-  })
-
-  it('compacts the whole history when the only user turn starts at index 0', () => {
-    // A single-user-turn agentic session: keeping "one turn" would keep
-    // everything, so the tail is empty and the whole history is summarized.
-    const messages = conversation(1, 2)
-
-    expect(resolveAutoCompactTailStart(messages, 1)).toBe(messages.length)
-    expect(resolveAutoCompactTailStart(messages, 0)).toBe(messages.length)
   })
 })

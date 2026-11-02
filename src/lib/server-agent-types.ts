@@ -45,18 +45,16 @@ export type ActiveAgentStatus = {
  * One entry per compaction, in chronological order (see
  * `MAX_CONTEXT_COMPACTION_HISTORY` on the server).
  *
- * `occurredAtIndex` and `boundaryIndex` are deliberately separate:
- * - `occurredAtIndex` is the messages length at the instant compaction ran → the
- *   physical timeline position the divider is anchored to;
- * - `boundaryIndex` is the tail start, i.e. the right edge of the summarized
- *   range, which rolling compaction can put several messages earlier.
+ * `occurredAtIndex` and `boundaryIndex` both record the compaction point — the
+ * messages length at the instant compaction ran. The divider is anchored to
+ * that index and everything before it is summarized, so the two names describe
+ * the same coordinate from the timeline side and the summary-range side.
  */
 export type ServerAgentContextCompactionEntry = {
   compactedAt?: string
   occurredAtIndex?: number
   boundaryIndex?: number
   summaryMessage?: AgentMessage
-  keepRecentTurns?: number
   sourceMessageCount?: number
   usageBefore?: unknown
   thresholdPercent?: number
@@ -65,7 +63,6 @@ export type ServerAgentContextCompactionEntry = {
 export type ServerAgentContextCompaction = {
   summaryMessage?: AgentMessage
   compactedUpToIndex?: number
-  keepRecentTurns?: number
   compactedAt?: string
   usageBefore?: unknown
   thresholdPercent?: number
@@ -119,7 +116,6 @@ export type ServerAgentPendingAutoCompactApproval = {
   approvalId: string
   usage?: { percent?: number }
   thresholdPercent?: number
-  keepRecentTurns?: number
   requestedAt?: number
   expiresAt?: number
 }
@@ -141,7 +137,6 @@ export type ServerAgentCompactionNotice = {
   approvalId?: string
   usage?: { percent?: number; inputTokens?: number; contextWindow?: number }
   thresholdPercent?: number
-  keepRecentTurns?: number
   /** ISO timestamp of when the phase was entered. */
   requestedAt?: string
 }

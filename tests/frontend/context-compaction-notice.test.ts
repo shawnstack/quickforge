@@ -30,7 +30,7 @@ function compactionMessage(summary = 'summary body', compactedAt = '2026-01-01T0
     role: 'user',
     content: [{ type: 'text', text: 'The previous conversation has been compacted.\n\n<compact_summary>\n' + summary + '\n</compact_summary>' }],
     timestamp: 3,
-    details: { quickforgeCompaction: { version: 1, kind: 'summary', compactedAt, keepRecentTurns: 1, sourceMessageCount: 3 } },
+    details: { quickforgeCompaction: { version: 1, kind: 'summary', compactedAt, sourceMessageCount: 3 } },
   } as unknown as AgentMessage
 }
 

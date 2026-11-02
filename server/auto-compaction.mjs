@@ -14,17 +14,8 @@ export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   enabled: true,
   thresholdPercent: 80,
-  keepRecentTurns: 0,
   requireConfirmation: true,
 }
-
-/**
- * 保留尾部（最近回合）的字符预算上限。当会话以工具消息为主、user 回合
- * 稀疏时，按 keepRecentTurns 从尾部回溯会跨越大量工具消息，导致压缩
- * 范围过小甚至为空（tailStart 与 compactedUpToIndex 重合）。达到该预算
- * 时按当前用户轮次起点截断，将更早的完整工具链历史并入压缩范围。
- */
-export const DEFAULT_MAX_TAIL_CHARS = 40000
 
 /**
  * 压缩历史条数上限。
@@ -47,7 +38,6 @@ export function normalizeAutoCompactSettings(value) {
   return {
     enabled: value.enabled !== false,
     thresholdPercent: clampNumber(value.thresholdPercent, DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent, 50, 95),
-    keepRecentTurns: clampNumber(value.keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20),
     requireConfirmation: value.requireConfirmation !== false,
   }
 }
@@ -110,62 +100,8 @@ export function clearCompactionNotice(session, emitSessionEvent) {
   setCompactionNotice(session, null, emitSessionEvent)
 }
 
-function safeJson(value) {
-  try {
-    return JSON.stringify(value)
-  } catch {
-    return ''
-  }
-}
-
-function contentToText(content) {
-  if (typeof content === 'string') return content
-  if (!Array.isArray(content)) return ''
-  return content.map((block) => {
-    if (!block || typeof block !== 'object') return ''
-    if (block.type === 'text') return block.text || ''
-    if (block.type === 'thinking') return block.thinking || ''
-    if (block.type === 'image') return `[image:${block.mimeType || 'unknown'}]`
-    if (block.type === 'toolCall') return `[toolCall:${block.name || 'unknown'}] ${safeJson(block.arguments)}`
-    return safeJson(block)
-  }).filter(Boolean).join('\n')
-}
-
-function messageChars(message) {
-  if (!message || typeof message !== 'object') return 0
-  return [message.role || '', contentToText(message.content), safeJson(message.attachments)].join('\n').length
-}
-
-function isUserMessage(message) {
-  return (message?.role === 'user' || message?.role === 'user-with-attachments')
-    && !isCompactSummaryMessage(message)
-}
-
 function isToolResultMessage(message) {
   return message?.role === 'toolResult'
-}
-
-export function tailStartForRecentTurns(messages, keepRecentTurns, maxTailChars = DEFAULT_MAX_TAIL_CHARS) {
-  const source = Array.isArray(messages) ? messages : []
-  const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
-  if (normalizedKeepRecentTurns === 0) return source.length
-
-  let seenUserTurns = 0
-  let tailChars = 0
-  for (let index = source.length - 1; index >= 0; index--) {
-    if (isUserMessage(source[index])) seenUserTurns += 1
-    tailChars += messageChars(source[index])
-    if (seenUserTurns >= normalizedKeepRecentTurns) return index
-    // 保留的尾部超过预算：仍按完整用户轮次切分，避免把当前运行中的
-    // assistant/toolResult 链从中间截断，导致压缩线落在一轮对话内部。
-    if (tailChars >= maxTailChars) {
-      for (let turnStart = index; turnStart >= 0; turnStart--) {
-        if (isUserMessage(source[turnStart])) return turnStart
-      }
-      return 0
-    }
-  }
-  return 0
 }
 
 function userTextMessage(text, details) {
@@ -177,21 +113,52 @@ function userTextMessage(text, details) {
   }
 }
 
-function buildCompactionSourceMessages(session, messages, tailStart) {
-  const source = []
+/**
+ * 压缩后派生下标的坐标空间换算。
+ *
+ * pi-agent-core 的 run loop 用的是 run 启动时的消息快照副本，之后只往
+ * `agent.state.messages` push；就地压缩插入的摘要消息因此只存在于 state，
+ * 不在 run 内后续 `transformContext` 收到的数组里。此时 state 恰好比传入
+ * 数组多一条、且摘要正好落在 `compactedUpToIndex - 1` —— 返回 1，调用方
+ * 把派生下标平移回传入数组的坐标空间。其余情况（下一次 run 的快照已包含
+ * 摘要、旧会话迁移前的 state、无压缩）返回 0。
+ */
+function compactionSnapshotShift(session, messages) {
+  const compaction = session?.contextCompaction
+  const stateMessages = session?.agent?.state?.messages
+  if (!compaction?.summaryMessage || !Array.isArray(stateMessages)) return 0
+  const messagesLength = Array.isArray(messages) ? messages.length : 0
+  if (stateMessages.length !== messagesLength + 1) return 0
+  const summaryIndex = Math.max(0, Number(compaction.compactedUpToIndex) || 0) - 1
+  return stateMessages[summaryIndex] === compaction.summaryMessage ? 1 : 0
+}
+
+/** `compactedUpToIndex`（state 坐标空间）换算到传入数组空间并 clamp。 */
+function compactedUpToIn(session, messages) {
+  const source = Array.isArray(messages) ? messages : []
+  const shift = compactionSnapshotShift(session, source)
+  const stored = Math.max(0, Number(session?.contextCompaction?.compactedUpToIndex) || 0)
+  return Math.min(source.length, Math.max(0, stored - shift))
+}
+
+/**
+ * 本次要并入摘要的源消息：上一版摘要（滚动压缩）+ 上次切点之后的全部增量。
+ * 压缩点固定是当前数组末尾，所以增量就是「自上次压缩以来的所有消息」。
+ */
+function buildCompactionSourceMessages(session, messages) {
+  const source = Array.isArray(messages) ? messages : []
   const previousSummary = session.contextCompaction?.summaryMessage
-  if (previousSummary) {
-    source.push(userTextMessage([
-      'Existing rolling compact summary from earlier conversation history:',
-      '',
-      '<compact_summary>',
-      extractCompactSummaryText(previousSummary),
-      '</compact_summary>',
-    ].join('\n'), compactionMessageDetails('summary')))
-  }
-  const compacted = messages.slice(session.contextCompaction?.compactedUpToIndex || 0, tailStart)
-  source.push(...compacted)
-  return source
+  const sourceMessages = previousSummary
+    ? [userTextMessage([
+        'Existing rolling compact summary from earlier conversation history:',
+        '',
+        '<compact_summary>',
+        extractCompactSummaryText(previousSummary),
+        '</compact_summary>',
+      ].join('\n'), compactionMessageDetails('summary'))]
+    : []
+  sourceMessages.push(...source.slice(compactedUpToIn(session, source)))
+  return sourceMessages
 }
 
 /** 把 messages 换成新数组：与 agent-manager 的 updateSessionMessages 同一语义。 */
@@ -225,8 +192,10 @@ export function syncCompactionIndex(session, compactionIndex, messageCount) {
 /**
  * 模型上下文：压缩摘要本身就是一条消息，从最后一条压缩消息开始读即可。
  *
- * 旧会话（摘要只在 contextCompaction.summaryMessage 里、messages 中还没有那条
- * 消息）走兼容分支：把摘要拼回虚拟数组的开头。迁移跑完后这条分支不再命中。
+ * 传入数组里找不到摘要消息的两种情况都走兼容分支，把摘要拼回虚拟数组的
+ * 开头：旧会话（摘要只在 contextCompaction.summaryMessage 里、messages 中
+ * 还没有那条消息，待 `ensureCompactionMessage` 迁移）与 run 内快照（摘要
+ * 只在 state 里，见 `compactionSnapshotShift`，下标需平移）。
  */
 export function buildAutoCompactLoopMessages(session, messages) {
   const source = Array.isArray(messages) ? messages : []
@@ -235,9 +204,8 @@ export function buildAutoCompactLoopMessages(session, messages) {
 
   const summaryMessage = session?.contextCompaction?.summaryMessage
   if (!summaryMessage) return source
-  const compactedUpToIndex = Math.min(source.length, Math.max(0, Number(session.contextCompaction?.compactedUpToIndex) || 0))
   // 防御旧持久化数据：compactedUpToIndex 可能指向 toolResult，跳过开头的孤儿。
-  let tailStart = compactedUpToIndex
+  let tailStart = compactedUpToIn(session, source)
   while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
   return [summaryMessage, ...source.slice(tailStart)]
 }
@@ -280,8 +248,7 @@ function messageTimestampMs(message) {
 function minimumProviderUsageIndex(session, messages) {
   if (!session?.contextCompaction?.summaryMessage) return 0
   const source = Array.isArray(messages) ? messages : []
-  const compactedUpToIndex = Math.min(source.length, Math.max(0, Number(session.contextCompaction.compactedUpToIndex) || 0))
-  let tailStart = compactedUpToIndex
+  let tailStart = compactedUpToIn(session, source)
   while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
 
   const compactedAt = Date.parse(session.contextCompaction.compactedAt || '')
@@ -308,54 +275,24 @@ export function hasNewMessagesSinceCompaction(session, messages) {
 }
 
 /**
- * Minimum tail an automatic compaction must keep.
+ * 压缩点 = 压缩发生的那一刻，即当时的消息数组末尾。
  *
- * `keepRecentTurns: 0` means "keep nothing", which is correct for the manual
- * `/compact` command (the user explicitly asked to summarize everything so far)
- * but wrong for the automatic path: it runs *inside* an active run, between two
- * model calls, so "compact everything" puts the timeline divider inside the turn
- * the user is currently watching. Two visible symptoms followed:
+ * 分割线是一条真实消息（方案 B），界面位置就是数组下标；摘要边界与线的
+ * 位置共用同一个下标，因此「线落在压缩发生点」意味着：到那一刻为止的
+ * 全部历史（含本轮已执行完的 tool 调用与当前用户请求）都并入摘要，之后
+ * 产生的新消息天然排在线下方——与排队消息被消费时插入数组尾部的位置
+ * 逻辑一致，只是渲染成时间线分割线而不是消息气泡。当前用户请求不在线
+ * 下重复保留，由摘要承载（COMPACT_SYSTEM_PROMPT 要求保留 user's final
+ * goal 与 current task state）。
  *
- * - the divider was inserted between rows produced seconds earlier, directly
- *   contradicting its own label ("earlier context is summarized");
- * - right after compaction the boundary equalled the message count, so the
- *   divider was the list's last child with nothing under it — an orphan line
- *   above the composer until the next streamed row happened to appear.
- *
- * Keeping the current user turn gives the divider a real referent (history above,
- * this turn below) at any `keepRecentTurns` setting, and costs nothing when the
- * configured value is already ≥ 1.
- *
- * It is a preference, not a precondition: a single-user-turn agentic session has
- * no complete turn to keep once the tail would swallow the whole history, so
- * compaction then runs with an empty tail instead of being skipped entirely.
+ * 代价：压缩刚完成时线在列表末尾、下方暂时为空，直到下一条流式消息
+ * 出现。这是接受的过渡态。曾用 `AUTO_COMPACT_MIN_TAIL_USER_TURNS=1` 把
+ * 切点前移到当前用户回合起点来避免它，代价是线被抬到用户消息上方、远离
+ * 压缩实际发生的位置——那正是本次改回压缩点锚定的原因。
  */
-export const AUTO_COMPACT_MIN_TAIL_USER_TURNS = 1
-
-export function resolveAutoCompactTailStart(messages, keepRecentTurns) {
-  const source = Array.isArray(messages) ? messages : []
-  const configured = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
-  const effective = Math.max(AUTO_COMPACT_MIN_TAIL_USER_TURNS, configured)
-  const tailStart = tailStartForRecentTurns(source, effective)
-  // A cut at index 0 keeps the whole history, i.e. compacts nothing —
-  // `tailStartForRecentTurns` cannot tell "found at index 0" from "not found"
-  // because both return 0. Do not give up on that: degrade the number of kept
-  // turns (3 → 2 → 1) and, when even one kept turn would swallow everything,
-  // compact the whole history. A session must never end up permanently
-  // uncompacted just because it happens to contain fewer user turns than the
-  // setting asks for.
-  if (tailStart > 0) return tailStart
-  for (let keep = effective - 1; keep >= 1; keep--) {
-    const candidate = tailStartForRecentTurns(source, keep)
-    if (candidate > 0) return candidate
-  }
-  return source.length
-}
-
 export async function compactSessionInPlace({
   session,
   messages,
-  keepRecentTurns = DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns,
   usage,
   thresholdPercent,
   emitSessionEvent,
@@ -365,14 +302,7 @@ export async function compactSessionInPlace({
   onBeforePersist,
 }) {
   const source = Array.isArray(messages) ? messages : []
-  const normalizedKeepRecentTurns = clampNumber(keepRecentTurns, DEFAULT_AUTO_COMPACT_SETTINGS.keepRecentTurns, 0, 20)
-  // The manual command keeps its exact "summarize everything" semantics; the
-  // automatic path aligns the cut to the current user turn (see
-  // AUTO_COMPACT_MIN_TAIL_USER_TURNS).
-  const tailStart = reason === 'manual_compact'
-    ? tailStartForRecentTurns(source, normalizedKeepRecentTurns)
-    : resolveAutoCompactTailStart(source, normalizedKeepRecentTurns)
-  const sourceMessages = buildCompactionSourceMessages(session, source, tailStart)
+  const sourceMessages = buildCompactionSourceMessages(session, source)
   // 上下文超过阈值就压：唯一的前置是确实存在可压缩的消息序列（至少两条）。
   if (sourceMessages.length < 2) {
     return { compacted: false, usage, reason: 'not_enough_history' }
@@ -397,20 +327,19 @@ export async function compactSessionInPlace({
     result.summary,
     '</compact_summary>',
   ].join('\n'), compactionMessageDetails('summary'))
-  // 方案 B：摘要本身就是一条消息。把它插到被摘要范围的右边界（tailStart），
-  // 压缩点从此是数组里的一个下标 —— 位置不靠坐标推断，也不会随窗口滑动漂移。
+  // 方案 B：摘要本身就是一条消息，插在压缩发生点（当时数组末尾），压缩点
+  // 从此是数组里的一个下标 —— 位置不靠坐标推断，也不会随窗口滑动漂移。
   // 插入之后 tail 的起点是「压缩消息下标 + 1」。
-  const insertAt = Math.min(Math.max(0, Number(tailStart) || 0), source.length)
-  const nextMessages = [...source.slice(0, insertAt), summaryMessage, ...source.slice(insertAt)]
+  const tailStart = source.length
+  const nextMessages = [...source, summaryMessage]
   replaceSessionMessages(session, nextMessages)
-  const compactedUpToIndex = insertAt + 1
+  const compactedUpToIndex = nextMessages.length
   // 诊断字段：位置语义已由消息本身表达，这里只留时间线与用量快照。
   const historyEntry = {
     compactedAt,
-    occurredAtIndex: insertAt,
-    boundaryIndex: insertAt,
+    occurredAtIndex: tailStart,
+    boundaryIndex: tailStart,
     summaryMessage,
-    keepRecentTurns: normalizedKeepRecentTurns,
     sourceMessageCount: source.length,
     usageBefore: usage,
     thresholdPercent,
@@ -420,14 +349,14 @@ export async function compactSessionInPlace({
     summaryMessage,
     compactedUpToIndex,
     compactedAt,
-    keepRecentTurns: normalizedKeepRecentTurns,
     sourceMessageCount: nextMessages.length,
     usageBefore: usage,
     thresholdPercent,
     history: [...previousHistory, historyEntry].slice(-MAX_CONTEXT_COMPACTION_HISTORY),
   }
   onBeforePersist?.({ result, sourceMessages, tailStart, summaryMessage, messages: nextMessages })
-  // 中间插入不是追加：必须整份重写消息行，否则存储层会把插入当成尾部追加。
+  // 摘要插在数组末尾，但 state 之前的内容可能被替换（滚动压缩重打包上一版
+  // 摘要），仍整份重写消息行，避免存储层把重排当尾部追加。
   await persistSession?.(session, { forceMessagesReplace: true })
   const contextUsage = estimateSessionContextUsage(session, nextMessages)
   emitSessionEvent?.(session, {
@@ -567,8 +496,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     return { compacted: false, usage, reason: 'not_enough_new_messages' }
   }
 
-  const tailStart = resolveAutoCompactTailStart(messages, settings.keepRecentTurns)
-  const sourceMessages = buildCompactionSourceMessages(session, messages, tailStart)
+  const sourceMessages = buildCompactionSourceMessages(session, messages)
   if (sourceMessages.length < 2) {
     return { compacted: false, usage, reason: 'not_enough_history' }
   }
@@ -584,7 +512,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       approvalId,
       usage,
       thresholdPercent: settings.thresholdPercent,
-      keepRecentTurns: settings.keepRecentTurns,
       requestedAt: new Date(now).toISOString(),
     }, emitSessionEvent)
 
@@ -628,7 +555,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     phase: COMPACTION_NOTICE_PHASES.SUMMARIZING,
     usage,
     thresholdPercent: settings.thresholdPercent,
-    keepRecentTurns: settings.keepRecentTurns,
     requestedAt: new Date(now).toISOString(),
   }, emitSessionEvent)
 
@@ -636,7 +562,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     const result = await compactSessionInPlace({
       session,
       messages,
-      keepRecentTurns: settings.keepRecentTurns,
       usage,
       thresholdPercent: settings.thresholdPercent,
       emitSessionEvent,

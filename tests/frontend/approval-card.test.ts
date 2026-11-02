@@ -43,7 +43,6 @@ const copy: Record<string, string> = {
   toolApprovalDisabled: 'Disabled here',
   autoCompactApprovalStatus: 'Context near limit',
   autoCompactApprovalTitle: 'Compact older conversation content',
-  autoCompactApprovalRisk: 'compact risk {keepRecentTurns}',
   autoCompactApprovalAccept: 'Compact now',
   autoCompactApprovalReject: 'Not now',
 }

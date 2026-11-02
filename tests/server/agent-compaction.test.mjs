@@ -332,7 +332,6 @@ describe('compactSession', () => {
     expect(compactSessionInPlace).toHaveBeenCalledWith(expect.objectContaining({
       session,
       messages: session.agent.state.messages.slice(),
-      keepRecentTurns: 0,
       thresholdPercent: 65,
       reason: 'manual_compact',
       emitSessionEvent,

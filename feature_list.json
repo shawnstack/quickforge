@@ -134,7 +134,7 @@
         "tests/frontend/message-queue.test.ts",
         "docs/architecture/chat-render-perf-review.zh-CN.md"
       ],
-      "verification": "定向 11 files / 206 passed；新增架构断言后 scroll-to-bottom-button 12 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量：npm run test → 465 files / 5376 passed / 2 skipped；npm run lint → 0 problems；npm run build → 成功（precompress 224 files: 12.67MB → 6.48MB），tsc -b 随 build 通过。未创建 Git commit，未手工修改生成产物。",
+      "verification": "定向 11 files / 206 passed；新增架构断言后 scroll-to-bottom-button 13 / message-queue 21 passed；复核后相关 9 files / 204 passed。全量：npm run test → 465 files / 5377 passed / 2 skipped（首轮曾出现一次 session-index-query 临时目录 ENOTEMPTY 清理竞态，该文件单独复跑 11/11 通过）；npm run lint → 0 problems；npm run build → 成功（precompress 224 files: 12.67MB → 6.48MB），tsc -b 随 build 通过。未创建 Git commit，未手工修改生成产物。",
       "updatedAt": "2026-10-31"
     },
     {
@@ -1642,6 +1642,34 @@
       ],
       "verification": "npx vitest run（compaction-message / auto-compaction* / agent-manager.rollback-compaction / agent-manager.persist-session-state / context-compaction-notice / context-compaction-rows / assistant-waiting-bubble / message-actions）全过；npx tsc -b 0 错误；npx eslint 0 problems；npm run build 成功；npm run test 全量见 session-handoff。",
       "updatedAt": "2026-11-01"
+    },
+    {
+      "id": "compaction-anchor-at-occurrence",
+      "title": "压缩分割线锚定压缩发生点：摘要插在压缩那一刻的数组末尾",
+      "status": "done",
+      "summary": "用户反馈自动压缩后分割线被放到用户消息上方，预期是「压缩开始线就在压缩发生的位置，后面接着是继续的 tool 调用」，与排队消息被消费时插入数组尾部的位置逻辑一致。根因：AUTO_COMPACT_MIN_TAIL_USER_TURNS=1 + resolveAutoCompactTailStart 把自动压缩切点强制前移到最后一个用户回合起点，而 insertAt≡tailStart 使分割线必然紧贴用户消息上方；默认 keepRecentTurns=0 下恒等于最后一条 user 消息下标。改为压缩点锚定：compactSessionInPlace 切点统一为 source.length（自动/手动同语义），摘要作为最后一条消息追加，到那一刻为止的全部历史（含本轮已跑完的 tool 调用与当前用户请求）并入摘要，当前请求由摘要承载（COMPACT_SYSTEM_PROMPT 已要求保留 final goal 与 current task state）；压缩刚完成时线在列表末尾、下方暂时为空属接受的过渡态。同源索引缺陷一并修复：pi-agent-core run loop 用启动时的快照副本，压缩插入的摘要只在 state 里，buildAutoCompactLoopMessages 兼容分支原样用 compactedUpToIndex 切快照会挤掉压缩后第一条新消息——新增 compactionSnapshotShift()/compactedUpToIn()，检测「state 恰好比传入数组多一条且摘要在 compactedUpToIndex-1」时把派生下标平移回快照坐标，buildCompactionSourceMessages 与 minimumProviderUsageIndex 同步复用。keepRecentTurns 设置随切点语义消亡整体移除（设置页输入行、i18n 含孤儿键 autoCompactApprovalRisk、notice/审批事件与持久化投影、前后端类型字段；autoCompactApprovalPreview 改为「总结到目前为止的对话（含当前回合）」，旧存储值由 normalizer 丢弃）；删除 resolveAutoCompactTailStart/AUTO_COMPACT_MIN_TAIL_USER_TURNS/tailStartForRecentTurns/DEFAULT_MAX_TAIL_CHARS 及 safeJson/contentToText/messageChars/isUserMessage 死代码。",
+      "files": [
+        "server/auto-compaction.mjs（改：压缩点=数组末尾、快照下标平移、删除 tail 保留链）",
+        "server/agent-compaction.mjs（改：去掉 keepRecentTurns 传参）",
+        "server/agent-approval-orchestrator.mjs / approval-store.mjs / agent-persistence.mjs / agent-manager.mjs（改：事件与投影去 keepRecentTurns）",
+        "src/lib/auto-compact-settings.ts（改：类型/默认/归一化）",
+        "src/components/settings/tabs/DefaultOptionsSettingsTab.tsx（改：删除保留回合设置行）",
+        "src/lib/i18n.ts（改：删 3 键 + preview 文案重写）",
+        "src/components/chat/surface/ContextCompactionDecisionRow.tsx / compaction-message.ts / server-agent-types.ts / panel-wiring/approval-cards.ts / ChatPanelHost.tsx（改：字段同步）",
+        "tests/server/auto-compaction.test.mjs（改写：删 tail 解析用例，新增快照平移用例）",
+        "tests/server/compaction-message.test.mjs（改写：插入点=末尾 + run 内工具链场景）",
+        "tests/server/auto-compaction-history.test.mjs（改写：occurredAtIndex=boundaryIndex=末尾）",
+        "tests/server/auto-compaction-notice / agent-approval-orchestrator / approval-store / agent-compaction（改：断言同步）",
+        "tests/frontend/settings-normalizers / default-options-settings-tab / default-options-settings-react / context-compaction-notice / context-compaction-rows / approval-card（改：断言同步）",
+        "docs/wiki/server/README.md、docs/wiki/src/components/README.md（改：压缩点锚定语义）",
+        "docs/design/compaction-anchor-preview.html、docs/design/compaction-as-message.html（改：标注选定方案 B）",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run 相关 15 文件 175 用例全过；npm run test 全量 480 文件/5447 用例通过（2 skipped）；npx tsc -b 0 错误；npm run lint 0 problems；npm run build 成功。",
+      "updatedAt": "2026-11-02"
     }
   ]
 }

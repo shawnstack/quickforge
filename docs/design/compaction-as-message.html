@@ -62,7 +62,7 @@ footer{margin-top:40px;color:var(--ink3);font-size:12.5px;text-align:center}
 <body>
 <div class=wrap>
 <header class=hero>
-  <p class=kicker>Design note · 2026-11-01 · 仅设计，未改代码</p>
+  <p class=kicker>Design note · 2026-11-01 · 仅设计，未改代码 · <b>2026-11-02 修订：插入点已从 tailStart（被摘要范围右边界）改为压缩发生那一刻的数组末尾，`resolveAutoCompactTailStart` / `keepRecentTurns` 随之移除，见 docs/wiki/server/README.md</b></p>
   <h1>压缩即消息：把「压缩点」做成会话里的一条真实消息</h1>
   <p class=lede>现在的分割线是<b>推断</b>出来的：服务端记下压缩瞬间的消息条数，前端再拿它跟渲染窗口做换算。只要有窗口滑动、流式消息、中间插入或截断回滚，推断就会漂 ——「线永远贴在底部」只是其中最显眼的一种。这份设计换掉整个前提：<b>让压缩摘要成为一条真实的会话消息</b>，线的位置就是它在消息数组里的下标。位置不再需要计算，也就不会再算错。</p>
   <div class=tags><span class=tag>推荐：方案 B · 压缩即消息</span><span class='tag ok'>位置由消息日志保证</span><span class='tag ok'>模型上下文与界面同序</span><span class=tag>结论：不是「也可以」，而是「应该」</span></div>
@@ -180,7 +180,7 @@ footer{margin-top:40px;color:var(--ink3);font-size:12.5px;text-align:center}
 </tbody></table></div></div>
 <div class=card><h3>4.6 连续压缩、合并与失效</h3><ul class=small>
 <li><b>多次压缩</b>：每次都插一条新的压缩消息，模型从<b>最后一条</b>开始读。前面的压缩消息留在消息流里（历史可读），pill 标「已并入后续摘要」。</li>
-<li><b>切点选择</b>：沿用现有 <code>resolveAutoCompactTailStart</code>（自动路径保底保留当前用户回合）。它现在只决定<b>插入位置</b>，不再需要与界面坐标对齐。</li>
+<li><b>切点选择</b>：~~沿用现有 <code>resolveAutoCompactTailStart</code>（自动路径保底保留当前用户回合）~~ 已修订：切点固定为压缩发生那一刻的数组末尾，自动/手动同语义；当前用户请求由摘要承载，不再保留尾部回合。</li>
 <li><b>失效</b>：回滚到压缩消息之前 ⇒ 消息没了 ⇒ 下一次请求读到完整历史，压缩「自动解除」，不需要额外 reset。</li>
 <li><b>清理</b>：不清理历史压缩消息（它们是时间线）。数量上限沿用现在 <code>history</code> 的 20 条思路；把同一回合内的多次压缩聚合为一行是独立迭代，不在本期。</li>
 </ul></div>

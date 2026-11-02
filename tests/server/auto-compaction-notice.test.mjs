@@ -10,7 +10,6 @@ vi.mock('../../server/storage.mjs', () => ({
     'auto-compact-settings': {
       enabled: true,
       thresholdPercent: 50,
-      keepRecentTurns: 0,
       requireConfirmation: true,
     },
   })),

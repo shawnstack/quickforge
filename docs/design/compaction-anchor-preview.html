@@ -29,7 +29,7 @@ button[aria-pressed=true]{border-color:#18181b;background:#18181b;color:#fff}
 </head>
 <body>
 <h1>压缩分割线的位置：三种布局对齐</h1>
-<p class=hint>同一段对话、同样的压缩时机，只有分割线的位置不同。点按钮切换，看看哪种符合你的预期。</p>
+<p class=hint>同一段对话、同样的压缩时机，只有分割线的位置不同。点按钮切换，看看哪种符合你的预期。<b>已选定方案 B（压缩那一刻，线在末尾）并落地</b>：摘要消息插在压缩发生时的数组末尾，当前用户回合与本轮已跑完的工具链并入摘要，后续消息排在线下方；详见 docs/wiki/server/README.md 的 auto-compaction 条目。</p>
 <div class=switch>
 <button data-mode=A aria-pressed=true>A · 切点（线在保留回合之前）</button>
 <button data-mode=B aria-pressed=false>B · 压缩那一刻（线在末尾）</button>

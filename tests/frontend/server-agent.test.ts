@@ -195,6 +195,32 @@ describe('ServerAgent', () => {
     }
   })
 
+  it('reuses a handed-off optimistic message instead of appending it twice', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    // Deferred 会话交接来的消息已经在 state 里（见 useAgentManager 的
+    // handoffMessages），prompt 不能再追加一遍，否则同一句话会出现两条。
+    const handedOff = { role: 'user', content: 'hello', timestamp: 1 } as AgentMessage
+    const agent = await createServerAgent({
+      sessionId: 'session-handoff',
+      initialState: { model: { provider: 'mock', id: 'mock' }, messages: [handedOff] },
+    })
+
+    try {
+      await agent.prompt(handedOff, { messageAlreadyInState: true })
+
+      expect(agent.state.messages).toEqual([handedOff])
+      const promptCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/prompt')) as [string, RequestInit]
+      expect(JSON.parse(String(promptCall[1].body)).message).toMatchObject({
+        role: 'user',
+        content: 'hello',
+        timestamp: 1,
+      })
+    } finally {
+      agent.dispose()
+    }
+  })
+
   it('sends selected capabilities once, decorates the optimistic user message, and coexists with file references', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
     vi.stubGlobal('fetch', fetchMock)

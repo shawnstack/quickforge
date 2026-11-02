@@ -80,7 +80,7 @@
 | `goal-state-controller.ts` | 63 | Goal 快照排序协作者：同 id revision 单调、跨 id/null 的 watermark 捕获与过期拒绝、新 revision 补采；只决定 snapshot 是否可采用，HTTP 动作与 streaming 守卫仍在 `ServerAgent` |
 | `selected-capabilities.ts` | 82 | 用户本轮插件选择的前端统一规范化/快照：合法类型与字符串边界、`type+pluginName+name` 去重、顺序保持、最多 4 项，持久化/历史读取快照均剥离 description |
 | `hooks-settings.ts` | 185 | Hooks 设置前端镜像：`HOOKS_SETTINGS_KEY`（`hooks-settings`）、事件枚举（6 种）/变量表、`HookConfig` / `HooksSettings` / `HookExecutionRecord` 类型（record 的 `event` 兼容手动测试合成事件 `'test'`，status 枚举 `success`/`error`/`timeout`）、timeout clamp 1–300s（默认 10s）、`normalizeHooksSettings` 防御规范化（非法动作 Hook 整体丢弃）、`load/saveHooksSettings` 经 AppStorage settings store 读写（PUT 后由 server 触发引擎缓存刷新）；服务端契约见 [server/hooks/](../../server/README.md#hooks--hooks-事件钩子) |
-| `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent |
+| `deferred-session-agent.ts` | 302 | 新会话首条消息前的延迟 Agent 代理：本地先渲染乐观消息，`prompt()` 时才创建真实 `ServerAgent`，并把暂存的 capabilities / contextReferences / promptMode 转发给真实 Agent；交接时通过 `handoffMessages` 把乐观消息交出去，真实 Agent 带着消息上屏（不会先以空会话形态出现） |
 | `indexeddb-cache.ts` | 通用 IndexedDB 只读缓存封装：惰性单例 open、条目级 schemaVersion、LRU+字节双预算淘汰、全部异常静默降级（供会话消息/工作区/设置快照等缓存层复用） |
 | `session-message-cache.ts` | 会话消息只读快照 store（F12）：`resolveServerCacheKey`（baseUrl→直连后端→origin）、结构校验读取、per-key debounce 写入 + stateVersion 高水位守卫、IndexedDB 不可用全程 no-op |
 | `workspace-cache.ts` | Workspace 只读缓存 store（F13）：目录条目（SWR+30s TTL 新鲜判定）、展开路径、文件内容（size+mtimeMs 失效戳、>1MB 跳写）；复用 `IndexedDbCache` 与 `resolveServerCacheKey`，坏条目删除、不可用全程 no-op |
@@ -239,6 +239,7 @@
 - 本地维护乐观 state（消息、streaming 标志等），`prompt()` 时才 promote 创建真实 `ServerAgent` 并转发首条消息；已有真实 Agent 后全部调用直通
 - 暂存并在 promote 时转发下一次 prompt 的结构化选择：`setNextPromptCapabilities()` 使用与 `ServerAgent` 相同的统一规范化，首条乐观 user message 同步写入无 description 的 `details.selectedCapabilities`，再把可含 description 的 canonical 选择转发真实 Agent；`setNextPromptContextReferences()`（≤8，引用同时写入同一乐观 user message 的 `details.contextReferences`）、`setPromptMode('plan' | 'ask' | null)`（`setPlanMode` 兼容包装）。三类状态均一次性消费，插件最多 4 项且保持顺序
 - 真实 Agent 不支持的可选方法（如 `setNextPromptContextReferences`）以 `?.` 安全调用，消费回调（onConsumed）随转发传递
+- 交接真实会话时必须把乐观消息一起交出去（`createAgent` 的 `handoffMessages`），真实 agent 才能带着现有消息上屏；随后的 `prompt(message, { messageAlreadyInState: true })` 复用这条消息，不再追加第二遍
 
 ## 工具模块
 

@@ -41,9 +41,13 @@ async function createDeferredAgent(
   })
 }
 
-function createRealAgent() {
-  const state = { messages: [] as AgentMessage[] }
-  const prompt = vi.fn(async (message: AgentMessage) => {
+function createRealAgent(handoffMessages: AgentMessage[] = []) {
+  // 真实 agent 的 state 由 useAgentManager 的 handoff 装载；prompt 收到
+  // messageAlreadyInState 时不再重复追加（与 ServerAgent.prompt 同语义）。
+  const state = { messages: [...handoffMessages] }
+  const prompt = vi.fn(async (message: AgentMessage, options?: { messageAlreadyInState?: boolean }) => {
+    const last = state.messages[state.messages.length - 1]
+    if (options?.messageAlreadyInState === true && last === message) return
     state.messages = [...state.messages, message]
   })
   const setNextPromptContextReferences = vi.fn((_references: unknown, onConsumed?: () => void) => onConsumed?.())
@@ -74,19 +78,29 @@ describe('DeferredSessionAgent', () => {
     expect(createAgent).toHaveBeenCalledOnce()
   })
 
-  it('hands the optimistic message to the real agent without duplicating it', async () => {
+  it('hands the optimistic message to the real agent instead of re-appending it', async () => {
     const pendingAgent = deferred<ServerAgent>()
-    const createAgent = vi.fn(() => pendingAgent.promise)
+    let handoffMessages: AgentMessage[] | undefined
+    const createAgent = vi.fn(
+      (_initialState?: unknown, _sessionId?: string, options?: { handoffMessages?: AgentMessage[] }) => {
+        handoffMessages = options?.handoffMessages
+        return pendingAgent.promise
+      },
+    )
     const agent = await createDeferredAgent(createAgent)
-    const realAgent = createRealAgent()
 
     const promptPromise = agent.prompt('hello')
     const optimisticMessage = agent.state.messages[0]
+    // useAgentManager 负责把交接消息装进真实 agent（这里显式模拟）。
+    const realAgent = createRealAgent(handoffMessages)
     pendingAgent.resolve(realAgent)
     await promptPromise
 
-    expect(realAgent.prompt).toHaveBeenCalledWith(optimisticMessage)
+    // 真实 agent 必须带着这条消息上屏：attach 之后的第一帧不能是「0 条消息」
+    // 的空会话（那会被当成全新空对话，触发自动落项目、回到欢迎页）。
+    expect(handoffMessages).toEqual([optimisticMessage])
     expect(realAgent.state.messages).toEqual([optimisticMessage])
+    expect(realAgent.prompt).toHaveBeenCalledWith(optimisticMessage, { messageAlreadyInState: true })
     expect(createAgent.mock.calls[0]?.[0]).not.toHaveProperty('messages')
   })
 

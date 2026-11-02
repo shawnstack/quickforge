@@ -698,7 +698,16 @@ export class ServerAgent {
     this.setPromptMode(mode ? 'plan' : null, onConsumed)
   }
 
-  async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
+  /**
+   * `messageAlreadyInState`：Deferred 会话把用户已经看到的那条乐观消息交接给
+   * 刚创建的真实 agent 后（见 `useAgentManager.createAgent` 的
+   * `handoffMessages`）走这条路径。消息已经是 `state.messages` 的最后一项，
+   * 再追加一次会让同一句话出现两遍，失败回滚也会删错一条，所以这里复用它。
+   */
+  async prompt(
+    input: string | AgentMessage | AgentMessage[],
+    options?: { messageAlreadyInState?: boolean },
+  ): Promise<void> {
     if (this.disposed) return
 
     if (!this.canWrite()) {
@@ -742,20 +751,35 @@ export class ServerAgent {
       onConsumed?.()
     }
 
-    const msgCountBeforeOptimistic = this.state.messages.length
+    // 交接消息：Deferred 会话把乐观消息原样交给了真实 agent，引用相等才复用；
+    // 其它任何情况（字符串输入、提前创建的真实 agent）都按新消息处理。
+    const handedOffMessage = options?.messageAlreadyInState === true
+      ? this.state.messages[this.state.messages.length - 1]
+      : undefined
+    const reusesExistingMessage = handedOffMessage !== undefined
+      && handedOffMessage === (message as unknown as AgentMessage)
 
-    // Add to local state immediately for optimistic UI.
-    const optimisticDetailsMessage = withSelectedCapabilitiesSnapshot(message, selectedCapabilities)
-    const agentMessage = (contextReferences.length > 0
-      ? {
-          ...optimisticDetailsMessage,
-          details: {
-            ...(optimisticDetailsMessage.details && typeof optimisticDetailsMessage.details === 'object' && !Array.isArray(optimisticDetailsMessage.details) ? optimisticDetailsMessage.details : {}),
-            contextReferences,
-          },
-        }
-      : optimisticDetailsMessage) as unknown as AgentMessage
-    this.state.messages = [...this.state.messages, agentMessage]
+    const msgCountBeforeOptimistic = reusesExistingMessage
+      ? this.state.messages.length - 1
+      : this.state.messages.length
+
+    let agentMessage: AgentMessage
+    if (reusesExistingMessage) {
+      agentMessage = handedOffMessage
+    } else {
+      // Add to local state immediately for optimistic UI.
+      const optimisticDetailsMessage = withSelectedCapabilitiesSnapshot(message, selectedCapabilities)
+      agentMessage = (contextReferences.length > 0
+        ? {
+            ...optimisticDetailsMessage,
+            details: {
+              ...(optimisticDetailsMessage.details && typeof optimisticDetailsMessage.details === 'object' && !Array.isArray(optimisticDetailsMessage.details) ? optimisticDetailsMessage.details : {}),
+              contextReferences,
+            },
+          }
+        : optimisticDetailsMessage) as unknown as AgentMessage
+      this.state.messages = [...this.state.messages, agentMessage]
+    }
     this.state.contextUsage = null
     this.emitToListeners({ type: 'message_start', message: agentMessage })
 

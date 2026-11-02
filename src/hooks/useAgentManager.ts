@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { AgentState } from '@earendil-works/pi-agent-core'
+import type { AgentState, AgentMessage } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { logger } from '@/lib/logger'
 import { ServerAgent, type ServerAgentContextCompaction } from '@/lib/server-agent'
@@ -222,7 +222,7 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
     async (
       initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
       sessionId: string = randomId(),
-      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean },
+      options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; shouldAttachToView?: () => boolean; createdAt?: string; title?: string; source?: 'acp'; accessMode?: AgentAccessMode; yoloMode?: boolean; refreshSessions?: boolean; handoffMessages?: AgentMessage[] },
     ) => {
       const previousAgent = agentRef.current
       const existingTask = taskMapRef.current.get(sessionId)
@@ -286,6 +286,14 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
 
       if (restInitialState.contextCompaction && !nextAgent.state.contextCompaction) {
         nextAgent.state.contextCompaction = restInitialState.contextCompaction
+      }
+
+      // Deferred 会话交接：把用户已经看到的乐观消息装进真实 agent。
+      // 只写前端 state，不走 `ServerAgent.create` 的 messages（那会被服务端
+      // 持久化，紧接着的 prompt 又会再发一次）。这样真实 agent attach 上屏的
+      // 第一帧就带着消息，不会以「0 条消息」的空会话形态出现。
+      if (options?.handoffMessages?.length) {
+        nextAgent.state.messages = [...nextAgent.state.messages, ...options.handoffMessages]
       }
 
       const initialStatus: BackgroundTaskStatus = nextAgent.state.isStreaming

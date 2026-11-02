@@ -17,7 +17,21 @@ type DeferredSessionAgentOptions = {
   createAgent: (
     initialState?: Partial<AgentState> & { contextCompaction?: ServerAgentContextCompaction | null },
     sessionId?: string,
-    options?: { scope?: ChatScope; project?: ProjectInfo; attachToView?: boolean; createdAt?: string; title?: string; accessMode?: AgentAccessMode; yoloMode?: boolean },
+    options?: {
+      scope?: ChatScope
+      project?: ProjectInfo
+      attachToView?: boolean
+      createdAt?: string
+      title?: string
+      accessMode?: AgentAccessMode
+      yoloMode?: boolean
+      /**
+       * 交接给真实 agent 的消息：用户在这个 Deferred 会话里已经看到的乐观消息。
+       * 真实 agent 必须带着它们上屏，否则它会以「0 条消息」的空会话形态 attach，
+       * 被当成全新的空对话（自动落项目、回到欢迎页）。
+       */
+      handoffMessages?: AgentMessage[]
+    },
   ) => Promise<ServerAgent>
 }
 
@@ -159,7 +173,8 @@ export class DeferredSessionAgent {
     this.onPromptContextReferencesConsumed = undefined
     this.promptMode = null
     this.onPromptModeConsumed = undefined
-    await realAgent.prompt(message)
+    // 这条消息已随 `handoffMessages` 进了真实 agent 的 state，别再追加一次。
+    await realAgent.prompt(message, { messageAlreadyInState: true })
   }
 
   abort(): void {
@@ -291,6 +306,9 @@ export class DeferredSessionAgent {
           attachToView: true,
           accessMode: this.state.accessMode,
           yoloMode: this.state.yoloMode,
+          // 交接乐观消息：真实 agent 一定会以当前已有的消息上屏，不会出现
+          // 「会话刚建好、消息还没发」的空窗（那会被判成全新空对话）。
+          handoffMessages: this.state.messages,
         },
       ).then((agent) => {
         if (this.disposed && this.promotedAgent !== agent) agent.dispose()

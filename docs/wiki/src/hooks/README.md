@@ -69,6 +69,7 @@
 - **后台任务**: 管理后台运行的任务状态；采用保守 LRU，始终保留当前会话和 running/streaming Agent，最多保留 5 个非当前空闲 Agent，淘汰时统一 unsubscribe、dispose 并清理本地状态；再次打开会话时由 ServerAgent 从服务端权威状态恢复
 - **排队消息后台续发**: 后台 task 收到 `agent_end` 时触发该会话排队消息的后台续发——正常结束（非 aborted/error）调 `src/lib/message-queue-drainer.ts` 的 `drainStoredMessageQueue` 逐条发送，`aborted`/`error` 调 `pauseStoredMessageQueue` 暂停；仅后台 task 触发，当前查看中的会话仍由面板既有链路处理，避免双写
 - **对话压缩**: 支持 `/summary` 创建总结后的新对话，支持 `/compact` 在当前会话内滚动压缩上下文
+- **Deferred 交接**: 真实会话建成时先用 `createAgent` 的 `handoffMessages` 把用户已经看到的乐观消息装进真实 agent，再把它 attach 到视图——否则真实 agent 会以「0 条消息」的空会话形态上屏一帧，被空态规则判成全新空对话（自动落项目），把正在进行的会话顶掉、消息也发不出去
 - **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
 
 ### useChatActions.ts (389 行)

@@ -5,7 +5,6 @@ import { createNodeProcessEnv } from './utils/process-env.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const projectRoot = path.resolve(__dirname, '..')
 const serverScript = path.join(__dirname, 'index.mjs')
 const serverScriptUrl = pathToFileURL(serverScript).href
 
@@ -252,8 +251,13 @@ export async function startQuickForge(options = {}) {
     }
   }
 
+  // The child's cwd must be a real directory on disk. The packaged desktop app
+  // keeps server/ inside app.asar, so its project root is a virtual archive path
+  // and spawning with it fails with ENOENT; inherit the caller's directory
+  // instead, which is what the CLI already does.
+  const childCwd = options.cwd ? path.resolve(options.cwd) : process.cwd()
   const child = spawn(process.execPath, [serverScript], {
-    cwd: options.cwd ? path.resolve(options.cwd) : projectRoot,
+    cwd: childCwd,
     detached: options.detached === true,
     stdio: options.stdio || 'ignore',
     windowsHide: true,

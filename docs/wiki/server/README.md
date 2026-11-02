@@ -493,7 +493,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ### update-supervisor.mjs
 
-**用途**: 设置页一键更新的外部更新器。由当前后端以 detached 子进程启动，等待旧服务退出后，在数据目录下执行 `npm install -g <package>@latest`，将 npm 输出写入 `~/.quickforge/logs/update-*.log`，成功后重新启动后端服务。这样避免 Windows 上“运行中的服务更新自己”导致安装目录文件被占用。
+**用途**: 设置页一键更新的外部更新器。由当前后端以 detached 子进程启动，等待旧服务退出后，在数据目录下执行 `npm install -g <package>@latest`，将 npm 输出写入 `~/.quickforge/logs/update-*.log`，成功后重新启动后端服务。这样避免 Windows 上“运行中的服务更新自己”导致安装目录文件被占用。重启服务时传入的 `serverCwd` 是调用方的真实工作目录（不是 `projectRoot`）：打包版 `server/` 在 `app.asar` 内，归档路径不能当子进程 `cwd`。
 
 ### share-store.mjs (432 行)
 
@@ -592,7 +592,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ### restart-supervisor.mjs (38 行)
 
-分离进程，用于重启时保证旧进程退出前新进程已就绪。
+分离进程，用于重启时保证旧进程退出前新进程已就绪。传给新服务的 `cwd` 是本进程的真实工作目录（不再是 `projectRoot`）：打包进 `app.asar` 的桌面版里 `projectRoot` 是归档路径而不是磁盘目录，用它当 `spawn` 的 `cwd` 会 `ENOENT`。
 
 ### lan-access-store.mjs
 

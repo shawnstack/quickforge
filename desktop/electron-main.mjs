@@ -525,6 +525,10 @@ async function boot() {
     quickForgeInstance = await startQuickForge({
       host: process.env.QUICKFORGE_DESKTOP_HOST || '127.0.0.1',
       port: process.env.QUICKFORGE_DESKTOP_PORT || process.env.QUICKFORGE_PORT || 5177,
+      // The server child must start in a real, writable directory: the packaged
+      // app lives inside app.asar (not a directory on disk) and the install
+      // folder itself may be read-only.
+      cwd: app.getPath('home'),
       dataDir: process.env.QUICKFORGE_DESKTOP_DATA_DIR,
       workspaceDir: process.env.QUICKFORGE_DESKTOP_WORKSPACE_DIR,
       openBrowser: false,

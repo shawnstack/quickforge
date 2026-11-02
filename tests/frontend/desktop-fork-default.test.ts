@@ -20,6 +20,13 @@ describe('Desktop fork-by-default startup structure', () => {
     expect(mainSource).toContain("stdio: app.isPackaged ? 'ignore' : 'inherit'")
   })
 
+  it('starts the forked server in a real directory instead of the package root', () => {
+    // app.asar is a file, so the packaged project root cannot be a child cwd.
+    expect(mainSource).toContain("cwd: app.getPath('home')")
+    expect(publicApiSource).toContain('options.cwd ? path.resolve(options.cwd) : process.cwd()')
+    expect(publicApiSource).not.toMatch(/cwd:\s*(options\.cwd \? path\.resolve\(options\.cwd\) : )?projectRoot/)
+  })
+
   it('escalates fork shutdown from SIGTERM to SIGKILL instead of fire-and-forget', () => {
     expect(publicApiSource).toContain('async function stopChildProcess(child)')
     expect(publicApiSource).toContain('child.kill(\'SIGTERM\')')

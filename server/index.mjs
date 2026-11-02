@@ -141,14 +141,18 @@ async function getSystemStatus({ isLocalRequest = true, remoteAuthorized = false
 
 function spawnRestartSupervisor() {
   return new Promise((resolve, reject) => {
+    // projectRoot lives inside app.asar in packaged desktop builds, so it cannot
+    // be used as a child process cwd (spawn fails with ENOENT). Pass the real
+    // working directory of this process instead.
+    const childCwd = process.cwd()
     const child = spawn(process.execPath, [
       restartSupervisorScript,
       String(process.pid),
       serverScript,
-      projectRoot,
+      childCwd,
       ...process.argv.slice(2),
     ], {
-      cwd: projectRoot,
+      cwd: childCwd,
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
@@ -254,7 +258,7 @@ function spawnUpdateSupervisor(update) {
       update.name,
       update.latestVersion,
       serverScript,
-      projectRoot,
+      process.cwd(),
       logFile,
       ...process.argv.slice(2),
     ], {

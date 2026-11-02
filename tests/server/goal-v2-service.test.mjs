@@ -12,8 +12,8 @@ describe('goal v2 service', () => {
     const goals = service()
     goals.loadSession('s1')
     const goal = await goals.create('s1', { objective: 'Ship it', maxRounds: 4 })
-    expect(goal).toMatchObject({ phase: 'active', activation: 'armed', runtime: 'planning', maxRounds: 4 })
-    expect(goal.status).toBe('planning')
+    expect(goal).toMatchObject({ phase: 'active', activation: 'armed', runtime: 'executing', maxRounds: 4 })
+    expect(goal.status).toBe('running')
     await expect(goals.create('s1', { objective: 'Another' })).rejects.toMatchObject({ code: 'GOAL_ALREADY_EXISTS' })
   })
 
@@ -61,25 +61,20 @@ describe('goal v2 service', () => {
     expect(loaded).toMatchObject({ phase: 'active', activation: 'disarmed', roundsStarted: 2 })
   })
 
-  it('records a plan, evidence and completion intent', async () => {
+  it('completes through the single durable transition (no plan/evidence or completion intent)', async () => {
     const goals = service()
     goals.loadSession('s1')
     const created = await goals.create('s1', { objective: 'Ship it' })
-    const planned = await goals.reportPlan('s1', { id: created.id, revision: created.revision }, {
-      criteria: [{ description: 'Tests pass' }],
-      summary: 'Plan',
+    expect(goals.reportPlan).toBeUndefined()
+    expect(goals.reportProgress).toBeUndefined()
+    expect(goals.requestComplete).toBeUndefined()
+    const round = await goals.admitRound('s1', { id: created.id, revision: created.revision })
+    const completed = await goals.complete('s1', { id: round.goal.id, revision: round.goal.revision }, { by: 'user' })
+    expect(completed).toMatchObject({ phase: 'complete', activation: 'disarmed', runtime: 'idle' })
+    expect(completed.roundsStarted).toBe(1)
+    await expect(goals.admitRound('s1', { id: completed.id, revision: completed.revision })).rejects.toMatchObject({
+      code: 'GOAL_NOT_ACTIVE',
     })
-    expect(planned.plan.criteria).toHaveLength(1)
-    const progressed = await goals.reportProgress('s1', { id: planned.id, revision: planned.revision }, {
-      evidence: [{ description: 'tests', toolCallId: 'tool-1' }],
-      criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['e1'] }],
-    })
-    expect(progressed.criteria[0].status).toBe('passed')
-    const intent = await goals.requestComplete('s1', { id: progressed.id, revision: progressed.revision })
-    expect(intent.check.ok).toBe(true)
-    expect(intent.goal.runtime).toBe('verifying')
-    expect(intent.goal.status).toBe('verifying')
-    expect(intent.goal.phase).toBe('active')
   })
 
   it('admits rounds only while armed and never counts planning as a round', async () => {

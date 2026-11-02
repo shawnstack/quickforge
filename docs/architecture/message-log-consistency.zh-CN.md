@@ -101,7 +101,7 @@ op 只有四种：`snapshot` / `append` / `replace` / `update`。
 - **历史补齐**：`ensureFullHistory()`（幂等 + 退避 `[0, 1s, 3s, 8s, 20s]`），
   由首帧、`visibilitychange`、`online` 触发；拉取期间若有新帧落地，
   以服务端全量为基底、保留本地更新的尾部（不再整段丢弃）。
-- **页面刷新**：IndexedDB 快照先行渲染，`/state` 对账。
+- **页面刷新**：先 `GET /api/sessions/:id/view`（只读通道）上屏，再由 `/state` 对账；2026-11-02 起不再有 IndexedDB 消息快照，`/view` 失败直接走 `POST /restore`。
 
 一致性等级：**同一 logVersion ⇒ 相同消息数组**；不同 logVersion 之间允许短暂滞后，
 但最终由 `append` / `gap` / `resync` 三条路径收敛。

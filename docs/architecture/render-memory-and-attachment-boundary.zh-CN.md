@@ -32,14 +32,15 @@
 - 轮次导航 `showMessageIndex` 仍以目标轮为中心、遵守同一上限。
 - `ServerAgent.state.messages` 保持全量；usage/todo/压缩标记/goal 标记等派生逻辑不需要改。
 
-## 4. 会话快照缓存
+## 4. 会话快照缓存（已移除，2026-11-02）
 
-`src/lib/session-message-cache.ts`：
+`src/lib/session-message-cache.ts` 整层删除，原因：
 
-- schema 升到 2；条目只存**尾部窗口**（200 条，与只读视图一致）+ `windowOffset` + 服务端总条数 `messageCount`。
-- `ServerAgent.buildSessionMessageCachePayload` 切片；`restore` 命中缓存时把 `messageWindowOffset` 设回条目值，后台 `/state` 对账仍按服务端索引工作。
-- IndexedDB 总预算 64MB（`maxBytes`）；schema 升级必须能覆盖旧条目（高水位守卫只比较同 schema 版本）。
-- 旧 schema 条目读取即 miss/删除，不迁移。
+- 它只在 `GET /api/sessions/:id/view` 失败、退回 `POST /restore` 时才被读取，正常打开会话完全不经过它（首屏由 `/view` 直接给出尾部窗口）；
+- 命中后的替换判据是「服务端更长才替换」，缓存比服务端长（回滚 / 压缩 / 持久化降级）时页面会被永久钉在旧内容上；缓存里的 `stateVersion` 还会被当作服务端版本水位，版本回退时整份 `/state` 被丢弃；
+- 现在打开会话只有两条真实通道：`GET /view`（只读快速通道）与 `POST /restore`（兜底），两者都以服务端当前状态为准，不存在第二份可能过期的副本。
+
+浏览器里残留的旧条目（`quickforge-cache` 库的 `session-messages` store）不再被读取，随 LRU 预算自行淘汰；`resolveServerCacheKey` 迁到 `src/lib/server-cache-key.ts`，继续供工作区目录缓存与启动设置快照使用。
 
 ## 5. 附件传输边界
 
@@ -88,7 +89,7 @@
 - `tests/server/sse-wire.test.mjs`：`message_update` 只保留一份完整消息。
 - `tests/frontend/streaming-render-cache.test.ts`：流式不写缓存、定稿写一次。
 - `tests/frontend/windowed-messages.test.ts`：轮次/字符上限、双向驱逐。
-- `tests/frontend/session-message-cache.test.ts`：schema 2、窗口 offset、高水位。
+- 会话消息不再有浏览器缓存，因此没有对应的缓存契约测试（原 `session-message-cache.test.ts` 已随模块删除）；一致性由 `tests/frontend/message-log.test.ts` 与 `server-agent*.test.ts` 覆盖。
 - `tests/server/client-attachments.test.mjs`、`message-attachment-lookup.test.mjs`、`session-state-repository` / `routes/session-view` / `routes/agent`：投影、查找、端点、SSE 出站。
 - `tests/frontend/attachment-client.test.ts`：客户端解析、草稿、fork 上传。
 - 浏览器实测（隔离数据目录）：图片附件会话的 view 响应不含 base64；tile 走 `?raw=1` 生成 blob 缩略图；overlay 正常显示。

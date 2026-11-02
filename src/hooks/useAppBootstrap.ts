@@ -19,7 +19,7 @@ import {
   normalizeAppearanceSettings,
 } from '@/lib/appearance-settings'
 import { readAppSettingSnapshotValue, writeAppSettingSnapshotValue } from '@/lib/app-settings-cache'
-import { resolveServerCacheKey } from '@/lib/session-message-cache'
+import { resolveServerCacheKey } from '@/lib/server-cache-key'
 import type { AgentAccessMode } from '@/lib/types'
 import { chooseStartupModel } from '@/lib/startup-model'
 import { logger } from '@/lib/logger'

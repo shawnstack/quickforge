@@ -4,11 +4,11 @@
  * 用途：刷新页面或重新打开 Inspector 时，先用本地快照立即渲染目录树与
  * 文件内容，再后台校准（目录 SWR；文件用 size+mtimeMs 元信息校验）。
  * 服务器永远是唯一权威，本缓存只是加速层：IndexedDB 不可用、条目损坏、
- * 版本回退时全部静默降级（风格对齐 session-message-cache.ts）。
+ * 版本回退时全部静默降级（风格对齐 IndexedDB 缓存层）。
  */
 import type { WorkspaceTreeNode } from '@/components/workspace/workspace-types'
 import { computeCacheKey, IndexedDbCache } from '@/lib/indexeddb-cache'
-import { resolveServerCacheKey } from '@/lib/session-message-cache'
+import { resolveServerCacheKey } from '@/lib/server-cache-key'
 
 const WORKSPACE_CACHE_SCHEMA_VERSION = 1
 /** 目录快照新鲜阈值：TTL 内直接采用缓存（零网络），过期则先渲染再后台校准。 */
@@ -72,7 +72,7 @@ export function getWorkspaceCache(): IndexedDbCache | null {
   return workspaceCache
 }
 
-/** serverKey 缺省时按当前后端解析（复用 session-message-cache 的实现）。 */
+/** serverKey 缺省时按当前后端解析（复用 server-cache-key 的实现）。 */
 function cacheServerKey(serverKey: string): string {
   return serverKey || resolveServerCacheKey()
 }

@@ -22,9 +22,6 @@ import {
   GOAL_MAX_SCOPE,
   GOAL_MAX_SCOPE_ENTRY_CHARS,
   GOAL_MAX_SUMMARY_CHARS,
-  applyGoalCriterionUpdates,
-  goalCompletionCheck,
-  mergeGoalEvidence,
   normalizeGoalState,
 } from '../agent-goal-state.mjs'
 import { GoalError, GOAL_ERROR_CODES } from './errors.mjs'
@@ -377,82 +374,6 @@ export function admitGoalRoundV2(goal, now = Date.now()) {
     throw new GoalError(`Goal reached its configured limit of ${maxRounds} rounds.`, GOAL_ERROR_CODES.ROUND_LIMIT)
   }
   return withRevision(goal, { roundsStarted: roundsStarted + 1 }, now)
-}
-
-export function applyGoalPlanV2(goal, { criteria, scope, summary } = {}, now = Date.now()) {
-  if (!Array.isArray(criteria) || criteria.length === 0) {
-    throw new GoalError('A plan requires at least one acceptance criterion.', GOAL_ERROR_CODES.INVALID_INPUT, 400)
-  }
-  if (criteria.length > GOAL_MAX_CRITERIA) {
-    throw new GoalError(`A plan supports at most ${GOAL_MAX_CRITERIA} criteria.`, GOAL_ERROR_CODES.INVALID_INPUT, 400)
-  }
-  const nextCriteria = criteria
-    .map((criterion, index) => {
-      const description = text(criterion?.description, GOAL_MAX_CRITERION_DESCRIPTION_CHARS)
-      if (!description) return null
-      return {
-        id: `c${index + 1}`,
-        description,
-        required: criterion?.required !== false,
-        status: 'pending',
-        evidenceIds: [],
-      }
-    })
-    .filter(Boolean)
-  if (!nextCriteria.length) {
-    throw new GoalError('A plan requires criteria with a description.', GOAL_ERROR_CODES.INVALID_INPUT, 400)
-  }
-  const nextScope = Array.isArray(scope)
-    ? scope.filter((entry) => typeof entry === 'string' && entry.trim()).map((entry) => text(entry, GOAL_MAX_SCOPE_ENTRY_CHARS)).slice(0, GOAL_MAX_SCOPE)
-    : []
-  return withRevision(goal, {
-    plan: {
-      criteria: nextCriteria,
-      scope: nextScope,
-      summary: text(summary, GOAL_MAX_SUMMARY_CHARS),
-      submittedAt: new Date(now).toISOString(),
-    },
-    evidence: [],
-  }, now)
-}
-
-export function goalCompletionCandidate(goal) {
-  return {
-    criteria: goal?.plan?.criteria ?? [],
-    evidence: goal?.evidence ?? [],
-    ...(goal?.humanAcceptedAt ? { humanAcceptedAt: goal.humanAcceptedAt } : {}),
-  }
-}
-
-export function checkGoalCompletionV2(goal) {
-  return goalCompletionCheck(goalCompletionCandidate(goal))
-}
-
-/**
- * Merge model-reported evidence and criterion updates. Returns `{goal, errors,
- * addedEvidence}`; never throws for model input, so the tool can turn the
- * errors into a returned error result with a stable code.
- */
-export function applyGoalProgressV2(goal, { summary, evidence, criterionUpdates, trustedToolNames = null } = {}, now = Date.now()) {
-  const plan = goal.plan
-  if (!plan) return { goal, errors: ['the goal has no submitted plan'] }
-  const merged = mergeGoalEvidence({ ...goal, evidence: goal.evidence }, evidence, { trustedToolNames })
-  if (merged.errors.length > 0) return { goal, errors: merged.errors }
-  const updated = applyGoalCriterionUpdates({
-    criteria: plan.criteria,
-    evidence: merged.evidence,
-  }, criterionUpdates)
-  if (updated.errors.length > 0) return { goal, errors: updated.errors }
-  const patch = {
-    evidence: merged.evidence,
-    plan: { ...plan, criteria: updated.criteria },
-  }
-  if (summary !== undefined) patch.plan = { ...patch.plan, summary: text(summary, GOAL_MAX_SUMMARY_CHARS) }
-  return {
-    goal: withRevision(goal, patch, now),
-    errors: [],
-    addedEvidence: merged.added,
-  }
 }
 
 export function goalMetadataSummaryV2(goal) {

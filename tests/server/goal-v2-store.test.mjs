@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createGoalV2, applyGoalPlanV2, admitGoalRoundV2 } from '../../server/goal/state.mjs'
+import { createGoalV2, admitGoalRoundV2 } from '../../server/goal/state.mjs'
 import {
   createGoalEvent,
   foldGoalEvents,
@@ -11,7 +11,19 @@ const AT = new Date(NOW).toISOString()
 
 function lifecycle() {
   const created = createGoalV2({ sessionId: 's1', objective: 'Ship it', maxRounds: 3, now: NOW })
-  const planned = applyGoalPlanV2(created, { criteria: [{ description: 'Tests pass' }], summary: 'Plan' }, NOW)
+  // v2 has no plan writer any more; the `change` event still carries a plan
+  // because restored legacy snapshots must keep folding/projecting it.
+  const planned = {
+    ...created,
+    revision: created.revision + 1,
+    updatedAt: AT,
+    plan: {
+      criteria: [{ id: 'c1', description: 'Tests pass', required: true, status: 'pending', evidenceIds: [] }],
+      scope: [],
+      summary: 'Plan',
+      submittedAt: AT,
+    },
+  }
   const round = admitGoalRoundV2(planned, NOW)
   return [
     createGoalEvent({ operation: 'create', goal: created, at: AT }),

@@ -200,12 +200,13 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 **用途**: 以 DSH 完全相同的方式重做 QuickForge Goal——持久状态原语 + 自动续行。没有规划阶段、没有证据门禁、没有防空转检测、没有结算屏障。
 
 - **Round Driver（DSH 对标）**：每轮都是执行轮（objective + round number），没有规划轮。轮次正常结束 → 检查 complete/blocked → 如果是则停止，否则直接调度下一轮。错误 → disarm（不 block、不重试）。轮次上限 → block `round_limit`。没有 `goalRunSettling`、没有 settlement 屏障、没有 no_progress/repeated_failures 检测。
-- **模型工具**：v2 会话始终注入 `get_goal` / `create_goal` / `update_goal`。`update_goal complete` 在执行轮内直接生效（无证据检查）。`update_goal blocked` 允许执行轮或直接人类轮次。`create_goal` 可从直接人类轮次推断创建。`goal_report` 仍可用但不再是完成前置。
+- **模型工具**：v2 会话始终注入 `get_goal` / `create_goal` / `update_goal`，并且**不注入 `goal_report`**：v2 没有规划轮，`goal_report` 的「先提交 plan」前置条件永远无法满足，注入它只会让模型把完成上报成一次被拒的调用，而 driver 继续排下一轮。`update_goal complete` 在执行轮内直接生效（无证据检查）。`update_goal blocked` 允许执行轮或直接人类轮次。`create_goal` 可从直接人类轮次推断创建。`goal_report` 只对 legacy（v1）会话注入。
 - **Round 提示词**：DSH 式 `<goal_round>` — objective + round number + 继续工作指令。不含 criteria/evidence 引导。
 - **命令**：`/goal <objective>` 创建目标后返回文本响应（不产生规划模型轮次）；driver 通过 setImmediate 启动第一轮执行。
 - **事件与 CAS**：`server/goal/store.mjs` 把每次变更追加为 `goal/change` 事件（v1，完整快照），`clear` 写 tombstone；加载时严格校验 revision 连续、phase 转换与轮次连续，失败 fail-closed。`server/goal/service.mjs` 是唯一写入口，按 session 串行，所有动作都要求 `{id, revision}`；`admitRound` 只在 active + armed 时推进 `roundsStarted`。
-- **Round Driver**：`server/goal/runner.mjs` 在 agent idle、无 pending 工具/审批/ask、flush 成功后调度下一轮；规划轮不占 execution round。运行结束先持久化，再按 pending completion / verification blocker / 错误 / no-progress 结算；per-session 只保留一个活跃 goal。重启/fork 后 phase 保持 active、activation 置 disarmed，不自动重放。
-- **模型工具**：v2 会话（即使尚无当前 goal）始终注入 `get_goal` / `create_goal` / `update_goal`；goal 活跃时额外注入 `goal_report`。`create_goal` 可从直接人类轮次推断（DSH 行为），创建后等待本轮 idle 再启动执行；`update_goal` 的 edit/pause/resume 需要直接人类轮次，`blocked`/`complete` 允许直接人类轮次或当前 goal 执行轮；`update_goal complete` 立即写入 complete（DSH 对标），`goal_report` 的证据路径保留但不再是唯一完成入口。权威判定在 `server/goal/authority.mjs`，不靠模型自述。
+- **Round Driver**：`server/goal/runner.mjs` 在 agent idle、无 pending 工具/审批/ask、flush 成功后调度下一轮。运行结束先持久化，再按「complete/blocked → 停」「用户中止 → pause」「错误 → disarm」「否则正常结束 → 排下一轮；轮次用尽 → block `round_limit`」结算；没有规划轮，也没有 pending completion / verification blocker / no-progress 这几条结算分支。per-session 只保留一个活跃 goal。重启/fork 后 phase 保持 active、activation 置 disarmed，不自动重放。
+- **模型工具注入点**：goal 工具统一在会话注册之后由 `agent-manager.mjs` 的 `appendGoalTools()` 装配（`createServerTools` 不再接收 goal 相关参数），因此引擎判定永远基于已注册的真实会话；`goal_report` 由 `createGoalReportTool()` 在 v2 返回 `null`。
+- **模型工具**：v2 会话（即使尚无当前 goal）始终注入 `get_goal` / `create_goal` / `update_goal`，**不注入 `goal_report`**。`create_goal` 可从直接人类轮次推断（DSH 行为），创建后等待本轮 idle 再启动执行；`update_goal` 的 edit/pause/resume 需要直接人类轮次，`blocked`/`complete` 允许直接人类轮次或当前 goal 执行轮；`update_goal complete` 立即写入 complete（DSH 对标），是 v2 唯一的完成入口。权威判定在 `server/goal/authority.mjs`，不靠模型自述。
 - **持久化与迁移**：`agent-persistence.mjs` 同时持久化 `goal` 投影、`goalEvents` 与 `goalEngine`。`createAgent` 遇到带 `phase` 的 goal 走 v2 投影（active 保留但 disarmed）；旧 13 状态快照按 `store.migrateLegacyGoal` 转换，`failed/cancelled` 转 tombstone。
 - **命令与设置**：`/goal` 支持裸状态、`/goal <objective>`、`/goal edit <objective>`、`/goal pause`、`/goal resume`、`/goal clear`；动作命令不产生模型轮次。设置键 `goal-settings` 增加 `engine`（默认 `v2`，可切 `legacy`），`QUICKFORGE_GOAL_ENGINE` 可覆盖；测试默认 legacy 以保留历史契约，v2 专项测试显式 `goalEngine:'v2'`。
 - **前端投影**：v2 goal 仍带 legacy `status`、`budget`、`usage`、`criteria` 字段供旧组件读取，同时提供 `phase`、`activation`、`runtime`、`plan`、`maxRounds`、`roundsStarted`、`blockerInfo`；`goal-control-strip.ts` 对 v2 显示 phase/轮次与目标行，Inspector/card 通过 `buildGoalCardViewModel` 复用。
@@ -431,18 +432,18 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ### mcp/ — MCP Client 集成
 
-**用途**: 管理全局 MCP Server，并把 MCP tools 适配为 QuickForge Agent tools。Playwright 仅预置普通 stdio 配置，复用现有连接、审批和设置界面，不包含额外 runtime 或浏览器管理。
+**用途**: 管理全局 MCP Server，并把 MCP tools 适配为 QuickForge Agent tools。Playwright 仅预置普通 stdio 配置，复用现有连接、审批和设置界面，不包含额外 runtime 或浏览器管理。 桌面端另有由环境变量派生的内置 `desktop-browser`（见下），它连接的是主进程内的浏览器，不需要下载任何额外运行时。
 
 **核心文件**:
 - `mcp/tool-name.mjs` — MCP server canonical 规则与工具名 sanitize/encode/parse helper；registry 生成名称与 context usage 严格回退判定共用，避免规则漂移。
-- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置；缺少同名服务时动态返回默认关闭的 `playwright` 预置，读取不写 store；已有同名配置完整优先。读取时仅为规范化名称 `playwright` 派生 `builtin: true`，不信任输入中的 builtin 字段，也不将该标记落盘。首次启停在原子更新内持久化；删除 Playwright 在名称规范化后、进入 `atomicUpdate` 前返回 409，普通 MCP 删除行为不变。批量 replace 遗漏 Playwright 时，后续读取仍返回关闭的预置项；已存满 50 项时，首次启停或保存 Playwright 返回 409，避免挤掉其他服务。
-- `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避；可选 `reconnectDisconnected:true` 让 `disconnected` 连接也走 delete+close+重连，供后台刷新恢复被动断开的 server）和单 server 强制重连（`reconnectMcpServer`，绕过退避）；`createMcpToolDefinitions` 可选 `waitForConnections:false`：立即用当前连接快照（仅已连接 server）生成定义并 fire-and-forget 后台刷新；`subscribeMcpToolsetChanged(callback)` 返回退订函数，每次刷新完成后比较已连接 server 工具集签名（`${serverName}::${toolName}` 排序 join），变化时通知订阅者（无订阅者只更新基线）；single-flight 刷新期间 options 以首个调用方为准；连接、工具发现或工具调用超时后会取消请求并关闭异常 transport，后续调用再重连。
+- `mcp/config.mjs` — MCP Server 配置读写和校验，配置存放在独立的 `mcp` store（`config/mcp-servers.json`，内部 key 仍为 `mcpServers`）；兼容 `mcpServers` JSON 导入、`type`/`transport` 和远程 `headers` 配置；缺少同名服务时动态返回默认关闭的 `playwright` 预置，读取不写 store；已有同名配置完整优先。读取时仅为规范化名称 `playwright` 派生 `builtin: true`，不信任输入中的 builtin 字段，也不将该标记落盘。首次启停在原子更新内持久化；删除 Playwright 在名称规范化后、进入 `atomicUpdate` 前返回 409，普通 MCP 删除行为不变。批量 replace 遗漏 Playwright 时，后续读取仍返回关闭的预置项；已存满 50 项时，首次启停或保存 Playwright 返回 409，避免挤掉其他服务。内置项现在有两个：`playwright`（stdio 预置）与 `desktop-browser`（桌面端由 `QUICKFORGE_DESKTOP_BROWSER_URL` / `QUICKFORGE_DESKTOP_BROWSER_TOKEN` 派生，`transport: http`）。桌面端项每次读取都按当前 env 重建（端口与一次性 token 每次启动都不同），落盘时剥掉 `env`（token 只留在进程内存），可启停但拒绝删除与 upsert（409）；env 不存在时（Web/CLI）连历史遗留项一起剔除，避免 UI 留下永远连不上的僵尸条目。
+- `mcp/registry.mjs` — stdio/SSE/Streamable HTTP 连接生命周期、工具发现、工具调用转发、关闭清理；支持全量刷新（`refreshMcpConnections`，对 error 状态有重试退避；可选 `reconnectDisconnected:true` 让 `disconnected` 连接也走 delete+close+重连，供后台刷新恢复被动断开的 server）和单 server 强制重连（`reconnectMcpServer`，绕过退避）；`createMcpToolDefinitions` 可选 `waitForConnections:false`：立即用当前连接快照（仅已连接 server）生成定义并 fire-and-forget 后台刷新；`subscribeMcpToolsetChanged(callback)` 返回退订函数，每次刷新完成后比较已连接 server 工具集签名（`${serverName}::${toolName}` 排序 join），变化时通知订阅者（无订阅者只更新基线）；single-flight 刷新期间 options 以首个调用方为准；连接、工具发现或工具调用超时后会取消请求并关闭异常 transport，后续调用再重连。工具定义会把 MCP `annotations` 原样透传（供审批分层使用），并导出 `isReadOnlyMcpTool(name)`：按当前连接读取 `annotations.readOnlyHint`，缺失或未连接一律按非只读处理。
 - `routes/mcp.mjs` — `/api/mcp/servers`（列表与 upsert 单个）、`/api/mcp/reconnect/:name`（单 server 重连）、启停开关与删除等管理接口。
 
 **行为约束**:
 - 当前支持 `stdio`、`sse` 和 Streamable HTTP (`http`) transport。Playwright 预置命令为 `npx -y @playwright/mcp@latest`，不追加浏览器参数（上游默认可见窗口）；设置卡片以中性“内置”标签标记，隐藏删除按钮，仍可编辑、启停、重连；服务端同时拒绝删除，不能仅通过绕过 UI 删除预置服务。后端机器需有 Node/npm，首次启动通常需要网络，缺少浏览器按上游提示处理；npm/Desktop 不捆绑 Playwright 或浏览器，不提供离线保证。
 - MCP 工具注入时使用 `mcp__{serverName}__{toolName}` 命名空间，避免和内置工具重名。
-- YOLO 关闭时，MCP 工具调用需要用户审批；YOLO 开启时允许直接调用。
+- YOLO 关闭时，MCP 工具调用默认需要用户审批；声明了 `annotations.readOnlyHint: true` 的只读工具（如桌面浏览器的 `snapshot` / `screenshot` / `wait_for`）自动放行——连续读页面不该反复打断用户，否则用户会改开完全访问，反而更不安全。注解缺失或 server 未连接时仍按需要审批处理。YOLO 开启时一律允许直接调用。
 - restore 非阻塞 MCP：`POST /api/agents/:id/restore` 及经 `restoreAgent` 的回落入口（state/messages/status/SSE）以连接快照构建 MCP 工具，不等待（重）连接；`waitForConnections:false` 触发的后台刷新会以 `reconnectDisconnected:true` 重连被动断开的 server，工具集签名变化时通知订阅者（agent-manager 据此重建活跃会话工具），配合服务启动后的 MCP 预热共同保证恢复会话最终拿到完整工具集。
 
 ### plugins/ — Agent 能力插件系统

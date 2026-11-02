@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { Dispatch, RefObject, SetStateAction } from 'react'
 import { t } from '@/lib/i18n'
-import { resolveServerCacheKey } from '@/lib/session-message-cache'
+import { resolveServerCacheKey } from '@/lib/server-cache-key'
 import {
   isWorkspaceDirectoryCacheFresh,
   readWorkspaceDirectoryCache,

@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   admitGoalRoundV2,
-  applyGoalPlanV2,
-  applyGoalProgressV2,
   blockGoalV2,
-  checkGoalCompletionV2,
   completeGoalV2,
   createGoalV2,
   editGoalV2,
@@ -17,16 +14,26 @@ import {
 
 const NOW = Date.parse('2026-10-19T00:00:00.000Z')
 
+/**
+ * A goal carrying a plan. v2 has no plan writer any more (completion is a single
+ * model-declared transition), but restored legacy snapshots still hold plans, so
+ * normalization and the edit-invalidation contract are exercised with a literal.
+ */
 function planned(overrides = {}) {
-  const base = applyGoalPlanV2(createGoalV2({ sessionId: 's1', objective: 'Ship it', now: NOW }), {
-    criteria: [
-      { description: 'Tests pass' },
-      { description: 'Docs updated', required: false },
-    ],
-    scope: ['server/goal'],
-    summary: 'Implement goal v2.',
-  }, NOW)
-  return { ...base, ...overrides }
+  const base = createGoalV2({ sessionId: 's1', objective: 'Ship it', now: NOW })
+  return {
+    ...base,
+    plan: {
+      criteria: [
+        { id: 'c1', description: 'Tests pass', required: true, status: 'pending', evidenceIds: [] },
+        { id: 'c2', description: 'Docs updated', required: false, status: 'pending', evidenceIds: [] },
+      ],
+      scope: ['server/goal'],
+      summary: 'Implement goal v2.',
+      submittedAt: new Date(NOW).toISOString(),
+    },
+    ...overrides,
+  }
 }
 
 describe('goal v2 state', () => {
@@ -57,38 +64,6 @@ describe('goal v2 state', () => {
     expect(revised.plan).toBeNull()
     expect(revised.evidence).toEqual([])
     expect(revised.phase).toBe('active')
-  })
-
-  it('records plan criteria with server ids and defaults required=true', () => {
-    const goal = planned()
-    expect(goal.plan.criteria.map((criterion) => criterion.id)).toEqual(['c1', 'c2'])
-    expect(goal.plan.criteria[0]).toMatchObject({ required: true, status: 'pending', evidenceIds: [] })
-    expect(goal.plan.criteria[1].required).toBe(false)
-    expect(goal.plan.scope).toEqual(['server/goal'])
-  })
-
-  it('requires tool-bound evidence to pass a criterion and complete', () => {
-    const goal = planned()
-    const rejected = applyGoalProgressV2(goal, {
-      evidence: [{ description: 'tests', toolCallId: 'tool-1' }],
-      criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['missing'] }],
-    })
-    expect(rejected.errors[0]).toContain('unknown evidence')
-
-    const progressed = applyGoalProgressV2(goal, {
-      evidence: [{ description: 'tests', toolCallId: 'tool-1' }],
-      criterionUpdates: [{ id: 'c1', status: 'passed', evidenceIds: ['e1'] }],
-    })
-    expect(progressed.errors).toEqual([])
-    expect(progressed.goal.plan.criteria[0]).toMatchObject({ status: 'passed', evidenceIds: ['e1'] })
-    expect(checkGoalCompletionV2(progressed.goal)).toEqual({ ok: true, reason: null })
-  })
-
-  it('cannot complete without every required criterion evidenced', () => {
-    const goal = planned()
-    expect(checkGoalCompletionV2(goal).ok).toBe(false)
-    const noPlan = { ...goal, plan: null }
-    expect(checkGoalCompletionV2(noPlan).ok).toBe(false)
   })
 
   it('transitions through pause/resume/block/complete and enforces phases', () => {

@@ -524,3 +524,16 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 - `windowed-messages.ts` 新增 `WINDOW_MAX_TURNS=12` / `WINDOW_MAX_CHARS=160000`：`loadMore` 超限丢较新轮次，`loadNewer` 超限丢较旧轮次；`ChatSurface.loadNewerMessages` 用滚动锚点补偿，`showMessageIndex` 仍以目标轮为中心。
 - `AttachmentTile` 在内联 `preview` 缺失时用 `getAttachmentThumbnail(assetUrl)` 生成 160px blob 缩略图；加载中显示图片占位图标。`AttachmentOverlay` 打开时解析完整 payload，图片/文档预览复用既有组件。
 - `WorkspaceInspector` 内的 `TerminalDock` 改为 `lazy`，右侧栏默认展开不再加载 xterm。
+
+## 内嵌 AI 浏览器面板（`browser/AgentBrowserPanel.tsx`）
+
+桌面端专属：DOM 里只有一块占位区域，真正的网页是主进程的原生 `WebContentsView`，永远盖在 DOM 之上。
+
+- **只由程序打开的标签**：`agent-browser` 不在加号菜单里（`PANEL_TAB_ITEMS` 未新增条目），与 `subagent` / `workflow` / `goal` 同类，且不参与 tab 持久化——原生视图的生命周期绑在本次运行。Agent 一旦调用 `mcp__desktop-browser__*`，`App.tsx` 把右侧面板切到该标签。
+- **矩形同步**：`ResizeObserver` + `requestAnimationFrame` 合帧上报 `getBoundingClientRect()`；主进程再夹进窗口内容区（`desktop/browser/layout.mjs`），所以布局算错也不会让网页盖住整个应用。
+- **显隐守卫**：卸载、切标签、`visibilitychange`、设置弹窗打开时 `setVisible(false)`——原生层会盖住 DOM 浮层。
+- **窄桥**：渲染进程只能拿到 `isAvailable` / `getState` / `setBounds` / `setVisible` / `onStateChange`（`src/lib/desktop-browser-bridge.ts`），读不到网页内容也拿不到 `webContents`；非桌面端 `getDesktopBrowserBridge()` 返回 null，面板退化成一行提示。
+- **桌面判定单一来源**：`src/lib/desktop-app.ts` 的 `isDesktopApp()`（原先在更新检查、连接提示、关于页各写了一份）。
+
+验证：`tests/frontend/agent-browser-panel-contract.test.ts`、`desktop-browser-bridge.test.ts`。设计与安全边界见 [桌面端内嵌 AI 浏览器](../../../architecture/desktop-agent-browser.zh-CN.md)。
+

@@ -1,8 +1,12 @@
 import { app, BrowserWindow, Menu, Notification, Tray, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startQuickForge, stopQuickForge } from '../server/public-api.mjs'
+import { createBrowserHost } from './browser/browser-host.mjs'
+import { createDesktopBrowserMcpServer } from './browser/mcp-server.mjs'
+import { parseBrowserRequest } from './browser/ipc-contract.mjs'
 import { createDesktopNetworkRuntime } from './system-proxy-runtime.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -12,6 +16,8 @@ const appName = 'QuickForge'
 const appUserModelId = 'com.shawnstack.quickforge'
 const notificationRequestChannel = 'quickforge:desktop-notification-request'
 const notificationOpenSessionChannel = 'quickforge:desktop-notification-open-session'
+const browserRequestChannel = 'quickforge:desktop-browser-request'
+const browserStateChannel = 'quickforge:desktop-browser-state'
 const maxNotificationTitleLength = 200
 const maxNotificationBodyLength = 2_000
 const maxNotificationSessionIdLength = 512
@@ -34,6 +40,9 @@ let tray = null
 let trayLanguage = null
 let desktopTheme = 'light'
 let notificationHandlerInitialized = false
+let browserHandlerInitialized = false
+let browserHost = null
+let browserMcpServer = null
 const activeNotifications = new Set()
 let isQuitting = false
 let isStopping = false
@@ -202,6 +211,29 @@ function registerDesktopNotificationHandler() {
     if (!parsed) return false
     if (parsed.type === 'is-supported') return Notification.isSupported()
     return showDesktopNotification(parsed.payload)
+  })
+}
+
+function registerDesktopBrowserHandler() {
+  if (browserHandlerInitialized) return
+  browserHandlerInitialized = true
+  ipcMain.handle(browserRequestChannel, (event, request) => {
+    // 与通知桥同一条安全线：只接受主窗口主 frame 的请求，内嵌网页永远到不了这里。
+    if (!isMainWindowMainFrame(event.senderFrame)) return null
+    const parsed = parseBrowserRequest(request)
+    if (!parsed) return null
+    if (parsed.type === 'is-available') return Boolean(browserHost)
+    if (!browserHost) return null
+    if (parsed.type === 'get-state') return browserHost.getState()
+    if (parsed.type === 'set-visible') {
+      browserHost.setVisible(parsed.visible)
+      return true
+    }
+    if (parsed.type === 'set-bounds') {
+      browserHost.setBounds(parsed.rect)
+      return true
+    }
+    return null
   })
 }
 
@@ -402,6 +434,7 @@ function createWindow(url) {
   })
 
   const desktopWindow = mainWindow
+  browserHost?.attachWindow(desktopWindow)
 
   desktopWindow.webContents.on('did-change-theme-color', (_event, color) => {
     if (desktopWindow !== mainWindow || desktopWindow.isDestroyed()) return
@@ -480,8 +513,15 @@ function createWindow(url) {
     }).catch(() => undefined)
   })
 
-  mainWindow.on('show', updateTrayMenu)
-  mainWindow.on('hide', updateTrayMenu)
+  mainWindow.on('show', () => {
+    updateTrayMenu()
+    browserHost?.resume()
+  })
+  mainWindow.on('hide', () => {
+    updateTrayMenu()
+    // 窗口隐藏后原生视图必须同步消失，否则它会浮在别的窗口上面。
+    browserHost?.suspend()
+  })
   mainWindow.on('focus', updateTrayMenu)
   mainWindow.on('blur', updateTrayMenu)
 
@@ -509,11 +549,37 @@ function createWindow(url) {
   void mainWindow.loadURL(url)
 }
 
+async function startDesktopBrowserRuntime() {
+  if (browserHost) return
+  const host = createBrowserHost({
+    screenshotDir: path.join(app.getPath('temp'), 'quickforge-browser'),
+    onStateChange: (state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(browserStateChannel, state)
+    },
+  })
+  browserHost = host
+  try {
+    const token = randomUUID()
+    const runtime = await createDesktopBrowserMcpServer({ host, token })
+    browserMcpServer = runtime
+    // 服务端子进程的 env 由 buildEnv() 从 process.env 派生，所以这两个变量必须
+    // 在 startQuickForge 之前写入，否则子进程看到的是一份没有浏览器能力的配置。
+    process.env.QUICKFORGE_DESKTOP_BROWSER_URL = runtime.url
+    process.env.QUICKFORGE_DESKTOP_BROWSER_TOKEN = token
+  } catch {
+    // 内嵌浏览器是可选能力：MCP 桥起不来时降级为「不可用」，不让整个应用启动失败。
+    browserHost = null
+    host.dispose()
+  }
+  registerDesktopBrowserHandler()
+}
+
 async function boot() {
   try {
     app.setName(appName)
     if (process.platform === 'win32') app.setAppUserModelId(appUserModelId)
     registerDesktopNotificationHandler()
+    await startDesktopBrowserRuntime()
 
     const desktopRuntimeVersion = await getDesktopRuntimeVersion()
     // The server runs in a dedicated child process by default so synchronous
@@ -566,6 +632,13 @@ if (!gotSingleInstanceLock) {
   app.quit()
 } else {
   app.on('second-instance', handleSecondInstance)
+
+  app.on('will-quit', () => {
+    browserHost?.dispose()
+    void browserMcpServer?.close?.()
+    browserHost = null
+    browserMcpServer = null
+  })
 
   app.whenReady().then(boot)
 

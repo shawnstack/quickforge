@@ -48,7 +48,6 @@ export async function createWorkflowToolset(parentSession) {
     {
       includeSubagentTool: false,
       includeWorkflowTool: false,
-      includeGoalTool: false,
       parentSessionId: parentSession.sessionId,
       sessionId: parentSession.sessionId,
       scope: parentSession.scope,

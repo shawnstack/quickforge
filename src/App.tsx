@@ -513,6 +513,21 @@ function MainApp() {
     bumpSideChatRevision()
   }, [bumpSideChatRevision, sideChatAgent])
 
+  // 内嵌 AI 浏览器：Agent 一旦开始驱动桌面浏览器，就把右侧面板切到浏览器标签，
+  // 让用户始终看得见它在点什么。非桌面端不会收到这类工具事件，这段对 Web 端无感。
+  const requestAgentBrowserPanel = useCallback(() => {
+    setArtifactPreviewOpen(false)
+    requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'agent-browser' })
+  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
+
+  useEffect(() => subscribeToAgentEvents((event) => {
+    if (event?.type !== 'tool_execution_start') return
+    const toolName = typeof event.toolName === 'string' ? event.toolName : ''
+    if (!toolName.startsWith('mcp__desktop-browser__')) return
+    if (event.sessionId !== agentManager.currentSessionId) return
+    requestAgentBrowserPanel()
+  }), [agentManager.currentSessionId, requestAgentBrowserPanel])
+
   useEffect(() => () => sideChatAgent.abort(), [sideChatAgent])
 
   useEffect(() => {

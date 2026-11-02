@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components -- exports the notice components plus the pure connection helpers (tier threshold, duration format, help rows) covered by tests. */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { isDesktopApp } from '@/lib/desktop-app'
 import { t } from '@/lib/i18n'
 import {
   getSseConnectionState,
@@ -296,12 +297,6 @@ const HELP_TEXT_KEY: Record<HelpRowKey | 'logs', Parameters<typeof t>[0]> = {
   desktop: 'sseUnreachableHelpDesktop',
   remote: 'sseUnreachableHelpRemote',
   logs: 'sseUnreachableHelpLogs',
-}
-
-function isDesktopApp(): boolean {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return false
-  const desktopWindow = window as Window & { __quickforgeDesktopApp?: boolean }
-  return document.body.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
 }
 
 function isMobileEntry(): boolean {

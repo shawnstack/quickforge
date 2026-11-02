@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { isDesktopApp } from '@/lib/desktop-app'
 import type { initializePiStorage } from '@/lib/pi-chat'
 import {
   loadUpdateCheckSettings,
@@ -16,12 +17,6 @@ type UpdateCheckInfo = {
   result: UpdateCheckResult
   /** Dismiss the current new-version reminder (persists ignoredVersion). */
   dismissUpdate: () => void
-}
-
-function isDesktopApp() {
-  if (typeof document === 'undefined') return false
-  const desktopWindow = window as Window & { __quickforgeDesktopApp?: boolean }
-  return document.body.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
 }
 
 /** 更新检查结果状态已迁入 useUpdateCheckStore（zustand）。

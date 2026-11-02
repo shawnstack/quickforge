@@ -42,7 +42,8 @@ export function useInspectorTabsState({ project, sessionId, canUseTerminal }: { 
 
   const openSubagentRunTabRef = useRef<((payload: SubagentRunPayload) => void) | undefined>(undefined)
   const openWorkflowRunTabRef = useRef<((payload: WorkflowRunPayload) => void) | undefined>(undefined)
-  return { initialPanelTabStateRef, panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, setDraggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef }
+  const openAgentBrowserTabRef = useRef<(() => void) | undefined>(undefined)
+  return { initialPanelTabStateRef, panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, setDraggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, openAgentBrowserTabRef }
 }
 
 /* eslint-enable react-hooks/refs */
@@ -77,7 +78,7 @@ export function useInspectorTabsEffects({ panelTabs, setPanelTabs, activePanelTa
   }, [activePanelTabId, panelTabs, setActivePanelTabId])
 }
 
-export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, setDraggingPanelTabId, setMenuOpen, setTabListOpen, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, onClearSideChat, onOpenChange, updatePanelTab }: TabState & { onClearSideChat: () => void; onOpenChange: (open: boolean) => void; updatePanelTab: (id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) => void }) {
+export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, setDraggingPanelTabId, setMenuOpen, setTabListOpen, nextPanelTabIndexRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, openAgentBrowserTabRef, onClearSideChat, onOpenChange, updatePanelTab }: TabState & { onClearSideChat: () => void; onOpenChange: (open: boolean) => void; updatePanelTab: (id: string, updater: (tab: WorkspacePanelTab) => WorkspacePanelTab) => void }) {
   function createPanelTab(kind: WorkspacePanelTabKind, options?: { url?: string; readerTab?: ReaderTab; document?: { path: string; format: DocumentFormat }; reviewView?: 'review' | 'changes' }): WorkspacePanelTab {
     const id = `${kind}-${nextPanelTabIndexRef.current++}`
     if (kind === 'browser') return { id, kind, url: options?.url || '' }
@@ -137,6 +138,17 @@ export function useInspectorTabsActions({ panelTabs, setPanelTabs, activePanelTa
   }
 
   openWorkflowRunTabRef.current = openWorkflowRunTab
+
+  function openAgentBrowserTab() {
+    // 全局只有一个内嵌浏览器视图，重复打开只切换激活，不新建 tab。
+    const existing = panelTabs.find((tab) => tab.kind === 'agent-browser')
+    const target = existing ?? createPanelTab('agent-browser')
+    if (!existing) setPanelTabs((prev) => [...prev, target])
+    setActivePanelTabId(target.id)
+    setMenuOpen(false)
+  }
+
+  openAgentBrowserTabRef.current = openAgentBrowserTab
 
   function activatePanelTab(tab: WorkspacePanelTab) {
     setActivePanelTabId(tab.id)

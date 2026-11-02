@@ -4,8 +4,11 @@
  * DSH contract (fully replicated):
  * - Every round is an execution round with objective + round number. No
  *   separate planning phase, no criteria/evidence gate for completion.
- * - The model marks complete/blocked via `update_goal` (or goal_report);
- *   the driver stops immediately on those terminal phases.
+ * - The model marks complete/blocked via `update_goal` only; the driver stops
+ *   immediately on those terminal phases. `goal_report` remains a legacy (v1)
+ *   tool and is deliberately not mounted on v2 sessions: its plan/evidence
+ *   precondition can never be satisfied here, so offering it only made the
+ *   model report completion into a rejected call while the driver kept going.
  * - Errors disarm continuation (no retry, no blocking reason).
  * - No no-progress detection, no repeated-failure pause, no settlement
  *   barrier: a round that ends normally schedules the next round directly.
@@ -20,21 +23,9 @@ import { isGoalActiveStatus } from '../agent-goal-state.mjs'
 import { resolveGoalMaxIterations } from '../goal-settings.mjs'
 import { createGoalService } from './service.mjs'
 import { GoalError } from './errors.mjs'
-import { createGoalReportToolV2 } from './report-tool.mjs'
 import { createGoalTools } from './tools.mjs'
 import { hasDirectHumanTurn, isGoalRoundTurn } from './authority.mjs'
 import { goalCommandStatusText, goalRoundPromptV2 } from './prompts.mjs'
-
-export const GOAL_PLANNING_PERMISSIONS = Object.freeze({ allowEdit: false, allowCommands: false, allowSubagents: true })
-export const GOAL_PLANNING_ALLOWED_TOOLS = new Set([
-  'read_file',
-  'grep_files',
-  'activate_skill',
-  'read_skill_resource',
-  'ask_user',
-  'goal_report',
-  'run_subagent',
-])
 
 const GOAL_CONTINUATION_IDLE_WAIT_MS = 15_000
 const GOAL_CONTINUATION_POLL_MS = 200
@@ -135,45 +126,6 @@ export function isGoalPlanning(_session) {
   return false
 }
 
-function goalTrustedTools(session) {
-  if (!(session.goalTrustedToolCalls instanceof Map)) session.goalTrustedToolCalls = new Map()
-  return session.goalTrustedToolCalls
-}
-
-function resetGoalToolEvidence(session) {
-  session.goalTrustedToolCalls = new Map()
-}
-
-const GOAL_EVIDENCE_ALLOWED_TOOLS = new Set(['run_command', 'read_file', 'grep_files'])
-
-function goalToolExecutionIsVerified(event, toolName) {
-  if (event.isError === true) return false
-  const details = event.result && typeof event.result === 'object'
-    && event.result.details && typeof event.result.details === 'object'
-    ? event.result.details
-    : null
-  const isCommand = toolName === 'run_command' || Boolean(details && Object.prototype.hasOwnProperty.call(details, 'code'))
-  if (!isCommand) return true
-  if (!details) return false
-  if (details.code !== 0) return false
-  if (details.timedOut === true || details.aborted === true || details.signal) return false
-  return true
-}
-
-export function recordGoalToolExecution(session, event = {}) {
-  const goal = session?.goal
-  if (!goal || goal.phase !== 'active') return
-  const toolCallId = typeof event.toolCallId === 'string' ? event.toolCallId : ''
-  const toolName = typeof event.toolName === 'string' ? event.toolName : ''
-  if (!toolCallId || !toolName) return
-  const trusted = goalTrustedTools(session)
-  if (!GOAL_EVIDENCE_ALLOWED_TOOLS.has(toolName) || !goalToolExecutionIsVerified(event, toolName)) {
-    trusted.delete(toolCallId)
-    return
-  }
-  trusted.set(toolCallId, toolName)
-}
-
 function requestError(message, statusCode = 409, errorCode = 'GOAL_CONFLICT') {
   return Object.assign(new Error(message), { statusCode, errorCode })
 }
@@ -197,7 +149,6 @@ export async function startGoalPlanning(session, objective, requestSource = null
   } catch (error) {
     return error.errorCode || error.code ? { error: error.message, errorCode: error.errorCode || error.code } : { error: error.message }
   }
-  resetGoalToolEvidence(session)
   // The first round starts immediately after this command turn settles.
   scheduleGoalContinuation(session, 'execution')
   return { goal: session.goal }
@@ -238,7 +189,6 @@ export async function handleGoalAction(session, action, objective, requestSource
       if (!text) throw requestError('A revised goal requires a new objective.', 400, 'GOAL_OBJECTIVE_REQUIRED')
       await service.edit(session.sessionId, goalRef(session), { objective: text })
       await commitGoal(session)
-      resetGoalToolEvidence(session)
       if (session.goal?.phase === 'active') {
         scheduleGoalContinuation(session, 'execution')
       }
@@ -478,27 +428,6 @@ export async function failGoalRunOnPersist(session) {
 // Tools
 // ---------------------------------------------------------------------------
 
-export function createGoalReportTool(sessionOrGetter) {
-  const getSession = typeof sessionOrGetter === 'function' ? sessionOrGetter : () => sessionOrGetter
-  const session = getSession()
-  const tool = createGoalReportToolV2({
-    service: serviceFor(session),
-    session,
-    getRun: () => session?.goalRun || null,
-    getTrustedToolNames: () => goalTrustedTools(session),
-  })
-  return {
-    ...tool,
-    execute: async (toolCallId, params) => {
-      const outcome = await tool.execute(toolCallId, params)
-      syncGoal(session)
-      await persistGoal(session)
-      emitGoalUpdated(session)
-      return outcome
-    },
-  }
-}
-
 export function createGoalControlTools(session) {
   const requestAllowed = () => session?.modelAccessContext?.source !== 'shared'
   return createGoalTools({
@@ -512,7 +441,6 @@ export function createGoalControlTools(session) {
     },
     onCreate: async () => {
       await commitGoal(session)
-      resetGoalToolEvidence(session)
       scheduleGoalContinuation(session, 'execution')
     },
     onChanged: async (action, goal) => {

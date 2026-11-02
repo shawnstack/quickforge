@@ -20,6 +20,7 @@ export type WorkspaceInspectorOpenRequest =
   | ({ id: number; projectId: string; kind: 'command-log'; sessionId: string; path: string; label?: string } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'document'; path: string; format: 'pdf' | 'docx' | 'excel' } & WorkspaceInspectorRequestScope)
   | ({ id: number; projectId: string; kind: 'browser'; url: string } & WorkspaceInspectorRequestScope)
+  | ({ id: number; projectId?: string; kind: 'agent-browser' } & Partial<WorkspaceInspectorRequestScope>)
   | ({ id: number; projectId?: string; kind: 'subagent'; payload: SubagentRunPayload } & Partial<WorkspaceInspectorRequestScope>)
   | ({ id: number; projectId?: string; kind: 'workflow'; payload: WorkflowRunPayload } & Partial<WorkspaceInspectorRequestScope>)
 

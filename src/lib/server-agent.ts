@@ -15,13 +15,6 @@ import {
 } from '@/lib/selected-capabilities'
 import { SubagentRunEventPublisher } from '@/lib/subagent-run-detail'
 import { WorkflowAgentRunEventPublisher } from '@/lib/workflow-agent-run-events'
-import {
-  readSessionMessageSnapshot,
-  resolveServerCacheKey,
-  SESSION_MESSAGE_CACHE_TAIL_MESSAGES,
-  writeSessionMessageSnapshot,
-  type SessionMessageSnapshotEntry,
-} from '@/lib/session-message-cache'
 import { fetchJsonWithTimeout } from './server-agent-http'
 import { globalAgentSseClient } from './global-agent-sse-client'
 import { GoalStateController } from './goal-state-controller'
@@ -269,51 +262,6 @@ function mergeGoalIterationMarkers(messages: AgentMessage[], markers: GoalIterat
   return result
 }
 
-// ---------------------------------------------------------------------------
-// Session message cache helpers (read-only IndexedDB snapshot, F12)
-// ---------------------------------------------------------------------------
-
-/** SSE 事件类型：处理后需要调度一次会话消息快照缓存写入。 */
-const MESSAGE_CACHE_EVENT_TYPES = new Set([
-  // Full snapshots are needed only at message/turn/agent boundaries and when
-  // the server replaces history. Streaming state/tool updates are deliberately
-  // excluded: the live SSE state remains authoritative while a turn is active.
-  // `goal_updated` is low-frequency (state transitions only, never a token
-  // stream) and is included so a goal change is snapshotted for local recovery
-  // as soon as it lands; the cache's stateVersion high-water guard still makes
-  // the write a no-op when the server version has not advanced.
-  'agent_end', 'message_end', 'turn_end', 'messages_replaced',
-  'tool_execution_start', 'tool_execution_end', 'goal_updated',
-])
-
-type SessionMessageCachePayload = {
-  stateVersion: number
-  messages: AgentMessage[]
-  messageCount: number
-  windowOffset: number
-  /** 去掉 messages/messagesSummary 的快照（messages 由缓存条目单独承载）。 */
-  snapshot: Record<string, unknown>
-}
-
-function snapshotForCache(source: Record<string, unknown>): {
-  stateVersion: number
-  messages: AgentMessage[]
-  snapshot: Record<string, unknown>
-} {
-  const snapshot: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(source)) {
-    if (key === 'messages' || key === 'messagesSummary') continue
-    snapshot[key] = value
-  }
-  return {
-    stateVersion: typeof snapshot.stateVersion === 'number' && Number.isFinite(snapshot.stateVersion)
-      ? snapshot.stateVersion
-      : 0,
-    messages: Array.isArray(source.messages) ? source.messages as AgentMessage[] : [],
-    snapshot,
-  }
-}
-
 function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullable<ServerAgentConfig['initialState']> {
   return {
     systemPrompt: snapshot.systemPrompt ?? '',
@@ -339,15 +287,6 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     source: snapshot.source,
     stateVersion: snapshot.stateVersion,
   }
-}
-
-/** 缓存命中时优先用本地快照水合，再由 GET /state 后台校准。 */
-function cachedSnapshotToStateSnapshot(cached: SessionMessageSnapshotEntry): ServerAgentStateSnapshot {
-  return {
-    ...cached.snapshot,
-    messages: cached.messages as AgentMessage[],
-    stateVersion: cached.stateVersion,
-  } as ServerAgentStateSnapshot
 }
 
 // ---------------------------------------------------------------------------
@@ -479,8 +418,6 @@ export class ServerAgent {
   private onPromptContextReferencesConsumed?: () => void
   private planMode = false
   private onPlanModeConsumed?: () => void
-  /** 最近一次已知会话元数据（title/scope/…），供缓存快照重建时保留。 */
-  private sessionCacheMetadata: Record<string, unknown> = {}
 
   /**
    * tool_execution_start/update/end SSE 事件 → subagentRunStore 的实时发布器：
@@ -570,9 +507,6 @@ export class ServerAgent {
 
     this.unsubscribeSse = globalAgentSseClient.subscribe(this.sessionId, this.baseUrl, (event) => {
       this.handleSseEvent(event)
-      if (MESSAGE_CACHE_EVENT_TYPES.has(String(event.type))) {
-        this.scheduleSessionMessageCacheWrite()
-      }
     })
     if (this.state.isStreaming) this.startStateWatchdog()
   }
@@ -1403,63 +1337,8 @@ export class ServerAgent {
     this.listeners.clear()
   }
 
-  // --- Session message snapshot cache (read-only acceleration layer) ---
-
-  /**
-   * 以当前实例状态重建缓存写入 payload。builder 在 flush 时读取 state，
-   * dispose 后 state 对象仍可安全读取；缺失字段宁可不写，保证 hydration
-   * 侧构造器安全。
-   */
-  private buildSessionMessageCachePayload(): SessionMessageCachePayload {
-    const state = this.state
-    // Store only the tail window (same shape the read-only view returns). The
-    // snapshot is a first-paint accelerator, not a second copy of the session:
-    // writing 10MB+ of messages on every commit made IndexedDB serialization
-    // itself a jank source. `windowOffset` preserves "local index == server
-    // index" for the incremental reconcile that follows a cache hit.
-    const messages = state.messages.length > SESSION_MESSAGE_CACHE_TAIL_MESSAGES
-      ? state.messages.slice(-SESSION_MESSAGE_CACHE_TAIL_MESSAGES)
-      : state.messages
-    const messageCount = this.messageBaseSeq + state.messages.length
-    return {
-      stateVersion: this.lastServerStateVersion,
-      messages,
-      messageCount,
-      windowOffset: messageCount - messages.length,
-      snapshot: {
-        ...this.sessionCacheMetadata,
-        systemPrompt: state.systemPrompt,
-        model: state.model,
-        thinkingLevel: state.thinkingLevel,
-        tools: state.tools,
-        accessMode: state.accessMode,
-        yoloMode: state.yoloMode,
-        isStreaming: state.isStreaming,
-        pendingToolCalls: [...state.pendingToolCalls],
-        errorMessage: state.errorMessage,
-        contextCompaction: state.contextCompaction,
-        contextUsage: state.contextUsage,
-        pendingToolApproval: state.pendingToolApproval,
-        pendingAutoCompactApproval: state.pendingAutoCompactApproval,
-        pendingAsk: state.pendingAsk,
-        goal: state.goal,
-        source: this.sessionSource,
-        stateVersion: this.lastServerStateVersion,
-      },
-    }
-  }
-
-  private scheduleSessionMessageCacheWrite(): void {
-    writeSessionMessageSnapshot(
-      resolveServerCacheKey(this.baseUrl),
-      this.sessionId,
-      () => this.buildSessionMessageCachePayload(),
-    )
-  }
-
   private notifyMessageMetadataChanged(): void {
     this.emitToListeners({ type: 'message_metadata_updated' })
-    this.scheduleSessionMessageCacheWrite()
   }
 
   private acceptFullGoalIterationMarkerSnapshot(messages: AgentMessage[]): void {
@@ -2784,8 +2663,6 @@ export class ServerAgent {
     // 尾部窗口：服务端直接给 `messagesAfter`（绝对 seq），比「总数 - 本地条数」
     // 更可靠 —— 后者在服务端窗口策略变化时会算错。
     ServerAgent.applySnapshotCoordinates(agent, snapshot)
-    agent.sessionCacheMetadata = snapshotForCache(snapshot as Record<string, unknown>).snapshot
-    agent.scheduleSessionMessageCacheWrite()
     logger.debug('Loaded session view', {
       sessionId,
       messageCount: snapshot.messages.length,
@@ -2800,33 +2677,6 @@ export class ServerAgent {
     config: { baseUrl?: string; signal?: AbortSignal } = {},
   ): Promise<{ agent: ServerAgent; snapshot: ServerAgentStateSnapshot }> {
     const baseUrl = config.baseUrl ?? ''
-    const serverKey = resolveServerCacheKey(baseUrl)
-
-    // Cache hit fast path: hydrate from the local IndexedDB snapshot and
-    // calibrate in the background through a lightweight GET /state (never a
-    // second POST /restore). The server remains authoritative — any cache
-    // miss / empty snapshot falls through to the original restore flow.
-    if (!config.signal?.aborted) {
-      const cached = await readSessionMessageSnapshot(serverKey, sessionId)
-      if (cached && cached.messages.length > 0) {
-        const stateSnapshot = cachedSnapshotToStateSnapshot(cached)
-        const agent = new ServerAgent({
-          sessionId,
-          baseUrl,
-          initialState: initialStateFromSnapshot(stateSnapshot),
-        })
-        // The snapshot is a tail window: record where it starts in the server's
-        // full list so the background reconcile asks for the right tail.
-        // 缓存条目不带消息日志版本（0 = 未知），由随后的 /state 校准。
-        agent.messageBaseSeq = cached.windowOffset
-        agent.sessionCacheMetadata = cached.snapshot
-        void agent.refreshStateFromServer({ notify: true, forceMessages: false })
-          .catch(() => {})
-          .then(() => agent.scheduleSessionMessageCacheWrite())
-        return { agent, snapshot: stateSnapshot }
-      }
-    }
-
     const startedAt = performance.now()
     const { response, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot & { error?: string }>(
       `${baseUrl}/api/agents/${encodeURIComponent(sessionId)}/restore`,
@@ -2852,8 +2702,6 @@ export class ServerAgent {
     })
     // 服务端可能只返回尾部窗口（`projectSessionSnapshot`），坐标必须一起落。
     ServerAgent.applySnapshotCoordinates(agent, snapshot)
-    agent.sessionCacheMetadata = snapshotForCache(snapshot as Record<string, unknown>).snapshot
-    agent.scheduleSessionMessageCacheWrite()
     logger.debug('Restored ServerAgent', {
       sessionId,
       messageCount: snapshot.messages?.length ?? 0,
@@ -2944,8 +2792,6 @@ export class ServerAgent {
     // 新建会话通常是空消息，但服务端仍按统一快照形状回复（可能带尾部窗口），
     // 坐标一并落地，避免复用实例时的半截状态。
     ServerAgent.applySnapshotCoordinates(agent, serverState as ServerAgentStateSnapshot)
-    agent.sessionCacheMetadata = snapshotForCache(serverState).snapshot
-    agent.scheduleSessionMessageCacheWrite()
     return agent
   }
 }

@@ -30,7 +30,9 @@ export type ReaderTab = {
 }
 
 export type WorkspacePanelPrimaryTabKind = 'files' | 'review' | 'terminal' | 'background-tasks' | 'browser' | 'side-chat'
-export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent' | 'workflow' | 'goal'
+// agent-browser 只能由工具调用/请求打开（不在「+」菜单里），与 subagent/workflow/goal 同类：
+// 它承载的是主进程的原生视图，刷新后无法重建，因此不参与持久化。
+export type WorkspacePanelTabKind = WorkspacePanelPrimaryTabKind | 'reader' | 'document' | 'subagent' | 'workflow' | 'goal' | 'agent-browser'
 
 export type WorkspacePanelTab = {
   id: string
@@ -186,6 +188,8 @@ export function serializePanelTabs(
     // background-tasks 不持久化：任务只存在于服务端内存，刷新后无法重建，
     // 恢复出来只会是一个空面板，没有价值。
     if (tab.kind === 'subagent' || tab.kind === 'workflow' || tab.kind === 'side-chat' || tab.kind === 'goal' || tab.kind === 'background-tasks') return []
+    // agent-browser 同样不持久化：原生视图的生命周期绑在本次运行上。
+    if (tab.kind === 'agent-browser') return []
     if (tab.kind === 'reader') {
       const reader = tab.readerTabs?.find((item) => item.id === tab.activeReaderTabId) ?? tab.readerTabs?.[0]
       if (!reader || reader.mode !== 'file') return []

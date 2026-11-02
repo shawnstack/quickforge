@@ -37,12 +37,13 @@ export function browserTabLabel(previewUrl: string) {
 }
 
 export function panelTabMeta(tab: WorkspacePanelTab) {
-  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent' || tab.kind === 'workflow' || tab.kind === 'goal') return undefined
+  if (tab.kind === 'reader' || tab.kind === 'document' || tab.kind === 'subagent' || tab.kind === 'workflow' || tab.kind === 'goal' || tab.kind === 'agent-browser') return undefined
   return PANEL_TAB_BY_KIND[tab.kind]
 }
 
 export function panelTabLabel(tab: WorkspacePanelTab, projectName: string | undefined) {
   if (tab.kind === 'goal') return t('goalTitle')
+  if (tab.kind === 'agent-browser') return t('agentBrowserTitle')
   if (tab.kind === 'workflow') {
     const phases = tab.workflowRun?.view.phases.length ?? 0
     return phases > 0 ? t('workflowTabTitle', { count: phases }) : t('workflowTabTitleNoPhases')

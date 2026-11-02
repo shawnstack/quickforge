@@ -15,6 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { PluginSlot } from '@/components/plugins/PluginSlot'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
+import { SessionTitleMarquee } from '@/components/sidebar/chat-sidebar/SessionTitleMarquee'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
@@ -88,8 +89,9 @@ export function ConversationHeader({
 
       <div className="min-w-0 flex-1">
         <div className="flex max-w-full min-w-0 items-center gap-2">
-          <div className="min-w-0">
-            <div className="min-w-0 truncate text-sm font-semibold">{sessionTitle(title)}</div>
+          <div className="min-w-0 max-w-[24rem]">
+            {/* 与侧栏会话名同一套溢出交互：贴左、宽度封顶，超出部分悬停时横向滚动一遍。 */}
+            <SessionTitleMarquee className="block w-full text-sm font-semibold" title={sessionTitle(title)} />
             {projectName || (gitRepository && gitBranch) ? (
               <div className="mt-0.5 flex min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap text-xs leading-none text-muted-foreground sm:hidden">
                 {projectName ? (

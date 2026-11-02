@@ -3,11 +3,11 @@
  *
  * 用途：启动时先用本地快照预应用语言/外观/字号/工具展示设置，再由
  * useAppBootstrap 的服务器校准序列覆盖。服务器永远是唯一权威；IndexedDB
- * 不可用、条目损坏、超限值全部静默降级（风格对齐 session-message-cache）。
+ * 不可用、条目损坏、超限值全部静默降级（风格对齐 IndexedDB 缓存层）。
  * import 期零副作用：不在模块加载时读取 indexedDB / window / location。
  */
 import { computeCacheKey, IndexedDbCache } from '@/lib/indexeddb-cache'
-import { resolveServerCacheKey } from '@/lib/session-message-cache'
+import { resolveServerCacheKey } from '@/lib/server-cache-key'
 
 const APP_SETTINGS_SNAPSHOT_SCHEMA_VERSION = 1
 /** 追踪的 settings 键白名单：只缓存启动预应用需要的四个键。 */

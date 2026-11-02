@@ -1,6 +1,79 @@
 {
   "features": [
     {
+      "id": "goal-v2-single-completion-entry",
+      "title": "Goal v2 只保留一个完成入口（移除 v2 的 goal_report，完成只认 update_goal）",
+      "status": "done",
+      "summary": "用户反馈「goal 模式下 UI 已经停了却还继续新一轮」，并明确「工具表示完成就应该停止」。根因：v2 同时挂着两条完成路径，其中 goal_report 在 v2 永远走不通——没有规划轮，action=\"plan\" 必被 run.kind 守卫拒绝，goal.plan 恒为 null 导致 progress/complete 恒被拒；而且它的完成意图只是两段式的 run.pendingCompletion，v2 的 finishGoalRun 从来没读过这个字段（只有写、没有读），意图永不兑现。更糟的是 createServerTools 在会话注册前用 resolver 判定引擎，resolver 返回 undefined 回落 legacy，把 v1 的 goal_report 塞进带活跃 goal 的恢复会话（v2 也中）。改法：v2 只保留 update_goal complete 这一个完成入口，goal_report 仅 legacy（v1）会话注入；删除 v2 的 report-tool、service.requestComplete/reportPlan/reportProgress、state 的 applyGoalPlanV2/applyGoalProgressV2/checkGoalCompletionV2 与证据信任链；goal 工具装配收口到 appendGoalTools(session)（会话注册后执行，引擎判定永远基于真实会话）。",
+      "files": [
+        "server/goal/runner.mjs",
+        "server/goal/report-tool.mjs（删）",
+        "server/goal/service.mjs",
+        "server/goal/state.mjs",
+        "server/goal/engine.mjs",
+        "server/agent-manager.mjs",
+        "server/agent-workflow-tools.mjs",
+        "tests/server/goal-v2-manager.test.mjs",
+        "tests/server/goal-v2-service.test.mjs",
+        "tests/server/goal-v2-state.test.mjs",
+        "tests/server/goal-v2-store.test.mjs",
+        "docs/wiki/server/README.md",
+        "docs/wiki/server/tools/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 goal 测试 7 files / 201 tests 通过；新增契约：v2 会话 goal_report === undefined（创建与恢复两条路径）、update_goal complete 后轮末不得再起新一轮；npx tsc -b → 0 错误；npm run lint → 0 problems；npm run test → 496 files / 5543 passed / 2 skipped；npm run build → 成功（built in 4.81s，precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit，未手工改生成产物。",
+      "updatedAt": "2026-11-02"
+    },
+    {
+      "id": "drop-session-message-cache",
+      "title": "删除会话消息 IndexedDB 快照缓存（打开会话只留 /view 与 /restore 两条真实通道）",
+      "status": "done",
+      "summary": "用户问「IndexedDB 还需要么，移除能解决么」后选择直接删。该缓存只在 GET /view 快路径失败、退回 POST /restore 时才被读取（正常打开会话完全不经过它），命中后的替换判据是「服务端更长才替换」，缓存比服务端长（回滚 / 压缩 / 持久化降级）时页面会被永久钉在旧内容；缓存里的 stateVersion 还会被当作服务端水位，版本回退时整份 /state 被丢弃。改法：删除 src/lib/session-message-cache.ts 与它的测试，ServerAgent 去掉 restore 缓存快路径、4 处写入调度、sessionCacheMetadata 字段与只服务缓存的转换函数；resolveServerCacheKey 原样迁到新的 src/lib/server-cache-key.ts，继续供 workspace-cache / app-settings-cache / useWorkspaceTree / useWorkspaceReader / useAppBootstrap 使用；打开会话只剩 /view 与 /restore 两条真实通道，都以服务端当前状态为准。",
+      "files": [
+        "src/lib/session-message-cache.ts（删）",
+        "src/lib/server-cache-key.ts（新增，resolveServerCacheKey 迁出）",
+        "src/lib/server-agent.ts（删缓存读写与相关字段/函数）",
+        "src/lib/workspace-cache.ts",
+        "src/lib/app-settings-cache.ts",
+        "src/components/workspace/useWorkspaceTree.ts",
+        "src/components/workspace/useWorkspaceReader.ts",
+        "src/hooks/useAppBootstrap.ts",
+        "tests/frontend/session-message-cache.test.ts（删）",
+        "tests/frontend/server-agent.test.ts",
+        "tests/frontend/server-agent-events.test.ts",
+        "tests/frontend/server-agent-background-commands-frame.test.ts",
+        "tests/frontend/server-agent-final-answer-recovery.test.ts",
+        "tests/frontend/thinking-final-reply-visibility.test.ts",
+        "tests/frontend/use-app-bootstrap-snapshot.test.ts",
+        "tests/frontend/app-settings-cache.test.ts",
+        "docs/wiki/src/lib/README.md",
+        "docs/architecture/render-memory-and-attachment-boundary.zh-CN.md",
+        "docs/architecture/message-log-consistency.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx tsc -b → 0 错误；npm run lint → 0 problems；npm run test → 493 files / 5518 passed / 2 skipped（tests/server/plugins/audit.test.mjs 一次 15s 超时 + ENOTEMPTY，单文件复跑 4 tests 全过，属并行负载下的既有抖动）；npm run build → 成功（built in 4.31s，precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit，未手工改生成文档产物。",
+      "updatedAt": "2026-11-02"
+    },
+    {
+      "id": "conversation-header-title-max-width",
+      "title": "顶栏标题宽度封顶 + 悬停滚动（保持贴左，复用侧栏会话名交互）",
+      "status": "done",
+      "summary": "用户三轮收敛：①「对话的标题宽度要限制一下」→ 给标题加 max-w-[36rem]；②「对话顶部的宽度还是太宽」→ 误判成整条顶栏比正文列宽，改成居中同宽列；③「理解错了，应该还是贴左，同时超出的部分鼠标移到标题上像 session 那样滚动展示完整标题」→ 撤销居中容器（git checkout 回到原始结构），改为贴左布局 + 标题宽度封顶 + 悬停横向滚动：标题容器 min-w-0 max-w-[24rem]，内部直接复用侧栏的 SessionTitleMarquee（同一套 400ms 延迟、35px/s、尾部停 1000ms 再弹回，respect prefers-reduced-motion），className 传 block w-full text-sm font-semibold 保持原字号字重。项目 chip、Git 分支按钮、视图切换全部回到原样，顶栏其余结构零改动。",
+      "files": [
+        "src/components/app/ConversationHeader.tsx（改：import SessionTitleMarquee；标题块加 max-w 封顶并用 marquee 替代裸 truncate）",
+      "tests/frontend/conversation-trace-contract.test.ts（新增契约：标题必须复用 SessionTitleMarquee、必须有 max-w 封顶、不得改回居中列）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 eslint（ConversationHeader.tsx）→ 0 problems；npx tsc -b → 0 错误；相关契约测试 5 files / 105 tests 通过（conversation-trace-contract 含新增用例、git-tools-pinned-summary、motion-design、sidebar-section-order、sidebar-session-action-alignment）；npm run build 成功。未改生成产物，未创建 Git commit。",
+      "updatedAt": "2026-11-02"
+    },
+    {
       "id": "desktop-fork-cwd-real-directory",
       "title": "桌面版启动失败修复：子进程 cwd 改用真实目录（app.asar 不是目录）",
       "status": "done",
@@ -1806,6 +1879,38 @@
         "session-handoff.md"
       ],
       "verification": "npm run test → 484 files / 5459 passed / 2 skipped；npm run lint → 0 problems；npm run build → 成功（built in 4.44s，precompress 224 files: 12.67MB → 6.49MB）；npm pack → package-offline/shawnstack-quickforge-2.3.7.tgz（14.5 MB / 1028 files，shasum ed70b3ea…）；tag v2.3.7 已推送 origin/dev。",
+      "updatedAt": "2026-11-02"
+    },
+    {
+      "id": "desktop-embedded-agent-browser",
+      "title": "桌面端内嵌 AI 浏览器（WebContentsView + CDP + 内置 MCP server）",
+      "status": "done",
+      "summary": "桌面端新增应用内真实浏览器：Electron 主进程用 WebContentsView 承载页面并独占一份 CDP 连接，把页面操作（navigate/snapshot/click/type/press_key/scroll/wait_for/screenshot/evaluate）注册成主进程内的 StreamableHTTP MCP server（127.0.0.1 + 一次性 Bearer token），server 子进程通过 env 把它注册成内置 desktop-browser 项，因此工具命名、白名单、审批、SSE 事件与工具集刷新全部复用既有实现。快照用无障碍树生成带世代号的 ref（e12@g3），导航或执行上下文重建即失效，旧 ref 明确报错而不是尽力解析，避免静默点错。安全上默认拒绝：独立 session 分区、仅 http(s)、localhost/*.localhost/私网/链路本地/CGNAT/IPv4-mapped IPv6 一律拦截、新窗口 deny、权限与下载全拒、sandbox+contextIsolation 保持开启、渲染进程只拿到 bounds/visible/state 窄桥。审批改为读取 MCP annotations.readOnlyHint：只读工具免审批，写操作照常逐次确认。前端新增只能程序打开的 agent-browser 标签（加号菜单不变、不持久化），Agent 一调用 mcp__desktop-browser__* 就切过去，面板用 ResizeObserver+rAF 合帧上报占位区域矩形并在设置弹窗/切标签/隐藏窗口时收起原生视图。",
+      "files": [
+        "desktop/browser/policy.mjs（新增：导航策略与私网/回环拦截）",
+        "desktop/browser/cdp-client.mjs（新增：CDP 单所有者、attach 幂等、事件桥、命令超时）",
+        "desktop/browser/page-snapshot.mjs（新增：无障碍树快照、ref 世代、严格解析）",
+        "desktop/browser/page-actions.mjs（新增：导航/快照/点击/输入/滚动/等待/截图/求值）",
+        "desktop/browser/browser-host.mjs（新增：唯一 WebContentsView、session 加固、bounds clamp、显隐与暂停）",
+        "desktop/browser/mcp-server.mjs（新增：内置 MCP server，回环 + Bearer token，无状态 transport）",
+        "desktop/electron-main.mjs（修改：启动 MCP 桥并注入 env、浏览器 IPC 通道、窗口显隐联动、退出清理）",
+        "desktop/electron-preload.cjs（修改：QuickForgeDesktopBrowser 窄桥）",
+        "server/mcp/config.mjs（修改：desktop-browser 内置项由 env 派生、落盘剥离 token、禁止删除改写）",
+        "server/mcp/registry.mjs（修改：透传 annotations，新增 isReadOnlyMcpTool）",
+        "server/agent-manager.mjs（修改：只读 MCP 工具免审批）",
+        "src/lib/desktop-app.ts（新增：桌面端判定唯一来源）",
+        "src/lib/desktop-browser-bridge.ts（新增：渲染进程类型化桥）",
+        "src/components/browser/AgentBrowserPanel.tsx（新增：占位区域 + 边界上报 + 显隐守卫）",
+        "src/components/workspace/{workspace-types,workspace-inspector-request,workspace-inspector-tabs,workspace-panel-tabs,useInspectorTabs,WorkspaceInspector}.ts(x)（修改：agent-browser 标签，仅程序打开、不持久化）",
+        "src/App.tsx（修改：浏览器工具触发面板切换）",
+        "src/components/workspace/../hooks/useUpdateCheck.ts、ConnectionNotices.tsx、AboutSettingsTab.tsx（等价重构：桌面判定收敛到 isDesktopApp）",
+        "src/lib/i18n.ts（修改：agentBrowser* 中英文案）",
+        "tests/server/desktop-browser-policy.test.mjs、desktop-browser-snapshot.test.mjs、desktop-browser-actions.test.mjs、desktop-browser-host.test.mjs、desktop-browser-cdp-client.test.mjs、desktop-browser-ipc-contract.test.mjs、mcp-desktop-browser-config.test.mjs、desktop-browser-wiring-contract.test.mjs（新增）",
+        "tests/frontend/agent-browser-panel-contract.test.ts、desktop-browser-bridge.test.ts（新增）",
+        "docs/architecture/desktop-agent-browser.zh-CN.md（新增）",
+        "docs/wiki/README.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md、progress.md、session-handoff.md、feature_list.json"
+      ],
+      "verification": "npm run test 全量通过；npm run lint 0 problems；npx tsc -b 0 错误；npm run build 成功。新增 13 个测试文件共 103 个用例覆盖：私网/回环/*.localhost/IPv4-mapped 拦截、ref 世代与过期解析、点击坐标与输入序列、截图落盘、主 frame 导航失效、内置项由 env 派生且不落盘 token、只读注解审批豁免、以及 Electron 侧安全不变量与前端窄桥契约（含按目录扫描整个 desktop/ 的「唯一 CDP 控制者」断言，新挂一个调试器入口即红）。Electron 真实渲染（视图对齐、CDP attach 时序、模态遮挡）无法在 CI 覆盖，已在文档列出手工验收步骤。",
       "updatedAt": "2026-11-02"
     }
   ]

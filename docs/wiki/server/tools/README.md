@@ -35,7 +35,7 @@
 | `read_skill_resource` | 读取 Skill 资源文件 |
 | `ask_user` | 向用户提出 1-4 个问题并等待回答：execute 阻塞在 `server/ask-store.mjs` 的 pendingAsks Promise 上，SSE `ask_user_required` 通知前端注入向导式提问卡，用户提交/跳过后经 `POST /api/agents/:id/answer-ask` resolve，回答以纯文本回给模型；30 分钟超时、跳过、abort 均按"用户未回答"继续而非中断；免审批（beforeToolCall 直接放行），`/plan` 白名单包含它；无 toolHandlers 入口，由 agent-manager 的 `wrapAskUserToolDefinition` 拦截并绑定会话。**同会话同一时刻只展示一张提问卡**：`ask-store.mjs` 的 `enqueueAskForSession` 把同会话后续 ask_user 按到达顺序串起来，前一条结算（作答/跳过/超时/中止）后下一条才注册并发出自己的 `ask_user_required`，因此不会出现后一张卡覆盖前一张、前一张只能干等 30 分钟超时；30 分钟计时从该条**变为可见**时开始，排队期间不计时。累计排队达到 `ASK_QUEUE_MAX_WAITING`（3）后，多余提问不注册，直接以 `details.skipReason: 'busy'` 的文本结果回到模型（提示等当前提问被回答后再继续），不会挂死。`pendingAsks` 是进程内 Map：服务重启后待答提问随进程消失，该轮不再有 tool result（历史里留下一条 `called` 状态的 ask_user 卡），也不会出现幽灵卡片或自动代答 |
 | `todo_write` | 为非简单的多步骤任务记录简短当前计划；每次调用必须提交包含已完成项在内的**完整最新快照**。唯一参数 `todos` 最多 20 项，每项仅含非空 `content`（最多 200 字符）与 `status` 三态：`pending` / `in_progress` / `completed`；空数组表示显式清空。工具为 `sequential`，默认免审批但不属于安全读取工具，`/plan` 明确禁止调用，直接工具 REST 也禁止 |
-| `goal_report` | 仅 Goal 模式：会话有活跃 goal 时注入，规划轮必须且只能以 `action:"plan"` 提交 2-8 条可验收准则、范围与摘要，执行轮用 `progress` / `blocked` / `needs_review` / `complete` 回报。证据必须引用本会话真实成功工具结果的 `toolCallId`（控制面/委派/Skill/记忆类工具不算），准则只能在有此类证据时标记 `passed`；`complete` 通过证据检查后等待正常轮末和最终持久化，成功才自动 `completed`；显式 `needs_review` 转为 blocked 并说明验证限制。不在 `workspaceTools`、不进入 `GET /api/tools`，也没有 REST handler（直接调用返回 404） |
+| `goal_report` | 仅 legacy（v1）Goal 会话：会话有活跃 goal 时由 `appendGoalTools()` 注入；**Goal v2 会话不注入**（v2 没有规划轮，`action:"plan"` 永远被拒，报告工具的计划前置条件无法满足，v2 的唯一完成入口是 `update_goal complete`）。legacy 语义：规划轮必须且只能以 `action:"plan"` 提交 2-8 条可验收准则、范围与摘要，执行轮用 `progress` / `blocked` / `needs_review` / `complete` 回报。证据必须引用本会话真实成功工具结果的 `toolCallId`（控制面/委派/Skill/记忆类工具不算），准则只能在有此类证据时标记 `passed`；`complete` 通过证据检查后等待正常轮末和最终持久化，成功才自动 `completed`；显式 `needs_review` 转为 blocked 并说明验证限制。不在 `workspaceTools`、不进入 `GET /api/tools`，也没有 REST handler（直接调用返回 404） |
 
 ### run_workflow 与 run_subagent 的分工
 
@@ -84,7 +84,7 @@
 | `toolReadSkillResource` | `read_skill_resource` | 读取技能资源 |
 | Agent-manager handler | `run_subagent` | 在父会话内创建短生命周期临时 Agent，使用受限工具执行专门子任务并返回建议性结果 |
 | Agent-manager handler（`wrapWorkflowToolDefinition`） | `run_workflow` | 绑定会话并调用 `agent-workflow-runner.mjs`：worker + vm 执行编排脚本，按有界队列复用 `run_subagent` 生命周期执行每个 `agent()`，并由 `agent-workflow-tools.mjs` 复用会话工具集/审批执行每个 `tool()`，聚合阶段/Agent/工具/日志/结果 details；失败时经 `afterToolCall` 回填部分 details |
-| Agent-manager handler（`createGoalReportTool`） | `goal_report` | 仅活跃 goal 会话注入：校验并记录 plan / progress / blocked / needs_review / complete；证据只信任本会话真实成功工具结果的 toolCallId，`complete` 经正常轮末/持久化屏障后自动完成，失败或中止不完成 |
+| Agent-manager handler（`createGoalReportTool`） | `goal_report` | 仅 legacy（v1）活跃 goal 会话注入：校验并记录 plan / progress / blocked / needs_review / complete；证据只信任本会话真实成功工具结果的 toolCallId，`complete` 经正常轮末/持久化屏障后自动完成，失败或中止不完成。Goal v2 会话不注入该工具（完成入口只有 `update_goal`），`appendGoalTools()` 是唯一装配点 |
 
 ### 安全特性
 - **路径安全**: `resolveWorkspacePath()` 确保操作不超出工作区范围

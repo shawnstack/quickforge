@@ -62,6 +62,14 @@ describe('trace view mounting', () => {
     expect(projection).not.toContain('countTraceTools')
     expect(css).not.toContain('.quickforge-chat-view-switch-count')
   })
+  it('caps the header title width and reuses the sidebar marquee for overflow', () => {
+    // 顶栏保持贴左，只把标题宽度封顶；超出部分用与侧栏会话名同一套悬停滚动，
+    // 不再让标题随窗口拉长、也不把整条顶栏收成居中列。
+    const header = readFileSync(new URL('../../src/components/app/ConversationHeader.tsx', import.meta.url), 'utf8')
+    expect(header).toContain('SessionTitleMarquee')
+    expect(header).toMatch(/min-w-0 max-w-\[[^\]]+\]/)
+    expect(header).not.toContain('mx-auto flex h-14 w-full max-w-3xl')
+  })
 })
 
 describe('timeline contract', () => {

@@ -342,6 +342,9 @@ export async function createMcpToolDefinitions(options = {}) {
         description: `[MCP:${serverName}] ${tool.description || tool.name}`,
         parameters: isPlainObject(tool.inputSchema) ? tool.inputSchema : { type: 'object', properties: {} },
         mcp: { serverName, toolName: tool.name },
+        // MCP annotations 是「这个工具会不会改世界」的权威声明，审批层据此决定
+        // 是否需要打断用户；缺失即按可变（需要审批）处理。
+        annotations: isPlainObject(tool.annotations) ? tool.annotations : undefined,
       })
     }
   }
@@ -350,6 +353,22 @@ export async function createMcpToolDefinitions(options = {}) {
 
 export function isMcpToolName(name) {
   return Boolean(parseQuickForgeToolName(name))
+}
+
+/**
+ * 读取 MCP 工具的 `annotations.readOnlyHint` 声明。
+ *
+ * 审批层用它豁免只读工具（读页面、截图）的逐次确认：这些动作不改世界，而浏览器
+ * 任务天然是「快照→点击→快照→输入」的连续调用，逐次弹窗会让用户直接关掉审批。
+ * 声明缺失或服务未连接时一律按「非只读」处理，宁可多问一次。
+ */
+export function isReadOnlyMcpTool(name) {
+  const parsed = parseQuickForgeToolName(name)
+  if (!parsed) return false
+  const connection = connections.get(parsed.serverName)
+  if (!connection || connection.status !== 'connected') return false
+  const tool = (connection.tools || []).find((item) => sanitizeMcpToolName(item.name) === parsed.toolName || item.name === parsed.toolName)
+  return tool?.annotations?.readOnlyHint === true
 }
 
 function computeToolsetSignature() {

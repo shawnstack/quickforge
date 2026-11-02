@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { WebPreviewContent } from '@/components/preview/WebPreviewContent'
+import { AgentBrowserPanel } from '@/components/browser/AgentBrowserPanel'
 import { openWorkspaceExternal } from './workspace-api'
 import { WorkspaceDocumentContent } from './WorkspaceDocumentContent'
 // The inspector is open by default but the terminal is not: a static import
@@ -85,7 +86,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
     [canUseTerminal, sideChatEnabled],
   )
   const tabState = useInspectorTabsState({ project, sessionId, canUseTerminal })
-  const { panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef } = tabState
+  const { panelTabs, setPanelTabs, activePanelTabId, setActivePanelTabId, draggingPanelTabId, menuOpen, setMenuOpen, tabListOpen, setTabListOpen, readerNavigationVisible, setReaderNavigationVisible, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, openAgentBrowserTabRef } = tabState
 
   const [reviewFilterOpen, setReviewFilterOpen] = useState(false)
 
@@ -247,6 +248,8 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       openDocumentTabRef.current?.(request.path, request.format)
     } else if (request.kind === 'browser') {
       openPanelTabRef.current?.('browser', 'browser', { url: request.url })
+    } else if (request.kind === 'agent-browser') {
+      openAgentBrowserTabRef.current?.()
     } else if (request.kind === 'goal') {
       if (workspaceInspectorGoalMatches(request, goalBinding)) {
         const identity = { sessionId: request.sessionId, goalId: request.goalId, view: request.view }
@@ -265,7 +268,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
       openPanelTabRef.current?.(request.kind, viewFromPanelKind(request.kind))
     }
     onRequestHandled?.(request.id)
-  }, [goalBinding, onRequestHandled, open, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, projectId, request, runtimeScopeId, setActivePanelTabId, setPanelTabs, setReaderNavigationVisible, sideChatEnabled])
+  }, [goalBinding, onRequestHandled, open, openAgentBrowserTabRef, openPanelTabRef, openSubagentRunTabRef, openWorkflowRunTabRef, projectId, request, runtimeScopeId, setActivePanelTabId, setPanelTabs, setReaderNavigationVisible, sideChatEnabled])
   // 持久化工作区宽度：拖拽或自动展开后都写入，刷新后保持上次宽度
   useInspectorWidth({ ...layoutState, open, onFullscreenChange, leftSidebarWidth, conversationMinWidth, activePanelTab: activePanelTab, activeReaderTabId: activeReaderTabId })
 
@@ -381,7 +384,7 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
         />
 
         <div className={cn('flex min-h-0 flex-1 transition-opacity duration-150', fullscreenAnimating ? 'opacity-0' : 'opacity-100')}>
-          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'workflow' && activePanelTab?.kind !== 'side-chat' && activePanelTab?.kind !== 'background-tasks' ? (
+          {!project?.id && activePanelTab?.kind !== 'goal' && activePanelTab?.kind !== 'subagent' && activePanelTab?.kind !== 'workflow' && activePanelTab?.kind !== 'side-chat' && activePanelTab?.kind !== 'background-tasks' && activePanelTab?.kind !== 'agent-browser' ? (
             <div className="p-4 text-sm">{t('workspaceSelectProject')}</div>
           ) : !activePanelTab ? (
             <WorkspacePanelLanding items={availablePanelTabItems} onOpenPanelTab={(kind) => openPanelTab(kind, viewFromPanelKind(kind))} />
@@ -401,6 +404,8 @@ export function WorkspaceInspector({ goalBinding, project, sessionId, runtimeSco
               inputMemory={sideChatInputMemory}
               revision={sideChatRevision}
             />
+          ) : activePanelTab.kind === 'agent-browser' ? (
+            <AgentBrowserPanel />
           ) : activePanelTab.kind === 'browser' ? (
             <WebPreviewContent
               url={activePanelTab.url || ''}

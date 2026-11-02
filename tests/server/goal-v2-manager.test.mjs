@@ -69,16 +69,6 @@ vi.mock('../../server/session-utils.mjs', () => ({
   generateTitle: vi.fn(() => 'New chat'),
 }))
 
-const PLAN = {
-  action: 'plan',
-  summary: 'Implement and verify.',
-  criteria: [
-    { description: 'Tests pass', required: true },
-    { description: 'Docs reviewed', required: false },
-  ],
-  scope: ['server/'],
-}
-
 describe('goal v2 through the agent manager', () => {
   let tmpDir
   let previousDataDir
@@ -201,7 +191,11 @@ describe('goal v2 through the agent manager', () => {
       })
       expect(result).toMatchObject({ content: [{ type: 'text' }] })
       expect(session.goal).toMatchObject({ phase: 'active', objective: 'Finish the migration', maxRounds: 5 })
-      expect(toolByName(session, 'goal_report')).toBeDefined()
+      // v2 has exactly one completion entry (`update_goal`); the legacy
+      // `goal_report` tool is not mounted because its plan precondition can
+      // never be met here — offering it made the model report completion into
+      // a rejected call while the driver kept scheduling rounds.
+      expect(toolByName(session, 'goal_report')).toBeUndefined()
       const read = await toolByName(session, 'get_goal').execute('call-read', {})
       expect(JSON.parse(read.content[0].text).goal.objective).toBe('Finish the migration')
     } finally {
@@ -215,8 +209,6 @@ describe('goal v2 through the agent manager', () => {
     session.agent.autoEnd = false
     try {
       await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
-      await toolByName(session, 'goal_report').execute('call-plan', PLAN)
-
       await session.agent.emit({ type: 'agent_end', messages: [] })
       await vi.waitFor(() => expect(session.goalRun?.kind).toBe('execution'), { timeout: 10_000 })
 
@@ -228,6 +220,15 @@ describe('goal v2 through the agent manager', () => {
       })
       expect(result).toMatchObject({ content: [{ type: 'text' }] })
       expect(session.goal).toMatchObject({ phase: 'complete', activation: 'disarmed' })
+
+      // A completed goal ends the round and never schedules another one: the
+      // round's own normal end must not turn the model's completion into a
+      // continuation.
+      const promptCount = session.agent.prompts.length
+      await session.agent.emit({ type: 'agent_end', messages: [] })
+      await vi.waitFor(() => expect(session.goalRun ?? null).toBeNull())
+      expect(session.agent.prompts).toHaveLength(promptCount)
+      expect(session.goal).toMatchObject({ phase: 'complete', roundsStarted: goal.roundsStarted })
     } finally {
       session.agent.autoEnd = true
       await session.agent.emit({ type: 'agent_end', messages: [] })
@@ -276,7 +277,8 @@ describe('goal v2 through the agent manager', () => {
     try {
       await agentManager.runPrompt(resumeSessionId, '/goal resume')
       expect(resumeSession.goal).toMatchObject({ phase: 'active', activation: 'armed' })
-      expect(toolByName(resumeSession, 'goal_report')).toBeDefined()
+      expect(toolByName(resumeSession, 'update_goal')).toBeDefined()
+      expect(toolByName(resumeSession, 'goal_report')).toBeUndefined()
     } finally {
       await agentManager.destroyAgent(resumeSessionId)
     }
@@ -285,16 +287,17 @@ describe('goal v2 through the agent manager', () => {
   it('restores a v2 goal as active but disarmed and never replays it', async () => {
     const sessionId = 'goal-v2-manager-restore'
     const session = await createSession(sessionId)
+    session.agent.autoEnd = false
     await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
-    await toolByName(session, 'goal_report').execute('call-plan', PLAN)
-    await vi.waitFor(() => expect(session.goalRun ?? null).toBeNull())
+    await vi.waitFor(() => expect(session.goal?.roundsStarted).toBe(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(session.goalRun?.kind).toBe('execution'))
     await agentManager.destroyAgent(sessionId)
 
     const restored = await agentManager.restoreAgent(sessionId)
     try {
       expect(restored.goal).toMatchObject({ phase: 'active', activation: 'disarmed', status: 'paused' })
       expect(restored.agent.prompts).toHaveLength(0)
-      expect(restored.goal.plan.criteria).toHaveLength(2)
+      expect(restored.goal.roundsStarted).toBe(1)
     } finally {
       await agentManager.destroyAgent(sessionId)
     }

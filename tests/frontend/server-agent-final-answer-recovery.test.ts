@@ -55,22 +55,6 @@ vi.mock('@/lib/random-id', () => ({
   randomId: () => '11111111-1111-4111-8111-111111111111',
 }), { virtual: true })
 
-const sessionCacheMock = vi.hoisted(() => ({
-  read: null as unknown,
-  reset() {
-    this.read = null
-  },
-}))
-
-vi.mock('@/lib/session-message-cache', () => ({
-  SESSION_MESSAGE_CACHE_TAIL_MESSAGES: 200,
-  resolveServerCacheKey: (baseUrl = '') => baseUrl || 'unknown',
-  readSessionMessageSnapshot: async () => sessionCacheMock.read ?? null,
-  writeSessionMessageSnapshot: vi.fn(),
-  flushPendingSessionMessageWrites: async () => {},
-  cancelPendingSessionMessageWrites: () => {},
-}), { virtual: true })
-
 async function createServerAgent(config: ConstructorParameters<typeof import('../../src/lib/server-agent').ServerAgent>[0]) {
   const { ServerAgent } = await import('../../src/lib/server-agent')
   return new ServerAgent(config)
@@ -100,7 +84,6 @@ describe('ServerAgent final-answer recovery across SSE reconnect', () => {
   beforeEach(() => {
     vi.resetModules()
     MockEventSource.instances = []
-    sessionCacheMock.reset()
     vi.stubGlobal('EventSource', MockEventSource)
   })
 

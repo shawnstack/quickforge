@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { isDesktopApp } from '@/lib/desktop-app'
 import { getAppStorage } from '@/storage'
 import { getDateLocale, t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -46,12 +47,6 @@ const UPDATE_TIMEOUT_MS = 180_000
 const RESTART_TIMEOUT_MS = 30_000
 const POLL_INTERVAL_MS = 1000
 const QUICKFORGE_RELEASES_URL = 'https://github.com/shawnstack/quickforge/releases/latest'
-
-function isDesktopApp() {
-  if (typeof document === 'undefined') return false
-  const desktopWindow = window as Window & { __quickforgeDesktopApp?: boolean }
-  return document.body.classList.contains('quickforge-desktop-app') || desktopWindow.__quickforgeDesktopApp === true
-}
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))

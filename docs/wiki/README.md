@@ -30,6 +30,7 @@ quickforge/
 | `android/` | Capacitor Android 原生工程；内置服务器连接页，通过 Tailscale 加载远端 QuickForge 页面；`QuickForgeNotificationService` 前台服务在后台轮询 `/api/agents`，任务结束时发通知栏提醒（由 `window.QuickForgeBridge` 控制启停） |
 | [bin/](bin/) | CLI 入口脚本 (`quickforge.mjs`) |
 | `desktop/` | Electron 桌面端入口（Windows/macOS/Linux 构建），复用 `server/public-api.mjs`；通过隔离 preload 暴露窄系统通知桥接，由主进程创建原生通知并在点击时恢复/聚焦窗口、打开对应会话；桌面包内置 `server/` 与 `dist/` runtime，不依赖用户本机 Node/npm/qf，且只复用同版本的本地 QuickForge 服务 |
+| 内嵌 AI 浏览器（桌面端） | Electron 主进程 WebContentsView + 唯一 CDP 连接 + 主进程内 StreamableHTTP MCP server；详见 [桌面端内嵌 AI 浏览器架构](../architecture/desktop-agent-browser.zh-CN.md) |
 | [server/](server/) | 后端服务 (HTTP、Agent管理、存储、路由、工具) |
 | [src/](src/) | 前端 React 应用 (组件、Hooks、工具库) |
 | [scripts/](scripts/) | 打包辅助脚本 |
@@ -60,6 +61,7 @@ quickforge/
 | [前端状态管理迁移（Zustand）](../architecture/zustand-migration.zh-CN.md) | App 级状态迁入 `src/stores/` 的 10 个 zustand store（兼容层模式、请求信号替代 window 事件桥、迁移守则与测试适配） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
+| [桌面端内嵌 AI 浏览器](../architecture/desktop-agent-browser.zh-CN.md) | 内置 WebContentsView 浏览器、CDP 引用世代、安全边界与 annotations 审批粒度 |
 | [小版本发布 Runbook](../architecture/patch-release-runbook.zh-CN.md) | patch 版本发布流程 |
 | [Bug 追踪](../bug/README.md) | server / 前端待修 bug 清单 |
 
@@ -72,6 +74,7 @@ quickforge/
 - **四端入口**: CLI (`bin/quickforge.mjs`)、SDK (`server/public-api.mjs`)、Desktop (`desktop/electron-main.mjs`)、Android (`android/` + `capacitor.config.ts`)
 - **桌面运行时隔离**: Desktop 安装包包含自身的 `server/` 与 `dist/` runtime，启动时通过 Electron 自带 Node 能力调用 `server/public-api.mjs`，不要求用户安装 Node/npm/qf；server 默认以独立子进程运行（避免同步 SQLite 大事务/GC 停顿冻结 Electron 主进程），设 `QUICKFORGE_DESKTOP_INLINE=1` 才以 inline 内嵌模式运行（需要 Chromium 代理栈/自定义 PAC 地址时使用）；内联服务不得向 Electron 主进程保留 `ELECTRON_RUN_AS_NODE`，该标志仅传给明确使用 Electron 执行 Node 脚本的子进程，避免 Renderer Helper 被误以 Node 模式启动；桌面端默认使用 `QUICKFORGE_DESKTOP_PORT` 或独立端口 `5177`，与 `qf` CLI 默认的 `5176` 分离；仅当已有本地 QuickForge 服务版本与桌面包版本一致时才复用，避免新版桌面壳加载旧 npm 服务的前端资源导致样式/API 错配；子进程的工作目录固定为用户主目录（`app.getPath('home')`），因为打包后 `server/` 位于 `app.asar` 内、归档路径不是磁盘目录，拿它当 `spawn` 的 `cwd` 会直接 `ENOENT` 启动失败。
 - **桌面托盘**: Desktop 端支持 Windows 系统托盘和 macOS 顶部菜单栏；关闭窗口隐藏到托盘，托盘菜单退出时停止桌面端启动的本地服务
+- **内嵌 AI 浏览器（桌面端）**: Agent 通过内置 MCP server 驱动应用内的真实浏览器视图（navigate / snapshot / click / type / press_key / scroll / wait_for / screenshot / evaluate）；页面在独立 session 分区里运行，本地与私网地址被导航策略拒绝，只读工具凭 MCP annotations 免审批。详见 [桌面端内嵌 AI 浏览器架构](../architecture/desktop-agent-browser.zh-CN.md)
 - **ACP Agent**: `quickforge acp` 通过 `@agentclientprotocol/sdk` 的 `AgentSideConnection` 暴露 stdio ACP Agent，桥接现有 `server/agent-manager.mjs` 会话和工具事件。
 - **数据存储**: 本地 `~/.quickforge/` 目录 (config / storage / cache / logs)
 - **Agent 权限模式**: 默认权限允许读取/搜索当前 workspace，并对写入、命令、MCP/Plugin 等可能影响系统的工具请求审批；完全访问权限等同开发者授权，在既有 workspace 沙箱和敏感文件限制内自动执行工具

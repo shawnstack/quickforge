@@ -11,8 +11,6 @@ import * as legacy from '../agent-goal-runner.mjs'
 import * as v2 from './runner.mjs'
 import { agentSessions } from '../agent-session-store.mjs'
 
-export const GOAL_PLANNING_PERMISSIONS = v2.GOAL_PLANNING_PERMISSIONS
-
 export function resolveGoalEngine(session) {
   if (!session) return 'legacy'
   if (session.goal?.phase) return 'v2'
@@ -67,17 +65,20 @@ export function failGoalRunOnPersist(session) {
     : legacy.failGoalRunOnPersist(session)
 }
 
+/**
+ * `goal_report` is the legacy (v1) reporting tool. v2 has no planning phase and
+ * no evidence gate, so the tool's plan precondition can never be met there; it
+ * used to be mounted anyway and turned a model's completion report into a
+ * rejected call while the driver kept scheduling rounds. v2 offers `update_goal`
+ * instead, which is why this returns null for v2 sessions.
+ */
 export function createGoalReportTool(sessionOrGetter) {
   const session = typeof sessionOrGetter === 'function' ? sessionOrGetter() : sessionOrGetter
-  return resolveGoalEngine(session) === 'v2'
-    ? v2.createGoalReportTool(sessionOrGetter)
-    : legacy.createGoalReportTool(sessionOrGetter)
+  return resolveGoalEngine(session) === 'v2' ? null : legacy.createGoalReportTool(sessionOrGetter)
 }
 
 export function recordGoalToolExecution(session, event = {}) {
-  return resolveGoalEngine(session) === 'v2'
-    ? v2.recordGoalToolExecution(session, event)
-    : legacy.recordGoalToolExecution(session, event)
+  return resolveGoalEngine(session) === 'v2' ? false : legacy.recordGoalToolExecution(session, event)
 }
 
 export function goalPlanningToolBlockReason(session, toolName, args = {}) {

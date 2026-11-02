@@ -6,7 +6,7 @@ vi.mock('@/lib/backend-url', () => ({
   getDirectBackendBaseUrl: () => backendUrlState.direct,
 }))
 
-// --- Minimal fake IndexedDB (shared shape with session-message-cache.test.ts) ---
+// --- Minimal fake IndexedDB (shared shape with indexeddb-cache.test.ts) ---
 
 class FakeIDBRequest<T = unknown> {
   onsuccess: ((event: unknown) => void) | null = null

@@ -7,6 +7,22 @@ const MAX_SERVERS = 50
 const MAX_ARGS = 100
 const MAX_ENV_KEYS = 100
 const PLAYWRIGHT_PRESET = { name: 'playwright', enabled: false, command: 'npx', args: ['-y', '@playwright/mcp@latest'] }
+// 桌面端内嵌浏览器：MCP server 跑在 Electron 主进程，随进程启动生成随机端口与
+// 一次性 token 并通过 env 传给本服务。它不写死在配置里，也不可能手工编辑。
+const DESKTOP_BROWSER_NAME = 'desktop-browser'
+
+function desktopBrowserServer() {
+  const url = process.env.QUICKFORGE_DESKTOP_BROWSER_URL
+  const token = process.env.QUICKFORGE_DESKTOP_BROWSER_TOKEN
+  if (!url || !token) return null
+  return {
+    name: DESKTOP_BROWSER_NAME,
+    enabled: true,
+    transport: 'http',
+    url,
+    headers: { authorization: `Bearer ${token}` },
+  }
+}
 
 function withPlaywrightPreset(servers) {
   return servers.some((server) => server.name === PLAYWRIGHT_PRESET.name)
@@ -14,10 +30,39 @@ function withPlaywrightPreset(servers) {
     : [normalizeMcpServerConfig(PLAYWRIGHT_PRESET), ...servers]
 }
 
+/**
+ * 内置 server 的权威来源是「运行环境」，不是配置文件：
+ * desktop-browser 每次读取都按当前 env 重建（端口/token 每次启动都不同），
+ * 环境不存在时连同历史遗留项一起剔除，避免 UI 里留一个永远连不上的僵尸条目。
+ */
+function withBuiltinServers(servers) {
+  let result = withPlaywrightPreset(servers)
+  const desktop = desktopBrowserServer()
+  if (!desktop) return result.filter((server) => server.name !== DESKTOP_BROWSER_NAME)
+  const index = result.findIndex((server) => server.name === DESKTOP_BROWSER_NAME)
+  const enabled = index >= 0 ? result[index].enabled !== false : true
+  const fresh = normalizeMcpServerConfig({ ...desktop, enabled })
+  result = index >= 0 ? result.map((server, itemIndex) => (itemIndex === index ? fresh : server)) : [fresh, ...result]
+  return result
+}
+
+const BUILTIN_SERVER_NAMES = new Set([PLAYWRIGHT_PRESET.name, DESKTOP_BROWSER_NAME])
+
+function isBuiltinServerName(name) {
+  return BUILTIN_SERVER_NAMES.has(name)
+}
+
+/** 落盘前剥掉内置项里的凭据：token 只存在于进程内存。 */
+function prepareForStorage(servers) {
+  return servers.map((server) => (
+    server.name === DESKTOP_BROWSER_NAME ? { ...server, env: {} } : server
+  ))
+}
+
 function assertPlaywrightCapacity(servers, name) {
-  if (name === PLAYWRIGHT_PRESET.name && servers.length >= MAX_SERVERS
+  if (isBuiltinServerName(name) && servers.length >= MAX_SERVERS
     && !servers.some((server) => server.name === name)) {
-    const error = new Error(`MCP server capacity reached (${MAX_SERVERS}); remove a server before adding playwright.`)
+    const error = new Error(`MCP server capacity reached (${MAX_SERVERS}); remove a server before adding ${name}.`)
     error.statusCode = 409
     throw error
   }
@@ -180,21 +225,26 @@ export function normalizeMcpServers(value) {
 
 export async function readMcpServers() {
   const mcp = await readStore('mcp')
-  return withPlaywrightPreset(normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])).map((server) => (
-    server.name === PLAYWRIGHT_PRESET.name ? { ...server, builtin: true } : server
+  return withBuiltinServers(normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])).map((server) => (
+    isBuiltinServerName(server.name) ? { ...server, builtin: true } : server
   ))
 }
 
 export async function writeMcpServers(servers) {
   const normalized = normalizeMcpServers(servers)
   return atomicUpdate('mcp', (mcp) => {
-    mcp[MCP_CONFIG_KEY] = normalized.map((server) => ({ ...server, updatedAt: new Date().toISOString() }))
+    mcp[MCP_CONFIG_KEY] = prepareForStorage(normalized).map((server) => ({ ...server, updatedAt: new Date().toISOString() }))
     return mcp
   }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }
 
 export async function upsertMcpServer(server) {
   const normalized = normalizeMcpServerConfig(server)
+  if (normalized.name === DESKTOP_BROWSER_NAME) {
+    const error = new Error('Built-in MCP server cannot be modified: desktop-browser')
+    error.statusCode = 409
+    throw error
+  }
   return atomicUpdate('mcp', (mcp) => {
     const servers = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
     assertPlaywrightCapacity(servers, normalized.name)
@@ -209,13 +259,13 @@ export async function upsertMcpServer(server) {
 
 export async function deleteMcpServer(name) {
   const normalizedName = normalizeName(name)
-  if (normalizedName === PLAYWRIGHT_PRESET.name) {
-    const error = new Error('Built-in MCP server cannot be deleted: playwright')
+  if (isBuiltinServerName(normalizedName)) {
+    const error = new Error(`Built-in MCP server cannot be deleted: ${normalizedName}`)
     error.statusCode = 409
     throw error
   }
   return atomicUpdate('mcp', (mcp) => {
-    mcp[MCP_CONFIG_KEY] = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]).filter((server) => server.name !== normalizedName)
+    mcp[MCP_CONFIG_KEY] = prepareForStorage(normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])).filter((server) => server.name !== normalizedName)
     return mcp
   }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }
@@ -225,7 +275,7 @@ export async function setMcpServerEnabled(name, enabled) {
   return atomicUpdate('mcp', (mcp) => {
     const persisted = normalizeMcpServers(mcp?.[MCP_CONFIG_KEY])
     assertPlaywrightCapacity(persisted, normalizedName)
-    const servers = normalizedName === PLAYWRIGHT_PRESET.name ? withPlaywrightPreset(persisted) : persisted
+    const servers = isBuiltinServerName(normalizedName) ? withBuiltinServers(persisted) : persisted
     const index = servers.findIndex((server) => server.name === normalizedName)
     if (index < 0) {
       const error = new Error(`MCP server not found: ${normalizedName}`)
@@ -237,7 +287,7 @@ export async function setMcpServerEnabled(name, enabled) {
       enabled: Boolean(enabled),
       updatedAt: new Date().toISOString(),
     }
-    mcp[MCP_CONFIG_KEY] = servers
+    mcp[MCP_CONFIG_KEY] = prepareForStorage(servers)
     return mcp
   }).then((mcp) => normalizeMcpServers(mcp?.[MCP_CONFIG_KEY]))
 }

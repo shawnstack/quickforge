@@ -1,5 +1,42 @@
 # Current Session Handoff
 
+## goal-v2-single-completion-entry（done，2026-11-02）
+
+- Current Objective（当前目标）：用户问「goal 模式 UI 都停了为什么还结束当前轮又继续新一轮」，并明确「goal 的工具表示完成就应该停止了」；选定方案 A：v2 只留一个完成入口。
+- 结论（一句话）：v2 里 `goal_report` 的每个动作都必然失败（没有规划轮 → plan 必被拒 → progress/complete 因「requires a submitted plan」必被拒），而它的两段式完成意图 `run.pendingCompletion` 在 v2 从来没被读过；模型按工具描述上报完成只会拿到错误，回合正常结束，driver 继续排下一轮。现在 v2 只有 `update_goal complete` 一个完成入口，`goal_report` 仅 legacy（v1）会话注入；goal 工具装配收口到 `appendGoalTools(session)`（会话注册后执行）。
+- 改动文件：`server/goal/runner.mjs`、`server/goal/service.mjs`、`server/goal/state.mjs`、`server/goal/engine.mjs`、`server/agent-manager.mjs`、`server/agent-workflow-tools.mjs`、`server/goal/report-tool.mjs`（删）、`tests/server/goal-v2-{manager,service,state,store}.test.mjs`、`docs/wiki/server/README.md`、`docs/wiki/server/tools/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：定向 goal 测试 7 files / 201 tests 通过；新增契约「v2 会话 goal_report === undefined」「update_goal complete 后轮末不再起新一轮」；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run test` → 496 files / 5543 passed / 2 skipped；`npm run build` → 成功（built in 4.81s，precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：①实机复验一次「goal 跑到模型说完成」是否立刻停——注意 v2 仍保留「一轮正常结束就排下一轮、无空转检测、20 轮上限是唯一自动停止点」的语义，模型若只在正文里宣称完成、没调 `update_goal complete`，就仍会继续，这是设计而非缺陷；②若要让「没表态不许继续」或「连续多轮无进展自动暂停」成立，需另立 feature（会改产品语义：加闸门或每轮确认）；③控制条目前只在 ⋯ 菜单/tooltip 里显示「第 N/M 轮」，看不清剩余轮次，属可选可见性改进。
+
+## drop-session-message-cache（done，2026-11-02）
+
+- Current Objective（当前目标）：用户问「IndexedDB 还需要么，移除能解决么」，选择直接删除会话消息快照缓存。
+- 结论（一句话）：`session-message-cache` 整层删除；打开会话只剩 `GET /view` 与 `POST /restore` 两条真实通道，都以服务端当前状态为准。
+- 根因（为什么它该删）：缓存只在 `/view` 失败退回 `restore` 时才被读（正常打开不经过），命中后「服务端更长才替换」+ 拿缓存 `stateVersion` 当服务端水位，缓存比服务端长时会把页面永久钉在旧内容。
+- 改动文件：删 `src/lib/session-message-cache.ts`、`tests/frontend/session-message-cache.test.ts`；新增 `src/lib/server-cache-key.ts`；改 `src/lib/server-agent.ts`、`src/lib/{workspace-cache,app-settings-cache}.ts`、`src/components/workspace/{useWorkspaceTree,useWorkspaceReader}.ts`、`src/hooks/useAppBootstrap.ts`、6 个前端测试文件、`docs/wiki/src/lib/README.md`、`docs/architecture/{render-memory-and-attachment-boundary,message-log-consistency}.zh-CN.md`、三件套。
+- Evidence（验证）：`npx tsc -b` 0 错误；`npm run lint` 0 problems；`npm run test` 493 files / 5518 passed / 2 skipped（`tests/server/plugins/audit.test.mjs` 一次超时+ENOTEMPTY，单文件复跑 4/4 过，既有抖动）；`npm run build` 成功。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 用户实机复验「刷新后仍不一致」——注意本机同时跑着 5176(v2.3.7) 与 5177(v2.3.6) 两个进程、共用同一 SQLite，这属于跨实例不一致（架构上显式非目标），删缓存不能解决；先确认两个窗口的 `/api/health` `pid` 是否相同。② 若同 pid 仍不一致，再按 `progress.md` 的 `multi-client-message-divergence` 条目排 A（重连带 `Last-Event-ID` + 重新可见时真对账）与 C（口径统一）。
+
+## conversation-header-title-max-width（done，2026-11-02）
+
+- Current Objective（当前目标）：对话顶栏标题宽度。三轮后最终要求：**保持贴左**，标题宽度封顶，超出部分鼠标移上去像侧栏 session 那样横向滚动看全。
+- 结论（一句话）：`ConversationHeader.tsx` 回到原始结构，只改标题一行——容器 `min-w-0 max-w-[24rem]`，内部复用 `SessionTitleMarquee`。
+- 改动文件：`src/components/app/ConversationHeader.tsx`、`tests/frontend/conversation-trace-contract.test.ts`（新增 1 条契约）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：定向 eslint 0 problems；`npx tsc -b` 0 错误；相关契约测试 5 files / 105 tests 通过；`npm run build` 成功。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：如果 24rem 仍偏宽/偏窄，只改 `ConversationHeader.tsx:92` 那处 `max-w-[24rem]`。注意第二轮曾把顶栏改成"与正文列同宽居中"，那是错的方向（用户明确要贴左），`conversation-trace-contract.test.ts` 已加断言防止改回去。
+
+## desktop-embedded-agent-browser（done，2026-11-02）
+
+- Current Objective（当前目标）：为桌面端落地应用内 AI 浏览器（WebContentsView + CDP + MCP 工具封装），在不变现有交互与体验的前提下一次性落地全部可优化项。
+- 结论（一句话）：主进程独占浏览器视图与 CDP，页面操作以主进程内 MCP server 的形式暴露；服务端只多一个由 env 派生的内置项，工具命名、审批、事件推送与工具集刷新全部复用，Web 端与 CLI 零改动。
+- 改动文件：desktop/browser 下八个新模块（layout、policy、ipc-contract、cdp-client、page-snapshot、page-actions、browser-host、mcp-server）、desktop/electron-main.mjs、desktop/electron-preload.cjs、server/mcp/config.mjs、server/mcp/registry.mjs、server/agent-manager.mjs、src/lib/desktop-app.ts、src/lib/desktop-browser-bridge.ts、src/components/browser/AgentBrowserPanel.tsx、workspace 面板 6 个文件、src/App.tsx、src/lib/i18n.ts、13 个测试文件、docs/architecture/desktop-agent-browser.zh-CN.md、docs/wiki/README.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）：npm run test → 496 files / 5546 passed / 2 skipped（按当前工作树复跑）；npm run lint → 0 problems；npx tsc -b → 0 错误；npm run build → 成功（precompress 224 files: 12.67MB → 6.49MB）（复跑复核：token 不落盘、唯一 CDP 所有者、切标签即卸载并收起原生层）。
+- Blockers（阻塞）：无。CI 覆盖不到的 Electron 运行时行为（视图对齐、CDP attach 时序、原生层遮挡）需按架构文档第 10 节人工验收。
+- Next Session（下一步）：先在桌面端做一次实机验收（npm run desktop:dev 后依次验证设置里 desktop-browser 已连接、面板跟随缩放、设置弹窗时网页消失、访问 127.0.0.1 被拒）；体验增强的下一步优先级是「按域名批量授权」，但属于交互变更，需先与用户确认；工具卡片目前复用通用 MCP 渲染器，若要做截图缩略图需另立需求。工作树里另有并行会话做的「删除会话消息快照缓存」变更（session-message-cache.ts 已删，resolveServerCacheKey 迁到 server-cache-key.ts），两侧文件不重叠；全量门禁请单独串行跑，别与 tsc -b 并行（会撞出 eslint ENOENT 假失败）。已打过一版 Windows 包：desktop-dist-next 里的 QuickForge Setup 2.3.7.exe / Portable 2.3.7.exe（含 desktop/browser 全部模块，asar 已核对）；版本号未升，若要让安装包与更新检查能区分新旧，需先把版本升到 2.3.8 再重新打包。
+
 ## release-2-3-7（done，2026-11-02）
 
 - Current Objective（当前目标）：用户问「可以撤回最近的包然后重新发么」。先判断可行性，再决定发布策略并把两处修复发出去。
@@ -557,7 +594,7 @@
   - `lastAutoCompactRejected` 不再写入，但 `resetSessionCompaction` / agent 初始化的置空保留（兼容旧持久化数据），`tests/server/agent-compaction.test.mjs` 有断言。
   - `conversation-compaction.mjs` 已在二次追补中彻底删除 `MIN_SUMMARY_SOURCE_CHARS` / `minSourceChars`；`compactConversation` 唯一跳过条件是结构性的 `compactRange.length === 0`（如 `/summary keep=N` 大于实际回合数时留不出可压缩段）。
 - Blockers（阻塞）：无。
-- Evidence（验证）：`npx tsc -b` 0 错误；`npx eslint 改动文件` 0 problems；`npx vitest run` 压缩+设置相关 8 个测试文件 84 例全过；评审追补后 5 个压缩测试文件 57 例全过、eslint 0 problems；二次追补（删除 `MIN_SUMMARY_SOURCE_CHARS` 本体）后同 5 文件 57 例全过、`feature_list.json` parse 通过、eslint 0 problems、源码 `git grep` 零残留。未创建 Git commit。
+- Evidence（验证）：`npx tsc -b` 0 错误；`npx eslint 改动文件` 0 problems；`npx vitest run` 压缩+设置相关 10 个测试文件 84 例全过；评审追补后 5 个压缩测试文件 57 例全过、eslint 0 problems；二次追补（删除 `MIN_SUMMARY_SOURCE_CHARS` 本体）后同 5 文件 57 例全过、`feature_list.json` parse 通过、eslint 0 problems、源码 `git grep` 零残留。未创建 Git commit。
 - Next Session（下一步）：
   1. 真机自测：设置→默认选项把阈值调到 50、关确认，长会话连灌长文本，间隔几秒就应连续压缩出多条线（不再需要等 30 秒）；拒绝一次后下一次请求应重新弹决策行。
   2. 上一 feature 的真机待验项（多线位置/窗口钳制）仍有效。

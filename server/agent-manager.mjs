@@ -15,7 +15,7 @@ import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand, listBackgroundCommandTasks, stopBackgroundCommandTasksForSession } from './tools/index.mjs'
 import { createSkillTools, globalMemoryTool, recallExperienceTool, workspaceTools } from './tools/definitions.mjs'
-import { createMcpToolDefinitions, isMcpToolName, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
+import { createMcpToolDefinitions, isMcpToolName, isReadOnlyMcpTool, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import { agentProfileSnapshot } from './agent-profiles.mjs'
 import { modelBindingFromModel, resolveImplicitModelPreference, resolveModelBinding } from './model-catalog.mjs'
@@ -174,8 +174,9 @@ configureGoalRunner({
   endTurn: (sessionId, turnId) => {
     if (turnId === undefined || sessionTurnIds.get(sessionId) === turnId) sessionTurnIds.delete(sessionId)
   },
-  // The goal_report tool only exists while the session has an active goal, so
-  // the tool set is rebuilt whenever that flips (created/confirmed/finished).
+  // Goal tools only exist while the session has an active goal (legacy
+  // `goal_report`, v2 `get_goal`/`create_goal`/`update_goal`), so the tool set
+  // is rebuilt whenever that flips (created/confirmed/finished).
   refreshTools: (session) => rebuildSessionTools(session),
   syncMessages: (session) => emitSessionEvent(session, { type: 'state', ...getSessionState(session.sessionId) }),
 })
@@ -286,8 +287,6 @@ export async function createServerTools(projectId, projectContext, skillsContext
     includeMcpTools = true,
     includePluginTools = true,
     includeSkillTools = true,
-    includeGoalTool = false,
-    goalSession = null,
     mcpWaitForConnections = true,
     parentSessionId = null,
     sessionId = null,
@@ -354,16 +353,6 @@ export async function createServerTools(projectId, projectContext, skillsContext
       .map((definition) => wrapWorkspaceToolDefinition(definition, toolContext, toolPermissions, { parentSessionId })))
   }
 
-  // Goal mode: only while the session has an active goal, and never for
-  // subagents (goalSession is the parent main-chat session or a resolver).
-  if (includeGoalTool && goalSession) {
-    // Goal control-plane reporting does not grant workspace capabilities; keep
-    // it available for admitted goals even with a Profile tool whitelist.
-    tools.push(createGoalReportTool(goalSession))
-    const goalSessionValue = typeof goalSession === 'function' ? goalSession() : goalSession
-    if (goalSessionValue?.goal?.phase) tools.push(...createGoalControlTools(goalSessionValue))
-  }
-
   if (includeMcpTools) {
     const mcpTools = await createMcpToolDefinitions({ waitForConnections: mcpWaitForConnections })
     tools.push(...mcpTools.filter(isAllowed).map((definition) => wrapMcpToolDefinition(definition, toolPermissions)))
@@ -377,16 +366,30 @@ export async function createServerTools(projectId, projectContext, skillsContext
   return tools
 }
 
-function appendGoalControlTools(session) {
+/**
+ * Mount the goal tools that belong to this session's engine.
+ *
+ * Always runs against a registered session: the engine is decided from the live
+ * goal, so a not-yet-registered resolver used to fall back to `legacy` and leak
+ * the v1 `goal_report` tool into restored v2 sessions (where every `goal_report`
+ * action is rejected, which made the model's completion report disappear while
+ * the round driver kept scheduling rounds).
+ */
+function appendGoalTools(session) {
   if (!session || (session.source && session.source !== 'scheduled')) return
-  if (!(session.goalEngine === 'v2' || session.goal?.phase)) return
   const tools = session.agent?.state?.tools
   if (!Array.isArray(tools)) return
   const names = new Set(tools.map((tool) => tool?.name).filter(Boolean))
-  if (activeGoalStatus(session) && !names.has('goal_report')) {
-    tools.push(createGoalReportTool(session))
-    names.add('goal_report')
+  // Legacy (v1) reporting is only meaningful while the goal is still running;
+  // `createGoalReportTool` returns null for v2 sessions.
+  const reportTool = activeGoalStatus(session) ? createGoalReportTool(session) : null
+  if (reportTool && !names.has(reportTool.name)) {
+    tools.push(reportTool)
+    names.add(reportTool.name)
   }
+  // v2 control tools stay mounted for any v2 goal phase (create_goal is how the
+  // user replaces a completed goal).
+  if (!(session.goalEngine === 'v2' || session.goal?.phase)) return
   for (const tool of createGoalControlTools(session)) {
     if (!names.has(tool.name)) {
       tools.push(tool)
@@ -397,7 +400,6 @@ function appendGoalControlTools(session) {
 
 async function rebuildSessionTools(session) {
   const profileToolNames = Array.isArray(session.agentProfile?.allowedTools) ? session.agentProfile.allowedTools : null
-  const goalActive = Boolean(activeGoalStatus(session))
   session.agent.state.tools = await createServerTools(
     session.projectId,
     session.projectContext,
@@ -410,23 +412,19 @@ async function rebuildSessionTools(session) {
           includeSubagentTool: false,
           includeWorkflowTool: false,
           includeMcpTools: false,
-          includeGoalTool: goalActive,
-          goalSession: goalActive ? session : null,
           parentSessionId: session.sessionId,
           sessionId: session.sessionId,
           scope: session.scope,
           getTurnId: () => currentSessionTurnId(session.sessionId),
         }
       : {
-          includeGoalTool: goalActive,
-          goalSession: goalActive ? session : null,
           parentSessionId: session.sessionId,
           sessionId: session.sessionId,
           scope: session.scope,
           getTurnId: () => currentSessionTurnId(session.sessionId),
         },
   )
-  appendGoalControlTools(session)
+  appendGoalTools(session)
 }
 
 /** Active (non-terminal) goal of a session, or null. */
@@ -779,8 +777,6 @@ export async function createAgent(sessionId, config = {}) {
           includeWorkflowTool: false,
           includeMcpTools: false,
           mcpWaitForConnections,
-          includeGoalTool: Boolean(initialGoal && isGoalActiveStatus(initialGoal.status)),
-          goalSession: initialGoal && isGoalActiveStatus(initialGoal.status) ? () => agentSessions.get(sessionId) : null,
           parentSessionId: sessionId,
           sessionId,
           scope,
@@ -791,8 +787,6 @@ export async function createAgent(sessionId, config = {}) {
         }
       : {
           mcpWaitForConnections,
-          includeGoalTool: Boolean(initialGoal && isGoalActiveStatus(initialGoal.status)),
-          goalSession: initialGoal && isGoalActiveStatus(initialGoal.status) ? () => agentSessions.get(sessionId) : null,
           parentSessionId: sessionId,
           sessionId,
           scope,
@@ -886,7 +880,12 @@ export async function createAgent(sessionId, config = {}) {
         return undefined
       }
       if (isMcpToolName(toolName) || isPluginToolName(toolName)) {
-        if (!hasFullAccess(currentSession)) return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
+        if (!hasFullAccess(currentSession)) {
+          // 只读 MCP 工具（读页面、截图）不打断：浏览器任务天然是连续调用，
+          // 逐次审批只会逼用户改用 full access，反而更不安全。
+          if (isMcpToolName(toolName) && isReadOnlyMcpTool(toolName)) return undefined
+          return createApprovalPromise(currentSession, toolCallId, toolName, context.args)
+        }
         return undefined
       }
       if (!projectContext?.workspaceRoot) {
@@ -1113,7 +1112,7 @@ export async function createAgent(sessionId, config = {}) {
   })
 
   agentSessions.set(sessionId, session)
-  appendGoalControlTools(session)
+  appendGoalTools(session)
   resetIdleTimer(session)
 
   // A client-created session that already carries a transcript (fork, seeded

@@ -9,10 +9,7 @@
 import { GoalError, GOAL_ERROR_CODES } from './errors.mjs'
 import {
   admitGoalRoundV2,
-  applyGoalPlanV2,
-  applyGoalProgressV2,
   blockGoalV2,
-  checkGoalCompletionV2,
   completeGoalV2,
   createGoalV2,
   editGoalV2,
@@ -209,7 +206,7 @@ export function createGoalService(options = {}) {
         }))
         const committed = await commit(sessionId, events)
         committed.activation = 'armed'
-        committed.runtime = 'planning'
+        committed.runtime = 'executing'
         return view(committed)
       })
     },
@@ -227,7 +224,7 @@ export function createGoalService(options = {}) {
           createGoalEvent({ operation: 'change', goal: next, at: new Date(now()).toISOString() }),
         ])
         if (committed.goal?.phase === 'active') {
-          committed.runtime = committed.goal.plan ? 'executing' : 'planning'
+          committed.runtime = 'executing'
         }
         return view(committed)
       })
@@ -258,7 +255,7 @@ export function createGoalService(options = {}) {
           }
           // Re-arm after a restart/fork without changing the durable phase.
           state.activation = 'armed'
-          state.runtime = state.goal.plan ? 'executing' : 'planning'
+          state.runtime = 'executing'
           return view(state)
         }
         const next = resumeGoalV2(state.goal, now())
@@ -267,7 +264,7 @@ export function createGoalService(options = {}) {
           createGoalEvent({ operation: 'change', goal: next, at: new Date(now()).toISOString() }),
         ])
         committed.activation = 'armed'
-        committed.runtime = next.plan ? 'executing' : 'planning'
+        committed.runtime = 'executing'
         return view(committed)
       })
     },
@@ -337,58 +334,6 @@ export function createGoalService(options = {}) {
         ])
         committed.runtime = 'executing'
         return { goal: view(committed), round: next.roundsStarted }
-      })
-    },
-
-    async reportPlan(sessionId, ref, { criteria, scope, summary } = {}) {
-      return withQueue(sessionId, async (state) => {
-        ensureAvailable(state)
-        assertRef(state, ref)
-        if (state.goal.phase !== 'active') {
-          throw new GoalError(`Cannot record a plan in phase ${state.goal.phase}.`, GOAL_ERROR_CODES.NOT_ACTIVE)
-        }
-        const next = applyGoalPlanV2(state.goal, { criteria, scope, summary }, now())
-        const committed = await commit(sessionId, [
-          ...state.events,
-          createGoalEvent({ operation: 'change', goal: next, at: new Date(now()).toISOString() }),
-        ])
-        committed.runtime = 'planning'
-        return view(committed)
-      })
-    },
-
-    async reportProgress(sessionId, ref, { summary, evidence, criterionUpdates, trustedToolNames = null } = {}) {
-      return withQueue(sessionId, async (state) => {
-        ensureAvailable(state)
-        assertRef(state, ref)
-        if (state.goal.phase !== 'active') {
-          throw new GoalError(`Cannot record progress in phase ${state.goal.phase}.`, GOAL_ERROR_CODES.NOT_ACTIVE)
-        }
-        const progressed = applyGoalProgressV2(state.goal, { summary, evidence, criterionUpdates, trustedToolNames }, now())
-        if (progressed.errors.length) {
-          throw new GoalError(progressed.errors.join('; '), GOAL_ERROR_CODES.INVALID_INPUT, 400)
-        }
-        const committed = await commit(sessionId, [
-          ...state.events,
-          createGoalEvent({ operation: 'change', goal: progressed.goal, at: new Date(now()).toISOString() }),
-        ])
-        return view(committed)
-      })
-    },
-
-    async requestComplete(sessionId, ref) {
-      return withQueue(sessionId, async (state) => {
-        ensureAvailable(state)
-        assertRef(state, ref)
-        if (state.goal.phase !== 'active') {
-          throw new GoalError(`Cannot verify a goal in phase ${state.goal.phase}.`, GOAL_ERROR_CODES.NOT_ACTIVE)
-        }
-        const check = checkGoalCompletionV2(state.goal)
-        if (!check.ok) {
-          throw new GoalError(`Goal completion rejected: ${check.reason}`, GOAL_ERROR_CODES.INVALID_TRANSITION, 409)
-        }
-        state.runtime = 'verifying'
-        return { goal: view(state), check }
       })
     },
 

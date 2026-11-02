@@ -2,6 +2,106 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## goal-v2-single-completion-entry（done，2026-11-02）
+
+- 触发：用户反馈「goal 模式下 goal 的 UI 都已经停止了，为什么还会结束当前轮又继续新一轮次，导致不知道什么时候停止」，并明确「goal 的工具表示完成就应该停止了」。
+- 结论（一句话）：v2 同时挂着两条完成路径，其中 `goal_report` 那条在 v2 永远走不通——没有规划轮 → `action:"plan"` 必被拒 → `progress`/`complete` 因「requires a submitted plan」必被拒。模型按工具描述上报完成只会拿到错误结果，回合正常结束，driver 按「一轮正常结束就排下一轮」继续。现在 v2 只保留一个完成入口 `update_goal complete`，`goal_report` 仅 legacy（v1）会话注入。
+- 根因（三条）：
+  1. **完成意图没人兑现**：`goal_report` 是两段式——工具只写 `run.pendingCompletion`，注释说「回合正常结束 + 落库后由 runner 发布 complete」，但 v2 的 `finishGoalRun` 从来没读过该字段（全仓库只有写、没有读），意图永远不兑现。
+  2. **工具在 v2 全动作必败**：`action="plan"` 要求 `run.kind === 'planning'`，v2 只有执行轮；`goal.plan` 恒为 null，于是 `progress`/`complete` 恒被 `GOAL_REPORT_PLANNING_ONLY` 拒。一个每个动作都失败的会话专用工具仍被注入，且描述里宣传 `action="complete"`。
+  3. **装配时机把 v1 工具漏进 v2**：`createServerTools` 在会话注册之前用 `() => agentSessions.get(sessionId)` 判定引擎，resolver 返回 undefined → 回落 legacy → 给「带活跃 goal 的恢复会话」塞进 v1 的 `goal_report`。
+- 改动：
+  1. `server/goal/runner.mjs`：删 `createGoalReportTool`、v2 证据信任链（`goalTrustedTools` / `resetGoalToolEvidence` / `goalToolExecutionIsVerified` / `recordGoalToolExecution`）、未使用的 `GOAL_PLANNING_PERMISSIONS` / `GOAL_PLANNING_ALLOWED_TOOLS`；头部契约注释改写为「完成只认 `update_goal`，`goal_report` 属 legacy」。
+  2. `server/goal/report-tool.mjs` 删除；`server/goal/service.mjs` 删 `reportPlan` / `reportProgress` / `requestComplete`，`runtime` 不再落到 `planning`（create/edit/resume 一律 `executing`）；`server/goal/state.mjs` 删 `applyGoalPlanV2` / `applyGoalProgressV2` / `checkGoalCompletionV2` / `goalCompletionCandidate`（plan/evidence 字段与归一化保留，旧快照投影仍要用）。
+  3. `server/goal/engine.mjs`：`createGoalReportTool` 对 v2 返回 `null`，`recordGoalToolExecution` 对 v2 直接 `false`。
+  4. `server/agent-manager.mjs`：`createServerTools` 不再接收 goal 参数；新增唯一装配点 `appendGoalTools(session)`（`agentSessions.set` 之后与 `rebuildSessionTools` 末尾各调一次），legacy 报告工具只在活跃 goal 时挂，v2 控制工具按 phase 挂；`server/agent-workflow-tools.mjs` 同步去掉旧参数。
+  5. 测试：`goal-v2-manager` 改为断言 v2 会话 `goal_report` 必须 undefined、`update_goal complete` 后轮末不得再起新一轮（断言 `agent.prompts` 数量不变）；`goal-v2-service` 把「plan/evidence/完成意图」用例换成「唯一完成入口」契约；`goal-v2-state` / `goal-v2-store` 的 plan fixture 改成本地字面量（v2 不再有 plan 写入者）。
+  6. 文档：`docs/wiki/server/README.md`（v2 工具清单与 Round Driver 结算分支）、`docs/wiki/server/tools/README.md`（`goal_report` 表格与 handler 表）。
+- 交互影响：v2 会话不再出现 `goal_report` 卡片（模型只能用 `get_goal` / `update_goal` 收尾）；legacy（v1）会话行为不变；控制条、Inspector、轮次分隔线零改动。
+- 验证 / Evidence：定向 goal 测试 7 files / 201 tests 通过；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run test` → 496 files / 5543 passed / 2 skipped；`npm run build` → 成功（built in 4.81s，precompress 224 files: 12.67MB → 6.49MB）。
+- Notes：本次没有改续轮语义——「一轮正常结束就排下一轮、没有空转检测、20 轮上限是唯一的自动停止点」仍是 v2 的设计。若要「模型没表态就不许继续」或「连续多轮无进展自动暂停」，需要另立 feature（会改产品语义）。
+
+## drop-session-message-cache（done，2026-11-02）
+
+- 触发：用户问「IndexedDB 还需要么，移除能解决么」，看完分析后选择 A：直接删。
+- 结论（一句话）：会话消息的 IndexedDB 快照缓存整层删除；打开会话只剩 `GET /view`（只读快速通道）与 `POST /restore`（兜底）两条真实通道，都以服务端当前状态为准，不再有第二份可能永远不纠正的副本。
+- 为什么删：该缓存只在 `/view` 失败退回 `restore` 时才被读取（正常打开完全不经过它），命中后的替换判据是「服务端更长才替换」，缓存比服务端长（回滚 / 压缩 / 持久化降级）时页面会被永久钉在旧内容；缓存里的 `stateVersion` 还被当作服务端水位，版本回退时整份 `/state` 被丢弃。
+- 改动：
+  1. 删除 `src/lib/session-message-cache.ts` 与 `tests/frontend/session-message-cache.test.ts`。
+  2. `src/lib/server-agent.ts`：删 restore 缓存快路径、4 处写入调度（loadView / restore 两处 / create）、`notifyMessageMetadataChanged` 里的写缓存、`sessionCacheMetadata` 字段、`MESSAGE_CACHE_EVENT_TYPES`、`buildSessionMessageCachePayload` / `scheduleSessionMessageCacheWrite`、只服务缓存的 `snapshotForCache` / `cachedSnapshotToStateSnapshot` / `SessionMessageCachePayload`。
+  3. 新增 `src/lib/server-cache-key.ts`（`resolveServerCacheKey` 原样迁出，语义不变），`workspace-cache` / `app-settings-cache` / `useWorkspaceTree` / `useWorkspaceReader` / `useAppBootstrap` 改为从这里 import。
+  4. 测试：删 6 处缓存用例与对应 mock（server-agent / server-agent-events / server-agent-background-commands-frame / server-agent-final-answer-recovery / thinking-final-reply-visibility / use-app-bootstrap-snapshot）。
+  5. 文档：`docs/wiki/src/lib/README.md`（表格 + 两处说明）、`docs/architecture/render-memory-and-attachment-boundary.zh-CN.md` §4、`docs/architecture/message-log-consistency.zh-CN.md` §5 的「页面刷新」一条。
+- 保留：`src/lib/indexeddb-cache.ts` 原样保留（`workspace-cache`、`app-settings-cache` 仍在用）；浏览器里残留的 `session-messages` 旧条目不再被读取，随 LRU 预算自然淘汰，不做迁移或清理。
+- 交互影响：无。`/view` 正常时完全不经过缓存；只有 `/view` 失败（404 / 500 split 读库失败 / 503 维护窗口 / 超时）时少了「先显示旧内容」的兜底，改为等一次 `POST /restore`。
+- 验证 / Evidence：`npx tsc -b` → 0 错误；`npm run lint` → 0 problems；`npm run test` → 493 files / 5518 passed / 2 skipped（`tests/server/plugins/audit.test.mjs` 一次 15s 超时 + ENOTEMPTY，单文件复跑 4 tests 全过，属并行负载下的既有抖动）；`npm run build` → 成功（built in 4.31s，precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit，未手工改生成产物。
+- Notes：本次只解决「刷新也修不好」里的缓存死角；两个浏览器不一致的主因（本机同时跑着 `5176` v2.3.7 与 `5177` v2.3.6 两个进程、共用同一数据库但各自一份内存会话）与缓存无关，仍待处理。
+
+## multi-client-message-divergence（分析完成，未修，2026-11-02）
+
+- 触发：用户问「对话界面会有缓存么？两个浏览器访问同一个 session 会看到不一致」，症状确认是「消息条数 / 内容不同步」。
+- 结论（一句话）：界面确实有三层缓存，但**都不是根因**；根因是每个客户端只靠一条实时流、断线后既不续传也不对账，叠加「消息总数」存在两套口径，会让某一端的消息坐标凭空多出几条并触发整表重拉。
+- 缓存盘点（均不会造成跨浏览器差异）：
+  1. IndexedDB 消息快照（尾部 200 条，`session-message-cache.ts`）：只在 `/view` 快路径失败、退回 `ServerAgent.restore` 时才读；每个浏览器各一份，不共享。
+  2. 内容寻址渲染缓存（`render-cache.ts`）：纯渲染加速，不影响内容。
+  3. HTTP / Service Worker：接口统一 `cache-control: no-store`，`public/sw.js` 显式放行（不缓存）`/api`。
+  4. 跨标签同步（`useCrossTabSync`）只广播 sessions / projects / settings，**消息不在同步范围**；两个窗口各持一份 `state.messages`。
+- 已定位的三处（按影响排序）：
+  1. **断线重连不续传 + 事后不对账**：`global-agent-sse-client.ts` 的 `onerror` 走 `close()` + `new EventSource()`，新连接不带 `Last-Event-ID`，服务端 `parseLastEventId` 恒为 null，`handleGlobalStream` 的补发 / `resync` 分支在浏览器里是死代码。短断线可由「新连接重发尾部 200 条 + 客户端前缀跳过」自愈，但回滚 / 压缩 / 审批 / 租约 / 标题这类帧没有尾窗兜底，丢一次就永久错；而 `ChatPanelHost` 的 `visibilitychange` / `online` 只调 `ensureFullHistory()`，本地已是全量时 `baseSeq <= 0` 直接早退，等于长时间开着的标签页从不对账。
+  2. **消息口径不一致**：`/state`、`/view` 经 `messagesWithRuntimeToolExecutions()` 在尾部追加运行中的 toolResult，SSE 帧用 `agent.state.messages`。工具运行期间打开 / 刷新的一端坐标多出 k 条「幽灵结果」且不会被清理；客户端还会把 `messagesSummary.count < localEnd` 判成服务端截断，走 `reconcileMessagesFromSummary` 整表重拉，抹掉另一端正在显示的工具卡。
+  3. **打开会话的校准被自己的租约帧丢弃**：`_doRefreshStateFromServer` 在 `versionBeforeFetch !== this.stateVersion` 时整份放弃，而挂载时 `enableSessionLease()` → `applySessionLease()` 会 `stateVersion++`；`syncState()` 只调一次不重试，第二个窗口常拿不到 `pendingToolApproval` / `isStreaming` / `contextUsage`。
+- 自查步骤：①Network 过滤 `agents/events`，断网再恢复后看新请求是否带 `Last-Event-ID`、响应是否出现 `event: resync`（预期都没有）；②对照 `/api/agents/:id/state` 的 `pendingToolApproval` / `isStreaming` 与另一窗口界面；③长命令运行中在第二窗口刷新，看工具卡是否闪一下消失、两端条数是否对不上。
+- 追加（用户反馈「刷新也不一样」后实测，2026-11-02）：**本机同时跑着两个服务进程，共用同一个数据目录**——`5176` pid 24604（v2.3.7，host 0.0.0.0）与 `5177` pid 2868（桌面端 v2.3.6，host 127.0.0.1），两者 `/api/health` 的 `dataDir`/`storageDir` 完全相同，但内存会话表互相独立（实测 5176 有 2 个活跃会话、5177 为 0）。这类「两个窗口连的不是同一个进程」是刷新也修不好的第 0 号原因：刷新只是重新问自己那个进程；不在内存的一侧走 `/view` 存储分支（`isStreaming` 恒 false、无 `pendingToolApproval`/`contextUsage`、无运行中的运行时 toolResult），在内存的一侧走内存分支（这些字段都有）。两进程同写一个 SQLite，revision CAS 冲突时 `agent-persistence.mjs` 会 `markPersistDegraded` 并跳过覆盖，于是「内存有、库里没有」可以长期存在。跨实例实时一致在架构上是显式非目标（`message-log-consistency.zh-CN.md` §8）。
+- 修复方向（待排期）：①重连续传（带游标）+ 重新可见时做一次真对账而不是只补前置历史；②统一投影口径，`/state`、`/view`、SSE 帧取同一数组；③校准用「消息日志版本」判定，不拿全局 `stateVersion` 当失效条件。
+- Notes：`docs/architecture/message-log-consistency.zh-CN.md` §3.5 写的是「浏览器 EventSource 自动重连会把 `id:` 放进 `Last-Event-ID`，服务端补发零客户端改造」，与实际实现矛盾（客户端每次都 `close()` 重建连接），修 A 时需同步改该节。
+- 验证：本次仅只读分析，未改代码、未跑测试、未创建 Git commit。
+
+## conversation-header-title-max-width（done，2026-11-02）
+
+- 触发：用户三轮收敛——①「对话的标题宽度要限制一下，现在太宽了」；②「对话顶部的宽度还是太宽」，追问时选了「整条横栏比正文宽太多」，于是改成居中同宽列；③「理解错了，应该还是贴左，同时超出的部分鼠标移到标题上像 session 那样滚动展示完整的对话」。
+- 结论（一句话）：最终形态是**贴左 + 标题宽度封顶 + 悬停横向滚动**——标题容器 `min-w-0 max-w-[24rem]`，内部直接复用侧栏的 `SessionTitleMarquee`，顶栏其余结构完全回到原样。
+- 三轮过程与教训：
+  1. 第一轮给标题加 `max-w-[36rem]`——只治了"标题无限伸展"，用户仍觉得宽。
+  2. 第二轮把整条顶栏做成与正文列同宽居中列（`mx-auto max-w-3xl` + chip/分支让步）——方向错了，用户要的是贴左。
+  3. 第三轮 `git checkout` 把 `ConversationHeader.tsx` 还原到原始版本，再做最小改动：`import SessionTitleMarquee`、标题块 `min-w-0` → `min-w-0 max-w-[24rem]`、裸 `<div truncate>` → `<SessionTitleMarquee className="block w-full text-sm font-semibold">`。
+- 为什么复用 `SessionTitleMarquee`：侧栏会话名已有成熟的溢出交互（400ms 延迟、35px/s、尾部停 1000ms 再弹回、`prefers-reduced-motion` 直接不滚），顶栏复用同一套行为，避免两处各自实现和时间参数漂移。
+- 改动文件：`src/components/app/ConversationHeader.tsx`、`tests/frontend/conversation-trace-contract.test.ts`（新增契约：标题必须用 `SessionTitleMarquee`、必须有 `max-w` 封顶、不得改回居中列）、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- 验证 / Evidence：定向 `npx eslint src/components/app/ConversationHeader.tsx` → 0 problems；`npx tsc -b` → 0 错误；相关契约测试 5 files / 105 tests 通过；`npm run build` 成功。
+- Notes：
+  - `max-w-[24rem]`（约 27 个中文字）是当前取的值；因为超出部分可以悬停滚动查看，这个值可以调窄而不会丢信息。
+  - 契约测试刻意不断言具体刻度（只断言"存在 max-w 封顶"），避免以后微调宽度就把测试弄红。
+  - 未创建 Git commit；`dist/` 由 `npm run build` 生成，未手工修改。
+
+## desktop-embedded-agent-browser（done，2026-11-02）
+
+- 触发：用户提出桌面端应使用应用内浏览器（Electron + WebContentsView + webContents.debugger(CDP) + MCP 工具封装），并要求在不变现有交互与体验的前提下把架构做到约束内最优、一次性落地全部可优化项。
+- 结论（一句话）：桌面端现在有一个应用内真实浏览器——主进程独占 WebContentsView 与 CDP，把页面操作包成主进程内的 MCP server；服务端只多了一个由 env 派生的内置项，工具命名、审批、事件推送与工具集刷新全部复用，Web 与 CLI 完全不受影响。
+- 关键设计：
+  1. 通道：主进程跑 StreamableHTTP MCP server（127.0.0.1 随机端口 + 一次性 Bearer token，无状态），server 子进程用现有 StreamableHTTPClientTransport 连入；不把 server 内联进主进程（同步 SQLite 会冻住主进程的既有结论不变）。
+  2. 引用：无障碍树快照生成 e12@g3 形式的引用，主 frame 导航或执行上下文重建即令世代失效；旧引用明确报错，绝不按 CSS 选择器猜坐标。
+  3. 安全：独立 session 分区、仅 http(s)、localhost 与 *.localhost、私网、链路本地、CGNAT、IPv4-mapped IPv6 全拦、新窗口 deny、权限与下载全拒、sandbox 与 contextIsolation 保持不变、渲染进程只拿到 bounds/visible/state 窄桥。
+  4. 审批：读取 MCP annotations.readOnlyHint，只读工具（snapshot/screenshot/wait_for）免审批，写操作照常逐次确认；未新增按域名授权 UI（那会改变现有交互）。
+  5. 前端：新增只能由程序打开的 agent-browser 标签（加号菜单不变、不持久化），工具一调用就切过去；ResizeObserver 加 rAF 合帧上报矩形，设置弹窗、切标签、隐藏窗口时收起原生层。
+- 改动文件：新增 desktop/browser 下 layout、policy、cdp-client、page-snapshot、page-actions、browser-host、mcp-server、ipc-contract 八个模块，src/lib/desktop-app.ts、src/lib/desktop-browser-bridge.ts、src/components/browser/AgentBrowserPanel.tsx、13 个测试文件、docs/architecture/desktop-agent-browser.zh-CN.md、docs/wiki/README.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md；修改 desktop/electron-main.mjs、desktop/electron-preload.cjs、server/mcp/config.mjs、server/mcp/registry.mjs、server/agent-manager.mjs、workspace 面板相关 6 个文件、src/App.tsx、src/lib/i18n.ts，并把 3 处重复的桌面端判定收敛到 src/lib/desktop-app.ts。
+- 验证 / Evidence：
+  - npm run test → 496 files / 5546 passed / 2 skipped（退出码 0；按当前工作树复跑——同期另一会话删除了会话消息快照缓存层，首跑还出现过 tests/server/plugins/audit.test.mjs 并发抖动失败，单独重跑通过）
+  - npm run lint → 0 problems；npx tsc -b → 0 错误；npm run build → 成功（precompress 224 files: 12.67MB → 6.49MB）
+  - 复核（本次复跑）：① token 不落盘——内置项写入的是 headers.authorization，归一化按 HTTP 传输转成 env，prepareForStorage 只清 env，磁盘上没有凭据（用例已断言持久化内容不含 token）；② 唯一 CDP 所有者——全仓库只有 desktop/browser/cdp-client.mjs 触碰 webContents.debugger；③ 只有 activePanelTab 会挂载 AgentBrowserPanel，切标签/关面板即卸载并收起原生层。
+  - 护栏补强：desktop-browser-wiring-contract 新增一条目录级契约——扫描 desktop/ 下所有 .mjs/.cjs/.js，断言只有 browser/cdp-client.mjs 出现 .debugger.，把「唯一 CDP 控制层」从注释变成可失败的断言；已做变异验证（临时加第二个使用者 → 该用例立刻红，删掉后恢复绿）。
+  - 补足最后一处空白：desktop/browser/browser-host.mjs 原先只有源码契约、没有直接单测（它 import electron 无法直连）。新增 tests/server/desktop-browser-host.test.mjs，用 vi.hoisted 造 Electron 替身（WebContentsView / session / webContents.debugger），覆盖懒创建与复用、rect 夹取、显隐、窗口 hide/show 期间保持请求态、策略拦截导航不触页面、动作期间强制可见后还原、权限与新窗口与下载全拒、dispose 解绑并摘除子视图，共 8 例。
+  - 再补：desktop/browser/cdp-client.mjs 也没有直接单测（它是所有动作的信任边界）。新增 tests/server/desktop-browser-cdp-client.test.mjs，用假 webContents 覆盖 attach 幂等与事件只绑一次、message/detach 转发、视图销毁后 attached 为假、销毁视图拒绝 attach、detach 空操作、detach 后发命令自动重挂、命令失败带方法名并保留 cause、命令超时（假计时器推到 31s 断言 reject）、waitForEvent 命中谓词返回参数、超时返回 null 而不抛，共 10 例。
+  - 等价重构 + 补测：把 electron-main 里的 parseBrowserRequest 抽到 desktop/browser/ipc-contract.mjs（与 layout.mjs 同样理由：main 依赖 electron 无法直连单测），主进程改为 import，行为逐字不变；新增 tests/server/desktop-browser-ipc-contract.test.mjs，锁住白名单形状（无参请求多一个键即拒、set-visible 只认布尔、set-bounds 必须四个已知键且全为有限数、宽高不得小于 1、非对象/数组/未知类型一律 null），共 8 例。
+  - 打包验证：desktop:build:win 首次失败于 desktop-dist 里旧 app.asar 被外部句柄占用（EBUSY，删不掉也不像有进程持有，怀疑杀毒/索引器），改用 -c.directories.output=desktop-dist-next 后成功；产物 QuickForge Setup 2.3.7.exe（111MB）与 QuickForge-Portable-2.3.7.exe（110.8MB）；用 asar list 核对包内 desktop/browser 的 8 个模块齐全。版本号仍是 2.3.7（未升版本，是否升 2.3.8 由用户决定）。
+  - 新增 13 个测试文件共 103 个用例，其中 desktop-browser-mcp-server.test.mjs 用真实 MCP 客户端对 HTTP 端点做端到端校验（listTools 的 9 个工具与 annotations、callTool 转发、策略拒绝映射为 isError、缺 token 401、GET 405）。
+- Notes：
+  - Electron 真实渲染、CDP attach 时序、原生层遮罩无法在 CI 覆盖，架构文档第 10 节给了 5 步手工验收。
+  - 明确不做：多标签、按域名批量授权、截图 base64 回传模型、下载与上传、元素高亮浮层、跨 iframe 元素操作。
+  - 护栏测试真实命中一次：新面板最初用了 text-muted-foreground/70 与 border-border/60，旧产物没有这两个档位，已改用白名单档位（语义色一致性测试）。
+  - 已知遗留（非本 feature 引入）：同期另一会话删除 src/lib/session-message-cache.ts 后，tests/frontend/server-agent-final-answer-recovery.test.ts 与 tests/frontend/thinking-final-reply-visibility.test.ts 仍保留 vi.mock('@/lib/session-message-cache')。因为带了 factory，vitest 不解析该 id，测试照常通过，但它是对已删除模块的悬空引用，下次动这两个文件时删掉。
+  - 全量跑并发抖动已见两例（都不是真实缺陷）：tests/server/plugins/audit.test.mjs 的 300 条上限用例、tests/server/session-state-repository.test.mjs 的多进程 CAS 用例；两者单独跑都通过。判定方式固定为「单文件重跑 + 整链重跑」，别据此改断言。
+  - 本 feature 与「删除会话消息快照缓存」是同一个工作树里的两条并行变更：两者文件不重叠，但全量 test/lint 的耗时与文件数会随对方进度变化，判断门禁结果时以当次完整输出为准。
+  - 未创建 Git commit/tag/push；dist/ 由 npm run build 生成，未手工修改。
+
 ## release-2-3-7（done，2026-11-02）
 
 - 触发：用户问「可以撤回最近的包然后重新发么」（想处理有 bug 的 2.3.6）。

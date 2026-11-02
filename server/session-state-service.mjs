@@ -433,7 +433,7 @@ function mergeMetadata(existing, update, sessionId) {
  * so a metadata-only save (rename / pin / archive) used to downgrade the body's
  * full record to that flat subset. Keep the body-side rich fields when the
  * incoming projection does not carry them: `summaryMessage` and `history`
- * (one entry per compaction, see `MAX_CONTEXT_COMPACTION_HISTORY`).
+ * (one entry per compaction, never truncated).
  */
 function mergeContextCompactionMetadata(current, incoming) {
   if (!isPlainObject(incoming)) return incoming

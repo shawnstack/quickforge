@@ -79,7 +79,7 @@ function sanitizeContextCompaction(compaction) {
     ...compaction,
     summaryMessage: sanitizeMessage(compaction.summaryMessage),
   }
-  // One entry per compaction (see MAX_CONTEXT_COMPACTION_HISTORY). Each entry
+  // One entry per compaction (kept unbounded, one per run). Each entry
   // carries its own summary, so the shared view must redact them the same way —
   // otherwise a public share leaks the `contextReferences` that
   // `sanitizeMessage` strips from the live summary.

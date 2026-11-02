@@ -2,6 +2,16 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## compaction-record-no-truncation（done，2026-11-02）
+
+- Goal：用户要求「每次压缩的记录都保存，不要合并成全局一条线」，并裁定 **UI 完全不动，只保留过程**。
+- 结论（一句话）：时间线本来就是「一次压缩一条线」（摘要是真实消息）；缺的只是过程被 20 条上限截断，所以唯一改动是 `compactSessionInPlace` 的 `history` 改为纯追加，删除 `MAX_CONTEXT_COMPACTION_HISTORY`。
+- 关键改动：`server/auto-compaction.mjs`（`history: [...previousHistory, historyEntry]`；常量与「设上限避免 body_json 无限增长」注释换成「不设上限、每条自带当次摘要」）；三处引用该常量的文档注释同步（`server/routes/shared-conversation.mjs`、`server/session-state-service.mjs`、`src/lib/server-agent-types.ts`）。前端、持久化结构、切点、`compactedUpToIndex`、`buildAutoCompactLoopMessages`、回滚判定、条目字段全部未动。
+- 测试：`tests/server/auto-compaction-history.test.mjs` 的「上限截断」用例替换为「保留全部记录」——预置 25 条 → 26 条，最旧一条仍在且仍带自己的 `summaryMessage`，最新一条等于顶层 `summaryMessage`。
+- 代价（明确接受）：`body_json` 随压缩次数线性增长；每条记录 ≈ 一份当次摘要，而摘要消息本身也在 `messages` 里，因此同一次压缩的正文在 body 中出现两次；分享页逐条脱敏的 payload 同步变大。设计口径见 `docs/design/per-compaction-records.zh-CN.md`。
+- 验证：定向 vitest 5 文件 / 35 用例全过；全量 `npm run test` → 480 files / 5447 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems。未创建 Git commit。
+- Notes：设计稿里被否掉的可选项（消息自带 `compactionId`/序号、pill 显示「第 N 次」、删除「已并入后续摘要」文案）已明确记为「未做（UI 不动）」，若日后要改口径按该文档升级。
+
 ## compaction-anchor-at-occurrence（done，2026-11-02）
 
 - Goal：用户裁定压缩分割线必须显示在「压缩发生点」（选定 docs/design/compaction-anchor-preview.html 方案 B），线以下是压缩之后继续的 tool 调用，不再被抬到用户消息上方；当前用户请求由摘要承载，其余审查问题（P2–P5）不修。

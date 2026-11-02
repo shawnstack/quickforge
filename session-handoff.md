@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## compaction-record-no-truncation（done，2026-11-02）
+
+- Current Objective（当前目标）：用户要求「每次压缩的记录都保存，不要合并成全局一条线」，并裁定 UI 完全不动、只保留过程。
+- 结论（一句话）：压缩线本来就是一条消息（一次压缩一条线，位置在压缩发生点）；这次只去掉 `contextCompaction.history` 的 20 条截断——`history: [...previousHistory, historyEntry]`，常量 `MAX_CONTEXT_COMPACTION_HISTORY` 删除，第 21 次之后不再丢最旧记录。
+- 改动文件：server/auto-compaction.mjs（history 纯追加 + 注释）、server/routes/shared-conversation.mjs / server/session-state-service.mjs / src/lib/server-agent-types.ts（注释去常量引用）、tests/server/auto-compaction-history.test.mjs（截断用例 → 保留全部记录 + `summaryStub`）、docs/design/per-compaction-records.zh-CN.md（新）、docs/wiki/server/README.md、CHANGELOG.md、三件套。
+- Evidence（验证）：定向 `npx vitest run`（auto-compaction-history / compaction-message / auto-compaction / auto-compaction-notice / context-compaction-notice）→ 5 files / 35 tests 全过；全量 `npm run test` → 480 files / 5447 passed / 2 skipped；`npx tsc -b` → 0 错误；`npm run lint` → 0 problems。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：无待续。已知代价：`body_json` 随压缩次数线性增长（记录自带当次摘要，且摘要消息本身也在 messages 里）；设计稿里记录的「未做项」——消息自带 `compactionId`/序号、pill 显示「第 N 次」、移除「已并入后续摘要」文案——按用户裁定保持不动。
+
 ## compaction-anchor-at-occurrence（done，2026-11-02）
 
 - Current Objective（当前目标）：按用户裁定实现审查项 P1——压缩分割线显示在压缩发生点（方案 B：线在压缩那一刻的数组末尾），后续 tool 调用排在线下方，不再抬到用户消息上方；当前用户请求由摘要承载；P2–P5 不修。

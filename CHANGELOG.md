@@ -6,6 +6,8 @@ All notable changes to QuickForge will be documented in this file.
 
 ### Added
 
+- Every context compaction now keeps its own record: `contextCompaction.history` is append-only with no entry cap (`MAX_CONTEXT_COMPACTION_HISTORY` is gone), so the 21st compaction and beyond no longer drop the oldest record. Each record still carries that pass's summary, usage and position, so a record survives even if its summary message is rolled back out of the timeline. The UI is untouched; `body_json` grows linearly with the number of compactions, which is the accepted cost.
+
 - Automatic in-place upgrade for pre-baseline SQLite databases: a database still on the retired v1..v18 chain is caught up by the frozen `server/sqlite/legacy-migrations.mjs` chain, compat-era tables and the retired `sessions.harness` column are dropped, and the file is stamped as baseline v19 in one immediate transaction. Before writing, `initializeSqliteStorage` takes a consistent `VACUUM INTO` snapshot next to the database (`<db>.pre-v19-from-v<old>-<timestamp>.bak`); afterwards it runs one `VACUUM` so `auto_vacuum=INCREMENTAL` takes effect and dropped-object pages are reclaimed. Inconsistent `schema_migrations` metadata still fails closed without touching data.
 
 ### Changed

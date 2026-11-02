@@ -42,8 +42,8 @@ export type ActiveAgentStatus = {
 }
 
 /**
- * One entry per compaction, in chronological order (see
- * `MAX_CONTEXT_COMPACTION_HISTORY` on the server).
+ * One entry per compaction, in chronological order. The list is never truncated:
+ * every compaction keeps its own record (including that pass's summary).
  *
  * `occurredAtIndex` and `boundaryIndex` both record the compaction point — the
  * messages length at the instant compaction ran. The divider is anchored to

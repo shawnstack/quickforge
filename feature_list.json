@@ -1670,6 +1670,25 @@
       ],
       "verification": "npx vitest run 相关 15 文件 175 用例全过；npm run test 全量 480 文件/5447 用例通过（2 skipped）；npx tsc -b 0 错误；npm run lint 0 problems；npm run build 成功。",
       "updatedAt": "2026-11-02"
+    },
+    {
+      "id": "compaction-record-no-truncation",
+      "title": "压缩记录不截断：每次压缩的过程都保留，UI 不变",
+      "status": "done",
+      "summary": "用户裁定：每次压缩都是一段独立过程，记录必须留下，但界面不做任何改动（不加序号/统计行、不删「已并入后续摘要」文案、不改分割线视觉）。落地为唯一一处服务端逻辑改动：compactSessionInPlace 的 history 由 [...previousHistory, historyEntry].slice(-MAX_CONTEXT_COMPACTION_HISTORY) 改为纯追加，删除常量 MAX_CONTEXT_COMPACTION_HISTORY 与「设上限避免 body_json 无限增长」的注释，换成「不设上限、每条记录自带当次摘要」的设计说明；同步修正 server/routes/shared-conversation.mjs、server/session-state-service.mjs、src/lib/server-agent-types.ts 三处引用该常量的文档注释。前端、持久化结构、切点、compactedUpToIndex、buildAutoCompactLoopMessages、回滚判定、history 条目字段全部不变。代价明确接受：body_json 随压缩次数线性增长（每条记录≈一份当次摘要，摘要消息本身也在 messages 里，故同一次压缩的正文在 body 中出现两次），分享页逐条脱敏的 payload 同步变大。测试把原「上限截断」用例替换为「保留全部记录」（预置 25 条 → 26 条、最旧记录仍在且仍带自己的 summaryMessage、最新一条等于顶层 summaryMessage）。设计稿 docs/design/per-compaction-records.zh-CN.md 记录口径与未做项。",
+      "files": [
+        "server/auto-compaction.mjs（改：history 纯追加、删除上限常量）",
+        "server/routes/shared-conversation.mjs / server/session-state-service.mjs / src/lib/server-agent-types.ts（改：注释去常量引用）",
+        "tests/server/auto-compaction-history.test.mjs（改：截断用例改为保留全部记录 + summaryStub 辅助）",
+        "docs/design/per-compaction-records.zh-CN.md（新：口径与代价）",
+        "docs/wiki/server/README.md（改：history 不设上限）",
+        "CHANGELOG.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest（auto-compaction-history / compaction-message / auto-compaction / auto-compaction-notice / context-compaction-notice）5 文件 35 用例全过；npm run test 全量 480 文件 / 5447 用例通过（2 skipped）；npx tsc -b 0 错误；npm run lint 0 problems。",
+      "updatedAt": "2026-11-02"
     }
   ]
 }

@@ -18,14 +18,16 @@ export const DEFAULT_AUTO_COMPACT_SETTINGS = {
 }
 
 /**
- * 压缩历史条数上限。
+ * 压缩历史：每一次压缩一条记录，不设上限。
  *
  * 滚动压缩（rolling compaction）每次只把「上一版摘要 + 上次切点之后的增量」
- * 交给模型，但界面需要每一次压缩都在真实发生的位置留一条分割线，所以每次
- * 压缩都往 `contextCompaction.history` 追加一条记录而不是覆盖。
- * 每条记录带一份当次摘要（几 KB），设上限避免 body_json 无限增长。
+ * 交给模型，但每次压缩都是一段独立的过程，所以每次压缩都往
+ * `contextCompaction.history` 追加一条自带当次摘要与用量的记录，而不是覆盖，
+ * 也不按条数丢弃——截断会让第 N 次之后的压缩记录凭空消失。
+ *
+ * 代价：`body_json` 随压缩次数线性增长（每条记录 ≈ 一份当次摘要）。摘要消息
+ * 本身也在 `messages` 里，因此这里不再额外做去重或截断。
  */
-export const MAX_CONTEXT_COMPACTION_HISTORY = 20
 
 function clampNumber(value, fallback, min, max) {
   const parsed = Number(value)
@@ -352,7 +354,7 @@ export async function compactSessionInPlace({
     sourceMessageCount: nextMessages.length,
     usageBefore: usage,
     thresholdPercent,
-    history: [...previousHistory, historyEntry].slice(-MAX_CONTEXT_COMPACTION_HISTORY),
+    history: [...previousHistory, historyEntry],
   }
   onBeforePersist?.({ result, sourceMessages, tailStart, summaryMessage, messages: nextMessages })
   // 摘要插在数组末尾，但 state 之前的内容可能被替换（滚动压缩重打包上一版

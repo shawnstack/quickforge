@@ -11,10 +11,19 @@ vi.mock('../../server/conversation-compaction.mjs', async (importOriginal) => {
   }
 })
 
-const { compactSessionInPlace, MAX_CONTEXT_COMPACTION_HISTORY } = await import('../../server/auto-compaction.mjs')
+const { compactSessionInPlace } = await import('../../server/auto-compaction.mjs')
 
 function textMessage(role, text, timestamp) {
   return { role, content: [{ type: 'text', text }], timestamp }
+}
+
+function summaryStub(text) {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text: `<compact_summary>${text}</compact_summary>` }],
+    details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+    timestamp: 0,
+  }
 }
 
 function createSession(messages) {
@@ -125,24 +134,29 @@ describe('contextCompaction.history', () => {
     expect(session.contextCompaction.history[0].boundaryIndex).toBe(messages.length)
   })
 
-  it('caps the history so a long session cannot grow the body without bound', async () => {
+  it('keeps every compaction record instead of truncating the history', async () => {
+    const EXISTING = 25
     const messages = [textMessage('user', 'question', 1), textMessage('assistant', 'answer', 2)]
     const session = createSession(messages)
     session.contextCompaction = {
       compactedUpToIndex: 0,
-      history: Array.from({ length: MAX_CONTEXT_COMPACTION_HISTORY }, (_, index) => ({
+      history: Array.from({ length: EXISTING }, (_, index) => ({
         compactedAt: new Date(index).toISOString(),
         occurredAtIndex: 100 + index,
         boundaryIndex: 100 + index,
+        summaryMessage: summaryStub(`old ${index}`),
       })),
     }
 
     await compactSessionInPlace({ session, messages, reason: 'auto_compact' })
 
     const history = session.contextCompaction.history
-    expect(history).toHaveLength(MAX_CONTEXT_COMPACTION_HISTORY)
-    // Oldest entry dropped, newest appended.
-    expect(history[0].occurredAtIndex).toBe(101)
+    // 每一次压缩都是独立过程：不截断、不覆盖，最新一条追加在末尾。
+    expect(history).toHaveLength(EXISTING + 1)
+    expect(history[0].occurredAtIndex).toBe(100)
+    // 旧记录自带当次摘要，回滚删掉消息后仍然保留。
+    expect(history[0].summaryMessage).toBeDefined()
     expect(history.at(-1).occurredAtIndex).toBe(2)
+    expect(history.at(-1).summaryMessage).toBe(session.contextCompaction.summaryMessage)
   })
 })

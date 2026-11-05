@@ -1,5 +1,27 @@
 # Current Session Handoff
 
+## 当前交接：rollback-keeps-session-unified（done，2026-11-05）
+
+- Current Objective（当前目标）: 让「回滚」在任务会话与项目会话下行为一致——回滚只截断历史，不再删旧会话重建新会话。已实现，未提交。
+- 用户拍板的判断:
+  1. 项目会话没问题、任务会话有问题，说明两边不该分叉；逻辑要复用。
+  2. 回滚后应该留在原会话，而不是「弹回新发起对话页」。
+- 改动内容:
+  1. `src/hooks/useChatActions.ts`：`performRollback` 去掉「删旧会话 + `createAgent` 新会话」分支；两种入口（回滚填回输入框 / 就地编辑重发）统一为「截断 + 可选回填草稿 + 刷新面板」。移除 `storageRef` 入参及 `disposeAgentTask`、`shouldSaveSession`、`initializePiStorage` 引用。
+  2. `src/App.tsx`：`showNewChatEmptyState` 加 `!agentManager.currentSessionId`；`useChatActions` 调用去掉 `storageRef`。
+  3. 测试：更新 `tests/frontend/edit-first-message-resend-keeps-session.test.ts` 第三例；新增 `tests/frontend/new-chat-empty-state-requires-session.test.ts`。
+- Files（改动文件）: 见 `feature_list.json` 的 `rollback-keeps-session-unified`。
+- Evidence（验证）: `npx vitest run tests/frontend` → 291 files / 3319 tests passed；`npx tsc -b` → 通过；改动文件 eslint → 0 problems。未跑 build（会重写 `dist/`）。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 回滚后会话留空仍在列表里；标题沿用旧标题（服务端未重置 `titleSource`），这是本次有意接受的行为，避免再引入「删会话」路径。
+  - 判定「新对话空态」必须同时满足「没有会话」，这是本次 bug 的关键不变量，已加契约测试。
+  - 未创建 Git commit；未触碰生成产物。
+- Next Session（下一步）:
+  1. 实机验证：任务分组发起对话 → 发首条 → 回滚第一条，确认停在原会话、输入框有原文案、侧栏那条会话还在。
+  2. 同样步骤在项目会话里再走一遍，确认两端一致。
+  3. 可选：若希望空会话的标题重新生成，再评估服务端 rollback 时重置 `titleSource` 的影响面。
+
 ## 当前交接：global-memory-tool-write-only（done，2026-11-05）
 
 - Current Objective（当前目标）: 用户判断「MEMORY.md 那个工具的读部分可以不要了」，把 `manage_global_memory` 改成只写。已实现，未提交。

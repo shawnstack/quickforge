@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "rollback-keeps-session-unified",
+      "title": "回滚统一保留当前会话：去掉「删旧会话 + 新建空会话」，修任务会话回滚首条后跳回新对话页",
+      "status": "done",
+      "summary": "用户反馈任务分组发起对话后，回滚第一轮用户消息会「弹到新发起对话页面」，而项目会话没有这个问题。根因在 `useChatActions.performRollback`：传统回滚在 `shouldSaveSession(nextMessages)` 为 false 时额外执行「删除旧会话 + createAgent 新会话 + attachToView」，replaceState 写入新的 ?session=；再叠加 App.tsx 中只在 global scope 生效的「空态自动切项目会话」effect，任务侧被弹走，项目侧因 scope 不同未触发。修复把回滚统一为「只截断历史 + 可选回填草稿」，两种 scope 走同一路径；并把「新对话空态」收紧为必须没有会话，避免回滚产生的空会话被当成新对话页。",
+      "files": [
+        "src/hooks/useChatActions.ts（performRollback 去掉删会话/建会话分支；移除 storageRef 入参）",
+        "src/App.tsx（showNewChatEmptyState 增加 !currentSessionId；调用处去掉 storageRef）",
+        "tests/frontend/edit-first-message-resend-keeps-session.test.ts（第三例改为保留会话）",
+        "tests/frontend/new-chat-empty-state-requires-session.test.ts（新增契约测试）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/frontend → 291 files / 3319 tests passed；npx tsc -b → 通过；改动文件 eslint → 0 problems。未跑 npm run build（会重写 dist 产物）。",
+      "updatedAt": "2026-11-05"
+    },
+    {
       "id": "desktop-browser-dead-session-healing",
       "title": "内嵌浏览器坏会话自愈：就绪门 + 崩溃/断开作废重建 + 超时熔断重试（修复连续 Page.enable 超时）",
       "status": "done",

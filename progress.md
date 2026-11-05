@@ -2,6 +2,25 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## rollback-keeps-session-unified（done，2026-11-05）
+
+- 起因：用户反馈「任务分组发起对话，第一轮用户消息回滚后弹到新发起对话页面」，并指出项目会话没有这个问题、两边逻辑应该复用，要求评审并统一。
+- 根因：`performRollback` 对传统回滚（`restoreDraft=true`）额外做了「删旧会话 + `createAgent` 新会话」——`shouldSaveSession(nextMessages)` 为 false 就重建一个空会话并 `attachToView`，`replaceState` 写入新的 `?session=`。再叠加 `App.tsx` 里「新对话空态自动切到项目会话」的 effect（只在 `chatScope === 'global'` 时生效），任务侧就被弹走；项目侧因为 scope 不同没触发那个 effect，看起来「没事」。同一个缺陷在两种 scope 下表现不同，不是两套实现。
+- 改动：
+  1. `src/hooks/useChatActions.ts`：`performRollback` 删除「删会话 + 建新会话」整段，回滚只截断历史、按需把原文案回填输入框；`project` / `global` 两种 scope 走同一条收尾路径。同步移除不再需要的 `storageRef` 入参、`disposeAgentTask` / `shouldSaveSession` / `initializePiStorage` 引用。
+  2. `src/App.tsx`：`showNewChatEmptyState` 增加 `!agentManager.currentSessionId`——空态只属于「真的没有会话」，回滚产生的空会话不再伪装成新对话页，也就不会触发自动切项目会话；调用 `useChatActions` 时不再传 `storageRef`。
+  3. `tests/frontend/edit-first-message-resend-keeps-session.test.ts`：第三个用例从「传统回滚删会话重建」改成「传统回滚也保留会话」（断言不删除、不新建、不写 `?session=`、草稿仍指向原会话）。
+  4. `tests/frontend/new-chat-empty-state-requires-session.test.ts`（新增）：契约测试，锁住「空态必须没有会话」这一条件，防止回退。
+- 验证 / Evidence：
+  - `npx vitest run tests/frontend` → 291 files / 3319 tests 全通过。
+  - `npx tsc -b` → 通过（无输出）。
+  - `npx eslint src/App.tsx src/hooks/useChatActions.ts tests/frontend/edit-first-message-resend-keeps-session.test.ts tests/frontend/new-chat-empty-state-requires-session.test.ts` → 0 problems。
+  - 未运行 `npm run build`：会重写 `dist/` 产物，本次改动只涉及前端逻辑，类型检查与全量前端测试已覆盖。
+- Notes / 已知取舍：
+  - 回滚到第一条后会话留空但仍在列表里，标题仍是原标题。若后续希望空会话重新生成标题，需要服务端在 rollback 时重置 `titleSource`，本次不做。
+  - 不要再把「回滚清空」当成「新建对话」：判定空态必须同时看 `currentSessionId`，否则会重新引入本次 bug。
+  - 未创建 Git commit，未触碰 `dist/` / `package-dist/` / `package-offline/`。
+
 ## global-memory-tool-write-only（done，2026-11-05）
 
 - 起因：用户问「MEMORY.md 管理的 tools 是不是可以不用了」，我给了三档选择，用户拍板「读的部分不要了，那这个应该就是写入」——工具留着，只砍读取动作。

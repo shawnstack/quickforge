@@ -2,6 +2,22 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## release-2-4-0-minor（done，2026-11-05）
+
+- 触发：用户「发布一个中版本」。确认后按 minor 执行：`2.3.7 → 2.4.0`，范围是 `v2.3.7` 之后全部 12 个提交，Git 走 commit + tag + push `origin dev`。
+- 为什么是 minor 不是 patch：这 12 个提交里有新能力（桌面端内嵌 AI 浏览器、三层记忆体系 + 梦境逐会话整理员、经验库/工作记忆设置页）和删除性变更（退役 `recall_experience`、删 IndexedDB 会话快照缓存、删 goal v2 的 `goal_report` 路径），不是纯修复。runbook §2 明确 minor 需先确认，已征得同意再动。
+- 步骤（走 runbook 3.3–3.7 手动流程，未用 `release:patch:prepare`，Windows 上有已知 `spawnSync npm.cmd EINVAL`）：
+  1. `npm version minor --no-git-tag-version` → `package.json` / `package-lock.json` 三处版本号均为 2.4.0。
+  2. `CHANGELOG.md` 新增 `## [2.4.0] - 2026-11-05`，分 Added / Changed / Fixed / Removed / Released；原 `[Unreleased]` 里唯一一条（经验索引 200 行 + 字符上限 20000）归入 Changed，`[Unreleased]` 保留为空章节。
+  3. `README.md` 未改：现全文只用 `@shawnstack/quickforge@latest`，没有版本徽章、离线包路径、tag 文案三类硬编码，属于 runbook 3.4 的空操作。
+  4. 验证：`npm run test` → 502 files 全过；`npm run lint` → 0 problems；`npm run build` → 通过（precompress 225 files 12.67MB → 6.49MB；chunk >500kB 为既有无害 warning）。注意：三件套里记录的既有基线失败（ACP workspace-mapping 2 + sqlite `quick_check` 1）本次已不再出现。
+  5. 打包：`prepare-runtime-package.cjs` / `prepare-offline-package.cjs` 成功，`cd package-offline && npm pack` → `package-offline/shawnstack-quickforge-2.4.0.tgz`（npm 报 14.5 MB / 1036 files）。
+  6. Git：release commit `2bb5d9cd`，tag `v2.4.0`，已 push `origin dev`（`10955c03..2bb5d9cd`，tag 为新建）。
+- Notes / 已知取舍：
+  - `npm whoami` 返回 401（本机未登录 npm），因此没有执行 `npm publish`，只给用户手动发布命令。
+  - 桌面端内嵌浏览器与三层记忆体系都是本次首次随 npm 版本对外，实机验收（内嵌浏览器自愈、记忆目录打开、压缩只出现「正在整理上下文」）仍需各自 feature 的 Next 项收尾。
+  - `dist/`、`package-dist/`、`package-offline/` 全部由脚本生成，未手工修改，也不进 Git。
+
 ## experience-library-open-actions（done，2026-11-05）
 
 - 起因：用户要求「梦境记忆 → 经验库也像工作记忆一样有打开按钮，UI 保持统一」，追问后确认「两个都要」：每条经验一个「打开」+ 整个经验库一个「打开文件夹」。紧接着用户又说「好的 执行」，把工作记忆页的「打开文件夹」也补齐，两页对称。

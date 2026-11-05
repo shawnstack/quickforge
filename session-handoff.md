@@ -1,5 +1,25 @@
 # Current Session Handoff
 
+## 当前交接：release-2-4-0-minor（done，2026-11-05）
+
+- Current Objective（当前目标）: 用户说「发布一个中版本」。确认后按 minor 发布 `2.3.7 → 2.4.0`，范围是 `v2.3.7` 之后全部 12 个提交；Git 走 commit + tag + push `origin dev`。
+- 结论（一句话）: 版本号、CHANGELOG、三件套验证、runtime/offline 包、commit/tag/push 全部完成；npm 未登录，所以没发布，只留命令。
+- 改动内容:
+  1. `package.json` / `package-lock.json`：2.3.7 → 2.4.0（`npm version minor --no-git-tag-version`）。
+  2. `CHANGELOG.md`：新增 `## [2.4.0] - 2026-11-05`（Added / Changed / Fixed / Removed / Released），把原 `[Unreleased]` 的经验索引 200 行条目并入 Changed。
+  3. `README.md`：未改——已全部使用 `@latest`，没有版本硬编码。
+  4. `progress.md` / `session-handoff.md`：本次发布留档。
+- Evidence（验证）: `npm run test` → 502 files 全过（不再有 ACP / sqlite 基线失败）；`npm run lint` → 0 problems；`npm run build` → 通过，precompress 225 files 12.67MB → 6.49MB；离线包 `package-offline/shawnstack-quickforge-2.4.0.tgz`（14.5 MB / 1036 files）；release commit `2bb5d9cd`，tag `v2.4.0`，已推送 `origin dev`。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 这次发布首次把桌面端内嵌 AI 浏览器、三层记忆体系（工作记忆 + 经验库 + 梦境逐会话整理员）、压缩免审批、goal v2 单一完成入口一并对外。
+  - `npm whoami` 是 401（未登录），`npm publish` 没执行。想真发就 `npm login` 后 `cd package-offline && npm publish --access public`。
+  - 生成产物（`dist/` / `package-dist/` / `package-offline/`）全由脚本产出，不要手工改。
+- Next Session（下一步）:
+  1. 登录 npm 后发布 `@shawnstack/quickforge@2.4.0`（或明确让我发）。
+  2. 实机验收新版本：桌面端内嵌浏览器（坏会话自愈、连续 `Page.enable` 不再超时）、设置 · 工作记忆/经验库的「打开」与「打开文件夹」、回滚后立刻发送按钮状态、长会话压缩只出现「正在整理上下文」一行。
+  3. 桌面端 2.3.7 打包版仍在跑旧代码，复验前要重启桌面端（或 `npm run desktop:dev`）。
+
 ## 当前交接：compaction-without-approval（done，2026-11-05）
 
 - Current Objective（当前目标）: 评审上下文压缩的算法与交互后，用户拍板「压缩直接执行，不需要用户同意」，要求把自动压缩的审批整条链删掉。已实现，未提交。

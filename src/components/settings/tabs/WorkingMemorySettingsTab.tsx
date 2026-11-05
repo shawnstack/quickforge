@@ -1,29 +1,69 @@
 import { useEffect, useState } from 'react'
-import { t } from '@/lib/i18n'
+import { getDateLocale, t } from '@/lib/i18n'
+import { Button } from '@/components/ui/button'
 import { InfoTip } from '@/components/ui/info-tip'
 import { SettingsSwitch } from './shared'
 
 // The note-writing prompt is an internal contract: the server owns it and never
 // exposes it here, so users cannot break the "file name = one-sentence summary"
-// format. This tab only surfaces the switch, the folder, and a read-only example.
+// format. This tab surfaces the switch, the folder, and a read-only note list.
 type WorkingMemoryDocument = {
   enabled: boolean
   path: string
 }
 
-const FALLBACK_PATH = '~/.quickforge/working-memory'
+type WorkingMemoryNote = {
+  name: string
+  title: string
+  updatedAt: number
+}
 
-async function requestWorkingMemory(body?: { enabled?: boolean }): Promise<WorkingMemoryDocument> {
-  const response = await fetch('/api/working-memory', body
-    ? {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      }
-    : { cache: 'no-store' })
-  const payload = await response.json().catch(() => null) as (WorkingMemoryDocument & { error?: string }) | null
-  if (!response.ok || !payload) throw new Error(payload?.error || t('requestFailed'))
-  return payload
+type WorkingMemoryNotesPage = {
+  notes: WorkingMemoryNote[]
+  page: number
+  pageSize: number
+  total: number
+}
+
+const FALLBACK_PATH = '~/.quickforge/working-memory'
+const PAGE_SIZE = 20
+
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, {
+    ...init,
+    cache: 'no-store',
+    headers: {
+      ...(init?.body ? { 'content-type': 'application/json' } : undefined),
+      ...init?.headers,
+    },
+  })
+  const payload = await response.json().catch(() => null)
+  if (!response.ok || !payload) {
+    const message = (payload as { error?: string } | null)?.error
+    throw new Error(message || t('requestFailed'))
+  }
+  return payload as T
+}
+
+const fetchWorkingMemory = () => requestJson<WorkingMemoryDocument>('/api/working-memory')
+
+const saveWorkingMemoryEnabled = (enabled: boolean) => requestJson<WorkingMemoryDocument>('/api/working-memory', {
+  method: 'PUT',
+  body: JSON.stringify({ enabled }),
+})
+
+const fetchWorkingMemoryNotes = (page: number) =>
+  requestJson<WorkingMemoryNotesPage>(`/api/working-memory/notes?page=${page}&pageSize=${PAGE_SIZE}`)
+
+const requestOpenWorkingMemoryNote = (name: string) =>
+  requestJson<{ ok: boolean }>('/api/working-memory/notes/open', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+
+function formatNoteTime(value: number) {
+  if (!value) return '—'
+  return new Date(value).toLocaleString(getDateLocale())
 }
 
 export function WorkingMemorySettingsTab() {
@@ -34,9 +74,37 @@ export function WorkingMemorySettingsTab() {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
+  const [notes, setNotes] = useState<WorkingMemoryNote[]>([])
+  const [noteTotal, setNoteTotal] = useState(0)
+  const [notePage, setNotePage] = useState(1)
+  const [notesLoading, setNotesLoading] = useState(true)
+  const [notesError, setNotesError] = useState('')
+  const [openingName, setOpeningName] = useState('')
+
   const applyDocument = (payload: WorkingMemoryDocument) => {
     setEnabled(payload.enabled)
     setFolderPath(payload.path || FALLBACK_PATH)
+  }
+
+  const loadNotes = async (page: number) => {
+    try {
+      const payload = await fetchWorkingMemoryNotes(page)
+      setNotes(payload.notes)
+      setNoteTotal(payload.total)
+      setNotePage(payload.page)
+      setNotesError('')
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : t('requestFailed'))
+    } finally {
+      setNotesLoading(false)
+    }
+  }
+
+  // Switching page shows the loading line again; the initial load starts with
+  // `notesLoading` already true so the effect itself stays side-effect free.
+  const goToPage = (page: number) => {
+    setNotesLoading(true)
+    void loadNotes(page)
   }
 
   useEffect(() => {
@@ -45,12 +113,33 @@ export function WorkingMemorySettingsTab() {
       setLoading(true)
       setError('')
       try {
-        const payload = await requestWorkingMemory()
+        const payload = await fetchWorkingMemory()
         if (!cancelled) applyDocument(payload)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
       } finally {
         if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const payload = await fetchWorkingMemoryNotes(1)
+        if (cancelled) return
+        setNotes(payload.notes)
+        setNoteTotal(payload.total)
+        setNotePage(payload.page)
+        setNotesError('')
+      } catch (err) {
+        if (!cancelled) setNotesError(err instanceof Error ? err.message : t('requestFailed'))
+      } finally {
+        if (!cancelled) setNotesLoading(false)
       }
     })()
     return () => {
@@ -65,7 +154,7 @@ export function WorkingMemorySettingsTab() {
     setMessage('')
     setError('')
     try {
-      applyDocument(await requestWorkingMemory({ enabled: next }))
+      applyDocument(await saveWorkingMemoryEnabled(next))
       setMessage(next ? t('workingMemoryEnabledSaved') : t('workingMemoryDisabledSaved'))
     } catch (err) {
       setEnabled(previous)
@@ -75,9 +164,23 @@ export function WorkingMemorySettingsTab() {
     }
   }
 
+  const openNote = async (name: string) => {
+    setOpeningName(name)
+    setNotesError('')
+    try {
+      await requestOpenWorkingMemoryNote(name)
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : t('requestFailed'))
+    } finally {
+      setOpeningName('')
+    }
+  }
+
   if (loading) {
     return <div className="text-sm text-muted-foreground">{t('loading')}</div>
   }
+
+  const totalPages = Math.max(1, Math.ceil(noteTotal / PAGE_SIZE))
 
   return (
     <div className="quickforge-settings-stack">
@@ -106,17 +209,64 @@ export function WorkingMemorySettingsTab() {
             <code className="text-xs text-muted-foreground">{folderPath}</code>
           </div>
         </div>
+      </section>
 
-        <div className="quickforge-settings-row quickforge-settings-row-align-start">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('workingMemoryNotesStyle')}</div>
-            <div className="quickforge-settings-row-description">{t('workingMemoryNotesStyleDescription')}</div>
-            <details className="quickforge-settings-note mt-2">
-              <summary className="cursor-pointer select-none">{t('workingMemoryExample')}</summary>
-              <pre className="mt-2 whitespace-pre-wrap font-mono text-xs leading-relaxed">{t('workingMemoryExampleContent')}</pre>
-            </details>
+      <section className="quickforge-settings-section" aria-label={t('workingMemoryNotes')}>
+        <div className="quickforge-settings-list-header">
+          <div>
+            <div className="quickforge-settings-row-title">{t('workingMemoryNotes')}</div>
+            <div className="quickforge-settings-row-description">{t('workingMemoryNotesDescription')}</div>
           </div>
+          <span className="text-xs text-muted-foreground">{t('workingMemoryNotesCount', { total: noteTotal })}</span>
         </div>
+
+        {notesLoading ? (
+          <div className="quickforge-working-memory-empty">{t('loading')}</div>
+        ) : notes.length === 0 ? (
+          <div className="quickforge-working-memory-empty">{t('workingMemoryNotesEmpty')}</div>
+        ) : (
+          <ul className="quickforge-working-memory-list">
+            {notes.map((note) => (
+              <li className="quickforge-settings-list-item" key={note.name}>
+                <div className="quickforge-settings-list-item-main">
+                  <div className="quickforge-working-memory-note-title" title={note.name}>{note.title}</div>
+                  <div className="quickforge-working-memory-note-meta">{formatNoteTime(note.updatedAt)}</div>
+                </div>
+                <div className="quickforge-settings-list-item-actions">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    disabled={openingName === note.name}
+                    onClick={() => void openNote(note.name)}
+                  >
+                    {openingName === note.name ? t('loading') : t('workingMemoryNotesOpen')}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {totalPages > 1 ? (
+          <div className="quickforge-working-memory-pager">
+            <Button variant="ghost" size="sm" type="button" disabled={notePage <= 1} onClick={() => goToPage(notePage - 1)}>
+              {t('workingMemoryNotesPrev')}
+            </Button>
+            <span>{t('workingMemoryNotesPage', { page: notePage, total: totalPages })}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={notePage >= totalPages}
+              onClick={() => goToPage(notePage + 1)}
+            >
+              {t('workingMemoryNotesNext')}
+            </Button>
+          </div>
+        ) : null}
+
+        {notesError ? <div className="quickforge-working-memory-note-error">{notesError}</div> : null}
       </section>
 
       {message ? <div className="quickforge-settings-message">{message}</div> : null}

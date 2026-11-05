@@ -57,7 +57,7 @@ describe('definitions', () => {
   })
 
   describe('globalMemoryTool', () => {
-    it('supports complete document reads and writes and is sequential', () => {
+    it('is a write-only, sequential tool', () => {
       expect(globalMemoryTool.name).toBe('manage_global_memory')
       expect(globalMemoryTool.executionMode).toBe('sequential')
       expect(globalMemoryTool.description).toContain('complete global MEMORY.md')
@@ -65,7 +65,9 @@ describe('definitions', () => {
       expect(globalMemoryTool.description).toContain('current-task instructions')
       expect(globalMemoryTool.description).toContain('Do not force an update')
       expect(globalMemoryTool.description).toContain('deduplicate or update conflicting information')
-      expect(globalMemoryTool.parameters.properties).toHaveProperty('action')
+      // The document is injected into the system prompt, so there is no action to pick.
+      expect(globalMemoryTool.parameters.properties).not.toHaveProperty('action')
+      expect(globalMemoryTool.parameters.required).toEqual(['markdown'])
       expect(globalMemoryTool.parameters.properties).toHaveProperty('markdown')
       expect(globalMemoryTool.parameters.properties).not.toHaveProperty('type')
       expect(globalMemoryTool.parameters.properties).not.toHaveProperty('id')

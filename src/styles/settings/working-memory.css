@@ -1,0 +1,53 @@
+/*
+ * Working memory (Settings > Memory).
+ *
+ * The note list is read-only: compact rows with one title, one timestamp and an
+ * "open" action that reveals the file in the system file manager. Rows reuse the
+ * shared settings list item, only tightened up here because a 20-row page would
+ * otherwise run far past the settings viewport.
+ */
+.quickforge-working-memory-list > .quickforge-settings-list-item {
+  min-height: 3.25rem;
+  gap: 1rem;
+  padding-block: 0.625rem;
+}
+
+.quickforge-working-memory-note-title {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickforge-working-memory-note-meta {
+  margin-top: 0.125rem;
+  color: color-mix(in oklab, var(--muted-foreground) 86%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.quickforge-working-memory-empty {
+  padding: 1.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+
+.quickforge-working-memory-note-error {
+  padding: 1rem 1.25rem;
+  color: color-mix(in oklab, #b91c1c 72%, var(--foreground));
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.quickforge-working-memory-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-top: 1px solid color-mix(in oklab, var(--border) 54%, transparent);
+  padding: 0.625rem 1.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}

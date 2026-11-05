@@ -1,14 +1,77 @@
 {
   "features": [
     {
-      "id": "memory-experiences-note-no-dreaming-link",
-      "title": "用户记忆页去掉指向梦境记忆的跳转文案",
+      "id": "global-memory-tool-write-only",
+      "title": "manage_global_memory 改成只写：删掉 action 的读取分支",
       "status": "done",
-      "summary": "用户要求「设置 → 用户记忆」里不再出现跳去梦境记忆的指引。memoryExperiencesNote 中英文都删掉末尾那句「可在「设置 → 梦境记忆」里查看」/「open Settings → Dreaming to read them」，只保留经验库路径、注入方式和「由后台任务维护、不在此处编辑」。经验库自己的入口就在梦境记忆页里，这句话不必再指一次路。",
+      "summary": "用户判断「读的部分不要了，那这个应该就是写入」：MEMORY.md 每轮已整份注入 <global_user_memory>，再让模型调工具读一遍只是白烧一轮。落地：①server/tools/definitions.mjs 的 globalMemoryTool 去掉 action 参数（原 Type.Union(['read','write'])），markdown 由 Optional 改必填，description 改成纯写入语义并写明「当前内容已在 <global_user_memory>，别调本工具去读」；②server/global-memory.mjs 的 manageGlobalMemory 删除 action=read 分支并改名 writeGlobalMemory，'Memory action must be read or write' 一并删除；返回的 details.action 仍是 'write'，因为前端渲染器按它分支（历史消息也靠它）；③server/tools/index.mjs 的导入与壳函数跟着改名；④server/system-prompt.mjs 的 memory_policy 把「Before writing, read the complete memory」改成「当前文档已在下方 <global_user_memory>，直接用那份」，否则是一句做不到的指令；⑤src/lib/global-memory-tool-output.ts 的 action==='read' 分支保留并加注释——只为渲染旧会话里的历史结果。不变的边界：工具名、免审批放行、/命令 allowEdit 权限、16KB 上限与敏感内容校验、REST GET/PUT /api/memory 与注入路径都没动。已确认工具名没有被持久化进任何用户配置（profile 白名单只认 5 个文件工具、命令存布尔量、settings 只存 enabled），所以改动不破坏存量配置。",
       "files": [
-        "src/lib/i18n.ts"
+        "server/tools/definitions.mjs",
+        "server/global-memory.mjs",
+        "server/tools/index.mjs",
+        "server/system-prompt.mjs",
+        "src/lib/global-memory-tool-output.ts",
+        "tests/server/global-memory.test.mjs",
+        "tests/server/tools/definitions.test.mjs",
+        "tests/server/system-prompt.test.mjs",
+        "docs/wiki/server/README.md",
+        "docs/architecture/memory-system.zh-CN.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
       ],
-      "verification": "npx vitest run tests/frontend/i18n-language-snapshot.test.ts tests/frontend/settings-workspace-react.test.ts -> 2 files / 23 passed; npm run lint -> 0 problems",
+      "verification": "npx vitest run tests/server/global-memory.test.mjs tests/server/tools/definitions.test.mjs tests/server/system-prompt.test.mjs tests/server/approval-store.test.mjs -> 4 files / 56 passed；npm run test -> 499 files / 5529 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；npm run lint -> 0 problems；npm run build -> 通过（precompress 225 files 12.67MB → 6.49MB）",
+      "updatedAt": "2026-11-05"
+    },
+    {
+      "id": "experience-index-line-cap-200",
+      "title": "经验库索引注入上限 80 行 → 200 行",
+      "status": "done",
+      "summary": "用户认为经验索引 80 行太小，要求提到 200 行。用户反馈：80 行太小了 设置200行。改动：server/experiences.mjs 的 MAX_EXPERIENCE_INDEX_LINES 80 → 200；同时把 MAX_EXPERIENCE_INDEX_CHARS 8000 → 20000——8000 字符按 ~100 字符/行只装得下约 80 行，只抬行数不抬字符数，索引仍会在 80 条左右被 slice() 截断（可能切在半行），200 行等于没生效，新值维持同样的每行比例。测试：封顶用例从 90 条改 210 条（期望 200 条 + 1 行「还有 10 条较旧」页脚），新增 200 条满额用例断言最旧一条完整出现且总长 ≤ 20000。文档同步 memory-system 架构文、wiki README、server wiki、CHANGELOG。上限保持常量而非设置项：它决定每条消息的固定 token 成本，可调会让注入体积随配置漂移。",
+      "files": [
+        "server/experiences.mjs",
+        "tests/server/memory-notes.test.mjs",
+        "docs/architecture/memory-system.zh-CN.md",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "CHANGELOG.md"
+      ],
+      "verification": "npx vitest run tests/server/memory-notes.test.mjs tests/server/dreaming-curator.test.mjs -> 2 files / 24 passed; npm run lint -> 0 problems; npm run build -> ok（未跑全量 test：单常量改动，相关用例已覆盖）",
+      "updatedAt": "2026-11-05"
+    },
+    {
+      "id": "working-memory-settings-note-list",
+      "title": "设置 → 工作记忆：删掉「笔记怎么写」，改成笔记分页查询 + 打开",
+      "status": "done",
+      "summary": "用户要求：工作记忆设置页不要「笔记怎么写」的说明，改成笔记的分页查询和打开功能。拍板结果：打开 = 在系统文件管理器里选中该笔记文件；列表每行 = 笔记名 + 更新时间 + 打开按钮，每页 20 条，带上一页/下一页。落地：删掉「笔记怎么写」整块（标题+说明+示例折叠）及对应 4 个中英 i18n key；server/note-store.mjs 新增 listNotePage()（只 stat 不读正文，返回 { notes:[{name,title,updatedAt}], total }）；server/working-memory.mjs 新增 listWorkingMemoryNotePage() 与 openWorkingMemoryNote()（名字经 normalizeNoteName 校验、路径由服务端用 workingMemoryDir 拼、不接受客户端路径、缺失 404、openPath 可注入）；server/routes/working-memory.mjs 新增 GET /api/working-memory/notes（page≥1、pageSize 夹 1–100，默认 20，返回不含正文）与 POST /api/working-memory/notes/open，未知子路径 404；server/index.mjs 的挂载从精确匹配改为前缀匹配；前端 WorkingMemorySettingsTab 新增只读列表（标题+时间+打开）、空/加载/错误态与分页；新增 src/styles/settings/working-memory.css（紧凑列表行、标题省略、弱化时间、分页条）并在 styles/index.css import。",
+      "files": [
+        "src/components/settings/tabs/WorkingMemorySettingsTab.tsx",
+        "src/lib/i18n.ts",
+        "src/styles/settings/working-memory.css（新增）",
+        "src/styles/index.css",
+        "server/note-store.mjs",
+        "server/working-memory.mjs",
+        "server/routes/working-memory.mjs",
+        "server/index.mjs",
+        "tests/server/routes/working-memory.test.mjs",
+        "tests/frontend/working-memory-settings-tab.test.ts（新增）",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md"
+      ],
+      "verification": "npx vitest run tests/server/routes/working-memory.test.mjs -> 10 passed；npx vitest run tests/frontend/working-memory-settings-tab.test.ts -> 4 passed；npm run lint -> 0 problems；npm run build -> 通过（precompress 225 files 12.68MB → 6.49MB）；npm run test -> 499 files / 5529 passed / 3 failed / 1 skipped，3 个失败为既有基线（ACP workspace-mapping 2 + sqlite-quick-check-gate 1），与本次改动无关",
+      "updatedAt": "2026-11-05"
+    },
+    {
+      "id": "memory-experiences-note-no-dreaming-link",
+      "title": "用户记忆页去掉两处指向梦境记忆的跳转",
+      "status": "done",
+      "summary": "用户要求「设置 → 用户记忆」里不要再出现跳去梦境记忆的指引，两处都清掉：①memoryExperiencesNote 中英文删掉末尾「可在「设置 → 梦境记忆」里查看」/「open Settings → Dreaming to read them」，只留经验库路径、注入方式和「由后台任务维护、不在此处编辑」；②删掉页面底部整块「梦境记忆」section（标题 + memoryDreamingSummary 状态行 + 「打开 Dreaming 设置」按钮），连带移除 MemorySettingsTab 的 /api/dreaming 请求、dreaming 状态、useUIStore 导入，并删除随之空转的 i18n 键 memoryDreamingSummary / memoryDreamingOpen（中英）。settingsTabRequest 信号与其订阅保留（通用设施，仅暂无生产方），文档 zustand-migration 表格加注说明。",
+      "files": [
+        "src/lib/i18n.ts",
+        "src/components/settings/tabs/MemorySettingsTab.tsx",
+        "docs/architecture/zustand-migration.zh-CN.md"
+      ],
+      "verification": "npx vitest run settings-workspace-react / i18n-language-snapshot / ui-store / working-memory-settings-tab -> 4 files / 33 passed; npm run lint -> 0 problems; npx tsc --noEmit -> 0 errors; npm run build -> ok",
       "updatedAt": "2026-11-05"
     },
     {

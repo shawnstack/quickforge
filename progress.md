@@ -2,13 +2,68 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## global-memory-tool-write-only（done，2026-11-05）
+
+- 起因：用户问「MEMORY.md 管理的 tools 是不是可以不用了」，我给了三档选择，用户拍板「读的部分不要了，那这个应该就是写入」——工具留着，只砍读取动作。
+- 判断依据：`MEMORY.md` 每轮已整份注入 `<global_user_memory>`，模型调工具再读一遍等于白烧一轮；写入那一半独有四个保障（路径锁死、16KB + 敏感内容校验、免审批、受 `/命令` allowEdit 管），不能砍。
+- 改动：
+  1. `server/tools/definitions.mjs`：`globalMemoryTool` 删掉 `action`（原 `Type.Union(['read','write'])`），`markdown` 从 `Optional` 改成必填；description 改成纯写入语义，并写明「当前内容已在 `<global_user_memory>`，别再调本工具去读」。
+  2. `server/global-memory.mjs`：`manageGlobalMemory` 删 `action === 'read'` 分支并改名 `writeGlobalMemory`；`'Memory action must be read or write'` 一起删。返回的 `details.action` 仍是 `'write'`——前端渲染器按它分支，历史消息也靠它。
+  3. `server/tools/index.mjs`：导入与壳函数跟着改名（工具名 `manage_global_memory` 没动）。
+  4. `server/system-prompt.mjs`：`memory_policy` 里「Before writing, read the complete memory」改成「当前文档已在下方 `<global_user_memory>`，直接用那份」，否则是一句做不到的指令。
+  5. `src/lib/global-memory-tool-output.ts`：`action === 'read'` 分支保留 + 注释说明只为渲染旧会话的历史结果。
+- 声明没动：工具名、免审批（`agent-manager.mjs:876`）、`/命令` 的 `allowEdit` 判定、16KB 上限与敏感内容校验、`GET/PUT /api/memory`、`readGlobalMemoryPrompt()` 注入路径。
+- 调研结论（重要）：工具名没有被持久化进任何用户配置——Agent Profile 白名单只认 5 个文件工具（未知名字静默丢弃）、命令存的是 `allow_edit` 布尔量、`settings.json` 只存 `enabled`。所以这次改参数/改函数名不会破坏存量配置。
+- Files: 见 `feature_list.json` 的 `global-memory-tool-write-only`。
+- 验证：定向 `npx vitest run tests/server/global-memory.test.mjs tests/server/tools/definitions.test.mjs tests/server/system-prompt.test.mjs tests/server/approval-store.test.mjs` → 4 files / 56 passed；`npm run test` → 499 files / 5529 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；`npm run lint` → 0 problems；`npm run build` → 通过（precompress 225 files 12.67MB → 6.49MB）。
+- Notes：
+  - 改提示词时踩了一下：`<global_user_memory>` 是裸 tag 写进 `memory_policy` 的（policy 文案不过 `escapeXml`），测试里断言原文用裸标签；而 `<global_user_memory>` 的正文才转义。
+  - 连带改了 `tests/server/system-prompt.test.mjs:110` 的断言：原来断言「空记忆时不含 `<global_user_memory`」，现在 policy 文案本身会提到这个标签，改成断言不含 `<global_user_memory source`——保留「空时没有内容块」的原意。
+  - 未新增依赖；`dist/` 由 build 产出未手工改；未提交 Git。
+
+## experience-index-line-cap-200（done，2026-11-05）
+
+- 反馈：「80 行太小了 设置200行」。
+- 改动：
+  1. `server/experiences.mjs`：`MAX_EXPERIENCE_INDEX_LINES` 80 → 200。
+  2. 同文件 `MAX_EXPERIENCE_INDEX_CHARS` 8000 → 20000。这是必须一起改的：8000 字符大约只装得下 80 行（~100 字符/行），只抬行数不抬字符数，索引仍会在 80 条左右被 `slice()` 截断（还可能切在半行），200 行等于没生效。新值维持同样的 ~100 字符/行比例。
+  3. `tests/server/memory-notes.test.mjs`：封顶用例从 90 条改成 210 条（期望 200 条 + 1 行「还有 10 条较旧」页脚）；新增一条 200 条满额用例，断言最旧一条完整出现在索引里且总长 ≤ 20000，防止以后只调行数、被字符上限提前截断。
+  4. 文档同步：`docs/architecture/memory-system.zh-CN.md`（结构图 + 上限说明）、`docs/wiki/README.md`、`docs/wiki/server/README.md`、`CHANGELOG.md`。
+- Files：server/experiences.mjs、tests/server/memory-notes.test.mjs、docs/architecture/memory-system.zh-CN.md、docs/wiki/README.md、docs/wiki/server/README.md、CHANGELOG.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：`npx vitest run tests/server/memory-notes.test.mjs tests/server/dreaming-curator.test.mjs` → 2 files / 24 passed；`npm run lint` → 0 problems；`npm run build` → 通过。未跑全量 test（改动只涉及一个常量与索引渲染，相关用例已覆盖）。未创建 Git commit，未手工改生成产物。
+- Notes：
+  - 上限仍是常量而非设置项：它直接决定每条消息的固定 token 成本，做成用户可调会让「注入多大」随配置漂移；需要再调就改这两个常量，一起改。
+  - 历史条目 `memory-system-experience-library`（第 38 行）里写的「80 行封顶」是当时的记录，未回改；现状以本条为准。
+
+## working-memory-settings-note-list（done，2026-11-05）
+
+- 反馈：「设置 - 工作记忆 不要有笔记怎么写，需要笔记的分页查询，还有打开功能」。
+- 拍板（问过用户）：打开 = 在系统文件管理器里选中该笔记文件；列表每行 = 笔记名 + 更新时间 + 打开按钮，每页 20 条，上一页/下一页。
+- 改动：
+  1. 删除「笔记怎么写」整块（标题、说明、示例折叠），`src/lib/i18n.ts` 中英各删 4 个 key（`workingMemoryNotesStyle` / `workingMemoryNotesStyleDescription` / `workingMemoryExample` / `workingMemoryExampleContent`），确认过只在这个 tab 用过。
+  2. `server/note-store.mjs` 新增 `listNotePage()`：只 `stat` 不读正文，返回 `{ notes: [{ name, title, updatedAt }], total }`，目录不存在返回空页。没有复用 `listNoteFiles()`，因为它会为了工具重建索引把每篇正文都读进内存。
+  3. `server/working-memory.mjs` 新增 `listWorkingMemoryNotePage()` 与 `openWorkingMemoryNote()`：名字走 `normalizeNoteName()`，路径用 `workingMemoryDir()` 在服务端拼，`fs.access()` 判存在（缺失 404），`options.openPath` 可注入，默认 `openPathInFileManager`。
+  4. `server/routes/working-memory.mjs`：`GET /api/working-memory/notes?page&pageSize`（page 最小 1，pageSize 夹在 1–100，默认 20）、`POST /api/working-memory/notes/open`（body `{ name }`；空名 400、非法名 400、文件不存在 404）、未知子路径 404；`server/index.mjs` 的挂载从精确匹配改成前缀匹配。
+  5. 前端 `WorkingMemorySettingsTab.tsx`：开关与文件夹两块不动，新增只读笔记列表（标题 + 时间 + 打开）、加载/空/错误态、分页；`i18n.ts` 中英各加 8 个 key。
+  6. 新增 `src/styles/settings/working-memory.css`（列表行紧凑、标题省略、时间弱化、分页条），在 `styles/index.css` 里按 settings 区分组 import。
+- Files: 见 `feature_list.json` 的 `working-memory-settings-note-list`。
+- 验证：`npx vitest run tests/server/routes/working-memory.test.mjs` → 10 passed；`npx vitest run tests/frontend/working-memory-settings-tab.test.ts` → 4 passed；`npm run lint` → 0 problems；`npm run build` → 通过（precompress 225 files 12.68MB → 6.49MB）；`npm run test` → 499 files / 5529 passed / 3 failed / 1 skipped，3 个失败为既有基线（ACP workspace-mapping 2 + sqlite-quick-check-gate 1），与本次改动无关。
+- Notes：
+  - 「打开」沿用现有 `openPathInFileManager()`：macOS 是 `open -R`（Finder 里选中文件），Windows 是 `explorer /select,`，Linux 打开父目录。全仓本来就没有「用系统默认程序打开某个文件」的实现，要那个得新写一段 spawn。
+  - 列表刻意不返回正文，设置页因此不可能变成编辑入口；文案也写明「只能看不能改」。
+  - lint 的 `react-hooks/set-state-in-effect` 不允许 effect 里调用会同步 setState 的函数，所以首屏加载写成 effect 内的 async IIFE，翻页单独走 `goToPage()`（先同步置 loading 再调接口）。
+  - 测试用 `tests/frontend/settings-react-harness.ts` 的 node-only hooks harness；该 harness 渲染不落地，所以 `Button` 在树里是「带 onClick 的元素」，靠可见文案区分打开按钮与翻页按钮。
+  - 发现但未改（避免扩大范围）：`workingMemoryEnabledInfo` 中英文仍写「AI 通过 run_command 读写」，实际早已改成四个记忆工具、目录在 workspace 外也不需要审批，与 `docs/wiki/server/README.md` 的说明矛盾。要改只是一条文案，等用户点头。
+
 ## memory-experiences-note-no-dreaming-link（done，2026-11-05）
 
-- 反馈：「设置 → 用户记忆不要有梦境记忆的跳转」。
-- 改动：只动文案。`memoryExperiencesNote`（中英各一条）删掉末尾的「可在「设置 → 梦境记忆」里查看」/「open Settings → Dreaming to read them」，其余保留——经验库在 `~/.quickforge/experiences/`、以索引形式随本文件注入、由后台任务维护、不在此处编辑。
-- Files（改动文件）: src/lib/i18n.ts、feature_list.json、progress.md、session-handoff.md。
-- 验证：定向 vitest `tests/frontend/i18n-language-snapshot.test.ts` + `tests/frontend/settings-workspace-react.test.ts` 23 passed；`npm run lint` 0 problems。纯文案改动，未跑全量 test/build。
-- Notes：`hasExperiences` 为真时才显示这句（`MemorySettingsTab.tsx`），逻辑未动；梦境记忆页自身仍保留「经验库」页签作为唯一入口。未新增依赖；未触碰生成产物；未提交。
+- 反馈：「设置 → 用户记忆不要有梦境记忆的跳转」，后追加「最底部那块 Dreaming 摘要 + 按钮也不要」。
+- 改动一（文案）：`memoryExperiencesNote`（中英）删掉末尾「可在「设置 → 梦境记忆」里查看」/「open Settings → Dreaming to read them」；其余保留——经验库在 `~/.quickforge/experiences/`、以索引形式随本文件注入、由后台任务维护、不在此处编辑。
+- 改动二（整块删除）：`MemorySettingsTab.tsx` 去掉页面底部「梦境记忆」section——标题、`memoryDreamingSummary` 状态行（已开启 · N 条 · 模型）、「打开 Dreaming 设置」按钮。连带删除：`/api/dreaming` 的轻量摘要请求、`dreaming` state、`useUIStore` 导入；i18n 键 `memoryDreamingSummary` / `memoryDreamingOpen`（中英）一并删掉，避免死字符串。
+- 保留：`useUIStore.requestSettingsTab` 信号与 `SettingsWorkspacePage` 的订阅。它本来是通用跨 tab 跳转设施，MemorySettingsTab 只是当时的唯一生产方；删设施属于额外重构，本次没动，只在 `docs/architecture/zustand-migration.zh-CN.md` 的表格里注明「2026-11-05 起无生产方」。
+- Files（改动文件）: src/lib/i18n.ts、src/components/settings/tabs/MemorySettingsTab.tsx、docs/architecture/zustand-migration.zh-CN.md、feature_list.json、progress.md、session-handoff.md。
+- 验证：定向 vitest `settings-workspace-react` + `i18n-language-snapshot` + `ui-store` + `working-memory-settings-tab` 共 33 passed；`npx tsc --noEmit` 0 错误；`npm run lint` 0 problems；`npm run build` 通过（1.44s，precompress 225 files 12.67MB → 6.49MB）。未跑全量 test（改动只在本页与文案，相关页面测试已覆盖）。
+- Notes：`hasExperiences` 为真才显示经验库那句提示（逻辑未动）；梦境记忆页仍是经验库的唯一入口，只是用户记忆页不再指路。未新增依赖；未手工改 dist/package-dist/package-offline（`npm run build` 正常重写了 dist）；未提交。
 
 ## memory-system-experience-library（done，2026-11-05）
 

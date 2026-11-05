@@ -4,7 +4,6 @@ import { loadMemorySettings, saveMemorySettings } from '@/lib/memory-settings'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { SettingsSwitch } from './shared'
-import { useUIStore } from '@/stores/ui-store'
 
 type MemoryDocument = {
   enabled: boolean
@@ -23,9 +22,6 @@ export function MemorySettingsTab() {
   const [memoryPath, setMemoryPath] = useState('~/.quickforge/MEMORY.md')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  // Lightweight Dreaming summary for the cross-link. Failure is not fatal: the
-  // link still works, it just loses the one-line status.
-  const [dreaming, setDreaming] = useState<{ enabled: boolean; entries: number; model: string | null } | null>(null)
   // The experience library lives in its own folder; this only decides whether to
   // show the "that is not edited here" hint.
   const [hasExperiences, setHasExperiences] = useState(false)
@@ -52,17 +48,6 @@ export function MemorySettingsTab() {
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      fetch('/api/dreaming', { cache: 'no-store' })
-        .then((response) => (response.ok ? response.json() : null))
-        .then((payload) => {
-          if (cancelled || !payload) return
-          setDreaming({
-            enabled: payload.settings?.enabled === true,
-            entries: Number(payload.counts?.experiences ?? 0),
-            model: payload.model?.effective ?? null,
-          })
-        })
-        .catch(() => undefined)
       setLoading(true)
       setError('')
       try {
@@ -202,33 +187,6 @@ export function MemorySettingsTab() {
                 onClick={() => void saveDocument()}
               >{saving ? t('saving') : t('memorySave')}</button>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="quickforge-settings-section" aria-label={t('dreamingTab')}>
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">{t('dreamingTab')}</div>
-            <div className="quickforge-settings-row-description">
-              {dreaming
-                ? t('memoryDreamingSummary')
-                  .replace('{state}', dreaming.enabled ? t('dreamingStateOn') : t('dreamingStateOff'))
-                  .replace('{entries}', String(dreaming.entries))
-                  .replace('{model}', dreaming.model || t('dreamingModelNone'))
-                : t('dreamingDescription')}
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control">
-            <button
-              className="quickforge-settings-button quickforge-settings-button-secondary quickforge-settings-button-compact"
-              type="button"
-              onClick={() => {
-                // 跨 tab 跳转（原 window CustomEvent 桥 quickforge:open-settings-tab
-                // 已由 ui-store 请求信号替代，SettingsWorkspacePage 订阅处理）。
-                useUIStore.getState().requestSettingsTab('dreaming')
-              }}
-            >{t('memoryDreamingOpen')}</button>
           </div>
         </div>
       </section>

@@ -152,37 +152,20 @@ export async function readGlobalMemoryPrompt(options = {}) {
   }
 }
 
-export async function manageGlobalMemory(params = {}, options = {}) {
+// Write-only: the document is already injected into the system prompt, so there is
+// no read action to expose. `details.action` stays 'write' because the chat
+// renderer keys off it (including for historical messages).
+export async function writeGlobalMemory(params = {}, options = {}) {
   await assertMemoryEnabled(options)
-  const action = String(params.action || '').trim().toLowerCase()
-
-  if (action === 'read') {
-    const memory = await readGlobalMemory(options)
-    return {
-      content: memory.markdown || 'Global user memory is empty.',
-      details: {
-        action,
-        status: memory.markdown ? 'loaded' : 'empty',
-        markdown: memory.markdown,
-        chars: memory.markdown.length,
-        path: '~/.quickforge/MEMORY.md',
-      },
-    }
+  const saved = await saveGlobalMemoryDocument(params.markdown, options)
+  return {
+    content: 'Global user memory saved.',
+    details: {
+      action: 'write',
+      status: 'saved',
+      markdown: saved.markdown,
+      chars: saved.chars,
+      path: saved.path,
+    },
   }
-
-  if (action === 'write') {
-    const saved = await saveGlobalMemoryDocument(params.markdown, options)
-    return {
-      content: 'Global user memory saved.',
-      details: {
-        action,
-        status: 'saved',
-        markdown: saved.markdown,
-        chars: saved.chars,
-        path: saved.path,
-      },
-    }
-  }
-
-  throw requestError('Memory action must be read or write.')
 }

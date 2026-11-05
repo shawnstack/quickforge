@@ -4,13 +4,18 @@ import path from 'node:path'
 import { atomicUpdate, dataDir, readStore } from './storage.mjs'
 import {
   ARCHIVE_DIR_NAME,
+  NoteStoreError,
   copyNoteDir,
   listArchivedNoteFiles,
   listNoteFiles,
+  listNotePage,
   moveNoteFile,
+  normalizeNoteName,
+  noteTitleOfName,
   readNoteFile,
   writeNoteFile,
 } from './note-store.mjs'
+import { openPathInFileManager } from './utils/platform.mjs'
 
 // Working memory (beta): a folder of small Markdown notes shared by every chat
 // and project. The AI reads and writes it through the `*_memory_note` tools (the
@@ -128,6 +133,36 @@ export async function readWorkingMemoryDocument(options = {}) {
  */
 export async function listWorkingMemoryNotes(options = {}) {
   return listNoteFiles(workingMemoryDir(options))
+}
+
+/**
+ * Read-only listing for the Settings page: newest-first, one page at a time.
+ *
+ * Unlike the tool-facing list above this never exposes note bodies, so the page
+ * cannot accidentally become a place to edit notes.
+ */
+export async function listWorkingMemoryNotePage(options = {}, { offset = 0, limit = 20 } = {}) {
+  return listNotePage(workingMemoryDir(options), { offset, limit })
+}
+
+/**
+ * Reveal one note in the system file manager.
+ *
+ * The name goes through the same validation as writes, and the path is built
+ * from `workingMemoryDir` here rather than accepted from the client, so the
+ * endpoint cannot be used to open arbitrary files.
+ */
+export async function openWorkingMemoryNote(options = {}, name) {
+  const fileName = normalizeNoteName(name)
+  const file = path.join(workingMemoryDir(options), fileName)
+  try {
+    await fs.access(file)
+  } catch {
+    throw new NoteStoreError(`Note "${noteTitleOfName(fileName)}" does not exist.`, 404)
+  }
+  const reveal = options.openPath || openPathInFileManager
+  await reveal(file)
+  return { ok: true, name: fileName }
 }
 
 export async function readWorkingMemoryNote(options = {}, name) {

@@ -16,7 +16,7 @@ import {
   readSkillResource,
 } from '../skills.mjs'
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
-import { manageGlobalMemory } from '../global-memory.mjs'
+import { writeGlobalMemory } from '../global-memory.mjs'
 import {
   toolListMemoryNotes,
   toolMoveMemoryNote,
@@ -1289,7 +1289,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
 }
 
 export async function toolManageGlobalMemory(params) {
-  return manageGlobalMemory(params)
+  return writeGlobalMemory(params)
 }
 
 function todoWriteError(message) {

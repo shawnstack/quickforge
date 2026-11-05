@@ -4,6 +4,10 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- The experience index lives inside every system prompt, so it was capped at 80 lines — too few once the library grew past a few dozen notes, where older entries silently fell out of the index the model can see. The cap is now 200 lines (`MAX_EXPERIENCE_INDEX_LINES`), with the character guard raised from 8000 to 20000 to match at the same ~100 characters per line. The line cap alone would not have been enough: at 8000 characters the index was truncated around 80 entries anyway, mid-line. Entries beyond 200 still drop out of the index while staying on disk, and the footer line names how many are missing.
+
 ## [2.3.7] - 2026-11-02
 
 ### Fixed

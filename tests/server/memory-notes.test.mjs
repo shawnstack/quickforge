@@ -139,7 +139,7 @@ describe('experience library', () => {
   })
 
   it('keeps the index bounded even when the folder is not', async () => {
-    const entries = Array.from({ length: 90 }, (_, index) => ({
+    const entries = Array.from({ length: 210 }, (_, index) => ({
       name: `e${index}.md`,
       title: `经验 ${index}`,
       whenToUse: '总是',
@@ -149,9 +149,26 @@ describe('experience library', () => {
     }))
     const markdown = buildExperienceIndex(entries)
     const bulletLines = markdown.split('\n').filter((line) => line.startsWith('- '))
-    // 80 entries plus the "older ones not listed" footer line.
-    expect(bulletLines).toHaveLength(81)
+    // 200 entries plus the "older ones not listed" footer line.
+    expect(bulletLines).toHaveLength(201)
     expect(markdown).toContain('还有 10 条较旧的经验没进索引')
+  })
+
+  it('lets the full 200 lines through before the character cap bites', async () => {
+    const entries = Array.from({ length: 200 }, (_, index) => ({
+      name: `e${index}.md`,
+      title: `经验 ${index}`,
+      whenToUse: '遇到这个情况时'.padEnd(60, '照'),
+      candidateSkill: false,
+      chars: 40,
+      updatedAt: 1000 + index,
+    }))
+    const markdown = buildExperienceIndex(entries)
+    // The line cap is useless if the char cap truncates first: the oldest entry
+    // (index 0 sorts last) has to survive intact.
+    expect(markdown).toContain('- 经验 0 —— ')
+    expect(markdown.split('\n').filter((line) => line.startsWith('- '))).toHaveLength(200)
+    expect(markdown.length).toBeLessThanOrEqual(20000)
   })
 
   it('returns null instead of an empty block when there is nothing to inject', async () => {

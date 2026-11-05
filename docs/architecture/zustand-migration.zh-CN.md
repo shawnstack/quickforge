@@ -54,7 +54,7 @@ setter 统一 `Dispatch<SetStateAction<T>>` 签名（支持函数式更新），
 
 | 原事件 | 信号 | 发起方 | 订阅方 |
 |---|---|---|---|
-| `quickforge:open-settings-tab` | `requestSettingsTab` | MemorySettingsTab（tab 工厂零 props） | SettingsWorkspacePage |
+| `quickforge:open-settings-tab` | `requestSettingsTab` | ~~MemorySettingsTab~~（2026-11-05 起无生产方：用户记忆页的梦境跳转已删，信号与订阅保留备用） | SettingsWorkspacePage |
 | `quickforge:preview-artifact` | `requestArtifactPreview` | tool-renderers/shared.tsx（React 树外） | App.tsx（结合 agentManager 闭包处理） |
 | `quickforge:open-session-from-settings` | `requestOpenSession` | react-settings-tabs、system-notifications（OS 通知） | App.tsx |
 

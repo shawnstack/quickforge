@@ -70,16 +70,15 @@ Rules: no filesystem, network, timers, console, process, require or other Node A
   executionMode: 'sequential',
 }
 
+// Write-only on purpose. The document is already injected into the system prompt
+// as <global_user_memory>, so a read action would only burn a turn to re-fetch
+// something the model can already see.
 export const globalMemoryTool = {
   name: 'manage_global_memory',
   label: 'Manage global memory',
-  description: 'Read or replace the complete global MEMORY.md shared by all chats. The document is free-form Markdown. When memory is enabled, proactively save durable preferences, habits, background, workflows, or goals when they are likely to help in future conversations, and honor explicit requests to remember, change, or forget information. Do not save current-task instructions, transient project details, single-action inferences, uncertain speculation, credentials, or secrets. Do not force an update when nothing meaningful changed. Before writing, read the current document, deduplicate or update conflicting information, preserve unrelated content and formatting, and submit the complete updated Markdown.',
+  description: 'Replace the complete global MEMORY.md shared by all chats with the full updated document. The document is free-form Markdown. The current content is already in this prompt as <global_user_memory> when it is non-empty, so never call this tool to read it. When memory is enabled, proactively save durable preferences, habits, background, workflows, or goals when they are likely to help in future conversations, and honor explicit requests to remember, change, or forget information. Do not save current-task instructions, transient project details, single-action inferences, uncertain speculation, credentials, or secrets. Do not force an update when nothing meaningful changed: deduplicate or update conflicting information, preserve unrelated content and formatting, and submit the complete updated Markdown.',
   parameters: Type.Object({
-    action: Type.Union([
-      Type.Literal('read'),
-      Type.Literal('write'),
-    ], { description: 'Read the complete document or replace it with complete updated Markdown.' }),
-    markdown: Type.Optional(Type.String({ description: 'Complete MEMORY.md content. Required for write; saved exactly as provided.' })),
+    markdown: Type.String({ description: 'Complete MEMORY.md content, saved exactly as provided.' }),
   }),
   executionMode: 'sequential',
 }

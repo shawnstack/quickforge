@@ -1,5 +1,71 @@
 # Current Session Handoff
 
+## 当前交接：global-memory-tool-write-only（done，2026-11-05）
+
+- Current Objective（当前目标）: 用户判断「MEMORY.md 那个工具的读部分可以不要了」，把 `manage_global_memory` 改成只写。已实现，未提交。
+- 用户拍板的几条（下个会话不要推翻）:
+  1. 工具**留着**，不退役——记忆不变成纯手写。
+  2. 砍掉的是读取动作（`action: 'read'`），因为内容已整份注入 `<global_user_memory>`。
+  3. 工具名不改（`manage_global_memory`），避免多改十几处字符串与前端渲染映射。
+- 改动内容:
+  1. `server/tools/definitions.mjs`：去掉 `action` 参数，`markdown` 变必填，description 改纯写 + 明确「别调本工具读」。
+  2. `server/global-memory.mjs`：删 read 分支，`manageGlobalMemory` → `writeGlobalMemory`；`details.action` 仍为 `'write'`（前端靠它分支）。
+  3. `server/tools/index.mjs`：导入/壳函数改名。
+  4. `server/system-prompt.mjs`：`memory_policy` 的「先读再写」改成「已在 `<global_user_memory>` 里，直接用」。
+  5. `src/lib/global-memory-tool-output.ts`：read 分支保留，注释写明只为渲染历史消息。
+- Files（改动文件）: 见 `feature_list.json` 的 `global-memory-tool-write-only`。
+- Evidence（验证）: 定向 4 个测试文件 → 56 passed；`npm run test` → 499 files / 5529 passed / 3 failed / 1 skipped（3 个失败为既有基线，改动前同样失败）；`npm run lint` → 0 problems；`npm run build` → 通过。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 别再给 `globalMemoryTool` 加回 `action`：要读就去读注入块，工具只负责整篇覆盖。
+  - 别删 `global-memory-tool-output.ts` 的 read 分支——旧会话里有 `action: 'read'` 的历史结果，删了那些卡片显示不出来。
+  - 工具名没进任何用户配置（profile 白名单只认 5 个文件工具），所以以后真要改名也不会破坏存量配置，但要同步 `approval-store` / `agent-manager` / `routes/tools` / `agent-workflow-tools` 四处字符串。
+  - 未新增依赖；`dist/` 由 build 产出；未提交 Git。
+- Next Session（下一步）:
+  1. 重启 QuickForge，随便聊两轮，确认模型不再调工具「读记忆」，说「记住 XX」时能正常写进 `~/.quickforge/MEMORY.md`。
+  2. 翻一条旧会话里带「管理记忆」卡片的消息，确认历史结果仍能正常显示（read 分支保留的意义）。
+
+---
+
+## 当前交接：experience-index-line-cap-200（done，2026-11-05）
+
+- Current Objective（当前目标）: 用户说「80 行太小了 设置200行」——把经验库索引注入上限从 80 行提到 200 行。已实现，未提交。
+- 结论（一句话）：`MAX_EXPERIENCE_INDEX_LINES` 80 → 200，并同时把 `MAX_EXPERIENCE_INDEX_CHARS` 8000 → 20000，否则字符上限会在 80 条左右先截断，行数白改。
+- 改动文件：`server/experiences.mjs`（两个常量 + 比例注释）、`tests/server/memory-notes.test.mjs`（210 条封顶用例 + 200 条满额用例）、`docs/architecture/memory-system.zh-CN.md`、`docs/wiki/README.md`、`docs/wiki/server/README.md`、`CHANGELOG.md`、三件套。
+- Evidence（验证）: `npx vitest run tests/server/memory-notes.test.mjs tests/server/dreaming-curator.test.mjs` → 2 files / 24 passed；`npm run lint` → 0 problems；`npm run build` → 通过。未跑全量 test（单常量改动，相关 16 个用例已覆盖）。未创建 Git commit，未手工修改生成产物。
+- Blockers（阻塞）: 无。
+- Next Session（下一步）:
+  1. 想确认实际效果：往 `~/.quickforge/experiences/` 放超过 80 篇经验，重启后看系统提示词里 `<experiences>` 是否列到 200 条。
+  2. 两个常量必须成对调整（~100 字符/行）；只改行数会被字符上限静默截断。
+  3. 如果 200 行仍然不够，可考虑在索引里只保留「文件名 + 半句何时用」，把每行压短——但那是另一个决定，别顺手做。
+
+---
+
+## 当前交接：working-memory-settings-note-list（done，2026-11-05）
+
+- Current Objective（当前目标）: 用户要求「设置 - 工作记忆 不要有笔记怎么写，需要笔记的分页查询，还有打开功能」。已实现，未提交。
+- 用户拍板的几条（下个会话不要推翻）:
+  1. 「打开」= 在系统文件管理器里选中该笔记文件（不是用默认程序打开 .md）。
+  2. 每行只有笔记名 + 更新时间 + 打开按钮；每页 20 条；上一页/下一页。
+- 改动内容:
+  1. 删掉「笔记怎么写」整块（标题 + 说明 + 示例折叠），`i18n.ts` 中英各删 4 个 key。
+  2. 后端：`server/note-store.mjs` 新增 `listNotePage()`（只 stat 不读正文）；`server/working-memory.mjs` 新增 `listWorkingMemoryNotePage()` / `openWorkingMemoryNote()`；`server/routes/working-memory.mjs` 新增 `GET /api/working-memory/notes` 与 `POST /api/working-memory/notes/open`；`server/index.mjs` 的挂载改成前缀匹配。
+  3. 前端：`WorkingMemorySettingsTab.tsx` 新增只读笔记列表 + 分页 + 打开；新增 `src/styles/settings/working-memory.css`。
+- Files（改动文件）: 见 `feature_list.json` 的 `working-memory-settings-note-list`。
+- Evidence（验证）: `npx vitest run tests/server/routes/working-memory.test.mjs` → 10 passed；`npx vitest run tests/frontend/working-memory-settings-tab.test.ts` → 4 passed；`npm run lint` → 0 problems；`npm run build` → 通过；`npm run test` → 499 files / 5529 passed / 3 failed / 1 skipped（3 个失败为既有基线，改动前同样失败）。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 笔记列表不含正文，`listNoteFiles()` 那种「顺手读全文」的路径只留给工具层，别在设置页复用。
+  - `openWorkingMemoryNote()` 只接受笔记名，路径由服务端拼，别改成接受客户端路径。
+  - 未改但发现了：`workingMemoryEnabledInfo` 中英文还写着「AI 通过 run_command 读写」，与现在的记忆工具实现和 server wiki 都对不上；要不要一起改需要用户确认。
+  - 未新增依赖；`dist/` 由 build 产出，未手工修改；未提交 Git。
+- Next Session（下一步）:
+  1. 重启 QuickForge，打开「设置 → 记忆 → 工作记忆」，确认列表按更新时间倒序、翻页正常、点「打开」在 Finder 里选中文件。
+  2. 如果笔记超过 20 篇（当前本机 `~/.quickforge/working-memory/` 只有 6 篇），才能看到分页条的实际观感。
+  3. 想补的话：`workingMemoryEnabledInfo` 文案改成「AI 用记忆工具读写，不需要审批」。
+
+---
+
 ## 当前交接：memory-system-experience-library（done，2026-11-05）
 
 - Current Objective（当前目标）: 按用户拍板把记忆体系改成「工作记忆 + 全局经验库」，梦境从「一次调用改写 DREAMING.md 的 bullet 列表」改成「一次一个会话起一轮 agent 整理两个目录」。已实现，未提交。
@@ -24,7 +90,7 @@
   - `dreaming_note_stats` 表保留未迁移，已无写入方；如需彻底清掉，要加一条 v20 迁移。
   - 运行中的老进程需重启 QuickForge 才会重建 system prompt（新经验要等新会话才进索引）。
   - 未新增依赖；未触碰 dist/package-dist/package-offline；未提交 Git。
-  - 2026-11-05 追加：用户要求「设置 → 用户记忆」不要有梦境记忆的跳转，已删掉 `memoryExperiencesNote` 中英文末尾那句「可在「设置 → 梦境记忆」里查看」。只改 `src/lib/i18n.ts` 一条文案（定向 vitest 23 passed + lint 0 problems），详情见 `progress.md` 的 `memory-experiences-note-no-dreaming-link`。
+  - 2026-11-05 追加：用户要求「设置 → 用户记忆」不要有梦境记忆的跳转，两处都清掉了——①`memoryExperiencesNote` 中英文删掉末尾「可在「设置 → 梦境记忆」里查看」；②删掉页面底部整块「梦境记忆」（摘要行 + 「打开 Dreaming 设置」按钮）及随之空转的 `/api/dreaming` 请求、`dreaming` state、`useUIStore` 导入、`memoryDreamingSummary` / `memoryDreamingOpen` 两个 i18n 键。`requestSettingsTab` 信号与订阅保留（通用设施，暂无生产方，已在 `docs/architecture/zustand-migration.zh-CN.md` 注明）。验证：定向 vitest 33 passed + tsc 0 错误 + lint 0 problems + build 通过。详情见 `progress.md` 的 `memory-experiences-note-no-dreaming-link`。
 - Next Session（下一步）:
   1. 重启 QuickForge，打开设置 → 梦境记忆，确认「经验库」页签能看到那 2 条经验、生成的索引预览正确。
   2. 手动点一次「立即处理」，看逐会话报告与 `~/.quickforge/dreaming-snapshots/` 是否按需生成。

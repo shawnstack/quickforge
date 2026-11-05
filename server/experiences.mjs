@@ -31,8 +31,10 @@ import {
 export const EXPERIENCES_DIR_NAME = 'experiences'
 export const EXPERIENCE_INDEX_FILE_NAME = 'index.md'
 export const EXPERIENCES_DISPLAY_PATH = '~/.quickforge/experiences'
-export const MAX_EXPERIENCE_INDEX_LINES = 80
-export const MAX_EXPERIENCE_INDEX_CHARS = 8000
+export const MAX_EXPERIENCE_INDEX_LINES = 200
+// ~100 characters per line, so the two caps run out at roughly the same point:
+// the line cap keeps the shape of the index, the character cap bounds the token bill.
+export const MAX_EXPERIENCE_INDEX_CHARS = 20000
 export const EXPERIENCE_INDEX_HEADER = `# 经验库索引
 
 <!-- 这个文件由程序扫描目录生成，手工修改会在下次生成时被覆盖。 -->

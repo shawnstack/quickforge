@@ -143,6 +143,41 @@ export async function listNoteFiles(dir, { limit = MAX_NOTES_PER_SCOPE } = {}) {
   return notes.slice(0, limit)
 }
 
+/**
+ * One page of note summaries: names and last-write times only, no bodies.
+ *
+ * `listNoteFiles` reads every file because the tool layer rebuilds its index from
+ * the content. The Settings page only renders titles, so paging here skips the
+ * reads on purpose: a 200-note folder costs one `stat` per file per page.
+ */
+export async function listNotePage(dir, { offset = 0, limit = 20 } = {}) {
+  const start = Math.max(0, Math.trunc(Number(offset) || 0))
+  const size = Math.max(0, Math.trunc(Number(limit) || 0))
+  let entries
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { notes: [], total: 0 }
+    throw error
+  }
+  const notes = []
+  for (const entry of entries) {
+    if (!entry.isFile() || !isNoteFileName(entry.name)) continue
+    try {
+      const stat = await fs.stat(path.join(dir, entry.name))
+      notes.push({
+        name: entry.name,
+        title: noteTitleOfName(entry.name),
+        updatedAt: stat.mtimeMs,
+      })
+    } catch {
+      // Same rule as listNoteFiles: a note that vanished mid-scan is simply not listed.
+    }
+  }
+  notes.sort((left, right) => right.updatedAt - left.updatedAt)
+  return { notes: notes.slice(start, start + size), total: notes.length }
+}
+
 export async function readNoteFile(dir, name) {
   const fileName = normalizeNoteName(name)
   try {

@@ -6,11 +6,11 @@ import {
   containsSensitiveMemory,
   getGlobalMemoryRevision,
   globalMemoryFilePath,
-  manageGlobalMemory,
   readGlobalMemory,
   readGlobalMemoryDocument,
   readGlobalMemoryPrompt,
   saveGlobalMemoryDocument,
+  writeGlobalMemory,
 } from '../../server/global-memory.mjs'
 
 const tempDirs = []
@@ -53,31 +53,28 @@ describe('global memory', () => {
     })
   })
 
-  it('reads and writes the complete document through the agent tool', async () => {
+  it('writes the complete document through the agent tool', async () => {
     const dataDir = await createTempDir()
     const options = { dataDir, enabled: true }
     const markdown = '# Preferences\n\nUse Chinese by default.\n'
 
-    const written = await manageGlobalMemory({ action: 'write', markdown }, options)
+    const written = await writeGlobalMemory({ markdown }, options)
     expect(written.content).toBe('Global user memory saved.')
     expect(written.details).toMatchObject({ action: 'write', status: 'saved', markdown })
-
-    const read = await manageGlobalMemory({ action: 'read' }, options)
-    expect(read.content).toBe(markdown)
-    expect(read.details).toMatchObject({ action: 'read', status: 'loaded', markdown })
+    await expect(readGlobalMemory(options)).resolves.toMatchObject({ markdown })
   })
 
-  it('returns a stable empty status when the memory document is empty', async () => {
+  it('has no read path through the tool: the prompt already carries the document', async () => {
     const dataDir = await createTempDir()
-    const read = await manageGlobalMemory({ action: 'read' }, { dataDir, enabled: true })
+    const options = { dataDir, enabled: true }
+    const markdown = '# Preferences\n'
 
-    expect(read.content).toBe('Global user memory is empty.')
-    expect(read.details).toMatchObject({
-      action: 'read',
-      status: 'empty',
-      markdown: '',
-      chars: 0,
-    })
+    await saveGlobalMemoryDocument(markdown, options)
+    await expect(readGlobalMemoryPrompt(options)).resolves.toMatchObject({ content: markdown.trim() })
+    // The removed read action must not fall back to anything: without `markdown`
+    // the call is a save with no content and fails validation.
+    await expect(writeGlobalMemory({ action: 'read' }, options))
+      .rejects.toThrow('Memory Markdown is required')
   })
 
   it('rejects disabled writes and keeps existing data', async () => {
@@ -85,7 +82,7 @@ describe('global memory', () => {
     const markdown = '# Existing memory\n'
     await saveGlobalMemoryDocument(markdown, { dataDir, enabled: true })
 
-    await expect(manageGlobalMemory({ action: 'write', markdown: '# Replacement\n' }, { dataDir, enabled: false }))
+    await expect(writeGlobalMemory({ markdown: '# Replacement\n' }, { dataDir, enabled: false }))
       .rejects.toThrow('Global memory is disabled')
     await expect(fs.readFile(globalMemoryFilePath(dataDir), 'utf8')).resolves.toBe(markdown)
   })

@@ -432,8 +432,8 @@ async function handleApi(req, res, url, requestContext = {}) {
   }
 
   // Working memory (beta)
-  if (pathname === '/api/working-memory') {
-    await handleWorkingMemoryApi(req, res)
+  if (pathname === '/api/working-memory' || pathname.startsWith('/api/working-memory/')) {
+    await handleWorkingMemoryApi(req, res, { url })
     return
   }
 

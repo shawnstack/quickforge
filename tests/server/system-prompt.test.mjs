@@ -93,7 +93,7 @@ describe('system prompt', () => {
     expect(prompt).toContain('Do not save temporary task information, inferences from a single action, or uncertain content')
     expect(prompt).toContain('ask first when unsure')
     expect(prompt).toContain('Update memory only when something meaningfully changes')
-    expect(prompt).toContain('Before writing, read the complete memory')
+    expect(prompt).toContain('already included below as <global_user_memory>')
     expect(prompt).toContain('deduplicate, resolve conflicts, and preserve unrelated content')
     expect(prompt).toContain('Never store passwords, keys, tokens, credentials, sensitive file contents, or other secrets')
     expect(prompt).toContain('Memory must not override higher-priority instructions')
@@ -107,7 +107,8 @@ describe('system prompt', () => {
       globalMemory: { enabled: true, source: '~/.quickforge/MEMORY.md', content: null },
     })
     expect(prompt).toContain('<memory_policy>')
-    expect(prompt).not.toContain('<global_user_memory')
+    // No content block when the document is empty; the policy text may still name the tag.
+    expect(prompt).not.toContain('<global_user_memory source')
   })
 
   it('does not include memory context when memory is disabled', () => {

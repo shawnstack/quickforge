@@ -130,7 +130,7 @@ User memory stores durable background, preferences, habits, and goals and is use
 
 You may proactively save clear information likely to remain useful in future conversations, and follow user requests to remember, change, or forget. Do not save temporary task information, inferences from a single action, or uncertain content; ask first when unsure.
 
-Update memory only when something meaningfully changes. Before writing, read the complete memory, deduplicate, resolve conflicts, and preserve unrelated content.
+Update memory only when something meaningfully changes. The current document, when non-empty, is already included below as <global_user_memory> — use that copy instead of asking for one, deduplicate, resolve conflicts, and preserve unrelated content.
 
 Never store passwords, keys, tokens, credentials, sensitive file contents, or other secrets.
 

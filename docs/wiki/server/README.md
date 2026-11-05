@@ -368,10 +368,10 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 记忆正文保存在 `~/.quickforge/MEMORY.md`，不要求固定标题、列表、分类或条目 ID；用于记录对未来对话有帮助的长期偏好、习惯、背景、工作方式和目标。
 - 开启时，`buildInstructionsPayload()` 会把精简后的记忆注入 `<global_user_memory>`，并附加 `<memory_policy>`；主 Agent 可在普通对话中主动识别并保存长期有价值的信息，也会响应用户明确的记住、修改或忘记要求。
 - 主动记忆会排除仅适用于当前任务的要求、临时项目细节、基于单次行为的推断和不确定猜测；没有有价值的变化时不调用工具，不确定时不保存或向用户确认。
-- `manage_global_memory` 工具支持读取或覆盖完整记忆文档；写入前必须读取完整文档、去重并更新冲突信息，同时保留无关内容和原有格式。写入不弹审批，并拒绝密码、Token、API Key、Cookie、私钥等敏感信息。
-- 关闭后不注入记忆内容或主动记忆规则，并停止工具读取和写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
+- `manage_global_memory` 工具**只写不读**：当前文档已经作为 `<global_user_memory>` 注入提示词，模型直接用那份即可，不必再花一次调用去读；工具只负责整份覆盖写入，写入时去重、更新冲突信息，同时保留无关内容和原有格式。写入不弹审批，并拒绝密码、Token、API Key、Cookie、私钥等敏感信息。
+- 关闭后不注入记忆内容或主动记忆规则，并停止记忆工具的写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
 - Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
-- 记忆分三块，各管各的：`MEMORY.md` 是用户写的（`GET`/`PUT /api/memory`、`manage_global_memory` 都在这里读写）；`~/.quickforge/working-memory/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
+- 记忆分三块，各管各的：`MEMORY.md` 是用户写的（设置页走 `GET`/`PUT /api/memory`，Agent 走只写的 `manage_global_memory`）；`~/.quickforge/working-memory/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
 - 注入策略分三级：`readGlobalMemoryPrompt()` → `<global_user_memory>`（全文）；`readExperiencesPrompt()` → `<experiences>`（**只有扫描生成的索引**，正文按需读）；`readWorkingMemoryPrompt()` → `<working_memory>`（**只有路径和写法规则**，不注入内容）。完整设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
 
 ### note-store.mjs / experiences.mjs — 笔记文件与经验库
@@ -381,7 +381,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 共用契约：一个 `.md` 一件事、**文件名就是结论那句话**、正文第一行 `# 标题` 必须与文件名一致、单篇 ≤ 4000 字符。
 - **没有删除**。退休一篇笔记 = `move_memory_note` 挪进 `_archive/`。归档可逆，删除不可逆，所以这一层干脆不提供删除。
 - `normalizeNoteName()`：拒绝 `/ \ : * ? " < > |`、控制字符、以点开头、含 `..`；`.md` 后缀可省略。`writeNoteFile()` 拒绝空正文——「写空 = 删除」是最容易被一次截断回复触发的破坏，直接不给。
-- `index.md` 由 `readExperienceIndex()` 每次读取时扫描目录重建（写入只在内容变化时发生）：一行一条 `文件名 —— 何时用`，`候选技能：是` 的条目前加 `★`。上限 80 行 / 8000 字符，超出的旧条目掉出索引但文件仍在——索引是指针，不是副本。
+- `index.md` 由 `readExperienceIndex()` 每次读取时扫描目录重建（写入只在内容变化时发生）：一行一条 `文件名 —— 何时用`，`候选技能：是` 的条目前加 `★`。上限 200 行 / 20000 字符，超出的旧条目掉出索引但文件仍在——索引是指针，不是副本。
 - `readExperiencesPrompt()` 在没有经验时返回 `null`（不注入空块）；`getExperiencesRevision()` 供将来的热更新比较用。
 
 ### dreaming/ — 梦境整理员
@@ -410,8 +410,9 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 笔记目录固定为 `~/.quickforge/working-memory/`，开启时自动创建（`ensureWorkingMemoryDir()`）。一个 `.md` 文件只记一件事，**文件名就是内容的一句话总结**。
 - 读写走四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`，`scope=working`），不再用 `run_command`：目录在 workspace 之外，工具把路径锁死在这两个目录里，既不用放宽沙箱，也不用每次审批。
 - 开启时 `buildInstructionsPayload()` 返回 `workingMemory`，`composeSystemPrompt()` 注入 `<working_memory>`：绝对路径 + 少量原则（先列目录挑相关文件、**觉得任务做完时回头检查有没有值得留的东西**、允许什么都不写、文件名=一句话总结、不删只归档、禁存敏感信息）+ 笔记提示词。
-- 笔记提示词 `DEFAULT_WORKING_MEMORY_PROMPT` 以 `conversation-compaction.mjs` 的 `COMPACT_SYSTEM_PROMPT` 为底本改写成大白话，只保留少量原则：短句、一个文件一件事、第一行即总结兼文件名、过时的改写或合并；**不给固定小节模板**（避免笔记写成填表）。它是内部契约，设置页只展示只读示例、不返回也不接受修改；`settings.json` 里的 `prompt` 仅作为工程师调试口，最大 4000 字符。
+- 笔记提示词 `DEFAULT_WORKING_MEMORY_PROMPT` 以 `conversation-compaction.mjs` 的 `COMPACT_SYSTEM_PROMPT` 为底本改写成大白话，只保留少量原则：短句、一个文件一件事、第一行即总结兼文件名、过时的改写或合并；**不给固定小节模板**（避免笔记写成填表）。它是内部契约，设置页既不展示也不接受修改；`settings.json` 里的 `prompt` 仅作为工程师调试口，最大 4000 字符。
 - `GET /api/working-memory` 只返回 `{ enabled, path }`；`PUT /api/working-memory` 只接受 `{ enabled }`，带 `prompt` 或非布尔开关返回 400（提示词不通过设置页泄露）。
+- 设置页的笔记列表是只读的，走两条独立端点：`GET /api/working-memory/notes?page=1&pageSize=20` 返回 `{ notes: [{ name, title, updatedAt }], page, pageSize, total }`（**不含正文**，`listNotePage()` 只 `stat` 不读文件，避免 200 篇笔记被整篇读进内存），`page` 最小 1、`pageSize` 夹在 1–100；`POST /api/working-memory/notes/open`（body `{ name }`）在系统文件管理器里选中该笔记，路径由服务端用 `workingMemoryDir()` + `normalizeNoteName()` 拼出，**不接受客户端传路径**，文件不存在返回 404。
 - 运行中的会话在下一次发送消息前由 `refreshWorkingMemoryState()` 比较开关与提示词 hash，变化时重建 system prompt（工具集不变）。新写的经验要等下一个会话才出现在索引里，不做中途热更新。
 - 与另外两层的区别：用户记忆是「关于用户的长期画像」（MEMORY.md，单文件整篇注入）；工作记忆是「这件事现在是什么样」（按主题分文件、只给路径）；经验库是「以后遇到同类问题怎么做」（只给索引）。
 

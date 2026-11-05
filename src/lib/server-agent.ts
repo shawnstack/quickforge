@@ -445,6 +445,20 @@ export class ServerAgent {
    * stale data from overwriting fresher SSE-driven updates.
    */
   private stateVersion = 0
+  /**
+   * 本地已经发起、但服务端还没确认「本轮已开始」的回合。
+   *
+   * `isStreaming` 是**服务端会话的运行状态**，客户端只在「点发送到服务端确认」
+   * 这几百毫秒里乐观地先置 true。问题在于另一条连接上可能还有上一个回合的
+   * 收尾帧（回滚、停止都会广播 `agent_end`）在飞：它描述的是「上一轮结束了」，
+   * 客户端此刻却已经开了新的一轮。没有这个标记时，那条迟到的结束帧会把刚点
+   * 亮的按钮打回「发送」，而服务端的新一轮正在照常输出，表现为「按钮不转、
+   * 对话却有回复」。
+   *
+   * 规则只有一条：任何「结束」在标记为 true 期间都不属于当前这一轮，忽略；
+   * 收到任何权威的「正在运行」信号（或本地失败/重置）才清除标记。
+   */
+  private pendingPrompt = false
   // Retain accepted marker metadata for identity-checked replay as anchors arrive;
   // goal_updated deliberately does not advance either message guard.
   private latestGoalIterationMarkers?: GoalIterationMarkerSnapshot[]
@@ -638,6 +652,27 @@ export class ServerAgent {
    * `handoffMessages`）走这条路径。消息已经是 `state.messages` 的最后一项，
    * 再追加一次会让同一句话出现两遍，失败回滚也会删错一条，所以这里复用它。
    */
+  /**
+   * 应用服务端给出的一手运行状态（SSE `state` 帧、`/state`、`/status`）。
+   *
+   * - `true`：本轮已在服务端开跑，清掉未确认标记。
+   * - `false`：只有在「没有未确认回合」时才成立。否则这条结束属于上一轮，
+   *   它既不能写状态，也不该让调用方做收尾（返回 `false`）。
+   *
+   * 这是 `state.isStreaming` 唯一的服务端写入口：把「谁是权威」和「什么时候
+   * 不该信」放在同一个判断里，调用点不需要各自记规则。
+   */
+  private applyServerStreaming(next: boolean): boolean {
+    if (next) {
+      this.pendingPrompt = false
+      this.state.isStreaming = true
+      return true
+    }
+    if (this.pendingPrompt) return false
+    this.state.isStreaming = false
+    return true
+  }
+
   async prompt(
     input: string | AgentMessage | AgentMessage[],
     options?: { messageAlreadyInState?: boolean },
@@ -718,6 +753,8 @@ export class ServerAgent {
     this.emitToListeners({ type: 'message_start', message: agentMessage })
 
     if (!this.state.isStreaming) {
+      // 本地乐观 + 未确认标记：服务端确认本轮开跑之前，任何「结束」都不属于它。
+      this.pendingPrompt = true
       this.state.isStreaming = true
       this.state.errorMessage = undefined
       this.emitToListeners({ type: 'agent_start' })
@@ -750,7 +787,9 @@ export class ServerAgent {
       }
       this.state.messages = appendAssistantErrorMessageOnce(this.state.messages, message, this.state.model, agentMessage)
       this.state.errorMessage = message
-      this.state.isStreaming = false
+      // 本地已知失败：这是本地结算的事实，不受「未确认回合」规则限制。
+      this.pendingPrompt = false
+      this.applyServerStreaming(false)
       this.state.streamingMessage = undefined
       this.stopStateWatchdog()
       this.emitToListeners({ type: 'error', error: message })
@@ -794,6 +833,8 @@ export class ServerAgent {
 
   abort(): void {
     if (!this.canWrite()) return
+    // 用户主动停止是本地明确的结束意图：随后的 agent_end 属于本轮，照常采纳。
+    this.pendingPrompt = false
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/abort`
     // The abort route is guarded by assertSessionWriteAccess, so it must carry
     // the lease owner header like every other write entry; without it the
@@ -862,6 +903,7 @@ export class ServerAgent {
     this.messageBaseSeq = 0
     this.messageLogVersion = 0
     this.state.errorMessage = undefined
+    this.pendingPrompt = false
     this.state.isStreaming = false
     this.state.streamingMessage = undefined
     this.state.pendingToolCalls = new Set()
@@ -1072,6 +1114,8 @@ export class ServerAgent {
       }
       throw error
     }
+    // 本地乐观 + 未确认标记，同 prompt()。
+    this.pendingPrompt = true
     this.state.isStreaming = true
     this.state.errorMessage = undefined
     this.startStateWatchdog()
@@ -1520,16 +1564,21 @@ export class ServerAgent {
         }
         let wasStreaming = this.state.isStreaming
         if (s.isStreaming !== undefined) {
-          wasStreaming = this.state.isStreaming
-          this.state.isStreaming = s.isStreaming
-          if (s.isStreaming) {
-            this.startStateWatchdog()
+          // 权威运行状态：true 清未确认标记；false 在未确认回合期间被忽略，
+          // 因为那条「结束」属于上一轮（回滚/停止的收尾帧可能还在飞）。
+          const adopted = this.applyServerStreaming(s.isStreaming)
+          if (adopted) {
+            if (s.isStreaming) {
+              this.startStateWatchdog()
+            } else {
+              this.stopStateWatchdog()
+            }
           } else {
-            this.stopStateWatchdog()
+            wasStreaming = false
           }
         }
         // Emit the correct lifecycle event so the sidebar green dot stays in sync
-        if (s.isStreaming) {
+        if (s.isStreaming === true) {
           this.state.errorMessage = undefined
           this.emitToListeners({ type: 'agent_start' })
         } else if (wasStreaming) {
@@ -1553,7 +1602,7 @@ export class ServerAgent {
       }
 
       case 'agent_start': {
-        this.state.isStreaming = true
+        this.applyServerStreaming(true)
         this.state.errorMessage = undefined
         this.state.pendingToolApproval = null
         this.state.pendingAutoCompactApproval = null
@@ -1563,6 +1612,15 @@ export class ServerAgent {
       }
 
       case 'agent_end': {
+        // 一条结束帧只有在「本轮已被服务端确认开始」时才属于当前这一轮。
+        // 回滚 / 停止的收尾帧可能在新一轮已经发出之后才到，它描述的是上一轮：
+        // 整帧丢弃——既不改运行状态、也不做收尾，连消息投影都不可信（它比本地旧）。
+        if (!this.applyServerStreaming(false)) {
+          logger.info('Ignored a stale agent_end: a newer run has not been confirmed yet', {
+            sessionId: this.sessionId,
+          })
+          return
+        }
         this.stopStateWatchdog()
         const endEvent = event as { messages?: AgentMessage[]; messagesAfter?: number; messagesIncremental?: boolean; messagesSummary?: { count?: number; logVersion?: number }; logVersion?: number; messagesReplaced?: boolean; errorMessage?: string; contextUsage?: ServerAgentContextUsage | null }
 
@@ -1585,7 +1643,8 @@ export class ServerAgent {
           const summaryCount = summary?.count
           if (summary && typeof summaryCount === 'number' && summaryCount > this.localMessageEndSeq()) {
             void this.reconcileMessagesFromSummary(summary, undefined, true).finally(() => {
-              this.state.isStreaming = false
+              // 异步收尾可能晚于下一次发送：只有仍属于本轮时才写状态。
+              this.applyServerStreaming(false)
               this.state.streamingMessage = undefined
               this.state.pendingToolApproval = null
               this.state.pendingAutoCompactApproval = null
@@ -1597,7 +1656,6 @@ export class ServerAgent {
           }
           this.replayGoalIterationMarkers()
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
-          this.state.isStreaming = false
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
@@ -1612,7 +1670,8 @@ export class ServerAgent {
           || (typeof endEvent.messagesSummary.count === 'number' && endEvent.messagesSummary.count > this.localMessageEndSeq())
         )) {
           void this.reconcileMessagesFromSummary(endEvent.messagesSummary, undefined, true).finally(() => {
-            this.state.isStreaming = false
+            // 异步收尾可能晚于下一次发送：只有仍属于本轮时才写状态。
+            this.applyServerStreaming(false)
             this.state.streamingMessage = undefined
             this.state.pendingToolApproval = null
             this.state.pendingAutoCompactApproval = null
@@ -1630,7 +1689,6 @@ export class ServerAgent {
           })
           this.replayGoalIterationMarkers()
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
-          this.state.isStreaming = false
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
@@ -1643,7 +1701,8 @@ export class ServerAgent {
 
         // Fallback for stale/malformed events or legacy servers.
         void this.refreshStateFromServer({ forceMessages: true }).finally(() => {
-          this.state.isStreaming = false
+          // 异步收尾可能晚于下一次发送：只有仍属于本轮时才写状态。
+          this.applyServerStreaming(false)
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
@@ -1929,6 +1988,9 @@ export class ServerAgent {
         // (older server) is forwarded as-is without touching the stream.
         const updateEvent = event as { message?: AgentMessage }
         if (updateEvent.message) this.state.streamingMessage = updateEvent.message
+        // 流式增量只可能来自正在运行的回合，它本身就是「本轮已开始」的确认，
+        // 所以未确认标记在这里也可以撤掉（早于服务端的 agent_start 帧到达）。
+        this.pendingPrompt = false
         break
       }
 
@@ -2081,7 +2143,9 @@ export class ServerAgent {
       }>(url, STATUS_REQUEST_TIMEOUT_MS)
       if (!res.ok) {
         if (res.status === 404 && this.state.isStreaming) {
-          this.state.isStreaming = false
+          // 会话不存在是本地可确认的事实：不受未确认回合规则限制。
+          this.pendingPrompt = false
+          this.applyServerStreaming(false)
           this.stopStateWatchdog()
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
@@ -2101,12 +2165,15 @@ export class ServerAgent {
       if (typedStatus.isStreaming === false) {
         const wasStreaming = this.state.isStreaming
         this.stopStateWatchdog()
+        // 主动查询拿到的是「此刻」的事实，优先级高于本地未确认标记：服务端
+        // 说没在跑，就是没在跑（这也是未确认回合卡住时的唯一兜底）。
+        this.pendingPrompt = false
         await this.refreshStateFromServer({ notify: true, forceMessages: true })
         // The lightweight status endpoint is authoritative for run completion.
         // If a stale/lower-version state snapshot was rejected, still clear the
         // optimistic streaming state so the UI cannot remain stuck loading.
         if (wasStreaming && this.state.isStreaming) {
-          this.state.isStreaming = false
+          this.applyServerStreaming(false)
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
@@ -2117,7 +2184,7 @@ export class ServerAgent {
       }
 
       if (typedStatus.isStreaming === true) {
-        this.state.isStreaming = true
+        this.applyServerStreaming(true)
         this.state.errorMessage = typedStatus.errorMessage
       }
 
@@ -2445,7 +2512,9 @@ export class ServerAgent {
         // If the session no longer exists (e.g. destroyed by idle timeout),
         // stop streaming so the UI doesn't get stuck showing a Stop button.
         if (res.status === 404 && this.state.isStreaming) {
-          this.state.isStreaming = false
+          // 会话不存在是本地可确认的事实：不受未确认回合规则限制。
+          this.pendingPrompt = false
+          this.applyServerStreaming(false)
           this.stopStateWatchdog()
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
@@ -2576,19 +2645,21 @@ export class ServerAgent {
       }
       if (state.isStreaming !== undefined) {
         const wasStreaming = this.state.isStreaming
-        this.state.isStreaming = Boolean(state.isStreaming)
-        if (state.isStreaming) {
+        // 与 SSE state 帧同一条规则：true 清未确认标记，false 在未确认回合期间
+        // 被忽略（这份快照可能是在本轮发送之前取的）。
+        const adopted = this.applyServerStreaming(Boolean(state.isStreaming))
+        if (adopted && state.isStreaming) {
           this.state.errorMessage = undefined
           if (!wasStreaming) {
             this.emitToListeners({ type: 'agent_start' })
           }
-        } else {
+        } else if (adopted) {
           this.stopStateWatchdog()
           this.state.pendingToolApproval = null
           this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
         }
-        if (options?.notify && wasStreaming && !state.isStreaming) {
+        if (adopted && options?.notify && wasStreaming && !state.isStreaming) {
           this.stateVersion++
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
           return

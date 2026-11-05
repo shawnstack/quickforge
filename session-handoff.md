@@ -159,7 +159,7 @@
 - Current Objective（当前目标）：用户实测内嵌 AI 浏览器，Agent 打开百度连续 4 次 `CDP Page.enable failed: CDP command timed out: Page.enable`；授权「你检查然后优化吧」。
 - 结论（一句话）：坏调试会话被永久复用是三层缺陷叠加（冷启动竞态 + 崩溃/断开无自愈 + 超时零清理）；现在任何会话坏死都会整套作废视图并在下次调用全新重建，外加就绪门与超时熔断重试。
 - 改动文件：`desktop/browser/cdp-client.mjs`、`desktop/browser/browser-host.mjs`、`tests/server/desktop-browser-{cdp-client,host,wiring-contract}.test.mjs`、`docs/architecture/desktop-agent-browser.zh-CN.md`、`docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
-- Evidence（验证）：定向 5 files / 45 tests 全过（5 个新用例）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run test` → 496 files / 5548 passed / 2 skipped；`npm run build` → 成功（built in 3.19s）。未创建 Git commit。
+- Evidence（验证）：定向 5 files / 45 tests 全过（5 个新用例）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run test` → 496 files / 5548 passed / 2 skipped；`npm run build` → 成功（built in 3.19s）。已变基到上游最新并提交推送 origin/dev（a5316818）。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：①**实机复验**：当前运行的桌面端还是旧代码，需重启桌面端（或 `npm run desktop:dev`）后再让 Agent 开百度，验证右侧面板正常显示；若实机仍超时，说明另有 Electron 39 attach 时序问题，按架构文档第 11 节手工验收深挖（主进程无落盘日志，可临时加 console）。②session-handoff 此前记录的 2.3.7→2.3.8 版本号升级事项仍待办（若要让更新检查区分新旧需先升版本再打包）。
 

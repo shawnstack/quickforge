@@ -136,7 +136,7 @@
   3. 测试：`tests/server/desktop-browser-cdp-client.test.mjs` 新增「超时后主动断开调试器」用例（fake debugger 加 `detachCalls` 计数）；`tests/server/desktop-browser-host.test.mjs` 新增「渲染进程崩溃后作废并重建」「外部 detach 后作废并重建」两例（fake webContents 支持 `emit`）；`tests/server/desktop-browser-wiring-contract.test.mjs` 新增死会话契约：render-process-gone/detach 必须走 discardView、超时必须主动断开并重建重试一次、就绪门必须存在。
   4. 文档：`docs/architecture/desktop-agent-browser.zh-CN.md` 新增「6. 会话生命周期与自愈」章节（后续章节顺延），手工验收补第 6 步自愈验证；`docs/wiki/README.md` 架构文档行补自愈描述。
 - 交互影响：工具集、审批、面板交互零变化；正常路径行为不变（就绪门在视图已就绪时立即放行）。异常路径从「连续超时永久卡死」变为「超时一次 → 自动重建重试一次 → 仍失败才报错」，下次调用也总是全新开始。
-- 验证 / Evidence：定向 5 files / 45 tests 全过（5 个新用例：cdp-client 超时断开、host 崩溃重建/断开重建/超时熔断重试、wiring 死会话契约）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run test` → 496 files / 5548 passed / 2 skipped；`npm run build` → 成功（built in 3.19s，precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit，未手工改生成产物。
+- 验证 / Evidence：定向 5 files / 45 tests 全过（5 个新用例：cdp-client 超时断开、host 崩溃重建/断开重建/超时熔断重试、wiring 死会话契约）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run test` → 496 files / 5548 passed / 2 skipped；`npm run build` → 成功（built in 3.19s，precompress 224 files: 12.67MB → 6.49MB）。已变基到上游最新并提交推送 origin/dev（a5316818）。
 - Notes：①当前正在运行的桌面端（2.3.7 打包版）仍是旧代码，需重启桌面端（或 `npm run desktop:dev`）后实机复验百度打开是否恢复；②若实机仍超时，则说明卡点不在上述三层（如 Electron 39 的 WebContentsView attach 时序另有问题），届时需按架构文档第 11 节手工验收步骤深挖；③主进程 MCP server 无落盘日志，实机排查时可在 `desktop/electron-main.mjs` 临时加 console 输出。
 
 ## goal-v2-single-completion-entry（done，2026-11-02）

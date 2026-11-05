@@ -2,6 +2,49 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## experience-library-open-actions（done，2026-11-05）
+
+- 起因：用户要求「梦境记忆 → 经验库也像工作记忆一样有打开按钮，UI 保持统一」，追问后确认「两个都要」：每条经验一个「打开」+ 整个经验库一个「打开文件夹」。紧接着用户又说「好的 执行」，把工作记忆页的「打开文件夹」也补齐，两页对称。
+- 判断：工作记忆那条路径已经完整（校验名字 → 服务端拼路径 → 系统文件管理器定位），经验库没有理由再写一套。所以先把 `openWorkingMemoryNote` 的逻辑抽成 `note-store.mjs` 的 `revealNoteFile(dir, name, options)`，两个目录共用；差异只在「哪个目录」和「要不要先建目录」。
+- 改动：
+  1. `server/note-store.mjs`：新增 `revealNoteFile()`（`normalizeNoteName` 校验 + `fs.access` 存在性 404 + `options.openPath` 可注入）。`server/working-memory.mjs` 的 `openWorkingMemoryNote` 与 `server/experiences.mjs` 新增的 `openExperience` 都变成它的薄壳。
+  2. `server/experiences.mjs`：新增 `openExperiencesFolder()`——先 `ensureExperiencesDir`（顺带建 `_archive/`）再 reveal，新装机器上目录还不存在时也能点。`server/working-memory.mjs` 补同款的 `openWorkingMemoryFolder()`（`ensureWorkingMemoryDir` + reveal），两边对称。
+  3. `server/routes/dreaming.mjs`：`handleDreamingApi(req, res, url, options = {})` 增加可选第 4 参（向后兼容，沿用 working-memory 路由的 `dataDir` / `openPath` 注入约定，路由测试不必 mock 整个目录层）；新增 `POST /api/dreaming/experiences/open`（body `{name}`）与 `POST /api/dreaming/experiences/open-folder`，都放在原有 GET 分支之前。`server/routes/working-memory.mjs` 新增 `POST /api/working-memory/open-folder`（只接受 POST，GET 405）。
+  4. 前端：`dreaming-data.ts` 加两个 fetcher；`DreamingSettingsTab` 经验库工具条加「打开文件夹」，经验行从 `quickforge-recall-*`（聊天工具卡的样式）换成设置页通用的 `quickforge-settings-list-item` + `quickforge-settings-list-item-actions`，按钮复用工作记忆同款 `Button variant="ghost" size="sm"`；打开失败单独提示在列表下方，不占用整页错误态。`WorkingMemorySettingsTab` 在「笔记文件夹」目录行、路径 `code` 后面加同款「打开文件夹」按钮（那里本来就是 `display:flex` 的 row-control，不需要新样式）。
+  5. `src/styles/settings/dreaming.css`：`.quickforge-dreaming-list` 这组规则原本是上一版记忆列表留下的、已无使用者，改成此行场景：行不再自带横向内边距（外层卡片已有 `p-5`），actions 保持 `nowrap`。
+  6. i18n：`dreamingExperienceOpen` / `dreamingExperienceOpenFolder` / `workingMemoryFolderOpen`，中英各 3 条。
+- 验证 / Evidence：
+  - `npx vitest run tests/server/routes/dreaming.test.mjs` → 14 passed（新增 5 例：打开单条、拒绝 `../` 逃逸、拒绝不存在的文件、缺名字 400、打开并创建文件夹）。
+  - `npx vitest run tests/server/routes/working-memory.test.mjs` → 12 passed（新增 2 例：打开并创建目录、GET 405）。
+  - `npx vitest run tests/frontend/dreaming-experiences-open.test.ts` → 3 passed（每行一个打开、按名字 POST、文件夹 POST）。
+  - `npx vitest run tests/frontend/working-memory-settings-tab.test.ts` → 5 passed（新增 1 例：目录行「打开文件夹」发 POST）。
+  - `npm run lint` → 0 problems；`npm run build` → 通过（chunk 体积警告为既有无害警告）。
+  - 全量 `npm run test` → 502 files / 5552 passed / 3 failed / 1 skipped；3 个失败是既有基线（ACP workspace-mapping 2 + sqlite `quick_check` 1），与本次改动无关（单独跑 ACP 那 2 例在改动前后一样失败）。
+- Notes / 已知取舍：
+  - 两个「打开文件夹」按钮位置不同，是因为两页结构不同：工作记忆有「笔记文件夹」目录行，按钮就贴着路径；梦境记忆页没有目录行，按钮放在经验库的筛选工具条里。控件本身（ghost `size=sm`）一样。
+  - 「打开」是在**服务端**机器上弹文件管理器（`openPathInFileManager`）。远程/LAN 客户端点头时打开的是服务器那台机器的窗口——这与工作记忆现有的「打开」行为一致，本次没有改变这个语义。
+  - `quickforge-recall-*` 样式仍是聊天里 `recall_experience` 历史卡片在用（`recall_experience` 工具本身已退役，但旧会话消息还靠它渲染），所以只挪用了设置页的列表样式，没有动那些 CSS。
+  - 未创建 Git commit，未手工修改 `dist/` / `package-dist/` / `package-offline/`。
+
+## run-state-single-authority（done，2026-11-05）
+
+- 起因：用户反馈「回滚（回撤）消息后再发送，某些情况下发送按钮没有变成旋转，但对话有回复」，要求架构最优、不打补丁、不过度设计、行为保持一致。
+- 根因：`state.isStreaming` 在 `ServerAgent` 里有 16 处各自赋值，**没有任何单一权威**。回滚的 HTTP 响应先回到客户端，用户立刻点发送 → 本地乐观置 true；而服务端在回滚时广播的 `agent_end`（描述的是**上一轮**结束）还在这条有序流上飞。它到达时本地已有 N+1 条（回滚后 N 条 + 乐观 user 消息），`endEvent.messages.length >= this.state.messages.length` 判假 → 走 fallback → `refreshStateFromServer().finally()` 无条件 `isStreaming = false`，且这次写入不广播任何事件。服务端开新一轮时的 `agent_start` 帧若已先到就被覆盖，此后没有第二次确认机会 → 按钮停在灰色上箭头，消息流照常输出（「不转但有回复」）。本质问题是「结束信号没有身份」：正常发消息不会出现「旧回合的结束晚于新回合开始」，所以缺陷被掩盖。
+- 改动（只改 `src/lib/server-agent.ts`，服务端零改动）：
+  1. 新增私有字段 `pendingPrompt`（本地已发起、服务端还没确认的回合）与私有方法 `applyServerStreaming(next)`：`true` 清标记；`false` 在标记期间返回 `false`，表示这条结束属于上一轮（不改状态、不触发收尾）。
+  2. `isStreaming` 写入从 16 处收敛为「1 个方法 + 4 个本地事实入口」：`prompt()` / `continue()` 乐观置位、`reset()`、404（会话已消失）、`abort()`（用户明确的结束意图，清标记让随后 `agent_end` 照常采纳）。
+  3. `case 'agent_end'` 入口先过守卫：不采纳时**整帧丢弃**（不 stop watchdog、不做收尾、不转发、不投影旧消息）；三处 `.finally` 异步收尾改走 `applyServerStreaming(false)`，避免异步写状态覆盖下一回合。
+  4. SSE `state` 帧、`/state`、`/status` 全部改走 `applyServerStreaming`；`/status` 的 false 先清标记（主动查询是「此刻事实」，也是未确认回合卡住时的唯一兜底）。
+  5. `message_update` 到达即视为本轮已开跑并清标记，缩短未确认窗口。
+- 验证 / Evidence：
+  - 新增 `tests/frontend/server-agent-stale-run-completion.test.ts`（5 例）：迟到的旧 `agent_end` 被忽略且不转发 / 服务端确认后正常归位 / `state` 帧 `isStreaming:false` 在未确认期间被忽略 / 流式增量视为确认 / `abort()` 之后仍能正常结算。
+  - 定向：8 个 `server-agent-*` 测试 187 passed；6 个聊天 UI 测试 41 passed。
+  - `npm run test` → 501 files / 5541 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite `quick_check` 1）；`npm run lint` → 0 problems；`npm run build` → 通过（chunk 体积警告为既有无害警告）。
+- Notes / 已知取舍：
+  - 等待环（`ChatPanelHost` 的 `replyWaiting`）本次未改：它的脱钩根因是「错误的旧回合帧被转发」，现在迟到的旧 `agent_end` 不再转发，宿主不会误清环。把它搬进 snapshot 派生会改变「assistant `message_start` 就清环」的时序，属于可见行为变化，不做。
+  - `DeferredSessionAgent` / `SharedServerAgent` / `SideChatAgent` 有各自的独立生命周期，不在本次范围，未改动。
+  - 未触碰 `dist/` / `package-dist/` / `package-offline/`；未创建 Git commit。
+
 ## rollback-keeps-session-unified（done，2026-11-05）
 
 - 起因：用户反馈「任务分组发起对话，第一轮用户消息回滚后弹到新发起对话页面」，并指出项目会话没有这个问题、两边逻辑应该复用，要求评审并统一。

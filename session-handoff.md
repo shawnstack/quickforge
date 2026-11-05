@@ -1,5 +1,53 @@
 # Current Session Handoff
 
+## 当前交接：experience-library-open-actions（done，2026-11-05）
+
+- Current Objective（当前目标）: 设置·梦境记忆的经验库也能「打开」——每条经验一个「打开」+ 一个「打开文件夹」；随后把工作记忆页的「打开文件夹」也补齐，两页对称。已实现，未提交。
+- 用户拍板: 「两个都要」（单条 + 整个目录），UI 与工作记忆保持一致；之后直接说「好的 执行」，同意给工作记忆也补「打开文件夹」。
+- 结论（一句话）: 把工作记忆里"校验名字 → 服务端拼路径 → 在文件管理器里 reveal"那段抽成 `note-store.mjs` 的 `revealNoteFile()`，两个记忆目录共用；两个目录各有一个「先建目录再 reveal」的 `openExperiencesFolder()` / `openWorkingMemoryFolder()`。
+- 改动内容:
+  1. `server/note-store.mjs` 新增 `revealNoteFile(dir, name, options)`；`server/working-memory.mjs` 的 `openWorkingMemoryNote` 与 `server/experiences.mjs` 新增的 `openExperience` 都是它的薄壳。
+  2. `server/experiences.mjs` 新增 `openExperiencesFolder()`；`server/working-memory.mjs` 新增同款 `openWorkingMemoryFolder()`（都是 `ensure*Dir` 后 reveal）。
+  3. `server/routes/dreaming.mjs`：`handleDreamingApi(req, res, url, options = {})` 加可选第 4 参；新增 `POST /api/dreaming/experiences/open`、`POST /api/dreaming/experiences/open-folder`。`server/routes/working-memory.mjs` 新增 `POST /api/working-memory/open-folder`（只 POST）。
+  4. 前端 `dreaming-data.ts` 两个 fetcher；`DreamingSettingsTab` 经验行换成设置页通用列表项 + 工作记忆同款 ghost「打开」按钮，工具条加「打开文件夹」；`WorkingMemorySettingsTab` 在「笔记文件夹」目录行路径后加同款「打开文件夹」。
+  5. `src/styles/settings/dreaming.css` 的 `.quickforge-dreaming-list` 行不再自带横向内边距（外层 `p-5` 已有）。
+- Files（改动文件）: 见 `feature_list.json` 的 `experience-library-open-actions`。
+- Evidence（验证）: `dreaming.test.mjs` 14 passed（+5 例）、`working-memory.test.mjs` 12 passed（+2 例）、`dreaming-experiences-open.test.ts` 3 passed、`working-memory-settings-tab.test.ts` 5 passed（+1 例）；`npm run lint` → 0 problems；`npm run build` → 通过；`npm run test` → 502 files / 5552 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 「打开」是在**服务端**机器上弹文件管理器；远程/LAN 客户端点开的是服务器那台机器的窗口。与工作记忆原有行为一致，没有改这个语义。
+  - 两个「打开文件夹」位置不同是布局决定的：工作记忆有目录行（按钮贴着路径），梦境记忆页没有目录行（按钮在经验库筛选工具条里）。控件本身完全一样。
+  - 别把经验行的样式往 `quickforge-recall-*` 上接：那套是聊天里旧 `recall_experience` 卡片的样式，设置页用 `.quickforge-settings-list-item`。
+- Next Session（下一步）:
+  1. 实机点一遍：设置·工作记忆「打开文件夹」、设置·梦境记忆单条「打开」+「打开文件夹」，确认 macOS/Windows 都能正确定位（Windows 文件是 `/select,`，Linux 文件打开父目录）。
+  2. 两处都依赖 `openPathInFileManager`；若以后要支持「在远程客户端那台机器上打开」，得另设计，不要在这里硬塞。
+
+## 当前交接：run-state-single-authority（done，2026-11-05）
+
+- Current Objective（当前目标）: 让聊天区「是否正在运行」只有一个权威，修掉「回滚后再发送，发送按钮不转但对话有回复」。已实现，未提交。
+- 用户拍板的判断:
+  1. 要架构最优，不要打补丁，不要过度设计，行为保持一致。
+  2. 不接受「给某个分支加 if 守卫」的做法；也不引入 runId / epoch 之类的新概念。
+- 结论（一句话）: `state.isStreaming` 原来有 16 处写入，回滚广播的「上一轮结束帧」会迟到并把刚点亮的新回合打回 false；现在收敛为「1 个方法（`applyServerStreaming`）+ 1 个本地标记（`pendingPrompt`）」，未确认期间的任何「结束」都不属于本轮。
+- 改动内容（只改前端一个文件，服务端零改动）:
+  1. `src/lib/server-agent.ts`：新增 `pendingPrompt` 与 `applyServerStreaming(next)`；`prompt()`/`continue()` 乐观置位时打标记；`reset()`、404、`abort()` 是本地可确认事实；`message_update` 视为本轮已开跑。
+  2. `case 'agent_end'` 入口加守卫：不采纳（属于上一轮）就整帧丢弃——不改状态、不做收尾、不转发；三处 `.finally` 异步收尾改走 `applyServerStreaming`。
+  3. SSE `state` 帧、`/state`、`/status` 全部走同一入口；`/status` 的 false 先清标记（唯一兜底）。
+  4. 新增 `tests/frontend/server-agent-stale-run-completion.test.ts`（5 例）。
+- Files（改动文件）: 见 `feature_list.json` 的 `run-state-single-authority`。
+- Evidence（验证）: 定向 8 + 6 个文件全过；`npm run test` → 501 files / 5541 passed / 3 failed / 1 skipped（3 个失败是既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；`npm run lint` → 0 problems；`npm run build` → 通过。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 别再给 `isStreaming` 加第 5 个写入点：所有服务端输入都要走 `applyServerStreaming`，否则「未确认回合被旧帧打回」会以别的形式回来。
+  - `pendingPrompt` 卡住时的唯一兜底是 watchdog 的 `/status`（15s 静默），所以那条路径必须保留「先清标记再采纳」。
+  - 等待环（`ChatPanelHost.replyWaiting`）没动：它的脱钩根因是错误帧被转发，现在不会再发生；搬进 snapshot 会改变「assistant message_start 就清环」的时序。
+  - `DeferredSessionAgent` / `SharedServerAgent` / `SideChatAgent` 未改（各自独立生命周期）。
+  - 未创建 Git commit；未触碰 `dist/` / `package-dist/` / `package-offline/`。
+- Next Session（下一步）:
+  1. 实机验证原场景：对一条已有回复的消息点「回滚」→ 立刻点发送，确认按钮立刻进入停止/等待态并持续到本轮结束，不再出现「灰色上箭头 + 有回复」。
+  2. 顺带验证「停止生成后立刻发送」「重试/继续」两条同源路径。
+  3. 若后续想彻底去掉等待环这个独立状态，再单独评估从 snapshot 派生的视觉时序差异（会改变 assistant `message_start` 到首个 delta 之间的环）。
+
 ## 当前交接：rollback-keeps-session-unified（done，2026-11-05）
 
 - Current Objective（当前目标）: 让「回滚」在任务会话与项目会话下行为一致——回滚只截断历史，不再删旧会话重建新会话。已实现，未提交。

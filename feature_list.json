@@ -1,6 +1,51 @@
 {
   "features": [
     {
+      "id": "experience-library-open-actions",
+      "title": "设置里的「打开」对齐：经验库每条经验可打开，工作记忆与经验库各有「打开文件夹」",
+      "status": "done",
+      "summary": "用户要求：经验库也像工作记忆一样有「打开」按钮，UI 保持统一；追问后确认「两个都要」——每条经验一个「打开」（在系统文件管理器里选中该 .md），外加整个经验库的「打开文件夹」；随后又让把工作记忆页的「打开文件夹」补齐，做到两页对称。落地：把工作记忆里那段「校验名字 → 服务端拼路径 → reveal」抽成 `note-store.mjs` 的 `revealNoteFile(dir, name, options)`，`openWorkingMemoryNote` 与新增的 `openExperience` 都变成它的薄壳；两个目录各加一个「先建目录再 reveal」的 `openExperiencesFolder` / `openWorkingMemoryFolder`（新装机器上目录不存在也能点）；`handleDreamingApi` 增加可选 `options` 入参（向后兼容，沿用 working-memory 路由的 `dataDir`/`openPath` 注入约定），新增 `POST /api/dreaming/experiences/open`（body `{name}`，空名字 400、名字含非法字符/`..` 走 note-store 的校验、文件不存在 404）、`POST /api/dreaming/experiences/open-folder` 与 `POST /api/working-memory/open-folder`；前端 dreaming-data 增加两个 fetcher，DreamingSettingsTab 经验库工具条加「打开文件夹」、经验行改用设置页通用的 `quickforge-settings-list-item` + `-actions` 结构（复用工作记忆同款 `Button variant=ghost size=sm`），WorkingMemorySettingsTab 的目录行加同款「打开文件夹」；打开失败在各自区域内单独提示，不影响整页错误态。",
+      "files": [
+        "server/note-store.mjs（新增 revealNoteFile）",
+        "server/working-memory.mjs（openWorkingMemoryNote 复用 revealNoteFile；新增 openWorkingMemoryFolder）",
+        "server/experiences.mjs（openExperience / openExperiencesFolder）",
+        "server/routes/dreaming.mjs（handleDreamingApi 增加 options；两个 open 子路径）",
+        "server/routes/working-memory.mjs（POST /api/working-memory/open-folder）",
+        "src/components/dreaming/dreaming-data.ts（openDreamingExperience / openDreamingExperiencesFolder）",
+        "src/components/dreaming/DreamingSettingsTab.tsx（经验行「打开」+「打开文件夹」+ 行结构对齐设置列表）",
+        "src/components/settings/tabs/WorkingMemorySettingsTab.tsx（目录行「打开文件夹」）",
+        "src/styles/settings/dreaming.css（.quickforge-dreaming-list 行不再自带横向内边距）",
+        "src/lib/i18n.ts（dreamingExperienceOpen / dreamingExperienceOpenFolder / workingMemoryFolderOpen，中英各 3 条）",
+        "tests/server/routes/dreaming.test.mjs（+5 例）",
+        "tests/server/routes/working-memory.test.mjs（+2 例）",
+        "tests/frontend/dreaming-experiences-open.test.ts（新增，3 例）",
+        "tests/frontend/working-memory-settings-tab.test.ts（+1 例）",
+        "docs/architecture/memory-system.zh-CN.md（新增「人怎么看到这些文件」）",
+        "docs/wiki/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向：tests/server/routes/dreaming.test.mjs 14 passed、tests/server/routes/working-memory.test.mjs 12 passed、tests/frontend/dreaming-experiences-open.test.ts 3 passed、tests/frontend/working-memory-settings-tab.test.ts 5 passed；npm run lint → 0 problems；npm run build → 通过；npm run test → 502 files / 5552 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）。未创建 Git commit，未手工修改生成产物。",
+      "updatedAt": "2026-11-05"
+    },
+    {
+      "id": "run-state-single-authority",
+      "title": "运行状态单一权威：修「回滚后再发送，发送按钮不转但对话有回复」",
+      "status": "done",
+      "summary": "用户反馈回滚消息后再发送，某些情况下发送按钮没有进入旋转/停止态、但对话照常有回复。根因是 `ServerAgent.state.isStreaming` 有 16 处各自赋值、没有单一权威：回滚的 HTTP 响应先回、用户立刻发送并本地乐观置 true，而服务端回滚广播的 `agent_end`（上一轮的结束）还在有序流上飞；它到达时本地消息数更多，走 fallback，`.finally()` 无条件把 `isStreaming` 写回 false 且不广播，服务端新一轮的 `agent_start` 若已先到就被覆盖，此后没有第二次确认。修复引入 `pendingPrompt`（本地已发起、服务端未确认的回合）与唯一写入方法 `applyServerStreaming`：未确认期间的任何「结束」都不属于本轮，迟到的旧 `agent_end` 整帧丢弃；`isStreaming` 写入收敛为 1 个方法 + 4 个本地事实入口。服务端零改动，交互行为不变。",
+      "files": [
+        "src/lib/server-agent.ts（pendingPrompt + applyServerStreaming；agent_end 守卫与整帧丢弃；SSE state / /state / /status 统一走该入口；删除 agent_end 的 5 处状态写入与 3 处异步 finally 直写）",
+        "tests/frontend/server-agent-stale-run-completion.test.ts（新增，5 例回归）",
+        "docs/wiki/src/lib/README.md（新增「运行状态单一权威（勿破坏）」条目）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "新增回归 5 passed；定向 server-agent 8 文件 187 passed、聊天 UI 6 文件 41 passed；npm run test → 501 files / 5541 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；npm run lint → 0 problems；npm run build → 通过。未创建 Git commit，未触碰生成产物。",
+      "updatedAt": "2026-11-05"
+    },
+    {
       "id": "rollback-keeps-session-unified",
       "title": "回滚统一保留当前会话：去掉「删旧会话 + 新建空会话」，修任务会话回滚首条后跳回新对话页",
       "status": "done",

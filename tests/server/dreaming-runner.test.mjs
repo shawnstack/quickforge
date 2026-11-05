@@ -11,7 +11,6 @@ import {
   runDreaming,
 } from '../../server/dreaming/runner.mjs'
 import { normalizeDreamingSettings } from '../../server/dreaming/settings.mjs'
-import { composeAutoSection, noteIdOf } from '../../server/dreaming/notes.mjs'
 
 // Hermetic settings: the real module writes `~/.quickforge/config/settings.json`.
 const settingsState = { current: normalizeDreamingSettings(null) }
@@ -27,19 +26,8 @@ vi.mock('../../server/dreaming/settings.mjs', async (importOriginal) => {
   }
 })
 
-const modelReply = { text: '', prompt: '' }
-vi.mock('../../server/ai-http-logger.mjs', () => ({
-  streamSimpleWithAiHttpLogging: (_model, context) => {
-    // Capture the user prompt so tests can assert the language directive and the
-    // "edit the current list" contract.
-    modelReply.prompt = String(context?.messages?.[0]?.content ?? '')
-    const message = { role: 'assistant', content: [{ type: 'text', text: modelReply.text }] }
-    return { result: async () => message }
-  },
-}))
-
-// Model resolution is what decides which provider Dreaming bills. The mock keeps
-// the three sources separate so tests can assert the precedence order.
+// Model resolution decides which provider a run bills. The mock keeps the three
+// sources separate so tests can assert the precedence order.
 const modelState = { catalog: null, active: null, explicit: null, bindingThrows: false }
 vi.mock('../../server/model-catalog.mjs', () => ({
   resolveModelBinding: async () => {
@@ -52,27 +40,39 @@ vi.mock('../../server/storage.mjs', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
-    // 'active-model' is what the runner reads to decide the chat-model fallback.
     readStore: async () => (modelState.active ? { 'active-model': { modelSnapshot: modelState.active } } : {}),
   }
 })
 
-// global-memory resolves its data directory from the process env at import time,
-// so a real read/write would land in the developer's ~/.quickforge. Both sides of
-// the notes round-trip are mocked here; the real file handling is covered by
-// tests/server/dreaming-memory.test.mjs against a temp directory.
-const memoryWrites = []
-const notesState = { content: '' }
 vi.mock('../../server/global-memory.mjs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, isGlobalMemoryEnabled: async () => true }
+})
+
+// The index rebuild and the folder copy both land on the real data directory, so
+// they are replaced here; the real filesystem behaviour is covered by
+// tests/server/dreaming-snapshot.test.mjs and tests/server/memory-notes.test.mjs.
+const snapshotCalls = []
+const snapshotState = { fail: null }
+vi.mock('../../server/dreaming/snapshot.mjs', () => ({
+  MAX_SNAPSHOTS: 10,
+  snapshotMemory: async ({ runId }) => {
+    if (snapshotState.fail) throw new Error(snapshotState.fail)
+    snapshotCalls.push(runId)
+    return { dir: `/tmp/snap/${runId}`, workingMemoryFiles: 2, experienceFiles: 1 }
+  },
+  restoreMemorySnapshot: async () => ({ workingMemoryFiles: 0, experienceFiles: 0 }),
+  pruneSnapshots: async () => ({ removed: 0 }),
+  snapshotDirOf: (runId) => `/tmp/snap/${runId}`,
+}))
+const indexRefreshes = []
+vi.mock('../../server/experiences.mjs', async (importOriginal) => {
   const actual = await importOriginal()
   return {
     ...actual,
-    isGlobalMemoryEnabled: async () => true,
-    readDreamingNotes: async () => notesState.content,
-    writeDreamingNotes: async (markdown) => {
-      memoryWrites.push(markdown)
-      notesState.content = markdown
-      return { changed: true, markdown, path: '~/.quickforge/DREAMING.md' }
+    readExperienceIndex: async () => {
+      indexRefreshes.push(Date.now())
+      return { markdown: '', entries: [], changed: false, file: '/tmp/index.md' }
     },
   }
 })
@@ -96,11 +96,32 @@ function insertSession({ sessionId = 's1', projectId = 'p1', updatedAtMs = 5000,
   })
 }
 
-const SAMPLE_MESSAGES = [
+const MESSAGES = [
   { role: 'user', content: [{ type: 'text', text: '发布一个小版本' }] },
   { role: 'assistant', content: [{ type: 'toolCall', name: 'run_command', arguments: { command: 'npm run build' } }] },
   { role: 'toolResult', toolName: 'run_command', content: [{ type: 'text', text: 'built in 6.36s' }] },
+  { role: 'assistant', content: [{ type: 'text', text: '已经发好了。' }] },
 ]
+
+/** Records each curator turn so tests can assert order, count and inputs. */
+function createCuratorStub(results = []) {
+  const calls = []
+  const stub = async (input) => {
+    calls.push(input)
+    const next = results[calls.length - 1]
+    return next ?? {
+      ok: true,
+      sessionId: input.session.sessionId,
+      reply: '整理完了。',
+      toolCalls: 3,
+      blockedCalls: [],
+      actions: [],
+      durationMs: 5,
+    }
+  }
+  stub.calls = calls
+  return stub
+}
 
 beforeEach(async () => {
   settingsState.current = normalizeDreamingSettings({ enabled: true })
@@ -108,10 +129,9 @@ beforeEach(async () => {
   modelState.active = MODEL
   modelState.explicit = null
   modelState.bindingThrows = false
-  modelReply.text = ''
-  modelReply.prompt = ''
-  memoryWrites.length = 0
-  notesState.content = ''
+  snapshotCalls.length = 0
+  snapshotState.fail = null
+  indexRefreshes.length = 0
   directory = await mkdtemp(path.join(os.tmpdir(), 'qf-dreaming-runner-'))
   storage = await initializeSqliteStorage({ dataDir: directory, databasePath: path.join(directory, 'quickforge.sqlite3') })
   repository = createDreamingRepository(storage)
@@ -119,342 +139,211 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await closeSqliteStorage()
-  vi.restoreAllMocks()
   await rm(directory, { recursive: true, force: true })
 })
 
-describe('dreaming runner', () => {
-  it('skips without writing a run row when disabled', async () => {
-    settingsState.current.enabled = false
-    const result = await runDreaming({ trigger: 'manual', repository })
+describe('runDreaming', () => {
+  it('does nothing when dreaming is disabled', async () => {
+    settingsState.current = normalizeDreamingSettings({ enabled: false })
+    insertSession({ messages: MESSAGES })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
     expect(result).toMatchObject({ skipped: true, reason: 'disabled' })
-    expect(repository.countRuns()).toBe(0)
   })
 
-  it('records a skipped run when the window has no sessions', async () => {
+  it('skips without touching memory when the window holds no sessions', async () => {
     const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(result.skipped).toBe(true)
-    expect(result.run).toMatchObject({ status: 'skipped', sessionCount: 0 })
-    expect(settingsState.current.lastRunAt).toBe(10_000)
+    expect(result).toMatchObject({ skipped: true, reason: 'no_sessions' })
+    expect(snapshotCalls).toEqual([])
   })
 
-  it('fails cleanly when no model is configured', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelState.catalog = null
-    modelState.active = null
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(result.run).toMatchObject({ status: 'failed' })
-    expect(result.run.error).toContain('模型')
+  it('processes every session, one curator turn each, oldest first', async () => {
+    insertSession({ sessionId: 'later', updatedAtMs: 8000, messages: MESSAGES })
+    insertSession({ sessionId: 'earlier', updatedAtMs: 4000, messages: MESSAGES })
+    const curator = createCuratorStub()
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+
+    expect(curator.calls.map((call) => call.session.sessionId)).toEqual(['earlier', 'later'])
+    expect(result.run).toMatchObject({ status: 'succeeded', sessionCount: 2 })
+    expect(result.run.operations.sessions).toHaveLength(2)
   })
 
-  it('writes the returned bullet list back and records the diff', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- [experience] 发布前先跑 npm run build 再打包，避免 dist 过期。'
-
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(result.run).toMatchObject({ status: 'succeeded', sessionCount: 1, createdCount: 1, retiredCount: 0, rejectedCount: 0 })
-    expect(result.run.operations).toMatchObject({ added: ['[experience] 发布前先跑 npm run build 再打包，避免 dist 过期。'] })
-    expect(result.run.summary).toContain('1 条笔记')
-
-    expect(memoryWrites).toHaveLength(1)
-    expect(memoryWrites[0]).toContain('npm run build')
-    // The file is rewritten wholesale, so the title is part of the payload.
-    expect(memoryWrites[0]).toContain('记忆笔记')
-
-    // The watermark advances only on a completed run, so the next pass resumes.
-    expect(repository.latestSucceededPeriodTo()).toBe(10_000)
+  it('takes the memory snapshot before the first curator turn', async () => {
+    insertSession({ messages: MESSAGES })
+    const order = []
+    const curator = async (input) => {
+      order.push('curator')
+      return { ok: true, sessionId: input.session.sessionId, reply: '', toolCalls: 0, actions: [], durationMs: 1 }
+    }
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+    order.push(...snapshotCalls.map(() => 'snapshot'))
+    // The snapshot is recorded before the turn runs, so the first entry is the copy.
+    expect(snapshotCalls).toHaveLength(1)
+    expect(snapshotCalls[0]).toBe(result.run.id)
+    expect(order).toContain('curator')
+    expect(result.run.operations.snapshotFiles).toEqual({ workingMemory: 2, experiences: 1 })
   })
 
-  it('shows the current notes to the model and only reports real changes on a second pass', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 用户偏好中文交互'
-    const first = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(first.run.operations).toMatchObject({ added: ['用户偏好中文交互'], removed: [] })
-
-    // Second pass: a new session in the new window, and the model keeps the
-    // existing note while adding one.
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = '- 用户偏好中文交互\n- 发布前必须跑完整测试'
-    const second = await runDreaming({ trigger: 'manual', now: 20_000, repository })
-    expect(modelReply.prompt).toContain('- 用户偏好中文交互')
-    expect(second.run.operations).toMatchObject({
-      added: ['发布前必须跑完整测试'],
-      removed: [],
-    })
-    expect(parseNoteLinesOfLastWrite(memoryWrites)).toEqual(['用户偏好中文交互', '发布前必须跑完整测试'])
+  it('refuses to run when the snapshot cannot be taken', async () => {
+    insertSession({ messages: MESSAGES })
+    snapshotState.fail = 'disk full'
+    const curator = createCuratorStub()
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+    // An agent editing memory with no way back is worse than a night of no curation.
+    expect(curator.calls).toEqual([])
+    expect(result.run.status).toBe('failed')
+    expect(result.run.error).toContain('disk full')
   })
 
-  it('reports removed notes when the model drops one', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 保留这条\n- 删掉这条'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = '- 保留这条'
-    const second = await runDreaming({ trigger: 'manual', now: 20_000, repository })
-    expect(second.run.operations).toMatchObject({ added: [], removed: ['删掉这条'] })
+  it('summarises what the sessions wrote, promoted and archived', async () => {
+    insertSession({ messages: MESSAGES })
+    const curator = createCuratorStub([{
+      ok: true,
+      sessionId: 's1',
+      reply: '写了两篇。',
+      toolCalls: 4,
+      actions: [
+        { kind: 'write', scope: 'working', name: '一.md', title: '一', chars: 20 },
+        { kind: 'write', scope: 'working', name: '二.md', title: '二', chars: 20 },
+        { kind: 'write', scope: 'experience', name: '经验.md', title: '经验', chars: 30 },
+        { kind: 'rename', scope: 'working', from: '旧.md', name: '新.md' },
+        { kind: 'archive', scope: 'working', from: '过时.md', name: '过时.md' },
+      ],
+    }])
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+    expect(result.run.createdCount).toBe(3)
+    expect(result.run.updatedCount).toBe(1)
+    expect(result.run.retiredCount).toBe(1)
+    expect(result.run.summary).toContain('写工作记忆 2 篇')
+    expect(result.run.summary).toContain('沉淀经验 1 条')
+    expect(result.run.operations.actions).toHaveLength(5)
+    expect(result.run.operations.actions.every((action) => action.sessionId === 's1')).toBe(true)
   })
 
-  it('fails on a prose reply instead of wiping the notes', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 已经存在的笔记'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    memoryWrites.length = 0
-
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = 'I could not find anything worth remembering today.'
-    const result = await runDreaming({ trigger: 'manual', now: 20_000, repository })
-    expect(result.run).toMatchObject({ status: 'failed' })
-    expect(result.run.error).toContain('没有任何笔记条目')
-    // Nothing written: the previous notes survive an off-contract reply.
-    expect(memoryWrites).toEqual([])
+  it('keeps going when one session fails, and only fails the run if every session did', async () => {
+    insertSession({ sessionId: 'a', updatedAtMs: 4000, messages: MESSAGES })
+    insertSession({ sessionId: 'b', updatedAtMs: 5000, messages: MESSAGES })
+    insertSession({ sessionId: 'c', updatedAtMs: 6000, messages: MESSAGES })
+    const mixed = createCuratorStub([
+      { ok: false, sessionId: 'a', error: '模型超时', toolCalls: 0, actions: [], durationMs: 1 },
+      { ok: true, sessionId: 'b', reply: '好了', toolCalls: 2, actions: [], durationMs: 1 },
+      { ok: false, sessionId: 'c', error: '模型超时', toolCalls: 0, actions: [], durationMs: 1 },
+    ])
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator: mixed })
+    expect(result.run.status).toBe('succeeded')
+    expect(result.run.error).toContain('2 个会话处理失败')
   })
 
-  it('treats a genuinely empty reply as "nothing durable" and clears the section', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 旧笔记'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    memoryWrites.length = 0
-
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = ''
-    const result = await runDreaming({ trigger: 'manual', now: 20_000, repository })
-    expect(result.run).toMatchObject({ status: 'succeeded', createdCount: 0, retiredCount: 1 })
-    expect(memoryWrites).toEqual([''])
+  it('fails the run when every session failed', async () => {
+    insertSession({ sessionId: 'a', updatedAtMs: 4000, messages: MESSAGES })
+    insertSession({ sessionId: 'b', updatedAtMs: 5000, messages: MESSAGES })
+    const allFail = createCuratorStub([
+      { ok: false, sessionId: 'a', error: 'x', toolCalls: 0, actions: [], durationMs: 1 },
+      { ok: false, sessionId: 'b', error: 'x', toolCalls: 0, actions: [], durationMs: 1 },
+    ])
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator: allFail })
+    expect(result.run.status).toBe('failed')
   })
 
-  it('records the resulting notes so the run can be restored later', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(result.run.operations.notesAfter).toEqual(['一', '二'])
+  it('stops at a session boundary when the wall-clock budget runs out', async () => {
+    insertSession({ sessionId: 'a', updatedAtMs: 4000, messages: MESSAGES })
+    insertSession({ sessionId: 'b', updatedAtMs: 5000, messages: MESSAGES })
+    const curator = createCuratorStub()
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator, maxRunMs: -1 })
+    expect(curator.calls).toEqual([])
+    expect(result.run.operations.stopped).toContain('时间预算用尽')
+    // Nothing was attempted, so this is a skip rather than a failure.
+    expect(result.run.status).toBe('skipped')
   })
 
-  it('flags a run that rewrites most of the list as possible drift', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = Array.from({ length: 6 }, (_value, index) => `- note ${index}`).join('\n')
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = Array.from({ length: 6 }, (_value, index) => `- different ${index}`).join('\n')
-    const second = await runDreaming({ trigger: 'manual', now: 20_000, repository })
-
-    // Still a success (the notes are the model's call), but the run carries a
-    // warning so a human can spot the drift.
-    expect(second.run).toMatchObject({ status: 'succeeded' })
-    expect(second.run.error).toContain('记忆漂移')
-    expect(second.run.operations.notesAfter).toHaveLength(6)
-  })
-
-  it('does not flag churn on a short list, where every run looks like a rewrite', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = '- 三\n- 四'
-    const second = await runDreaming({ trigger: 'manual', now: 20_000, repository })
-    expect(second.run.status).toBe('succeeded')
-    expect(second.run.error).toBeNull()
-  })
-
-  it('hands never-recalled notes to the model as deletion candidates', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    // Pruning only kicks in on a long list; 40 notes is the threshold.
-    const notes = Array.from({ length: 40 }, (_value, index) => `- note ${index}`)
-    modelReply.text = notes.join('\n')
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    const day = 24 * 60 * 60 * 1000
-    const later = 10_000 + 70 * day
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
-    modelReply.text = notes.join('\n')
-    await runDreaming({ trigger: 'manual', now: later, repository })
-
-    expect(modelReply.prompt).toContain('Never recalled')
-    expect(modelReply.prompt).toContain('(70 days) note 0')
-  })
-
-  it('does not propose pruning while the list is still short', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    const later = 10_000 + 70 * 24 * 60 * 60 * 1000
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: later, repository })
-
-    // Every note looks "never recalled" on a short list, so the section is omitted
-    // rather than asking the model to consider deleting everything.
-    expect(modelReply.prompt).not.toContain('Never recalled')
-  })
-
-  it('deletes stale notes before the model runs when automatic pruning is on', async () => {
-    const day = 24 * 60 * 60 * 1000
-    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneStaleNotes: true })
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    const later = 10_000 + 61 * day
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
-    memoryWrites.length = 0
-    // The model would have kept both; the rule removed them first, so it decides
-    // on an empty list and cannot veto the deletion.
-    modelReply.text = '- 一\n- 二'
-    const second = await runDreaming({ trigger: 'manual', now: later, repository })
-
-    expect(second.run.status).toBe('succeeded')
-    expect(second.run.operations.pruned).toEqual(['一', '二'])
-    expect(second.run.retiredCount).toBe(2)
-    expect(second.run.summary).toContain('到期自动删除 2 条')
-    expect(modelReply.prompt).toContain('the list is empty')
-    // Pruning is a rule: the candidate section would only restate it.
-    expect(modelReply.prompt).not.toContain('Never recalled')
-    // Two writes: the prune, then the model's rewrite of the emptied list.
-    expect(memoryWrites).toHaveLength(2)
-    expect(memoryWrites[0]).not.toContain('一')
-  })
-
-  it('keeps a stale note that was recalled more often than allowed', async () => {
-    const day = 24 * 60 * 60 * 1000
-    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneStaleNotes: true, pruneMaxRecalls: 0 })
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    repository.recordNoteRecall([{ id: noteIdOf('一'), text: '一' }], 12_000)
-
-    const later = 10_000 + 61 * day
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
-    modelReply.text = '- 一\n- 二'
-    const second = await runDreaming({ trigger: 'manual', now: later, repository })
-
-    expect(second.run.operations.pruned).toEqual(['二'])
-    expect(modelReply.prompt).toContain('- 一')
-  })
-
-  it('never auto-deletes a note whose age is unknown', async () => {
-    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneStaleNotes: true })
-    // A hand-edited line: no stats row exists, so "how old is it" has no answer.
-    // Deleting on a guess is worse than keeping a stale note.
-    notesState.content = composeAutoSection(['手写笔记'])
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 手写笔记'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    expect(result.run.operations.pruned).toEqual([])
-    expect(result.run.retiredCount).toBe(0)
-    expect(modelReply.prompt).toContain('手写笔记')
-  })
-
-  it('honours the configured day threshold instead of a hardcoded 60', async () => {
-    const day = 24 * 60 * 60 * 1000
-    settingsState.current = normalizeDreamingSettings({
-      enabled: true,
-      pruneStaleNotes: true,
-      pruneUnusedDays: 7,
-      pruneMinNotes: 2,
-    })
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    const later = 10_000 + 8 * day
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
-    modelReply.text = '- 一\n- 二'
-    const second = await runDreaming({ trigger: 'manual', now: later, repository })
-
-    expect(second.run.operations.pruned).toEqual(['一', '二'])
-
-    // Below the configured threshold nothing is old enough yet.
-    settingsState.current = normalizeDreamingSettings({
-      enabled: true,
-      pruneStaleNotes: true,
-      pruneUnusedDays: 7,
-      pruneMinNotes: 2,
-    })
-    insertSession({ sessionId: 's3', messages: SAMPLE_MESSAGES, updatedAtMs: later + 5 * day - 1000 })
-    modelReply.text = '- 一\n- 二'
-    const third = await runDreaming({ trigger: 'manual', now: later + 5 * day, repository })
-    expect(third.run.operations.pruned).toEqual([])
-  })
-
-  it('uses the configured candidate threshold when pruning is off', async () => {
-    const day = 24 * 60 * 60 * 1000
-    settingsState.current = normalizeDreamingSettings({ enabled: true, pruneMinNotes: 2, pruneUnusedDays: 30 })
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-
-    const later = 10_000 + 31 * day
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: later - 1000 })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: later, repository })
-
-    // Two notes clear a threshold of 2, and 31 days clears 30 — both configurable,
-    // where the old hardcoded 40/60 would have omitted the section entirely.
-    expect(modelReply.prompt).toContain('Never recalled')
-    expect(modelReply.prompt).toContain('(31 days) 一')
-  })
-
-  it('keeps the notes usage table in step with the file', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- 一\n- 二'
-    await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect([...repository.listNoteStats().values()].map((stat) => stat.text).sort()).toEqual(['一', '二'])
-
-    insertSession({ sessionId: 's2', messages: SAMPLE_MESSAGES, updatedAtMs: 15_000 })
-    modelReply.text = '- 二\n- 三'
-    await runDreaming({ trigger: 'manual', now: 20_000, repository })
-    expect([...repository.listNoteStats().values()].map((stat) => stat.text).sort()).toEqual(['三', '二'])
+  it('rebuilds the experience index once at the end', async () => {
+    insertSession({ sessionId: 'a', updatedAtMs: 4000, messages: MESSAGES })
+    insertSession({ sessionId: 'b', updatedAtMs: 5000, messages: MESSAGES })
+    await runDreaming({ trigger: 'manual', now: 10_000, repository, curator: createCuratorStub() })
+    expect(indexRefreshes).toHaveLength(1)
   })
 
   it('guards against concurrent runs', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
-    modelReply.text = '- x'
-    const first = runDreaming({ trigger: 'manual', now: 10_000, repository })
-    // The second call observes the in-flight flag, not a queued pass.
+    insertSession({ messages: MESSAGES })
+    const curator = async (input) => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return { ok: true, sessionId: input.session.sessionId, reply: '', toolCalls: 0, actions: [], durationMs: 1 }
+    }
+    const first = runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
     await vi.waitFor(() => expect(isDreamingRunning()).toBe(true))
-    const second = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    const second = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
     expect(second).toMatchObject({ skipped: true, reason: 'already_running' })
     await first
     expect(isDreamingRunning()).toBe(false)
   })
 
+  it('passes the detected language down to the curator', async () => {
+    insertSession({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: '帮我把这个接口改成支持分页，然后跑一下测试' }] },
+        { role: 'assistant', content: [{ type: 'text', text: '已经改成支持分页了，测试也通过了。' }] },
+      ],
+    })
+    const curator = createCuratorStub()
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+    expect(result.run.contentLanguage).toBe('zh')
+    expect(curator.calls[0].contentLanguage).toBe('zh')
+  })
+
+  it('lets an explicit language setting override detection', async () => {
+    insertSession({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'please refactor this module and run the tests' }] },
+        { role: 'assistant', content: [{ type: 'text', text: 'Refactored, tests pass.' }] },
+      ],
+    })
+    settingsState.current.contentLanguage = 'zh'
+    const curator = createCuratorStub()
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+    expect(result.run.contentLanguage).toBe('zh')
+    expect(curator.calls[0].contentLanguage).toBe('zh')
+  })
+
   it('pins the model chosen in settings and records which one ran', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
+    insertSession({ messages: MESSAGES })
     const pinned = { provider: 'zhipu', id: 'glm-4-plus', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
     modelState.explicit = pinned
     settingsState.current.modelRef = { version: 1, source: 'custom', providerId: 'prov-1', modelId: 'glm-4-plus' }
-    modelReply.text = '- x'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator: createCuratorStub() })
     expect(result.run.modelLabel).toBe('zhipu/glm-4-plus')
   })
 
   it('falls back to the model last used in chat instead of the first catalog entry', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
+    insertSession({ messages: MESSAGES })
     const chatModel = { provider: 'deepseek', id: 'deepseek-chat', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
     modelState.catalog = { provider: 'zhipu', id: 'glm-4.6v', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
     modelState.active = chatModel
-    modelReply.text = '- x'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    // The regression this guards: the worker used to silently pick the first
-    // configured model (glm-4.6v) even though chat used deepseek.
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator: createCuratorStub() })
     expect(result.run.modelLabel).toBe('deepseek/deepseek-chat')
   })
 
   it('falls back when the pinned model was deleted', async () => {
-    insertSession({ messages: SAMPLE_MESSAGES })
+    insertSession({ messages: MESSAGES })
     settingsState.current.modelRef = { version: 1, source: 'custom', providerId: 'gone', modelId: 'gone' }
     modelState.bindingThrows = true
     modelState.active = { provider: 'deepseek', id: 'deepseek-chat', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
-    modelReply.text = '- x'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator: createCuratorStub() })
     expect(result.run.status).toBe('succeeded')
     expect(result.run.modelLabel).toBe('deepseek/deepseek-chat')
   })
 
+  it('fails cleanly when no model is configured', async () => {
+    insertSession({ messages: MESSAGES })
+    modelState.catalog = null
+    modelState.active = null
+    const curator = createCuratorStub()
+    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository, curator })
+    expect(result).toMatchObject({ skipped: false, reason: 'no_model' })
+    expect(curator.calls).toEqual([])
+    expect(snapshotCalls).toEqual([])
+  })
+})
+
+describe('model resolution', () => {
   it('reports the resolution source so the settings page can explain it', async () => {
     const pinned = { provider: 'zhipu', id: 'glm-4-plus', api: 'openai-completions', baseUrl: 'http://localhost:9/v1' }
     modelState.explicit = pinned
@@ -479,38 +368,4 @@ describe('dreaming runner', () => {
     expect(next.getTime()).toBeGreaterThan(base.getTime())
     expect(next.getDate()).toBe(28)
   })
-
-  it('tells the model to answer in Chinese when the user writes Chinese', async () => {
-    insertSession({
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: '帮我把这个接口改成支持分页，然后跑一下测试' }] },
-        { role: 'assistant', content: [{ type: 'text', text: '已经改成支持分页了，测试也通过了。' }] },
-      ],
-    })
-    modelReply.text = '- 分页改造已完成'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(result.run).toMatchObject({ status: 'succeeded', contentLanguage: 'zh' })
-    expect(modelReply.prompt).toContain('## Output language')
-    expect(modelReply.prompt).toContain('Simplified Chinese')
-  })
-
-  it('lets an explicit setting override detection', async () => {
-    insertSession({
-      messages: [
-        { role: 'user', content: [{ type: 'text', text: 'please refactor this module and run the tests' }] },
-        { role: 'assistant', content: [{ type: 'text', text: 'Refactored, tests pass.' }] },
-      ],
-    })
-    settingsState.current.contentLanguage = 'zh'
-    modelReply.text = '- x'
-    const result = await runDreaming({ trigger: 'manual', now: 10_000, repository })
-    expect(result.run.contentLanguage).toBe('zh')
-    expect(modelReply.prompt).toContain('Simplified Chinese')
-  })
 })
-
-/** Bullets from the last payload handed to the writer, in written order. */
-function parseNoteLinesOfLastWrite(writes) {
-  const last = writes[writes.length - 1] ?? ''
-  return last.split('\n').filter((line) => line.startsWith('- ')).map((line) => line.slice(2))
-}

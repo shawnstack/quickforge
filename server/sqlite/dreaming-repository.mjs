@@ -24,21 +24,22 @@ function storage() {
 
 function toRun(row) {
   if (!row) return null
-  // Older rows stored an operation array; the current shape is a line diff. Both
-  // are normalized here so the page never has to branch on the run's age.
+  // Older rows stored an operation array, and the bullet-list era stored a line
+  // diff. Both normalize to the current shape — the per-session report — so the
+  // page never has to branch on a run's age.
   const rawOperations = JSON.parse(row.operations_json ?? '[]')
-  const operations = Array.isArray(rawOperations) || !rawOperations || typeof rawOperations !== 'object'
-    ? { added: [], removed: [], dropped: [], pruned: [], notesAfter: null }
+  const operations = !rawOperations || typeof rawOperations !== 'object' || Array.isArray(rawOperations)
+    ? { sessions: [], actions: [], snapshot: null, snapshotFiles: null, stopped: null }
     : {
-        added: Array.isArray(rawOperations.added) ? rawOperations.added : [],
-        removed: Array.isArray(rawOperations.removed) ? rawOperations.removed : [],
-        dropped: Array.isArray(rawOperations.dropped) ? rawOperations.dropped : [],
-        // Notes the pruning rule deleted before the model ran. Not part of
-        // `removed`, because that diff is measured against what the model saw.
-        pruned: Array.isArray(rawOperations.pruned) ? rawOperations.pruned : [],
-        // Full notes list at the end of that run. Missing on runs written before
-        // this field existed, which is why restore checks for it explicitly.
-        notesAfter: Array.isArray(rawOperations.notesAfter) ? rawOperations.notesAfter : null,
+        sessions: Array.isArray(rawOperations.sessions) ? rawOperations.sessions : [],
+        actions: Array.isArray(rawOperations.actions) ? rawOperations.actions : [],
+        // Where the pre-run copy of both folders lives. Null on runs that predate
+        // folder snapshots, which is what makes restore refuse instead of guessing.
+        snapshot: typeof rawOperations.snapshot === 'string' ? rawOperations.snapshot : null,
+        snapshotFiles: rawOperations.snapshotFiles && typeof rawOperations.snapshotFiles === 'object'
+          ? rawOperations.snapshotFiles
+          : null,
+        stopped: typeof rawOperations.stopped === 'string' ? rawOperations.stopped : null,
       }
   return {
     id: row.id,

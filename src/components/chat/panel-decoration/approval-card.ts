@@ -76,7 +76,10 @@ const BUILTIN_TOOL_LABELS = {
   present_files: 'presentFiles',
   activate_skill: 'activateSkill',
   read_skill_resource: 'readSkillResource',
-  recall_experience: 'recallExperience',
+  list_memory_notes: 'listMemoryNotes',
+  read_memory_note: 'readMemoryNote',
+  write_memory_note: 'writeMemoryNote',
+  move_memory_note: 'moveMemoryNote',
   run_subagent: 'runSubagent',
   run_workflow: 'runWorkflow',
 } as const satisfies Record<string, Parameters<Translate>[0]>

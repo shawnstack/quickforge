@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
 import { streamSimpleWithAiHttpLogging } from './ai-http-logger.mjs'
 import { loadSkillToolContext, abortRunningCommand, listBackgroundCommandTasks, stopBackgroundCommandTasksForSession } from './tools/index.mjs'
-import { createSkillTools, globalMemoryTool, recallExperienceTool, workspaceTools } from './tools/definitions.mjs'
+import { createSkillTools, globalMemoryTool, memoryNoteTools, workspaceTools } from './tools/definitions.mjs'
 import { createMcpToolDefinitions, isMcpToolName, isReadOnlyMcpTool, subscribeMcpToolsetChanged } from './mcp/registry.mjs'
 import { createPluginToolDefinitions, isPluginToolName } from './plugins/registry.mjs'
 import { agentProfileSnapshot } from './agent-profiles.mjs'
@@ -31,6 +31,7 @@ import { readStore, atomicUpdate, readSessionValue } from './storage.mjs'
 import { readSessionStateRecord, storedMessagesState, sessionMessagesTailDigest } from './session-state-service.mjs'
 import { logger } from './utils/logger.mjs'
 import { getGlobalMemoryRevision, isGlobalMemoryEnabled } from './global-memory.mjs'
+import { getWorkingMemoryRevision, isWorkingMemoryEnabled } from './working-memory.mjs'
 import { buildSystemPrompt, generateAiTitle, generateTitle } from './session-utils.mjs'
 import {
   isCompactSummaryMessage,
@@ -334,13 +335,12 @@ export async function createServerTools(projectId, projectContext, skillsContext
     tools.push(wrapToolDefinition(globalMemoryTool, toolContext, toolPermissions))
   }
 
-  // `recall_experience` lives in `workspaceTools` so the direct-tool permission
-  // whitelist in routes/tools.mjs covers it, but the experience store is not
-  // tied to the project workspace: global-scope sessions and sessions without a
-  // project context still need it.
-  const workspaceToolsIncluded = Boolean(includeWorkspaceTools && projectContext)
-  if (!workspaceToolsIncluded && isAllowed(recallExperienceTool)) {
-    tools.push(wrapToolDefinition(recallExperienceTool, toolContext, toolPermissions))
+  // Memory notes are global: the two folders live outside every project, so they
+  // are added whether or not a workspace is bound. The tools are the only way in
+  // — they are locked to those folders and have no delete, which is why they can
+  // be handed to an unattended agent without an approval prompt.
+  for (const definition of memoryNoteTools) {
+    if (isAllowed(definition)) tools.push(wrapToolDefinition(definition, toolContext, toolPermissions))
   }
 
   if (includeWorkspaceTools && projectContext) {
@@ -639,6 +639,19 @@ async function refreshMemoryState(session) {
   await rebuildSessionTools(session)
 }
 
+// Working memory (beta) only adds a section to the managed system prompt, so a
+// settings change just rebuilds the prompt; the tool set is untouched.
+async function refreshWorkingMemoryState(session) {
+  const workingMemoryEnabled = await isWorkingMemoryEnabled()
+  const workingMemoryRevision = workingMemoryEnabled ? await getWorkingMemoryRevision() : null
+  if (session.workingMemoryEnabled === workingMemoryEnabled && session.workingMemoryRevision === workingMemoryRevision) return
+  session.workingMemoryEnabled = workingMemoryEnabled
+  session.workingMemoryRevision = workingMemoryRevision
+  if (session.managedSystemPrompt !== false) {
+    session.agent.state.systemPrompt = await resolvedSessionSystemPrompt(session.projectId, session.agentProfile)
+  }
+}
+
 /**
  * Create or retrieve an Agent for a session.
  * If the session already has a running agent, return it.
@@ -806,6 +819,8 @@ export async function createAgent(sessionId, config = {}) {
 
   const initialMemoryEnabled = await isGlobalMemoryEnabled()
   const initialMemoryRevision = initialMemoryEnabled ? await getGlobalMemoryRevision() : null
+  const initialWorkingMemoryEnabled = await isWorkingMemoryEnabled()
+  const initialWorkingMemoryRevision = initialWorkingMemoryEnabled ? await getWorkingMemoryRevision() : null
   let session
   const agent = new Agent({
     initialState: {
@@ -974,6 +989,8 @@ export async function createAgent(sessionId, config = {}) {
     lastAutoCompactRejected: null,
     memoryEnabled: initialMemoryEnabled,
     memoryRevision: initialMemoryRevision,
+    workingMemoryEnabled: initialWorkingMemoryEnabled,
+    workingMemoryRevision: initialWorkingMemoryRevision,
     managedSystemPrompt: systemPrompt == null,
     // Goal mode: authoritative goal body (persisted with the session) plus
     // runtime-only bookkeeping for the active run and progress accounting.
@@ -1324,6 +1341,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     : null
   await refreshSessionModelBinding(session)
   await refreshMemoryState(session)
+  await refreshWorkingMemoryState(session)
   resetIdleTimer(session)
 
   const commandState = await resolveCommandState(session, canonicalInitialUserMessage, promptCommand, requestSource)

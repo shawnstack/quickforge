@@ -1,27 +1,25 @@
-import { streamSimpleWithAiHttpLogging } from '../ai-http-logger.mjs'
 import { logger } from '../utils/logger.mjs'
 import { readStore } from '../storage.mjs'
 import { resolveImplicitModelPreference, resolveModelBinding } from '../model-catalog.mjs'
-import { isGlobalMemoryEnabled, readDreamingNotes, writeDreamingNotes } from '../global-memory.mjs'
+import { isGlobalMemoryEnabled } from '../global-memory.mjs'
+import { readExperienceIndex } from '../experiences.mjs'
 import { createDreamingRepository } from '../sqlite/dreaming-repository.mjs'
-import { collectTranscript } from './collect.mjs'
-import { DREAMING_SYSTEM_PROMPT, buildDreamingUserPrompt } from './prompt.mjs'
-import { composeAutoSection, diffNoteLines, normalizeNoteLines, noteIdOf } from './notes.mjs'
-import { readAutoNotes } from './recall.mjs'
+import { collectSessionEntries } from './collect.mjs'
+import { runCuratorTurn } from './curator.mjs'
+import { pruneSnapshots, snapshotMemory } from './snapshot.mjs'
 import { readDreamingSettings, saveDreamingSettings } from './settings.mjs'
 
 export const DREAMING_TICK_INTERVAL_MS = 60_000
 export const DREAMING_INITIAL_DELAY_MS = 2 * 60_000
-export const DREAMING_MAX_TOKENS = 4096
 /**
- * A run that replaces most of the list is suspicious: the model either learned a
- * lot or drifted. It still succeeds (the notes are the model's call), but the run
- * is flagged so a human can look.
+ * Wall-clock ceiling for one run.
+ *
+ * The curator processes every session of the window one at a time, so the cost is
+ * proportional to how busy the day was. A night that would run past this stops at
+ * a session boundary and leaves the rest for tomorrow: a half-tidied memory is
+ * fine, a run that is still going at breakfast is not.
  */
-export const NOTE_CHURN_WARN_RATIO = 0.8
-/** Below this, every run would look like churn just because the list is tiny. */
-export const NOTE_CHURN_MIN_NOTES = 5
-const DAY_MS = 24 * 60 * 60 * 1000
+export const MAX_RUN_MS = 45 * 60 * 1000
 
 let runnerTimer = null
 let runnerInitialTimer = null
@@ -102,83 +100,30 @@ export function modelLabelOf(model) {
   return model ? `${model.provider}/${model.id}` : null
 }
 
-async function getApiKey(provider) {
-  const keys = await readStore('provider-keys')
-  return keys?.[provider] || undefined
-}
-
-/** Current bullets from DREAMING.md — the model's own previous output. */
-export { readAutoNotes }
-
-/**
- * Notes that automatic pruning would delete: old enough (by `minAgeDays`) and
- * recalled at most `maxRecalls` times.
- *
- * Age comes from `dreaming_note_stats.created_at`, i.e. when Dreaming first saw
- * the wording, not when the note was "conceived". A note without a stat row was
- * added outside Dreaming (hand edit) — its age is unknown, so it is never
- * returned here: guessing would delete things nobody can date.
- */
-export function selectStaleNotes({ notes, stats, minAgeDays, maxRecalls, now }) {
-  const minAgeMs = minAgeDays * DAY_MS
-  return notes.filter((line) => {
-    const stat = stats.get(noteIdOf(line))
-    if (!stat) return false
-    if (stat.recallCount > maxRecalls) return false
-    return now - stat.createdAt >= minAgeMs
-  })
-}
-
-async function callDreamingModel({ model, settings, transcript, existingNotes = [], unusedNotes = [], periodFrom, periodTo, contentLanguage }) {
-  const apiKey = await getApiKey(model.provider)
-  const stream = streamSimpleWithAiHttpLogging(
-    model,
-    {
-      systemPrompt: DREAMING_SYSTEM_PROMPT,
-      messages: [{
-        role: 'user',
-        content: buildDreamingUserPrompt({
-          transcript,
-          existingNotes,
-          unusedNotes,
-          periodFrom,
-          periodTo,
-          allowSensitive: settings.allowSensitive,
-          contentLanguage,
-        }),
-        timestamp: Date.now(),
-      }],
-      tools: [],
-    },
-    {
-      apiKey,
-      maxTokens: DREAMING_MAX_TOKENS,
-      temperature: 0.2,
-      maxRetryDelayMs: 60000,
-      metadata: { quickforgePurpose: 'dreaming' },
-    },
-  )
-  const message = await stream.result()
-  const text = Array.isArray(message?.content)
-    ? message.content.map((part) => (typeof part === 'string' ? part : part?.text ?? '')).join('')
-    : String(message?.content ?? '')
-  return text
-}
-
 /**
  * One Dreaming pass.
  *
- * Single call, single write: read the notes block, hand it to the model together
- * with the new transcripts, and overwrite the block with the bullet list it
- * returns. No diffing into rows, no dedupe table, no decay — the model is the
- * only thing that decides what is remembered.
+ * The shape changed when memory became two folders: instead of one model call
+ * that rewrites a bullet list, every session in the window gets its own agent turn
+ * that edits the working-memory folder and, when warranted, promotes something
+ * into the experience library. Sessions are processed serially and in
+ * chronological order — parallel turns would race on the same notes, and the
+ * chronological order is what lets a later session correct an earlier one.
  *
  * Single-flight by design: two concurrent passes would both read the same
- * watermark and both rewrite the block. Callers get `{ skipped: true }` instead
- * of queuing, because a queued pass would immediately re-scan a window the
- * running pass is already covering.
+ * watermark and both edit the same folders. Callers get `{ skipped: true }`
+ * instead of queuing, because a queued pass would immediately re-scan a window
+ * the running pass is already covering.
  */
-export async function runDreaming({ trigger = 'schedule', now = Date.now(), repository = null } = {}) {
+export async function runDreaming({
+  trigger = 'schedule',
+  now = Date.now(),
+  repository = null,
+  // Exposed so tests can exercise the stop-at-a-session-boundary behaviour
+  // without sleeping for 45 minutes.
+  maxRunMs = MAX_RUN_MS,
+  curator = runCuratorTurn,
+} = {}) {
   if (running) return { skipped: true, reason: 'already_running' }
   running = true
   const settings = await readDreamingSettings()
@@ -189,6 +134,7 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
   })
 
   let run = null
+  const startedAt = Date.now()
   try {
     if (!settings.enabled) return { skipped: true, reason: 'disabled' }
     if (!(await isGlobalMemoryEnabled())) {
@@ -197,8 +143,8 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
       return { skipped: true, reason: 'global_memory_disabled', run }
     }
 
-    const collected = collectTranscript({ from: periodFrom, to: periodTo })
-    if (collected.sessionCount === 0) {
+    const collected = collectSessionEntries({ from: periodFrom, to: periodTo })
+    if (collected.sessions.length === 0) {
       run = repo.createRun({ trigger, periodFrom, periodTo, startedAt: now, inputChars: 0, sessions: [] })
       run = repo.finishRun(run.id, {
         status: 'skipped',
@@ -230,150 +176,108 @@ export async function runDreaming({ trigger = 'schedule', now = Date.now(), repo
       startedAt: now,
       modelLabel: modelLabelOf(model),
       inputChars: collected.chars,
-      sessions: collected.sessions,
+      sessions: collected.sessions.map((session) => ({
+        sessionId: session.sessionId,
+        projectId: session.projectId,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        messageCount: session.messageCount,
+        chars: session.chars,
+        correctionSignals: session.correctionSignals,
+        preview: session.preview,
+      })),
       contentLanguage,
     })
 
-    const existingNotes = await readAutoNotes()
-    // Usage stats feed two things: the "deletion candidates" section (model
-    // decides) and, when the user enabled it, automatic pruning (a rule with no
-    // model vote). A stats failure must degrade to "nothing looks stale", never
-    // to "delete something".
-    let stats = new Map()
+    // Snapshot before the first write. If this fails the run must not start: an
+    // agent editing memory with no way back is worse than a night of no curation.
+    let snapshot = null
     try {
-      stats = repo.listNoteStats()
+      snapshot = await snapshotMemory({ runId: run.id })
     } catch (error) {
-      logger.warn('Dreaming could not read note usage stats:', error instanceof Error ? error.message : String(error))
+      const message = error instanceof Error ? error.message : String(error)
+      repo.finishRun(run.id, { status: 'failed', error: `记忆快照失败，本轮未执行：${message}`, finishedAt: Date.now(), durationMs: Date.now() - now })
+      return { skipped: false, reason: 'snapshot_failed', error: message, run: repo.findRun(run.id) }
     }
 
-    // Automatic pruning removes stale notes *before* the model runs: the user
-    // asked for a rule, so a note the model would have kept is still gone. The
-    // file is rewritten first — if that write fails nothing was pruned and the
-    // model must see the untouched list.
-    let notesForModel = existingNotes
-    let prunedNotes = []
-    let pruneWarning = null
-    if (settings.pruneStaleNotes) {
-      const stale = selectStaleNotes({
-        notes: existingNotes,
-        stats,
-        minAgeDays: settings.pruneUnusedDays,
-        maxRecalls: settings.pruneMaxRecalls,
-        now,
-      })
-      if (stale.length > 0) {
-        const staleSet = new Set(stale)
-        const remaining = existingNotes.filter((line) => !staleSet.has(line))
-        try {
-          await writeDreamingNotes(composeAutoSection(remaining), { allowSensitive: settings.allowSensitive })
-          notesForModel = remaining
-          prunedNotes = stale
-          try {
-            repo.syncNoteStats(remaining.map((line) => ({ id: noteIdOf(line), text: line })), now)
-          } catch (error) {
-            logger.warn('Dreaming could not sync note usage stats after pruning:', error instanceof Error ? error.message : String(error))
-          }
-        } catch (error) {
-          pruneWarning = `到期笔记删除失败：${error instanceof Error ? error.message : String(error)}`
-          logger.warn('Dreaming could not prune stale notes:', pruneWarning)
-        }
+    const results = []
+    let stopReason = null
+    for (const session of collected.sessions) {
+      if (Date.now() - startedAt > maxRunMs) {
+        stopReason = `时间预算用尽（>${Math.round(maxRunMs / 60000)} 分钟），剩余 ${collected.sessions.length - results.length} 个会话留到下一轮`
+        break
       }
+      const result = await curator({
+        runId: run.id,
+        model,
+        session,
+        transcript: session.transcript,
+        periodFrom,
+        periodTo,
+        contentLanguage,
+        allowSensitive: settings.allowSensitive,
+      })
+      results.push(result)
     }
 
-    // With pruning on, everything stale is already gone, so the candidate list
-    // would only repeat "these are old" for notes the user chose to keep.
-    let unusedNotes = []
-    if (!settings.pruneStaleNotes && notesForModel.length >= settings.pruneMinNotes) {
-      unusedNotes = notesForModel.flatMap((line) => {
-        const stat = stats.get(noteIdOf(line))
-        if (!stat || stat.recallCount > 0) return []
-        const ageDays = Math.floor((now - stat.createdAt) / DAY_MS)
-        return ageDays >= settings.pruneUnusedDays ? [{ text: line, ageDays }] : []
-      })
-    }
-    const reply = await callDreamingModel({
-      model,
-      settings,
-      contentLanguage,
-      transcript: collected.transcript,
-      existingNotes: notesForModel,
-      unusedNotes,
-      periodFrom,
-      periodTo,
+    // Regenerate the index once at the end: a per-session rewrite would produce
+    // the same file over and over, and this also picks up files the agent wrote
+    // without touching the index.
+    await readExperienceIndex().catch((error) => {
+      logger.warn('Dreaming could not rebuild the experience index:', error instanceof Error ? error.message : String(error))
     })
+    await pruneSnapshots().catch(() => null)
 
-    const normalized = normalizeNoteLines(reply, { allowSensitive: settings.allowSensitive })
-    // A prose reply that contains no bullets is not an answer: treating it as
-    // "clear everything" would let one off-contract response wipe the notes.
-    // A genuinely empty reply is still a valid "nothing durable today".
-    if (String(reply ?? '').trim() && normalized.lines.length === 0) {
-      run = repo.finishRun(run.id, {
-        status: 'failed',
-        sessionCount: collected.sessionCount,
-        inputChars: collected.chars,
-        sessions: collected.sessions,
-        rawResponse: String(reply).slice(0, 8000),
-        error: '模型回复里没有任何笔记条目'
-          + (prunedNotes.length > 0 ? `；本轮已先自动删除 ${prunedNotes.length} 条到期笔记（见 DREAMING.md 与上一次快照）` : ''),
-        finishedAt: Date.now(),
-        durationMs: Date.now() - now,
-      })
-      return { skipped: false, reason: 'no_notes_in_reply', run }
-    }
-    // Measured against what the model was actually shown: pruning happens before
-    // the call, so its removals must not inflate the drift signal.
-    const diff = diffNoteLines(notesForModel, normalized.lines)
-    const changedCount = diff.added.length + diff.removed.length
-    // Churn is measured against the larger of "what was there" and "what is there
-    // now", so both a wholesale rewrite and a sudden shrink trip it.
-    const churnRatio = notesForModel.length === 0
-      ? 0
-      : changedCount / Math.max(notesForModel.length, normalized.lines.length)
-    const churnWarning = notesForModel.length >= NOTE_CHURN_MIN_NOTES && churnRatio >= NOTE_CHURN_WARN_RATIO
-      ? `本次改动了 ${changedCount}/${notesForModel.length} 条笔记，可能发生了记忆漂移`
-      : null
-    const autoSection = composeAutoSection(normalized.lines)
-
-    let memoryWarning = null
-    try {
-      await writeDreamingNotes(autoSection, { allowSensitive: settings.allowSensitive })
-    } catch (error) {
-      memoryWarning = error instanceof Error ? error.message : String(error)
-      logger.warn('Dreaming could not rewrite DREAMING.md:', memoryWarning)
-    }
-    // Separate from the write: a stats failure must not be reported as "the notes
-    // were not saved", which would send the user looking at the wrong problem.
-    if (!memoryWarning) {
-      try {
-        repo.syncNoteStats(normalized.lines.map((line) => ({ id: noteIdOf(line), text: line })), now)
-      } catch (error) {
-        logger.warn('Dreaming could not sync note usage stats:', error instanceof Error ? error.message : String(error))
-      }
-    }
-    const warning = [memoryWarning, churnWarning, pruneWarning].filter(Boolean).join('; ') || null
+    const actions = results.flatMap((result) => (result.actions || []).map((action) => ({
+      ...action,
+      sessionId: result.sessionId,
+    })))
+    const failures = results.filter((result) => !result.ok)
+    const written = actions.filter((action) => action.kind === 'write' && action.scope === 'working').length
+    const experiences = actions.filter((action) => action.scope === 'experience' && action.kind === 'write').length
+    const archived = actions.filter((action) => action.kind === 'archive').length
+    const renamed = actions.filter((action) => action.kind === 'rename').length
 
     const finishedAt = Date.now()
+    const warning = [
+      failures.length > 0 ? `${failures.length} 个会话处理失败` : null,
+      stopReason,
+    ].filter(Boolean).join('; ') || null
+    // No session at all means nothing was even attempted: that is a skip, not a
+    // failure. Every session failing is a failure.
+    const status = results.length === 0
+      ? 'skipped'
+      : (failures.length === results.length ? 'failed' : 'succeeded')
     run = repo.finishRun(run.id, {
-      status: 'succeeded',
+      status,
       inputChars: collected.chars,
-      sessions: collected.sessions,
-      rawResponse: String(reply).slice(0, 8000),
-      sessionCount: collected.sessionCount,
-      createdCount: diff.added.length,
-      updatedCount: 0,
-      // Pruned notes left the file in this same run, so they count as retired.
-      retiredCount: diff.removed.length + prunedNotes.length,
-      rejectedCount: normalized.dropped.length,
-      summary: `${normalized.lines.length} 条笔记（+${diff.added.length} / -${diff.removed.length + prunedNotes.length}）`
-        + (prunedNotes.length > 0 ? `，其中到期自动删除 ${prunedNotes.length} 条` : ''),
-      // The run detail page shows "what it learned / what it forgot"; `notesAfter`
-      // is the full list at that point, which is what makes restore possible.
+      sessions: collected.sessions.map((session) => ({
+        sessionId: session.sessionId,
+        projectId: session.projectId,
+        title: session.title,
+        updatedAt: session.updatedAt,
+        messageCount: session.messageCount,
+        chars: session.chars,
+        correctionSignals: session.correctionSignals,
+        preview: session.preview,
+      })),
+      rawResponse: results.map((result) => `## ${result.sessionId}\n${result.reply || result.error || ''}`).join('\n\n').slice(0, 8000),
+      sessionCount: results.length,
+      createdCount: written + experiences,
+      updatedCount: renamed,
+      retiredCount: archived,
+      rejectedCount: 0,
+      summary: `${results.length}/${collected.sessions.length} 个会话，写工作记忆 ${written} 篇，沉淀经验 ${experiences} 条，归档 ${archived} 篇`,
+      // Per-session report plus the snapshot path: enough for a human to see what
+      // happened, and enough to roll the whole night back.
       operations: {
-        added: diff.added,
-        removed: diff.removed,
-        dropped: normalized.dropped,
-        pruned: prunedNotes,
-        notesAfter: normalized.lines,
+        sessions: results,
+        actions,
+        snapshot: snapshot?.dir ?? null,
+        snapshotFiles: snapshot
+          ? { workingMemory: snapshot.workingMemoryFiles, experiences: snapshot.experienceFiles }
+          : null,
+        stopped: stopReason,
       },
       error: warning,
       finishedAt,
@@ -433,8 +337,4 @@ export function stopDreamingRunner() {
   if (!runnerTimer) return
   clearInterval(runnerTimer)
   runnerTimer = null
-}
-
-export async function readDreamingMemoryDocument() {
-  return readDreamingNotes()
 }

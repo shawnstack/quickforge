@@ -10,6 +10,7 @@ import {
   Database,
   Globe2,
   Info,
+  NotebookPen,
   Palette,
   Puzzle,
   Search,
@@ -42,6 +43,7 @@ const SETTINGS_TAB_ICONS = {
   defaults: SlidersHorizontal,
   appearance: Palette,
   memory: Brain,
+  workingMemory: NotebookPen,
   network: Globe2,
   customModels: Database,
   agents: Bot,
@@ -65,6 +67,7 @@ const STATE_PRESERVING_TAB_KEYS = new Set<SettingsInitialTab>([
   'defaults',
   'data',
   'network',
+  'workingMemory',
   'about',
 ])
 

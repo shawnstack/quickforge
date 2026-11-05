@@ -25,6 +25,7 @@ import { handleInstructionsApi } from './routes/instructions.mjs'
 import { handleMemoryApi } from './routes/memory.mjs'
 import { handleDreamingApi } from './routes/dreaming.mjs'
 import { startDreamingRunner, stopDreamingRunner } from './dreaming/runner.mjs'
+import { handleWorkingMemoryApi } from './routes/working-memory.mjs'
 import { handleSkillsApi } from './routes/skills.mjs'
 import { ensureDefaultGlobalSkills } from './skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
@@ -427,6 +428,12 @@ async function handleApi(req, res, url, requestContext = {}) {
   // Dreaming long-term memory (background consolidation + experience store)
   if (pathname === '/api/dreaming' || pathname.startsWith('/api/dreaming/')) {
     await handleDreamingApi(req, res, url)
+    return
+  }
+
+  // Working memory (beta)
+  if (pathname === '/api/working-memory') {
+    await handleWorkingMemoryApi(req, res)
     return
   }
 

@@ -6,7 +6,9 @@ import { existsSync, promises as fs } from 'node:fs'
 import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir, readStore, atomicUpdate } from './storage.mjs'
 import { setWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from './skills.mjs'
-import { readGlobalMemoryPrompt, readDreamingNotesPrompt } from './global-memory.mjs'
+import { readGlobalMemoryPrompt } from './global-memory.mjs'
+import { readWorkingMemoryPrompt } from './working-memory.mjs'
+import { readExperiencesPrompt } from './experiences.mjs'
 
 let defaultWorkspaceRoot = ''
 
@@ -492,7 +494,8 @@ export async function buildInstructionsPayload(projectId) {
     : []
   const activeSkills = mergeSkills(globalSkills, projectSkills)
   const globalMemory = await readGlobalMemoryPrompt()
-  const dreamingNotes = await readDreamingNotesPrompt().catch(() => null)
+  const experiences = await readExperiencesPrompt().catch(() => null)
+  const workingMemory = await readWorkingMemoryPrompt()
   const stripRuntimeFields = ({ rootDir: _rootDir, instructions: _instructions, location: _location, ...skill }) => skill
 
   return {
@@ -508,15 +511,11 @@ export async function buildInstructionsPayload(projectId) {
     globalSources: globalInstructionSources,
     projectSources: projectInstructionSources,
     globalMemory,
-    dreamingNotes,
+    experiences,
+    workingMemory,
     globalSkills: globalSkills.map(stripRuntimeFields),
     projectSkills: projectSkills.map(stripRuntimeFields),
     skills: activeSkills.map(stripRuntimeFields),
   }
 }
 
-/**
- * Dreaming notes live inside MEMORY.md and are already injected through
- * `globalMemory`, so there is no second experience block to assemble here.
- * `recall_experience` covers explicit lookups.
- */

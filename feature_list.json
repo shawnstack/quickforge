@@ -1,6 +1,70 @@
 {
   "features": [
     {
+      "id": "memory-system-experience-library",
+      "title": "记忆体系重构：工作记忆 + 全局经验库（index.md 渐进式披露），梦境改为逐会话 agent 整理",
+      "status": "done",
+      "summary": "用户拍板：定时任务机制不变，但梦境改成专门整理工作记忆、结合会话沉淀经验；经验不需要人审，技能仍需人确认；索引文件注入系统提示词但只给指针；召回工具不要了；一次只处理一个 session。落地为三层结构：MEMORY.md（用户偏好，全文注入）/ working-memory/（活笔记，只注入路径+写法）/ experiences/（经验库，只注入扫描生成的 index.md，80 行封顶）。新增 server/note-store.mjs（两个目录共用的文件层：命名校验、读、写、归档式移动，**没有删除**）、server/experiences.mjs（目录、索引生成、注入块）、server/tools/memory-notes.mjs（四个路径锁定的工具 list/read/write/move_memory_note）、server/dreaming/curator.mjs（直接 new Agent，systemPrompt=CURATOR_SYSTEM_PROMPT，工具只有四个记忆工具，beforeToolCall 守卫 + 工具调用预算）、server/dreaming/snapshot.mjs（整目录快照/回滚/保留 10 份）。runner 改成窗口内全部会话串行、从旧到新、一次一个会话各起一轮 agent，快照失败则整轮不执行，45 分钟时间预算到会话边界停下。退役 DREAMING.md（内容分流：机制自述删除、可复用经验进经验库、项目细节进工作记忆）、recall_experience 工具及全部牵连（后端/前端渲染器/i18n/notes.mjs/recall.mjs）、dreaming-settings 的 prune* 四项。系统提示词新增 <experiences> 块并改写 <working_memory>（改用记忆工具、说明不删只归档）。设置页把「笔记」页签换成「经验库」（列表 + ★ 候选技能 + 生成索引预览，只读），运行详情改为逐会话报告 + 整目录回滚。",
+      "files": [
+        "server/note-store.mjs（新增）",
+        "server/experiences.mjs（新增）",
+        "server/tools/memory-notes.mjs（新增）",
+        "server/dreaming/curator.mjs（新增）",
+        "server/dreaming/snapshot.mjs（新增）",
+        "server/dreaming/prompt.mjs",
+        "server/dreaming/runner.mjs",
+        "server/dreaming/collect.mjs",
+        "server/dreaming/settings.mjs",
+        "server/dreaming/notes.mjs（删）",
+        "server/dreaming/recall.mjs（删）",
+        "server/working-memory.mjs",
+        "server/global-memory.mjs",
+        "server/system-prompt.mjs",
+        "server/project-config.mjs",
+        "server/agent-manager.mjs",
+        "server/tools/definitions.mjs",
+        "server/tools/index.mjs",
+        "server/routes/dreaming.mjs",
+        "server/routes/memory.mjs",
+        "server/sqlite/dreaming-repository.mjs",
+        "src/components/dreaming/DreamingSettingsTab.tsx",
+        "src/components/dreaming/dreaming-data.ts",
+        "src/components/settings/tabs/MemorySettingsTab.tsx",
+        "src/components/chat/panel-decoration/approval-card.ts",
+        "src/lib/i18n.ts",
+        "src/lib/local-tools.ts",
+        "src/lib/tool-param-summary.ts",
+        "src/lib/tool-renderers/index.ts",
+        "src/lib/tool-renderers/shared.tsx",
+        "src/lib/recall-experience-history.ts（删）",
+        "src/lib/tool-renderers/recall-experience-tool-renderer.tsx（删）",
+        "docs/architecture/memory-system.zh-CN.md（新增）",
+        "docs/architecture/dreaming-memory.zh-CN.md（改写为废弃说明）",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/README.md",
+        "docs/wiki/src/lib/README.md",
+        "tests/server/memory-notes.test.mjs（新增）",
+        "tests/server/dreaming-curator.test.mjs（新增）",
+        "tests/server/dreaming-curator-agent.test.mjs（新增）",
+        "tests/server/dreaming-snapshot.test.mjs（新增）",
+        "tests/server/dreaming.test.mjs",
+        "tests/server/dreaming-runner.test.mjs",
+        "tests/server/routes/dreaming.test.mjs",
+        "tests/server/routes/dreaming-detail.test.mjs",
+        "tests/server/system-prompt.test.mjs",
+        "tests/server/tools/definitions.test.mjs",
+        "tests/server/dreaming-memory.test.mjs（删）",
+        "tests/server/dreaming-notes.test.mjs（删）",
+        "tests/frontend/recall-experience-renderer.test.ts（删）",
+        "tests/frontend/dreaming-prune-settings.test.ts（删）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 498 files / 5519 passed / 3 failed / 1 skipped，3 个失败全部是既有基线（ACP workspace-mapping 2 例 + sqlite-quick-check-gate 1 例，用 git stash 在改动前状态复跑确认同样失败）；npm run lint → 0 problems；npm run build → 通过（1.83s，precompress 225 files 12.67MB → 6.49MB）；用真实记忆文件渲染 composeSystemPrompt，确认 <global_user_memory> / <experiences>（只有索引，无标题无注释）/ <working_memory>（只有路径+写法）三段符合预期；node 冒烟验证经验库读写、索引生成、★ 标记、改名、归档、非法文件名与空正文拒绝。"
+    },
+    {
       "id": "goal-v2-single-completion-entry",
       "title": "Goal v2 只保留一个完成入口（移除 v2 的 goal_report，完成只认 update_goal）",
       "status": "done",
@@ -65,7 +129,7 @@
       "summary": "用户三轮收敛：①「对话的标题宽度要限制一下」→ 给标题加 max-w-[36rem]；②「对话顶部的宽度还是太宽」→ 误判成整条顶栏比正文列宽，改成居中同宽列；③「理解错了，应该还是贴左，同时超出的部分鼠标移到标题上像 session 那样滚动展示完整标题」→ 撤销居中容器（git checkout 回到原始结构），改为贴左布局 + 标题宽度封顶 + 悬停横向滚动：标题容器 min-w-0 max-w-[24rem]，内部直接复用侧栏的 SessionTitleMarquee（同一套 400ms 延迟、35px/s、尾部停 1000ms 再弹回，respect prefers-reduced-motion），className 传 block w-full text-sm font-semibold 保持原字号字重。项目 chip、Git 分支按钮、视图切换全部回到原样，顶栏其余结构零改动。",
       "files": [
         "src/components/app/ConversationHeader.tsx（改：import SessionTitleMarquee；标题块加 max-w 封顶并用 marquee 替代裸 truncate）",
-      "tests/frontend/conversation-trace-contract.test.ts（新增契约：标题必须复用 SessionTitleMarquee、必须有 max-w 封顶、不得改回居中列）",
+        "tests/frontend/conversation-trace-contract.test.ts（新增契约：标题必须复用 SessionTitleMarquee、必须有 max-w 封顶、不得改回居中列）",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"
@@ -1911,7 +1975,108 @@
         "docs/wiki/README.md、docs/wiki/server/README.md、docs/wiki/src/components/README.md、progress.md、session-handoff.md、feature_list.json"
       ],
       "verification": "npm run test 全量通过；npm run lint 0 problems；npx tsc -b 0 错误；npm run build 成功。新增 13 个测试文件共 103 个用例覆盖：私网/回环/*.localhost/IPv4-mapped 拦截、ref 世代与过期解析、点击坐标与输入序列、截图落盘、主 frame 导航失效、内置项由 env 派生且不落盘 token、只读注解审批豁免、以及 Electron 侧安全不变量与前端窄桥契约（含按目录扫描整个 desktop/ 的「唯一 CDP 控制者」断言，新挂一个调试器入口即红）。Electron 真实渲染（视图对齐、CDP attach 时序、模态遮挡）无法在 CI 覆盖，已在文档列出手工验收步骤。",
-      "updatedAt": "2026-11-02"
+      "updatedAt": "2026-11-02",
+      "boundaries": "只改 Inspector 顶部 Tab 条视觉。下拉列表仍用省略号。未改行为、依赖或生成产物。"
+    },
+    {
+      "id": "tool-file-underline-on-name",
+      "name": "工具行文件名仅自身 hover 出下划线",
+      "description": "编写/写入文件时，下划线只在悬停到具体文件名时出现，悬停整块「已执行 / 编辑 / 写入」不再出下划线。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "renderToolFileSummary 文件名从 group-hover:underline 改为 hover:underline，并去掉按钮上的 group，避免被整行 group/tool 的 hover 触发。",
+      "files": [
+        "src/lib/tool-renderers/shared.tsx",
+        "tests/frontend/tool-renderer-file-icon.test.ts",
+        "docs/wiki/src/lib/README.md"
+      ],
+      "verification": "定向 vitest tool-renderer-file-icon；eslint shared.tsx 与测试文件。",
+      "boundaries": "只改下划线触发范围。点击预览、图标与整行折叠行为不变。"
+    },
+    {
+      "id": "working-memory-beta",
+      "name": "工作记忆（Beta）：共享笔记文件夹 + 大白话笔记提示词",
+      "description": "设置里新增「工作记忆（Beta）」。开启后系统提示词告诉 AI 一个全局共享的笔记文件夹（~/.quickforge/working-memory/），AI 用 run_command 自己列标题、只读相关笔记，有值得留的结论就写文件，并按一句话总结给文件命名/改名。笔记提示词以 COMPACT_SYSTEM_PROMPT 为底本改写成大白话，可在设置页编辑与恢复默认。",
+      "status": "done",
+      "dependencies": [],
+      "approach": "新增 server/working-memory.mjs 管理 settings['working-memory-settings']（{enabled:false, prompt}）、默认大白话提示词、目录与开关+提示词 hash；新增 GET/PUT /api/working-memory（返回 defaultPrompt 供恢复默认，非法类型/超长 400，开启时建目录）。buildInstructionsPayload 带上 workingMemory，composeSystemPrompt 在记忆段后注入 <working_memory>（绝对路径 + 使用规则 + 用户可编辑提示词，XML 转义），关闭时整段不出现；agent-manager 的 refreshWorkingMemoryState 在每次发送前比对开关与 hash，变化时重建 system prompt（工具集不变）。前端新增 WorkingMemorySettingsTab（开关 / 目录 / 提示词编辑 + 恢复默认 + 保存），注册进 settings-tabs（basic 分组 + 搜索关键词）、react-settings-tabs、SettingsWorkspacePage（NotebookPen 图标、常驻挂载；Beta 徽章复用上游通用 .quickforge-settings-beta，不新造样式）。按用户决策不做新工具、不改 workspace 沙箱：文件读写/改名全部由提示词引导走 run_command。",
+      "files": [
+        "server/working-memory.mjs",
+        "server/routes/working-memory.mjs",
+        "server/index.mjs",
+        "server/project-config.mjs",
+        "server/system-prompt.mjs",
+        "server/agent-manager.mjs",
+        "src/components/settings/tabs/WorkingMemorySettingsTab.tsx",
+        "src/lib/settings-tabs.ts",
+        "src/lib/react-settings-tabs.tsx",
+        "src/components/settings/SettingsWorkspacePage.tsx",
+        "src/lib/i18n.ts",
+        "tests/server/working-memory.test.mjs",
+        "tests/server/system-prompt.test.mjs",
+        "tests/frontend/settings-workspace-react.test.ts",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest working-memory 9 + system-prompt 10 + settings-workspace-react 11 全绿；npx tsc --noEmit 通过；npm run lint 通过（仅既有 GitToolsPinnedSummary warning）；npm run build 通过；临时 QUICKFORGE_DATA_DIR 端到端确认关闭无 <working_memory>、开启后含路径与自定义提示词且目录被创建；HTTP 冒烟 GET/PUT 与 400 校验通过；npm run test 全量 4579 passed / 6 failed / 4 skipped，6 个失败均为既有基线（process-folding 1 + subagent-running-indicator 1 + 已登记 sqlite-quick-check-gate 1 + ACP 3），前两个用 git worktree 在 HEAD 复跑确认同样失败。",
+      "updatedAt": "2026-11-04",
+      "boundaries": "只做工作记忆设置与系统提示词引导。不新增工具、不改 workspace 沙箱与 run_command 审批语义；不做会话结束后台整理，不自动改写已有笔记；未改全局记忆（MEMORY.md）行为。无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。"
+    },
+    {
+      "id": "memory-settings-group-and-prompt-hidden",
+      "name": "三个记忆同组，笔记提示词收回内部",
+      "description": "设置导航里把用户记忆、工作记忆、梦境记忆收进同一个「记忆」分组；工作记忆设置页不再展示或接受修改笔记提示词，只保留开关、目录和只读示例。",
+      "status": "done",
+      "dependencies": [
+        "working-memory-beta"
+      ],
+      "approach": "settings-tabs.ts 新增 memory 分组（basic 之后），memory/workingMemory/dreaming 三个 tab 改归该组，顺序用户记忆 → 工作记忆 → 梦境记忆；memory 显示名改为「用户记忆」（en User memory），新增 settingsGroupMemory。GET /api/working-memory 只返回 {enabled, path}，PUT 只接受 {enabled}，带 prompt 返回 400；readWorkingMemoryDocument 不再返回 prompt/defaultPrompt；saveWorkingMemorySettings 保留 prompt 仅作 settings.json 调试口，并支持 settings/writeSettings 注入便于测试。WorkingMemorySettingsTab 删除 textarea 与保存/恢复默认，改为只读「笔记怎么写」说明 + 折叠示例。",
+      "files": [
+        "src/lib/settings-tabs.ts",
+        "src/lib/i18n.ts",
+        "src/components/settings/tabs/WorkingMemorySettingsTab.tsx",
+        "server/working-memory.mjs",
+        "server/routes/working-memory.mjs",
+        "tests/server/working-memory.test.mjs",
+        "tests/server/routes/working-memory.test.mjs",
+        "tests/frontend/settings-workspace-react.test.ts",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 40 passed（working-memory 10 / routes 4 / system-prompt 10 / settings-workspace-react 15）；npx tsc --noEmit 通过；npm run lint 通过（0 problems）；npm run build 通过；临时 QUICKFORGE_DATA_DIR HTTP 冒烟：GET 只回 {enabled,path}、PUT 开启 200 并建目录、PUT {prompt} 400、system prompt 仍注入 <working_memory> 与大白话规则。",
+      "updatedAt": "2026-11-04",
+      "boundaries": "只改设置导航分组与工作记忆设置页形态、接口字段收窄。不改提示词内容与注入规则，不改 workspace 工具与 run_command 审批，不动用户记忆/梦境记忆页面与逻辑。无依赖变更；未触碰生成产物；未提交 Git。"
+    },
+    {
+      "id": "working-memory-prompt-principles-only",
+      "name": "工作记忆提示词瘦身：只留原则 + 「做完就回头看」触发点",
+      "description": "把工作记忆提示词从「6 条使用规则 + 6 条写法规范 + 固定四段模板」改成少量散文式原则，并把唯一的写笔记触发点定成「觉得任务做完时回头检查有没有值得留给下次的东西」，同时明确允许什么都不写。提示词全英文，去掉固定小节模板。",
+      "status": "done",
+      "dependencies": [
+        "memory-settings-group-and-prompt-hidden"
+      ],
+      "approach": "server/system-prompt.mjs 的 <working_memory> 段重写为四段散文：①文件夹是什么 + 文件名即一句话总结 + 开工前用 run_command 列目录只读相关笔记；②工作区工具够不到，改用 run_command 绝对路径（技术事实，保留）；③How to write a note（嵌入 workingMemory.prompt，XML 转义，位置从段尾移到中间）；④「When you feel a task is finished」作为唯一触发点，列出值得留的四类内容，并写明没有就不写、空文件夹完全没问题；最后保留禁存敏感信息红线。删掉文件名非法字符清单、引号规则、合并命令省审批等操作细节条条框框。server/working-memory.mjs 的 DEFAULT_WORKING_MEMORY_PROMPT 同步改成全英文两段原则（大白话短句 / 一件事一篇 / 第一行即总结兼文件名 / 过时直接改写或删除），删除固定四段模板。i18n 中英文示例笔记同步去掉 ## 结论 / ## 坑 小节，改为一句话标题 + 平实正文。",
+      "files": [
+        "server/system-prompt.mjs",
+        "server/working-memory.mjs",
+        "src/lib/i18n.ts",
+        "tests/server/system-prompt.test.mjs",
+        "tests/server/working-memory.test.mjs",
+        "docs/wiki/README.md",
+        "docs/wiki/server/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 40 passed（working-memory 10 / routes 4 / system-prompt 11 / settings-workspace-react 15）；npm run lint 通过（0 problems）；npm run build 通过（1.73s，precompress 225 files 12.68MB → 6.49MB）；node 渲染 composeSystemPrompt 确认 <working_memory> 段落顺序为 路径与摘要约定 → run_command 绝对路径 → How to write a note → 做完回顾 → 禁敏感，关闭时整段不出现；另备份并删除 ~/.quickforge/config/settings.json 里残留的 286 字旧中文 prompt，readWorkingMemorySettings() 实测回落到新英文默认值。",
+      "updatedAt": "2026-11-04",
+      "boundaries": "只改提示词内容与示例文案，不动开关、目录、接口字段、审批语义与 workspace 沙箱，不改全局记忆 MEMORY.md 与实际笔记文件。无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。"
     }
   ]
 }

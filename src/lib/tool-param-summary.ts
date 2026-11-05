@@ -46,9 +46,18 @@ export function summarizeParams(
   }
   if (toolName === 'activate_skill' && typeof params?.name === 'string') return params.name
   if (toolName === 'read_skill_resource' && typeof params?.path === 'string') return params.path
-  // recall_experience 的摘要在渲染器里由视图模型接管（要区分「有 query」和「最强记忆」），
-  // 这里只供 subagent 跑马灯等复用 summarizeParams 的场景使用。
-  if (toolName === 'recall_experience' && typeof params?.query === 'string') return params.query.trim()
+  // 记忆笔记工具：一眼能看出动了哪个目录的哪一篇。
+  if (toolName === 'read_memory_note' || toolName === 'write_memory_note') {
+    const scope = typeof params?.scope === 'string' ? params.scope : ''
+    const name = typeof params?.name === 'string' ? params.name : ''
+    return [scope, name].filter(Boolean).join(': ')
+  }
+  if (toolName === 'move_memory_note') {
+    const scope = typeof params?.scope === 'string' ? params.scope : ''
+    const from = typeof params?.from === 'string' ? params.from : ''
+    const to = typeof params?.to === 'string' ? params.to : ''
+    return [scope, from && to ? `${from} → ${to}` : from || to].filter(Boolean).join(': ')
+  }
   if (params && 'path' in params && typeof params.path === 'string') return params.path
   if (params && 'query' in params && typeof params.query === 'string') return params.query
   if (params && 'search_query' in params && typeof params.search_query === 'string') return params.search_query

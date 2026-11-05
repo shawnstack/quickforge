@@ -4,9 +4,7 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createDreamingRepository } from '../../server/sqlite/dreaming-repository.mjs'
-import { collectTranscript, detectContentLanguage } from '../../server/dreaming/collect.mjs'
-import { DREAMING_SYSTEM_PROMPT, buildDreamingUserPrompt } from '../../server/dreaming/prompt.mjs'
-import { noteIdOf } from '../../server/dreaming/notes.mjs'
+import { collectSessionEntries, collectTranscript, detectContentLanguage } from '../../server/dreaming/collect.mjs'
 
 let directory
 let databasePath
@@ -38,21 +36,19 @@ function insertSession({ sessionId = 's1', projectId = 'p1', messages = [], upda
   })
 }
 
-describe('dreaming schema v18', () => {
-  it('keeps only the run log and the note usage table', () => {
+const NOTE = (text) => ({ id: text, text })
+
+describe('dreaming schema', () => {
+  it('keeps only the run log', () => {
     const tables = storage.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
       .all().map((row) => row.name)
     expect(tables).toContain('dreaming_runs')
-    // Recall feedback needs one row per note; the notes themselves are a file.
-    expect(tables).toContain('dreaming_note_stats')
-    // v17: the notes live in MEMORY.md now, so no memory rows, no FTS shadow
-    // tables, no audit trail and no vectors.
     for (const dropped of ['memories', 'memories_fts', 'memory_events', 'memory_embeddings']) {
       expect(tables).not.toContain(dropped)
     }
   })
 
-  it('records a run with its window and status', () => {
+  it('records a run with its window and its per-session report', () => {
     const run = repository.createRun({ trigger: 'manual', periodFrom: 0, periodTo: 1000, startedAt: 1000 })
     expect(run).toMatchObject({ trigger: 'manual', status: 'running', periodFrom: 0, periodTo: 1000 })
     const finished = repository.finishRun(run.id, {
@@ -60,12 +56,23 @@ describe('dreaming schema v18', () => {
       sessionCount: 2,
       createdCount: 3,
       retiredCount: 1,
-      operations: { added: ['a'], removed: ['b'], dropped: [] },
+      operations: {
+        sessions: [{ ok: true, sessionId: 's1', toolCalls: 2, actions: [], durationMs: 10 }],
+        actions: [{ kind: 'write', scope: 'working', name: '一.md', title: '一' }],
+        snapshot: '/tmp/snap/run',
+        snapshotFiles: { workingMemory: 1, experiences: 0 },
+        stopped: null,
+      },
       finishedAt: 2000,
       durationMs: 1000,
     })
     expect(finished).toMatchObject({ status: 'succeeded', sessionCount: 2, createdCount: 3, retiredCount: 1 })
-    expect(finished.operations).toEqual({ added: ['a'], removed: ['b'], dropped: [], pruned: [], notesAfter: null })
+    expect(finished.operations).toMatchObject({
+      sessions: [{ sessionId: 's1' }],
+      actions: [{ kind: 'write', name: '一.md' }],
+      snapshot: '/tmp/snap/run',
+      stopped: null,
+    })
     expect(repository.latestSucceededPeriodTo()).toBe(1000)
     expect(repository.countRuns()).toBe(1)
     expect(repository.listRuns()).toHaveLength(1)
@@ -78,47 +85,16 @@ describe('dreaming schema v18', () => {
   })
 })
 
-describe('dreaming note stats', () => {
-  it('counts a recall per note and keeps the latest timestamp', () => {
-    const note = { id: noteIdOf('发布前必须跑完整测试'), text: '发布前必须跑完整测试' }
-    repository.recordNoteRecall([note], 1000)
-    repository.recordNoteRecall([note], 5000)
-
+describe('legacy note stats table', () => {
+  it('still counts recalls, so an old database keeps working after the recall tool was removed', () => {
+    repository.recordNoteRecall([NOTE('发布前必须跑完整测试')], 1000)
+    repository.recordNoteRecall([NOTE('发布前必须跑完整测试')], 5000)
     const stats = repository.listNoteStats()
-    expect(stats.get(note.id)).toMatchObject({ recallCount: 2, lastRecalledAt: 5000, createdAt: 1000 })
-  })
-
-  it('creates a row for every note in the file and drops rows for vanished notes', () => {
-    const first = { id: noteIdOf('一'), text: '一' }
-    const second = { id: noteIdOf('二'), text: '二' }
-    const third = { id: noteIdOf('三'), text: '三' }
-
-    repository.syncNoteStats([first, second], 1000)
-    expect([...repository.listNoteStats().keys()].sort()).toEqual([first.id, second.id].sort())
-
-    // '一' disappeared from the file: its row must go with it, so re-adding the
-    // same wording later starts from zero instead of inheriting the old count.
-    const result = repository.syncNoteStats([second, third], 2000)
-    expect(result.removed).toBe(1)
-    expect([...repository.listNoteStats().keys()].sort()).toEqual([second.id, third.id].sort())
-    expect(repository.listNoteStats().get(third.id)).toMatchObject({ recallCount: 0, createdAt: 2000 })
-  })
-
-  it('clears every row when the notes file becomes empty', () => {
-    repository.syncNoteStats([{ id: noteIdOf('一'), text: '一' }], 1000)
-    repository.syncNoteStats([], 2000)
-    expect(repository.listNoteStats().size).toBe(0)
-  })
-
-  it('deletes one row', () => {
-    const note = { id: noteIdOf('一'), text: '一' }
-    repository.syncNoteStats([note], 1000)
-    repository.deleteNoteStat(note.id)
-    expect(repository.listNoteStats().size).toBe(0)
+    expect(stats.get('发布前必须跑完整测试')).toMatchObject({ recallCount: 2, lastRecalledAt: 5000 })
   })
 })
 
-describe('dreaming transcript collection', () => {
+describe('transcript projection', () => {
   it('projects only user turns and assistant final answers', () => {
     insertSession({
       messages: [
@@ -163,24 +139,6 @@ describe('dreaming transcript collection', () => {
     expect(collected.transcript).not.toContain('read_file')
   })
 
-  it('prefers a session where the user pushed back when the budget is tight', () => {
-    insertSession({
-      sessionId: 'old-correction',
-      messages: [{ role: 'user', content: [{ type: 'text', text: '这个实现不对，应该先跑测试' }] }],
-      updatedAtMs: 3000,
-    })
-    insertSession({
-      sessionId: 'new-smooth',
-      messages: [{ role: 'user', content: [{ type: 'text', text: '继续' }] }],
-      updatedAtMs: 9000,
-    })
-    // Enough for one block only: without the correction weight the newest wins.
-    const collected = collectTranscript({ from: 0, to: 10_000, maxTotalChars: 100 })
-    expect(collected.sessions).toHaveLength(1)
-    expect(collected.sessions[0].sessionId).toBe('old-correction')
-    expect(collected.sessions[0].correctionSignals).toBe(1)
-  })
-
   it('only reads sessions inside the window', () => {
     insertSession({ sessionId: 'inside', messages: [{ role: 'user', content: 'a' }], updatedAtMs: 5000 })
     insertSession({ sessionId: 'outside', messages: [{ role: 'user', content: 'b' }], updatedAtMs: 90_000 })
@@ -190,74 +148,42 @@ describe('dreaming transcript collection', () => {
   })
 })
 
-describe('dreaming content language', () => {
+describe('per-session collection for the curator', () => {
+  it('returns one unmerged entry per session, oldest first', () => {
+    insertSession({ sessionId: 'b', messages: [{ role: 'user', content: '后来' }], updatedAtMs: 9000 })
+    insertSession({ sessionId: 'a', messages: [{ role: 'user', content: '先' }], updatedAtMs: 3000 })
+    const collected = collectSessionEntries({ from: 0, to: 10_000 })
+    expect(collected.sessions.map((session) => session.sessionId)).toEqual(['a', 'b'])
+    expect(collected.sessions[0].transcript).toContain('user: 先')
+    expect(collected.sessions[1].transcript).toContain('user: 后来')
+  })
+
+  it('does not drop a session just because earlier ones were long', () => {
+    // The merged-transcript budget used to cut sessions off. The curator handles
+    // them one at a time, so every session in the window must be reachable.
+    for (let index = 0; index < 5; index += 1) {
+      insertSession({
+        sessionId: `long-${index}`,
+        messages: [{ role: 'user', content: 'x'.repeat(20_000) }],
+        updatedAtMs: 1000 + index,
+      })
+    }
+    const collected = collectSessionEntries({ from: 0, to: 10_000 })
+    expect(collected.sessions).toHaveLength(5)
+  })
+
+  it('counts correction signals so the run page can explain why a session mattered', () => {
+    insertSession({ sessionId: 'corrected', messages: [{ role: 'user', content: '这个实现不对，应该先跑测试' }], updatedAtMs: 2000 })
+    const collected = collectSessionEntries({ from: 0, to: 10_000 })
+    expect(collected.sessions[0].correctionSignals).toBe(1)
+  })
+})
+
+describe('content language', () => {
   it('detects Chinese from the user turns', () => {
     expect(detectContentLanguage(['帮我改一下这个接口', '顺便跑下 npm run test'])).toBe('zh')
     expect(detectContentLanguage(['please refactor this module', 'and run the tests'])).toBe('en')
     expect(detectContentLanguage([''])).toBeNull()
     expect(detectContentLanguage(['ok'])).toBeNull()
-  })
-
-  it('states the language as a hard requirement in the user prompt', () => {
-    const base = { transcript: '', existingNotes: [], periodFrom: 0, periodTo: 1000, allowSensitive: true }
-    const zh = buildDreamingUserPrompt({ ...base, contentLanguage: 'zh' })
-    expect(zh).toContain('## Output language')
-    expect(zh).toContain('Simplified Chinese')
-    expect(zh).toContain('hard requirement')
-    expect(zh.indexOf('## Output language')).toBeLessThan(zh.indexOf('<transcript>'))
-
-    const en = buildDreamingUserPrompt({ ...base, contentLanguage: 'en' })
-    expect(en).toContain('English')
-    expect(en).not.toContain('Simplified Chinese')
-
-    const unknown = buildDreamingUserPrompt({ ...base, contentLanguage: null })
-    expect(unknown).toContain('the language the user uses in the transcript')
-  })
-
-  it('asks the model to rewrite foreign-language notes in place instead of duplicating them', () => {
-    const prompt = buildDreamingUserPrompt({
-      transcript: '',
-      existingNotes: ['用户偏好中文'],
-      periodFrom: 0,
-      periodTo: 1000,
-      allowSensitive: true,
-      contentLanguage: 'zh',
-    })
-    expect(prompt).toContain('Notes already written in another language')
-    expect(prompt).toContain('rather than adding a translated duplicate')
-    // The current list is what the model edits, not a snapshot of row ids.
-    expect(prompt).toContain('- 用户偏好中文')
-
-    const noLanguage = buildDreamingUserPrompt({
-      transcript: '', existingNotes: ['x'], periodFrom: 0, periodTo: 1000, allowSensitive: true,
-    })
-    expect(noLanguage).not.toContain('Notes already written in another language')
-  })
-
-  it('asks for the list ordered by importance because the tail gets dropped', () => {
-    expect(DREAMING_SYSTEM_PROMPT).toContain('ordered from most to least important')
-    expect(DREAMING_SYSTEM_PROMPT).toContain('the tail is dropped')
-    // Conflicts need a rule, otherwise two runs can flip a note back and forth.
-    expect(DREAMING_SYSTEM_PROMPT).toContain('the newest evidence wins')
-  })
-
-  it('lists never-recalled notes as deletion candidates only when there are some', () => {
-    const base = { transcript: '', existingNotes: ['一'], periodFrom: 0, periodTo: 1000, allowSensitive: true }
-    expect(buildDreamingUserPrompt(base)).not.toContain('Never recalled')
-
-    const withUnused = buildDreamingUserPrompt({ ...base, unusedNotes: [{ text: '一', ageDays: 45 }] })
-    expect(withUnused).toContain('Never recalled (deletion candidates)')
-    expect(withUnused).toContain('(45 days) 一')
-    // The signal is absence of searches, not evidence of being wrong.
-    expect(withUnused).toContain('not that it is wrong')
-  })
-
-  it('tells the model the contract is a bullet list, not JSON operations', () => {
-    const prompt = buildDreamingUserPrompt({
-      transcript: '', existingNotes: [], periodFrom: 0, periodTo: 1000, allowSensitive: true,
-    })
-    expect(prompt).toContain('Reply with the bullet list only.')
-    expect(prompt).not.toContain('"operations"')
-    expect(prompt).toContain('return the full list you want to keep')
   })
 })

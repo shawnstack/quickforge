@@ -69,7 +69,7 @@ server/
 ├── goal-settings.mjs         # Goal 默认预算与引擎设置（settings 键 goal-settings；maxIterations clamp 1–100，engine legacy/v2）
 ├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚 / 轮级回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
-├── dreaming/                 # Dreaming 记忆固化：采集 / 提示词 / 笔记校验与写回 / runner / 召回过滤
+├── dreaming/                 # 梦境整理员：逐会话采集 / 整理提示词 / agent 执行 / 整目录快照 / runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
@@ -82,6 +82,9 @@ server/
 ├── share-store.mjs           # 分享数据存储 (432 行)
 ├── session-utils.mjs         # 会话工具 (102 行)
 ├── system-prompt.mjs         # 系统提示词合成；todo_write 通用计划规则位于项目任务专属段之外
+├── working-memory.mjs        # 工作记忆（beta）：设置、笔记文件夹与大白话笔记提示词
+├── note-store.mjs            # 两个记忆目录共用的文件操作：命名校验 / 读 / 写 / 归档式移动
+├── experiences.mjs           # 经验库：目录、扫描生成 index.md、注入块
 ├── project-config.mjs        # 项目配置管理 (162 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (302 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
@@ -368,27 +371,49 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `manage_global_memory` 工具支持读取或覆盖完整记忆文档；写入前必须读取完整文档、去重并更新冲突信息，同时保留无关内容和原有格式。写入不弹审批，并拒绝密码、Token、API Key、Cookie、私钥等敏感信息。
 - 关闭后不注入记忆内容或主动记忆规则，并停止工具读取和写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
 - Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
-- 记忆分两份文件，各管各的：`MEMORY.md` 是用户写的（`GET`/`PUT /api/memory`、`manage_global_memory` 都在这里读写），`DREAMING.md` 是 Dreaming 写的（`readDreamingNotes()` / `writeDreamingNotes()`）。保存任一份都不会碰另一份，因此不需要标记、不需要保存时重拼。
-- 两份都注入：`readGlobalMemoryPrompt()` → `<global_user_memory>`，`readDreamingNotesPrompt()` → `<dreaming_memory>`。分开成两个段，是为了让模型能区分"用户告诉我的"和"过去会话总结出来的"。
+- 记忆分三块，各管各的：`MEMORY.md` 是用户写的（`GET`/`PUT /api/memory`、`manage_global_memory` 都在这里读写）；`~/.quickforge/working-memory/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
+- 注入策略分三级：`readGlobalMemoryPrompt()` → `<global_user_memory>`（全文）；`readExperiencesPrompt()` → `<experiences>`（**只有扫描生成的索引**，正文按需读）；`readWorkingMemoryPrompt()` → `<working_memory>`（**只有路径和写法规则**，不注入内容）。完整设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
 
-### dreaming/ — Dreaming 记忆固化
+### note-store.mjs / experiences.mjs — 笔记文件与经验库
 
-**用途**: 后台回看已结束的会话，把稳定事实、可复用经验、踩过的坑维护成 **`~/.quickforge/DREAMING.md` 里的一份笔记列表**（与用户手写的 `MEMORY.md` 是两个文件）；设计见 [Dreaming 记忆固化](../../architecture/dreaming-memory.zh-CN.md)。
+**用途**: 两个记忆目录共用的文件层（`note-store.mjs`）与经验库的索引/注入（`experiences.mjs`）。
 
-- 数据：只有 `dreaming_runs`（运行记录 + 行 diff + 模型原始回复）。v17 `drop_structured_memory_store` 删掉了 v13 建的 `memories` / `memories_fts` / `memory_events` 与 v16 的 `memory_embeddings`，旧数据不迁移。
-- 流程：`collectTranscript()` 投影窗口内会话（**只取 user 消息与 assistant 最终回答**，工具调用与工具输出完全不进 prompt；单会话 30k / 整体 100k 字符封顶）→ 读取当前笔记 → **一次**模型调用（当前笔记 + 新会话 → 新的完整 bullet 列表）→ `normalizeNoteLines()` 校验 → `writeDreamingNotes()` 整份覆盖 `DREAMING.md`。
-- **采集加权**：预算不够时优先保留「用户纠正过 / assistant 报错或中断」的会话（`correctionSignals()` 计数），其次才按时间从新到旧，避免老的纠正会话被先丢掉。代价是候选会话的尾部消息会被全部读出（最多 40 个）。
-- **漂移告警**：`added + removed` 占改前/改后较大者 ≥ 80% 且改前 ≥ 5 条时，run 仍是 `succeeded`，但 `error` 写「本次改动了 N/M 条笔记，可能发生了记忆漂移」。
-- **来源与回滚**：`operations.notesAfter` 存本次结束后的完整列表；`GET /api/dreaming/notes` 扫最近 50 个 run 反推每条笔记的 `firstSeen`；`POST /api/dreaming/runs/:id/restore` 把快照写回 `DREAMING.md`（无快照 409）。
-- 笔记契约（`notes.mjs`）：一行一条 `- `，可选 `[fact|preference|experience|pitfall|decision]` 前缀，单行 ≤ 300 字符、最多 60 条、整份 ≤ 3800 字节（落盘上限 8KB）；超限从尾部截断。`parseNoteLines()` 会跳过标题/空行/代码围栏。
-- 掉线保护：回复非空但抽不出任何 bullet（模型跑题说了段散文）→ run 标记 `failed` 且不写盘；真正空回复是合法的「今天没有值得记的」，会清空文件。
+- 共用契约：一个 `.md` 一件事、**文件名就是结论那句话**、正文第一行 `# 标题` 必须与文件名一致、单篇 ≤ 4000 字符。
+- **没有删除**。退休一篇笔记 = `move_memory_note` 挪进 `_archive/`。归档可逆，删除不可逆，所以这一层干脆不提供删除。
+- `normalizeNoteName()`：拒绝 `/ \ : * ? " < > |`、控制字符、以点开头、含 `..`；`.md` 后缀可省略。`writeNoteFile()` 拒绝空正文——「写空 = 删除」是最容易被一次截断回复触发的破坏，直接不给。
+- `index.md` 由 `readExperienceIndex()` 每次读取时扫描目录重建（写入只在内容变化时发生）：一行一条 `文件名 —— 何时用`，`候选技能：是` 的条目前加 `★`。上限 80 行 / 8000 字符，超出的旧条目掉出索引但文件仍在——索引是指针，不是副本。
+- `readExperiencesPrompt()` 在没有经验时返回 `null`（不注入空块）；`getExperiencesRevision()` 供将来的热更新比较用。
+
+### dreaming/ — 梦境整理员
+
+**用途**: 每天定时把已结束的会话回看一遍，**整理工作记忆目录**，并把反复出现或解法明确的做法沉淀成经验；设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
+
+- 数据：只有 `dreaming_runs`（运行记录 + 逐会话报告 + 快照路径 + 模型原始回复）。`dreaming_note_stats` 表为历史遗留，现已无写入方，保留不动。
+- 流程：`collectSessionEntries()` 按窗口取会话（**只取 user 消息与 assistant 最终回答**，工具调用与工具输出不进 prompt；单会话 30k 字符封顶）→ 整目录快照 → **逐个会话**各起一轮 agent（`runCuratorTurn()`）→ 重建 `index.md` → 记 run。
+- **一次一个会话、串行、从旧到新**：旧实现把所有会话合成一份 10 万字符 transcript 交给一次调用；改成逐会话后上下文短、任务明确，单个会话失败只影响自己。从旧到新是工作真实发生的顺序，后面的会话可以修正前面立下的笔记。
+- **整理员是 agent，不是流水线**：`server/dreaming/curator.mjs` 直接 `new Agent(...)`（不走 `AgentManager`，因为后台任务不需要持久化会话、生成标题或审批），`systemPrompt = CURATOR_SYSTEM_PROMPT`，工具只有四个记忆工具。`createCuratorToolGuard()` 是唯一的安全闸：非记忆工具一律 block，工具有调用预算（默认 60 次）；无人值守场景绝不发起审批。
+- **快照先拍再改**：`snapshotMemory()` 把两个目录整份复制到 `~/.quickforge/dreaming-snapshots/<runId>/`，**快照失败则整轮不执行**（能改记忆却没有回头路的 agent 比不整理更糟）。保留最近 10 份，`pruneSnapshots()` 清理。
+- 整理员准则（`server/dreaming/prompt.mjs`）：只负责一个会话；先列目录再写，已有同类就改写；文件名与结论不一致必须改名；不删只归档；单轮最多 5 篇；沉淀门槛是「3 篇以上工作记忆/会话里出现过」或「只出现一次但步骤明确」；建新经验前先读索引；不许碰 `skills/`，只能标 `候选技能：是`。
+- 失败语义：某个会话失败记一条并继续（全部失败才算整轮 `failed`）；时间预算（`MAX_RUN_MS`，默认 45 分钟）用尽则在会话边界停下，run 记 `operations.stopped`；把剩余会话留到下一轮。
 - 触发：开启即定时（无独立开关）；`startDreamingRunner()`（interval + unref + 首跑延迟，形态同 auto-archive）按 `nextRunAt` 每日执行；窗口 `[上次成功 period_to, now]`，首次为本地零点到当前。手动走 `POST /api/dreaming/run`。进程内单飞，重入返回 skipped。
-- 使用侧：`DREAMING.md` 以 `<dreaming_memory>` 段注入系统提示（与 `<global_user_memory>` 并列）；`recall_experience` 工具读同一份笔记做子串过滤（多词查询要求每词命中），无索引、无打分；命中时给 `dreaming_note_stats` 记一次计数。
-- **反馈闭环**：`dreaming_note_stats`（v18，6 列：`note_id/note_text/recall_count/last_recalled_at/created_at/updated_at`，`note_id = noteIdOf(text)`）。每轮 dreaming 用 `listNoteStats()` 找出冷笔记：`created_at` 距今 ≥ `pruneUnusedDays` 且 `recall_count` ≤ `pruneMaxRecalls`（两个阈值在设置「高级配置」里可改，默认 60 天 / 0 次）。默认 `pruneStaleNotes=false`：冷笔记以 `## Never recalled (deletion candidates)` 段交给模型，并明确「在这里是因为没人搜过它，不是因为它错了」——删不删由模型判断；该模式下还要笔记数 ≥ `pruneMinNotes`（默认 40）才生成候选段。打开 `pruneStaleNotes` 后改为**规则先删**：模型运行前就把冷笔记从 `DREAMING.md` 移除（模型没有否决权），被删条目记在 `operations.pruned` 并计入 `retiredCount` / summary，同时不再生成候选段。没有 stat 行的手写笔记年龄未知，永不自动删除。写回后 `syncNoteStats()` 让表与文件严格对齐；它失败只 warn，不会被误报成「笔记没保存」。
-- **来源 / 回滚 / 删除**：`notesAfter` 存每轮结束的完整列表；notes 接口扫最近 50 个 run 反推每条 `firstSeen`；`POST /runs/:id/restore` 写回快照（无快照 409）；`DELETE /notes/:id` 直接改文件删单条（下一轮不会复活）。
+- 回滚：`POST /api/dreaming/runs/:id/restore` 用那一轮的目录快照整份覆盖回来（无快照 409）；不靠「反向执行 diff」——diff 是整理员自己的说法，用它还原等于信任一次失败的运行。
 - 默认关闭（`dreaming-settings.enabled=false`）；`allowSensitive` 默认 true，设置页给一次性风险提示而非每轮确认。
 - **模型选择**：`resolveDreamingModel()` 的优先级是 指定的 `dreaming-settings.modelRef` → 最近对话模型（`settings['active-model']`） → 目录第一条。指定的模型失效时降级到下一优先级而不中断 run，设置页用 `overview.model`（含 `effective`/`source`/`available`）显示实际生效的模型与原因，保存时先校验 `modelRef` 可解析（不可解析 400）。
-- **输出语言由代码判定**：`detectContentLanguage()` 只采样 user 消息文本（CJK 权重 1:4），给出 `zh/en/null`，提示词里以 `## Output language` 硬要求下发（否则英文系统提示词会把中文会话的笔记压成英文）；`dreaming-settings.contentLanguage`（默认 `auto`）可手动固定，判定结果记在 `dreaming_runs.content_language`。
+- **输出语言由代码判定**：`detectContentLanguage()` 只采样 user 消息文本（CJK 权重 1:4），给出 `zh/en/null`，提示词里以 `## Output language` 硬要求下发；`dreaming-settings.contentLanguage`（默认 `auto`）可手动固定，判定结果记在 `dreaming_runs.content_language`。
+- 已退役：`DREAMING.md`、`recall_experience` 工具、`notes.mjs`、`recall.mjs`、`prune*` 四个剪枝设置。见 [Dreaming 记忆固化系统（已废弃）](../../architecture/dreaming-memory.zh-CN.md)。
+
+### working-memory.mjs
+
+**用途**: 管理工作记忆（beta）——一个跨项目、跨会话共享的笔记文件夹。
+
+- 设置项保存在 `settings['working-memory-settings']`（`{ enabled, prompt }`），默认关闭；设置页入口为「设置 → 记忆 → 工作记忆」，与「用户记忆」「梦境记忆」同组，导航项带 Beta 徽章。
+- 笔记目录固定为 `~/.quickforge/working-memory/`，开启时自动创建（`ensureWorkingMemoryDir()`）。一个 `.md` 文件只记一件事，**文件名就是内容的一句话总结**。
+- 读写走四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`，`scope=working`），不再用 `run_command`：目录在 workspace 之外，工具把路径锁死在这两个目录里，既不用放宽沙箱，也不用每次审批。
+- 开启时 `buildInstructionsPayload()` 返回 `workingMemory`，`composeSystemPrompt()` 注入 `<working_memory>`：绝对路径 + 少量原则（先列目录挑相关文件、**觉得任务做完时回头检查有没有值得留的东西**、允许什么都不写、文件名=一句话总结、不删只归档、禁存敏感信息）+ 笔记提示词。
+- 笔记提示词 `DEFAULT_WORKING_MEMORY_PROMPT` 以 `conversation-compaction.mjs` 的 `COMPACT_SYSTEM_PROMPT` 为底本改写成大白话，只保留少量原则：短句、一个文件一件事、第一行即总结兼文件名、过时的改写或合并；**不给固定小节模板**（避免笔记写成填表）。它是内部契约，设置页只展示只读示例、不返回也不接受修改；`settings.json` 里的 `prompt` 仅作为工程师调试口，最大 4000 字符。
+- `GET /api/working-memory` 只返回 `{ enabled, path }`；`PUT /api/working-memory` 只接受 `{ enabled }`，带 `prompt` 或非布尔开关返回 400（提示词不通过设置页泄露）。
+- 运行中的会话在下一次发送消息前由 `refreshWorkingMemoryState()` 比较开关与提示词 hash，变化时重建 system prompt（工具集不变）。新写的经验要等下一个会话才出现在索引里，不做中途热更新。
+- 与另外两层的区别：用户记忆是「关于用户的长期画像」（MEMORY.md，单文件整篇注入）；工作记忆是「这件事现在是什么样」（按主题分文件、只给路径）；经验库是「以后遇到同类问题怎么做」（只给索引）。
 
 ### agent-profiles.mjs
 
@@ -577,7 +602,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ### system-prompt.mjs (91 行)
 
-合成系统提示词。将基础提示词、workspace 上下文、多来源用户/项目指令（兼容 `~/.claude/CLAUDE.md`、`~/.opencode/AGENTS.md`、项目 `CLAUDE.md` / `AGENTS.md` 等）、Skills 目录和 Subagents 目录组装成完整的系统提示词。基础提示词要求命令在可行时优先通过 `run_command` 的 `run_in_background` 后台运行，并禁止用 shell 语法自行后台化；Subagents 目录会引导主 Agent 在需要文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现或影响面分析时优先委托 `explore` 做只读仓库调研。
+合成系统提示词。将基础提示词、workspace 上下文、多来源用户/项目指令（兼容 `~/.claude/CLAUDE.md`、`~/.opencode/AGENTS.md`、项目 `CLAUDE.md` / `AGENTS.md` 等）、Skills 目录和 Subagents 目录组装成完整的系统提示词。基础提示词要求命令在可行时优先通过 `run_command` 的 `run_in_background` 后台运行，并禁止用 shell 语法自行后台化；Subagents 目录会引导主 Agent 在需要文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现或影响面分析时优先委托 `explore` 做只读仓库调研。全局记忆开启时追加 `<memory_policy>` / `<global_user_memory>`（全文）；经验库非空时追加 `<experiences>`（**只放扫描生成的 `index.md`**，并明确说明索引只是指针、要看正文得自己 `read_memory_note`）；工作记忆（beta）开启时在记忆段之后追加 `<working_memory>`（笔记目录 + 使用规则 + 用户可编辑的笔记提示词，**不含笔记内容**），关闭时整段不出现。
 
 ### project-config.mjs
 
@@ -618,13 +643,15 @@ Dreaming 的 `/api/dreaming/*` 同样采用前缀分发（`server/index.mjs` 的
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/dreaming` | 设置 + 最近一次 run + 记忆计数 + MEMORY.md 自动区状态 |
-| PUT | `/api/dreaming/settings` | 开关 / 定时 / 模型 / 敏感信息策略；启用时重算 `nextRunAt` |
+| GET | `/api/dreaming` | 设置 + 生效模型与来源 + 最近一次 run + 计数（`experiences` / `candidateSkills` / `runs`）+ 生成的 `experienceIndex` |
+| PUT | `/api/dreaming/settings` | 开关 / 定时 / 模型 / 敏感信息策略 / 输出语言；启用时重算 `nextRunAt`，关闭时清空 |
 | POST | `/api/dreaming/run` | 立即处理；已关闭 403，运行中 409 |
+| GET | `/api/dreaming/experiences` | 经验列表（文件名、何时用、候选技能标记）+ 生成的索引 + 归档条数 |
 | GET | `/api/dreaming/runs?page&pageSize` | 运行历史（分页） |
-| GET | `/api/dreaming/runs/:id` | 运行详情：`run`（含 `sessions_json` 预览、`raw_response`、`input_chars`、`model_label`）+ `events`（before/after 审计）+ `memories`（本次触及条目当前状态） |
-| GET | `/api/dreaming/memories?query&kind&scope&status&page` | 记忆浏览与检索 |
-| POST | `/api/dreaming/memories/:id/retire` | 手工淘汰（已非 active 时 409） |
+| GET | `/api/dreaming/runs/:id` | 运行详情：`run`（`operations.sessions` 逐会话报告、`operations.actions`、`operations.snapshot`、`raw_response`、`input_chars`、`model_label`） |
+| POST | `/api/dreaming/runs/:id/restore` | 用该轮目录快照回滚两个记忆目录（无快照 409） |
+
+`GET/DELETE /api/dreaming/notes*` 已随笔记列表一起退役。
 
 进度用轮询而非 SSE：仓库里 SSE 只服务对话流。
 参见 [routes/ 文档](routes/)。`run_subagent` 与 `run_workflow` 都由 Agent 会话内部执行，不开放直接 REST：`server/routes/tools.mjs` 的 `directRouteDisabledTools` 会让 `POST /api/tools/run_workflow`（含项目级变体）返回 404，`GET /api/tools` 仍返回其工具元数据。
@@ -633,7 +660,7 @@ Dreaming 的 `/api/dreaming/*` 同样采用前缀分发（`server/index.mjs` 的
 
 参见 [tools/ 文档](tools/)。`run_workflow` 的元数据在 `definitions.mjs`，执行入口由 `agent-manager.mjs` 包装，不在 `tools/index.mjs` 的 handler 表中。
 
-`recall_experience` 在 `workspaceTools` 数组内（因此受 `routes/tools.mjs` 的直连工具权限白名单约束），但经验库与工作区无关：无项目上下文的会话由 `createServerTools()` 单独补挂，避免只有项目会话能召回。
+四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`）**不在** `workspaceTools` 数组里：两个记忆目录与项目无关，无工作区绑定的会话也要能用，因此由 `createServerTools()` 无条件补挂（仍受 `allowedToolNames` 白名单约束，subagent 可用它限制能力）。它们也是梦境整理员唯一能拿到的工具。
 
 ## 工具函数 (utils/)
 

@@ -1,5 +1,92 @@
 # Current Session Handoff
 
+## 当前交接：memory-system-experience-library（done，2026-11-05）
+
+- Current Objective（当前目标）: 按用户拍板把记忆体系改成「工作记忆 + 全局经验库」，梦境从「一次调用改写 DREAMING.md 的 bullet 列表」改成「一次一个会话起一轮 agent 整理两个目录」。已实现，未提交。
+- 用户拍板的几条（下个会话不要推翻）:
+  1. 定时任务机制不变（`executeTime` 每日一次、窗口 `[上次成功 period_to, now]`）。
+  2. 经验**不需要人审**（纯文本 + 快照可回滚）；**技能需要人确认**（会改变 AI 行为方式）。
+  3. 索引注入系统提示词，但**只是指针**，正文由 AI 自己决定要不要读。
+  4. 召回工具不要了。
+  5. 一次只处理一个 session，全部串行。
+  6. 经验库放全局 `~/.quickforge/experiences/`。
+- 改动内容:
+  1. 新增 `server/note-store.mjs` / `server/experiences.mjs` / `server/tools/memory-notes.mjs` / `server/dreaming/curator.mjs` / `server/dreaming/snapshot.mjs`。
+  2. 梦境 runner 改成逐会话串行 + 整目录快照 + 时间预算 + 逐会话报告。
+  3. 系统提示词：新增 `<experiences>`，改写 `<working_memory>`（用记忆工具、不删只归档）。
+  4. 退役 `DREAMING.md` / `recall_experience` / `notes.mjs` / `recall.mjs` / `prune*` 设置 / `/api/dreaming/notes*`。
+  5. 设置页「经验库」页签 + 逐会话运行详情 + 整目录回滚。
+- Files（改动文件）: 见 `feature_list.json` 的 `memory-system-experience-library`。
+- Evidence（验证）: `npm run test` 498 files / 5519 passed / 3 failed / 1 skipped（3 个失败为既有基线，改动前复跑同样失败）；`npm run lint` 0 problems；`npm run build` 通过（1.83s）；真实记忆文件渲染 `composeSystemPrompt` 核对三段注入；node 冒烟覆盖写入/索引/★/改名/归档/非法名/空正文拒绝。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 用户数据已迁移：`~/.quickforge/DREAMING.md` 删除（备份 `/tmp/qf-DREAMING-backup-*.md`），可复用的两条写进经验库，构建耗时写进工作记忆，`MEMORY.md` 新增「记忆约定」一节（备份 `/tmp/qf-MEMORY-backup-*.md`）。
+  - `dreaming_note_stats` 表保留未迁移，已无写入方；如需彻底清掉，要加一条 v20 迁移。
+  - 运行中的老进程需重启 QuickForge 才会重建 system prompt（新经验要等新会话才进索引）。
+  - 未新增依赖；未触碰 dist/package-dist/package-offline；未提交 Git。
+- Next Session（下一步）:
+  1. 重启 QuickForge，打开设置 → 梦境记忆，确认「经验库」页签能看到那 2 条经验、生成的索引预览正确。
+  2. 手动点一次「立即处理」，看逐会话报告与 `~/.quickforge/dreaming-snapshots/` 是否按需生成。
+  3. 想继续的话：给「候选技能」做一个从 `★` 到 `skills/<name>/SKILL.md` 的人工升级入口（现在只能靠人肉说一句）。
+
+---
+
+## 当前交接：working-memory-prompt-principles-only（done，2026-11-04）
+
+- Current Objective（当前目标）: 按用户要求给工作记忆提示词瘦身——不要一堆条条框框，改成「觉得任务做完时回头看有没有值得留的东西」这一个触发点，提示词保持全英文。已实现，未提交。
+- 改动内容:
+  1. `server/system-prompt.mjs` 的 `<working_memory>` 从 6 条 bullet 改成四段散文：文件夹+文件名即一句话总结+开工前列目录 → `run_command` 绝对路径（技术事实） → `How to write a note`（嵌入 `workingMemory.prompt`，位置移到中间） → `When you feel a task is finished` 唯一触发点 + 允许什么都不写 → 禁存敏感信息收尾。
+  2. 删掉文件名非法字符清单、shell 引号规则、合并命令省审批、固定四段模板。
+  3. `server/working-memory.mjs` 的 `DEFAULT_WORKING_MEMORY_PROMPT` 改为全英文两段原则（大白话短句 / 一件事一篇 / 第一行即总结兼文件名 / 过时直接改写或删除）。
+  4. `src/lib/i18n.ts` 中英文示例笔记去掉 `## 结论 / ## 坑`，改为一句话标题 + 平实正文。
+- Files（改动文件）: server/system-prompt.mjs、server/working-memory.mjs、src/lib/i18n.ts、tests/server/system-prompt.test.mjs、tests/server/working-memory.test.mjs、docs/wiki/README.md、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 40 passed（working-memory 10 / routes 4 / system-prompt 11 / settings-workspace-react 15）；`npm run lint` 通过（0 problems）；`npm run build` 通过（1.73s，precompress 225 files 12.68MB → 6.49MB）；node 渲染 `composeSystemPrompt` 打印实际 `<working_memory>` 段核对排版，关闭时整段不出现。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 旧配置里存过 286 字中文 `prompt`，已备份（`~/.quickforge/config/settings.json.bak-20261104T201111`）并删除该字段，实测 `readWorkingMemorySettings()` 回落到新英文默认值。
+  - `workingMemory.prompt` 注入点保留（仍是工程师调试口 + revision hash 的一部分），只是默认值与文案变化。
+  - 运行中的老进程若缓存 settings，需重启 QuickForge 才会重建 system prompt。
+  - 无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。
+- Next Session（下一步）: 重启 QuickForge 后确认新提示词生效——AI 只在「觉得任务做完」时回头看，不再套用四段模板；顺手在 `~/.quickforge/working-memory/` 写第一篇笔记验证文件名即总结。
+
+---
+
+## 当前交接：memory-settings-group-and-prompt-hidden（done，2026-11-04）
+
+- Current Objective（当前目标）: 三个记忆收进同一个「记忆」设置分组；工作记忆的笔记提示词从设置界面收回，不再暴露、不可编辑。已实现，未提交。
+- 改动内容:
+  1. 菜单：`settings-tabs.ts` 新增 `memory` 分组（basic 之后），`memory` / `workingMemory` / `dreaming` 三 tab 归入；「记忆」改名「用户记忆」，新增 `settingsGroupMemory`（记忆 / Memory）。
+  2. 提示词：`GET /api/working-memory` → `{ enabled, path }`；`PUT` 只收 `{ enabled }`，带 `prompt` 返回 400；`readWorkingMemoryDocument()` 不再返回 prompt/defaultPrompt；`saveWorkingMemorySettings()` 保留 prompt（仅 settings.json 调试口）+ `settings`/`writeSettings` 注入。
+  3. 设置页：`WorkingMemorySettingsTab` 删 textarea / 恢复默认 / 保存提示词，改成「笔记怎么写」只读说明 + 折叠只读示例；保留开关与目录。
+- Files（改动文件）: src/lib/settings-tabs.ts、src/lib/i18n.ts、src/components/settings/tabs/WorkingMemorySettingsTab.tsx、server/working-memory.mjs、server/routes/working-memory.mjs、tests/server/working-memory.test.mjs、tests/server/routes/working-memory.test.mjs、tests/frontend/settings-workspace-react.test.ts、docs/wiki/README.md、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest 40 passed（working-memory 10 / routes 4 / system-prompt 10 / settings-workspace-react 15）；`npx tsc --noEmit` 通过；`npm run lint` 通过（0 problems）；`npm run build` 通过；临时 `QUICKFORGE_DATA_DIR` HTTP 冒烟：GET 只回 `{enabled,path}`、PUT 开启 200 + 建目录、PUT `{prompt}` 400、system prompt 仍注入 `<working_memory>` 与大白话规则。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 提示词属于内部契约，用户改不到；要调整走发版或 `settings.json` 的 `settings['working-memory-settings'].prompt`。
+  - 无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。
+- Next Session（下一步）: 发版后用全局安装版打开设置，确认「记忆」分组下依次是 用户记忆 / 工作记忆 Beta / 梦境记忆 Beta，工作记忆页只有开关、目录和只读示例。真机再跑一轮对话验证 AI 会先 `ls` 笔记目录、写完按一句话总结命名。
+
+---
+
+## 当前交接：working-memory-beta（done，2026-11-04）
+
+- Current Objective（当前目标）: 新增「工作记忆（Beta）」——一个跨项目/会话共享的笔记文件夹，AI 在开工前自己列标题挑相关笔记读，有值得留的结论就写并按一句话总结给文件命名。已实现，未提交。
+- 用户拍板的四个决策: ①目录全局共享 `~/.quickforge/working-memory/`；②纯提示词 + `run_command`（ls/cat/mv），不新增工具、不改 workspace 沙箱；③AI 在对话中主动读写，不做会话结束后台整理；④笔记提示词以上下文压缩的 `COMPACT_SYSTEM_PROMPT` 为底本改写成大白话。
+- 改动内容:
+  1. 新增 `server/working-memory.mjs`：`settings['working-memory-settings']`（`{enabled:false, prompt}`，默认关闭）、`DEFAULT_WORKING_MEMORY_PROMPT`（大白话版：短句/一个文件一件事/第一行即文件名/固定小节）、目录 `~/.quickforge/working-memory`、`getWorkingMemoryRevision()`（开关+提示词 hash）、`ensureWorkingMemoryDir()` 与 4000 字提示词上限。
+  2. 新增 `server/routes/working-memory.mjs` + `server/index.mjs` 挂 `/api/working-memory`：GET 返回 `{enabled,prompt,defaultPrompt,path}`，PUT 接收 `{enabled?,prompt?}`（类型/超长 400），开启时建目录。
+  3. `server/project-config.mjs` 把 `workingMemory` 放进 instructions payload；`server/system-prompt.mjs` 在记忆段之后注入 `<working_memory>`：绝对路径 + 使用规则（先列标题只读相关文件、用 run_command 绝对路径、值得复用才写、文件名=一句话总结、改名规则、禁存敏感信息）+ 用户可编辑提示词（XML 转义）。
+  4. `server/agent-manager.mjs` 新增 `refreshWorkingMemoryState()`：每次发送消息前比对开关与提示词 hash，变化时重建 system prompt（工具集不变）。
+  5. 前端：新增 `WorkingMemorySettingsTab.tsx`（开关 / 目录 / 提示词编辑 + 恢复默认 + 保存），注册进 `settings-tabs.ts`、`react-settings-tabs.tsx`、`SettingsWorkspacePage.tsx`（NotebookPen 图标、加入常驻挂载集合，Beta 徽章复用上游通用 `.quickforge-settings-beta`），i18n 中英文案补全。上游已把 `src/index.css` 拆为 `src/styles/*`，本 feature 未新增样式文件。
+- Files（改动文件）: server/working-memory.mjs、server/routes/working-memory.mjs、server/index.mjs、server/project-config.mjs、server/system-prompt.mjs、server/agent-manager.mjs、src/components/settings/tabs/WorkingMemorySettingsTab.tsx、src/lib/settings-tabs.ts、src/lib/react-settings-tabs.tsx、src/components/settings/SettingsWorkspacePage.tsx、src/lib/i18n.ts、tests/server/working-memory.test.mjs、tests/server/system-prompt.test.mjs、tests/frontend/settings-workspace-react.test.ts、docs/wiki/README.md、docs/wiki/server/README.md、feature_list.json、progress.md、session-handoff.md。
+- Evidence（验证）: 定向 vitest working-memory 9 + system-prompt 11 + settings-workspace-react 15 = 35 全绿；`npx tsc -b` 0 错误；`npm run lint` 0 problems；`npm run build` 成功（2.28s，precompress 225 files 12.68MB → 6.49MB）；`npm run test` 全量 497 文件 5552 passed / 3 failed / 1 skipped，3 个失败全部集中在 `tests/server/acp/server.workspace-mapping.test.mjs`，已用 `git worktree` 在纯上游 HEAD 复跑该文件确认同样失败，与本次合并无关。（原独立开发期的端到端与 HTTP 冒烟记录保留在 progress.md。）
+- Blockers（阻塞）: 无。
+- Notes:
+  - 文件写入/改名完全靠提示词 + `run_command`，所以首次创建或改名会走工具审批；未新增 rename 工具，也未扩展 workspace 多根白名单。
+  - 无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。
+- 合并状态: 已 rebase 到 origin/dev 8489650f（v2.3.7 之后，拉取 117 个提交）之上解决冲突，工作区仍未提交。合并要点：上游把 `src/index.css` 拆成 `src/styles/*`，本 feature 不再有独立样式文件；设置页新增 `group`/`keywords` 与通用 `.quickforge-settings-beta` 徽章，工作记忆项按新结构挂 `basic` 分组；上游新增 `zustand` 依赖已 `npm install` 同步（lock 未改动）。
+- Next Session（下一步）: 真机打开设置里的「工作记忆（Beta）」，开启后发一条对话确认 AI 会先 `ls` 笔记目录再动工、写完后用一句话总结命名/改名；确认观感后可与其他未提交改动一起按 runbook 发小版本。
+
 ## goal-v2-single-completion-entry（done，2026-11-02）
 
 - Current Objective（当前目标）：用户问「goal 模式 UI 都停了为什么还结束当前轮又继续新一轮」，并明确「goal 的工具表示完成就应该停止了」；选定方案 A：v2 只留一个完成入口。

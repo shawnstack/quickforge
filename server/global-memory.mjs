@@ -2,27 +2,28 @@ import { createHash, randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { dataDir, readStore } from './storage.mjs'
+import { countExperiences } from './experiences.mjs'
 
 /**
- * Two separate memory files, both injected into the system prompt.
+ * The human half of memory.
  *
- * - `MEMORY.md` is the human file. Only the user (and the `manage_global_memory`
- *   tool acting for them) writes it. Nothing machine-generated is spliced into it.
- * - `DREAMING.md` is the machine file. The Dreaming worker owns it end to end and
- *   rewrites it wholesale on every run.
+ * `MEMORY.md` is the file the user owns: only the user (and the
+ * `manage_global_memory` tool acting for them) writes it. Nothing machine-generated
+ * is spliced into it.
  *
- * Keeping them in two files instead of two marked regions of one file removes the
- * whole class of "did the editor clobber the machine block" problems: no markers,
- * no re-composition on save, no partial ownership.
+ * The machine half used to be a second file (`DREAMING.md`) holding a bullet list
+ * that the Dreaming worker rewrote wholesale. That whole arrangement is gone: the
+ * machine's memory is now the working-memory folder plus the experience library,
+ * two folders of ordinary Markdown files that the agent edits directly. Keeping
+ * the human file separate from those remains the point — no markers, no
+ * re-composition on save, no partial ownership.
  */
 
 export const GLOBAL_MEMORY_SETTINGS_KEY = 'memory-settings'
 export const GLOBAL_MEMORY_FILE_NAME = 'MEMORY.md'
-export const DREAMING_NOTES_FILE_NAME = 'DREAMING.md'
 export const DEFAULT_GLOBAL_MEMORY_SETTINGS = { enabled: true }
 
 const MAX_MEMORY_FILE_BYTES = 16 * 1024
-const MAX_DREAMING_FILE_BYTES = 8 * 1024
 
 let memoryWriteQueue = Promise.resolve()
 
@@ -42,10 +43,6 @@ export async function isGlobalMemoryEnabled() {
 
 export function globalMemoryFilePath(baseDir = dataDir) {
   return path.join(baseDir, GLOBAL_MEMORY_FILE_NAME)
-}
-
-export function dreamingNotesFilePath(baseDir = dataDir) {
-  return path.join(baseDir, DREAMING_NOTES_FILE_NAME)
 }
 
 function requestError(message, statusCode = 400) {
@@ -96,27 +93,17 @@ export async function readGlobalMemory(options = {}) {
   }
 }
 
-export async function readDreamingNotes(options = {}) {
-  const file = dreamingNotesFilePath(options.dataDir)
-  try {
-    return await fs.readFile(file, 'utf8')
-  } catch (error) {
-    if (error?.code === 'ENOENT') return ''
-    throw error
-  }
-}
-
 export async function readGlobalMemoryDocument(options = {}) {
   const memory = await readGlobalMemory(options)
-  const dreaming = await readDreamingNotes(options).catch(() => '')
+  // The count is for the "the machine half lives somewhere else now" hint: the
+  // experience library is not editable from this page, but knowing it is non-empty
+  // is what makes the cross-link worth showing.
+  const count = await countExperiences(options).catch(() => 0)
   return {
     enabled: options.enabled === undefined ? await isGlobalMemoryEnabled() : options.enabled,
     markdown: memory.markdown,
-    // Shown read-only next to the editable file: it is the model's output, and the
-    // only supported way to change it is the next Dreaming run.
-    dreaming,
     path: '~/.quickforge/MEMORY.md',
-    dreamingPath: '~/.quickforge/DREAMING.md',
+    count,
   }
 }
 
@@ -154,28 +141,6 @@ export async function saveGlobalMemoryDocument(markdown, options = {}) {
   })
 }
 
-/**
- * Rewrite DREAMING.md. Empty content deletes the file's content (a valid "there
- * was nothing durable today"), never leaves a stale version behind.
- */
-export async function writeDreamingNotes(markdown, options = {}) {
-  const validated = String(markdown ?? '').trim()
-  if (Buffer.byteLength(validated, 'utf8') > MAX_DREAMING_FILE_BYTES) {
-    throw requestError('Dreaming notes exceed the size limit.')
-  }
-  if (options.allowSensitive !== true && containsSensitiveMemory(validated)) {
-    throw requestError('Sensitive credentials or secrets cannot be stored in dreaming notes.')
-  }
-  return withMemoryWriteLock(async () => {
-    const current = await readDreamingNotes(options).catch(() => '')
-    if (current.trim() === validated) {
-      return { changed: false, markdown: validated, path: '~/.quickforge/DREAMING.md' }
-    }
-    await writeMarkdownAtomically(dreamingNotesFilePath(options.dataDir), validated ? `${validated}\n` : '')
-    return { changed: true, markdown: validated, path: '~/.quickforge/DREAMING.md' }
-  })
-}
-
 export async function readGlobalMemoryPrompt(options = {}) {
   if (options.enabled === false) return null
   if (options.enabled === undefined && !(await isGlobalMemoryEnabled())) return null
@@ -183,21 +148,6 @@ export async function readGlobalMemoryPrompt(options = {}) {
   return {
     source: '~/.quickforge/MEMORY.md',
     content: memory.markdown.trim() || null,
-    enabled: true,
-  }
-}
-
-/**
- * The machine-owned notes as a prompt block. Separate from the human file so the
- * two can never be confused for each other by the model either.
- */
-export async function readDreamingNotesPrompt(options = {}) {
-  if (options.enabled === false) return null
-  if (options.enabled === undefined && !(await isGlobalMemoryEnabled())) return null
-  const notes = await readDreamingNotes(options).catch(() => '')
-  return {
-    source: '~/.quickforge/DREAMING.md',
-    content: notes.trim() || null,
     enabled: true,
   }
 }

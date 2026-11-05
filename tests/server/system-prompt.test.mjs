@@ -115,4 +115,37 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('<memory_policy>')
     expect(prompt).not.toContain('<global_user_memory')
   })
+
+  it('injects the working memory folder and the note rules when enabled', () => {
+    const prompt = composeSystemPrompt({
+      workingMemory: {
+        enabled: true,
+        path: '/tmp/qf/working-memory',
+        prompt: 'One note per topic <the name is the summary>',
+      },
+    })
+
+    expect(prompt).toContain('<working_memory>')
+    expect(prompt).toContain('/tmp/qf/working-memory')
+    expect(prompt).toContain("its file name is the note's summary in one sentence")
+    expect(prompt).toContain('Reach it with the memory tools, not the workspace ones')
+    expect(prompt).toContain('Open only the notes whose names look relevant')
+    // The folder is outside the workspace, so the workspace tools cannot reach it
+    // and the prompt has to say so — otherwise the model tries read_file.
+    expect(prompt).toContain('read_file / write_file / edit_file cannot reach this folder')
+    expect(prompt).toContain('Nothing is ever deleted here')
+    // A finished task is the one cue that asks for a look back, and skipping is allowed.
+    expect(prompt).toContain('When you feel a task is finished')
+    expect(prompt).toContain('an empty folder is perfectly fine')
+    expect(prompt).toContain('Never store passwords, keys, tokens, credentials, or sensitive file contents')
+    // The note rules are embedded verbatim (escaped for the XML-ish block).
+    expect(prompt).toContain('One note per topic &lt;the name is the summary&gt;')
+    expect(prompt).not.toContain('<the name is the summary>')
+  })
+
+  it('keeps the working memory section out of the prompt while disabled', () => {
+    const prompt = composeSystemPrompt({ workingMemory: null })
+    expect(prompt).not.toContain('<working_memory>')
+    expect(prompt).not.toContain('Working memory is a shared folder')
+  })
 })

@@ -57,7 +57,7 @@ quickforge/
 | [渲染内存与附件边界](../architecture/render-memory-and-attachment-boundary.zh-CN.md) | 流式单份帧、定稿缓存、有界渲染窗口、附件引用与按需读取、首屏压缩 |
 | [对话渲染性能与内存评审](../architecture/chat-render-perf-review.zh-CN.md) | 流式稳定块冻结、工具事件合并、装饰固定成本、缓存字节预算与序列化共享（含 5 项否决候选与理由） |
 | [对话轨迹](../architecture/conversation-trace.zh-CN.md) | 对话区的只读运行时视图（Turn→Step→Tool 投影、三轨时间总览、检查器、不虚构耗时） |
-| [Dreaming 记忆固化](../architecture/dreaming-memory.zh-CN.md) | 后台把已结束会话沉淀为 `DREAMING.md` 里的一份笔记（一次 LLM 调用读旧列表 + 新会话，写回新列表；与手写的 `MEMORY.md` 是两个文件，一起注入） |
+| [记忆体系：工作记忆 + 经验库](../architecture/memory-system.zh-CN.md) | 三层记忆（`MEMORY.md` 偏好 / `working-memory/` 活笔记 / `experiences/` 经验库）+ 生成式索引的渐进式披露 + 梦境整理员「一次一个会话」逐轮起 agent + 整目录快照回滚；`DREAMING.md` 与 `recall_experience` 已退役 |
 | [前端状态管理迁移（Zustand）](../architecture/zustand-migration.zh-CN.md) | App 级状态迁入 `src/stores/` 的 10 个 zustand store（兼容层模式、请求信号替代 window 事件桥、迁移守则与测试适配） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
@@ -82,6 +82,8 @@ quickforge/
 - **Goal 模式（v2 默认）**: 主聊天与定时任务可用 `/goal <目标>` 设定带可验收标准的目标；ACP 与 shared 请求仍拒绝 Goal。v2 使用 4 个持久 phase（active / paused / blocked / complete）+ 进程本地 armed/disarmed，goal 变更以 `goal/change` 事件日志持久化并支持 `{id, revision}` CAS；规划轮整轮只读，正常轮末持久化后自动执行，模型只能提交绑定真实工具结果的证据，`complete` 经证据检查、正常轮末与持久化屏障后自动完成。重启/fork 后 active 目标保持 active 但 disarmed，必须显式 `/goal resume`；`clear` 写 tombstone。旧会话继续走 legacy 13 状态引擎（设置·通用「Goal 引擎」可切换或 `QUICKFORGE_GOAL_ENGINE=legacy`）。详见 [服务端 Goal v2 契约](server/README.md#goal-v2默认servergoal)
 
 - **多模型供应商**: OpenAI 兼容 `/v1/chat/completions` 和 Anthropic Messages API
+- **工作记忆（Beta）**: 设置页可开启「工作记忆」（与「用户记忆」「梦境记忆」同属设置里的「记忆」分组）。开启后系统提示词注入 `<working_memory>`：共享笔记目录 `~/.quickforge/working-memory/`、几条原则和内部笔记提示词（以压缩摘要提示词为底本改写成大白话，属于内部契约，设置页只给只读示例、不暴露也不接受修改）。原则只讲机制和触发点——开工前先列目录挑相关的读，**觉得任务做完时回头看一眼有没有值得留给下次的东西，没有就不写**，不规定固定小节模板。一个 Markdown 文件只记一件事，文件名就是内容的一句话总结；读写走 `list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note` 四个工具（路径锁死在工作记忆与经验库两个目录内，不新增沙箱放宽，也**没有删除**——退休的笔记挪进 `_archive/`）。详见 [记忆体系：工作记忆 + 经验库](../architecture/memory-system.zh-CN.md)
+- **经验库**: `~/.quickforge/experiences/`，一条经验一个文件（文件名即结论，正文含「何时用 / 怎么做 / 坑 / 来源 / 候选技能」）。系统提示词里**只注入扫描生成的 `index.md`**（80 行封顶），正文按需 `read_memory_note` 读——这就是渐进式披露。经验由梦境整理员自动写入、无需人工审核；标了 `候选技能：是` 的条目会在索引里显示 `★`，升级成 Agent Skill 仍需人点头
 
 ## 快速链接
 

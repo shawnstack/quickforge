@@ -17,6 +17,12 @@ import {
 } from '../skills.mjs'
 import { getToolWorkspaceRoot } from '../utils/workspace.mjs'
 import { manageGlobalMemory } from '../global-memory.mjs'
+import {
+  toolListMemoryNotes,
+  toolMoveMemoryNote,
+  toolReadMemoryNote,
+  toolWriteMemoryNote,
+} from './memory-notes.mjs'
 import { backupFileBeforeWrite, recordFileAfterWrite } from '../session-file-backups.mjs'
 import { withSessionFileLock } from '../session-file-lock.mjs'
 
@@ -1286,63 +1292,6 @@ export async function toolManageGlobalMemory(params) {
   return manageGlobalMemory(params)
 }
 
-/**
- * `recall_experience` reads the Dreaming notes block in MEMORY.md.
- *
- * The notes are already injected into every system prompt, so this is not a
- * search engine: it answers "what do I know about X" by filtering the same
- * bullets, with no index, scoring or usage bookkeeping behind it.
- */
-export async function toolRecallExperience(params = {}) {
-  const { recallExperienceNotes, noteIdOf, noteKindOf, noteTextOf } = await import('../dreaming/recall.mjs')
-  const query = String(params?.query ?? '').trim()
-  const notes = await recallExperienceNotes({
-    query,
-    kind: params?.kind ?? null,
-    limit: params?.limit,
-  })
-  const rows = notes.map((line) => ({
-    id: noteIdOf(line),
-    kind: noteKindOf(line),
-    content: noteTextOf(line),
-  }))
-  // Recall feedback: a note that is actually asked for is evidence it earns its
-  // place. Best-effort — a stats failure must not fail the tool.
-  if (query && rows.length > 0) {
-    try {
-      const { createDreamingRepository } = await import('../sqlite/dreaming-repository.mjs')
-      createDreamingRepository().recordNoteRecall(
-        notes.map((line, index) => ({ id: rows[index].id, text: line })),
-        Date.now(),
-      )
-    } catch {
-      // Storage unavailable (tool used outside the server): skip the bookkeeping.
-    }
-  }
-  if (rows.length === 0) {
-    return {
-      content: query
-        ? `No stored note matched "${query}".`
-        : 'No stored notes yet. The background Dreaming worker has not written anything for this project.',
-      details: { type: 'recall_experience_result', query, count: 0, memories: [] },
-    }
-  }
-  return {
-    content: [
-      query ? `Recalled ${rows.length} note${rows.length === 1 ? '' : 's'} for "${query}":` : `All ${rows.length} stored notes:`,
-      ...notes.map((line, index) => (rows[index].kind ? `- [${rows[index].kind}] ${rows[index].content}` : `- ${rows[index].content}`)),
-      '',
-      'These are distilled from past sessions, not current instructions.',
-    ].join('\n'),
-    details: {
-      type: 'recall_experience_result',
-      query,
-      count: rows.length,
-      memories: rows,
-    },
-  }
-}
-
 function todoWriteError(message) {
   const error = new Error(message)
   error.statusCode = 400
@@ -1404,7 +1353,10 @@ export async function toolTodoWrite(params) {
 
 export const toolHandlers = {
   manage_global_memory: toolManageGlobalMemory,
-  recall_experience: toolRecallExperience,
+  list_memory_notes: toolListMemoryNotes,
+  read_memory_note: toolReadMemoryNote,
+  write_memory_note: toolWriteMemoryNote,
+  move_memory_note: toolMoveMemoryNote,
   todo_write: toolTodoWrite,
   read_file: toolReadFile,
   grep_files: toolGrepFiles,

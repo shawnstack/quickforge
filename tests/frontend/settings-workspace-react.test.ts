@@ -32,7 +32,7 @@ import { SettingsWorkspacePage } from '../../src/components/settings/SettingsWor
 import { CustomProvidersSettingsTab } from '../../src/components/settings/tabs/CustomProvidersSettingsTab'
 import { useUIStore } from '../../src/stores/ui-store'
 
-const keys: SettingsInitialTab[] = ['defaults', 'appearance', 'memory', 'network', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'hooks', 'scheduledTasks', 'dreaming', 'projectCommands', 'data', 'about']
+const keys: SettingsInitialTab[] = ['defaults', 'appearance', 'memory', 'workingMemory', 'network', 'customModels', 'agents', 'skills', 'mcp', 'plugins', 'hooks', 'scheduledTasks', 'dreaming', 'projectCommands', 'data', 'about']
 type TestNode = ReactElement<Record<string, unknown> & { children?: unknown }>
 function nodes(tree: unknown): TestNode[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
@@ -55,12 +55,19 @@ function render(initialTab: SettingsInitialTab = 'appearance', customProvider?: 
 function content(tree: TestNode[]) { return tree.find((node) => node.type === ReactSettingsTabContent)! }
 
 describe('pure React settings registry', () => {
-  it('preserves all fifteen ordered keys, names, descriptions and initial provider', () => {
+  it('preserves all sixteen ordered keys, names, descriptions and initial provider', () => {
     const registry = createSettingsTabs('provider-id')
     expect(registry.items.map((item) => item.key)).toEqual(keys)
     expect(registry.items.map((item) => item.getTabName())).toEqual([
-      'en:defaultOptions', 'en:appearance', 'en:memory', 'en:networkAndDevices', 'en:customModels', 'en:agentsTab', 'en:skills',
+      'en:defaultOptions', 'en:appearance', 'en:memory', 'en:workingMemory', 'en:networkAndDevices', 'en:customModels', 'en:agentsTab', 'en:skills',
       'en:mcpServers', 'en:plugins', 'en:hooksTab', 'en:scheduledTasks', 'en:dreamingTab', 'en:projectCommands', 'en:dataManagement', 'en:about',
+    ])
+    // Beta 徽章只挂在 beta 标记的 tab 上：工作记忆 + 梦境
+    expect(registry.items.filter((item) => item.beta).map((item) => item.key)).toEqual(['workingMemory', 'dreaming'])
+    // 三种记忆收进同一个「记忆」分组，按「人写 → AI 边干边写 → 后台自动写」排序。
+    expect(registry.groups.map((group) => group.key)).toEqual(['basic', 'memory', 'ai', 'automation'])
+    expect(registry.groups.find((group) => group.key === 'memory')?.items.map((item) => item.key)).toEqual([
+      'memory', 'workingMemory', 'dreaming',
     ])
     for (const key of keys) {
       const item = registry.items[registry.indexOf(key)]
@@ -81,13 +88,13 @@ describe('pure React settings registry', () => {
       const tree = nodes(ReactSettingsTabContent({ tabKey, customProvider: 'chosen' }))
       return tree.find((node) => typeof node.type === 'object')!
     })
-    expect(new Set(components.map((node) => node.type)).size).toBe(15)
-    expect(components[4].props.customProvider).toBe('chosen')
-    expect(components[6].props).toMatchObject({ active: true, scope: 'global', embedded: true })
-    expect(components[7].props.active).toBe(true)
+    expect(new Set(components.map((node) => node.type)).size).toBe(16)
+    expect(components[5].props.customProvider).toBe('chosen')
+    expect(components[7].props).toMatchObject({ active: true, scope: 'global', embedded: true })
+    expect(components[8].props.active).toBe(true)
     // 原 window CustomEvent 桥已由 ui-store 请求信号替代（tab 工厂零 props）。
     useUIStore.setState({ openSessionRequest: null })
-    ;(components[10].props.onOpenSession as (sessionId: string) => void)('session-1')
+    ;(components[11].props.onOpenSession as (sessionId: string) => void)('session-1')
     expect(useUIStore.getState().openSessionRequest).toMatchObject({ sessionId: 'session-1' })
   })
 

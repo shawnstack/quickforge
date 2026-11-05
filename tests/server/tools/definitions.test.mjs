@@ -89,11 +89,20 @@ describe('definitions', () => {
       expect(names).toContain('present_files')
       expect(names).toContain('ask_user')
       expect(names).toContain('todo_write')
-      expect(names).toContain('recall_experience')
     })
 
-    it('has exactly 11 tools', () => {
-      expect(workspaceTools).toHaveLength(11)
+    it('has exactly 10 tools', () => {
+      expect(workspaceTools).toHaveLength(10)
+    })
+
+    it('keeps the memory note tools out of the workspace set', async () => {
+      // They are global (the two folders live outside every project), so they are
+      // added by createServerTools rather than being part of workspaceTools.
+      const { memoryNoteTools, MEMORY_NOTE_TOOL_NAMES } = await import('../../../server/tools/memory-notes.mjs')
+      const names = memoryNoteTools.map((tool) => tool.name)
+      expect(names).toEqual(['list_memory_notes', 'read_memory_note', 'write_memory_note', 'move_memory_note'])
+      expect(MEMORY_NOTE_TOOL_NAMES).toEqual(names)
+      expect(workspaceTools.map((tool) => tool.name)).not.toContain('recall_experience')
     })
 
     it('todo_write uses a strict bounded snapshot schema and sequential execution', () => {

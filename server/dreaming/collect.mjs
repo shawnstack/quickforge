@@ -6,6 +6,13 @@ import { extractCompactSummaryText, isCompactSummaryMessage } from '../conversat
 export const MAX_SESSION_CHARS = 30_000
 export const MAX_TOTAL_CHARS = 100_000
 export const MAX_SESSIONS_PER_RUN = 40
+/**
+ * The curator handles sessions one at a time, so the merged-transcript budget no
+ * longer applies. This is a safety cap only: the runner is bounded by wall-clock
+ * time, and a machine that accumulated more sessions than this in a day has a
+ * different problem.
+ */
+export const MAX_SESSIONS_PER_CURATOR_RUN = 200
 const MAX_MESSAGES_PER_SESSION = 300
 export const SESSION_PREVIEW_CHARS = 1200
 const USER_CHARS = 1500
@@ -184,6 +191,60 @@ export function collectTranscript({ from, to, maxSessions = MAX_SESSIONS_PER_RUN
     sessions,
     // `null` means "could not tell" (pure code, emoji only); the prompt then
     // keeps the language unconstrained instead of guessing wrong.
+    contentLanguage: detectContentLanguage(userTexts),
+  }
+}
+
+/**
+ * Sessions in the window, one entry each, for the serial curator.
+ *
+ * The old collector merged every session into a single transcript because one
+ * model call had to see everything at once. The curator processes one session per
+ * agent turn instead, so this returns the blocks unmerged and in chronological
+ * order: earlier sessions lay down the notes and later ones correct them, which is
+ * the order the work actually happened in.
+ */
+export function collectSessionEntries({ from, to, maxSessions = MAX_SESSIONS_PER_CURATOR_RUN, handle = null } = {}) {
+  const db = handle || storage()
+  const rows = selectSessions(db, { from, to, limit: maxSessions })
+  const entries = []
+  const userTexts = []
+  let chars = 0
+
+  for (const row of rows) {
+    const tail = readTail(db, row, MAX_MESSAGES_PER_SESSION)
+    if (tail.length === 0) continue
+    const messages = tail.map((entry) => entry.message)
+    for (const message of messages) {
+      if (message?.role === 'user' && !isCompactSummaryMessage(message)) {
+        userTexts.push(textOf(message.content))
+      }
+    }
+    const block = projectMessages(messages, {
+      sessionId: row.session_id,
+      title: row.title,
+      projectId: row.project_id,
+      updatedAt: Number(row.updated_at_ms),
+    })
+    chars += block.length
+    entries.push({
+      sessionId: row.session_id,
+      projectId: row.project_id,
+      title: row.title,
+      updatedAt: Number(row.updated_at_ms),
+      messageCount: Number(row.message_count),
+      chars: block.length,
+      correctionSignals: correctionSignals(messages),
+      transcript: block,
+      preview: block.length <= SESSION_PREVIEW_CHARS ? block : `${block.slice(0, SESSION_PREVIEW_CHARS)}\n…(preview truncated)`,
+    })
+  }
+
+  entries.sort((left, right) => left.updatedAt - right.updatedAt)
+  return {
+    sessions: entries,
+    totalSessions: rows.length,
+    chars,
     contentLanguage: detectContentLanguage(userTexts),
   }
 }

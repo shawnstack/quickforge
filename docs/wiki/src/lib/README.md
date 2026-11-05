@@ -108,7 +108,6 @@
 | `local-tools.ts` 的 `ensureMcpToolRendererRegistered` | — | 按名字注册 MCP 渲染器的兜底入口（`mcp__server__tool` 自解析 server 与原工具名，不读 `tool.label`）。`ToolMessage` 在注册表未命中时直接构造 `McpToolRenderer`，因此「只读视图无 `state.tools`」与「工具集晚到」两种情况下历史 MCP 卡都不降级为通用 "Tool Call" 卡；回归 `tests/frontend/chat-surface-tool-message.test.ts` |
 | `goal-tool-history.ts` | — | get/create/update goal 的只读投影：成功 JSON 提取目标、phase、activation、轮次与阻塞原因；空读取、错误和运行中不冒充已记录目标 |
 | `todo-write-history.ts` | 90 | TodoWrite 历史工具消息视图模型：区分 running/error/success/clear/neutral，并从成功 `toolResult.details.todos` 提取已应用快照 |
-| `recall-experience-history.ts` | 101 | `recall_experience` 聊天卡视图模型（纯函数，无 DOM/React/i18n 运行时）：只接受 `details.type === 'recall_experience_result'`，否则 `available:false` 不伪造列表；逐条丢弃空正文/非对象行，把 `kind`（五枚举）/`scope`/`confidence`（夹到 0-1）/`strength`/`recallCount` 收敛到合法值，`sessionCount` 按 `evidence` 去重 sessionId 计数，非法 `updatedAt` 归一为 `null`；`recallRecencyDays` 给出「天」级相对时间（未来时间戳按 0 处理） |
 | `workflow-run-detail.ts` | 549 | run_workflow 的纯视图模型：把流式/持久化 `details` 归一为阶段、Agent、工具调用、日志、结果与状态计数；提供状态/摘要/步骤状态 i18n key、当前阶段、活跃步骤 label 与耗时格式化。Agent / Tool 视图保留 `startedAt` 与 `seq`，运行视图保留 `runStartedAt` / `maxAgents` / `maxTools` / `concurrency`（服务端上报的**生效值**）/ `maxRuntimeMs`，供详情概览与并发统计使用（运行详情已不再绘制时间轴）；Agent 视图另有 `subagentRunDeferred`（运行中帧省略已结束 Agent trace 的标记）。核心导出 `workflowTimeline(view)` 把 `seq` + `startedAt` + `durationMs` 摊平成甘特条目，判定时间重叠（并查集聚合并行组）、并发峰值与相对串行的节省时长；缺 `startedAt` 的旧帧按 `seq` 顺延兜底，`totalMs` 恒 ≥ 1。无 React / i18n 运行时依赖，`t()` 由渲染器注入 |
 | `workflow-run-payload.ts` | 190 | run_workflow 运行详情载荷与实时 store（与 `subagent-run-detail` 同构）：`buildWorkflowRunPayload` 打包视图模型 + 脚本原文 + 显示模式并生成内容指纹；`WorkflowRunStore` 按 `runId` 去重发布、50 条 FIFO 淘汰（`MAX_WORKFLOW_RUN_SNAPSHOTS`）、订阅广播；`shouldPublishWorkflowRunPayload` 拒绝把已终态快照回退成运行中帧；`normalizeOpenWorkflowRunRequest` 校验桥接事件 detail；`OPEN_WORKFLOW_RUN_EVENT = 'quickforge:open-workflow-run'`；`activeWorkflowRunStore` 是极小广播器，让聊天卡显示「已打开」而无需把 Inspector tab 状态提升为全局 store |
 | `workflow-subagent-detail.ts` | 149 | 把 workflow Agent record（含全量 `subagentRun` trace）转换为 Inspector 复用的 `SubagentRunPayload`；复用 `subagentRunStatus` / `subagentRunError` 推导状态与错误，timing 使用 Agent `startedAt`，task/context/expectedOutput 取 `agent()` 参数；`previous` 在缺 trace（`subagentRunDeferred`）时回填上一次可见快照且不标记内容丢失；无 trace 时仍生成 task/result/summary 可打开载荷，runId 为 `workflowRunId:agent:<id>`。消费方：`WorkflowAgentRunEventPublisher`（SSE 实时发布）与运行详情 Agent 行（渲染期构建 + store 回填，`shouldPublishSubagentRunPayload` 后发布） |
@@ -275,7 +274,6 @@
 - Inspector 侧 `src/components/workspace/WorkflowRunDetailContent.tsx`（无时间轴的单页步骤流，详见 `docs/wiki/src/components/README.md` 的同名小节）：概览 + 吸顶阶段头 + `workflowPhaseSteps` 交错的轻量 Agent 行 / ToolMessage 工具行 + 折叠日志；不再有刻度/条形/游标/网格/跨度条。失败步骤在概览给「N 个失败步骤 · 定位」，`run.error` 仍走错误横幅（折叠态只有一个错误图标，点击就地展开原文，展开后 40vh 内滚动）；日志一律默认收起，error 级只在头部留标记点。底部放脚本 / 结果抽屉，预算行随脚本 sheet 头部展示。
 - `ask-user-tool-renderer.tsx` — ask_user 卡：pending 展开列问题清单；已答/跳过历史复用回执确认步样式（`askUserReviewRowsFromDetails` 从持久化 details 提取规范化 questions/answers/skipped/skipReason/remark，`answers` 为 null 或缺失时不丢弃回执，按问映射 `undefined`，跳过态带 `quickforge-ask-review-skip` 原因行与 `quickforge-ask-review-row--skipped` 行态）。回执改为分段渲染：选项进 `.quickforge-ask-answer-choice`（每项 `.quickforge-ask-answer-chip`），自定义补充独立为 `.quickforge-ask-answer-extra`（`-label` = `askUserExtraLabel`、`-text` 为正文），只填补充未选选项时用 `.quickforge-ask-answer-empty`（`askUserNoChoiceLabel`）占位，两段皆空才落 `askUserUnanswered`；切分复用 `ask-user-card.ts` 导出的 `splitAskAnswer`（回执与历史回显统一走该函数）。`reviewRemark` 不再排除 `skipped`：跳过/超时态同样回显卡片级补充信息。非 detailed 省略 output 文本块，detailed 仍保留原始 input/output。
 - `goal-report-tool-renderer.tsx` / `todo-write-tool-renderer.tsx` — 历史只读投影（视图模型见 `goal-report-history.ts` / `todo-write-history.ts`），固定默认折叠（`initiallyOpen={false}`，不随任何设置变化）、detailed 只决定是否附原始 JSON、不影响开合。`todo-write-tool-renderer.tsx` 不再自带状态图标与 label 映射：三态图标来自 `src/lib/todo-status-icon.tsx`、文案经 `TODO_STATUS_LABEL_KEY` 走共享映射（与 Composer 胶囊、置顶摘要一致）。
-- `recall-experience-tool-renderer.tsx` — `recall_experience` 卡（视图模型见 `recall-experience-history.ts`）：之前未注册，聊天里走 `ToolMessage` 兜底卡（一行工具名 + 整段 JSON）。摘要行 = 灯泡图标 + `回忆经验` + `· <query>`（无 query 显示 `最强记忆`）+ 命中计数 + 状态；命中计数在命中时挂 `quickforge-tool-meta-hover`（默认隐形）、0 命中时挂 `quickforge-tool-meta-important`（结论常显）。展开体为 `.quickforge-recall-list`（每条 = 可选 `kind` 徽标 + 笔记正文），行配方复刻 `.quickforge-todo-history-item`（无分隔线、hover 仅 muted 55% 轻背景）。**0 命中视为正常结果**：走中性 `.quickforge-recall-empty` 说明，只有 `result.isError` 才用 `renderConsoleBlock(content, 'error')` 与 destructive 状态图标；两者互斥，避免「失败 + 无匹配」两个矛盾结论同时出现。正文不截断（展开就是为了读全文），`kind` 复用 settings 页 `dreamingKind*` 文案；笔记没有 scope/置信度/强度，因此不再有质量指标行。
 - `mcp-tool-renderer.tsx` — MCP 动态渲染器（summary 行 server / 原名 / 参数摘要，`parseMcpToolName` 解析 `mcp__server__tool`）。
 - `index.ts` — 统一导出，`local-tools.ts` 注册入口消费。
 
@@ -289,13 +287,9 @@
 - 仅信任成功 `toolResult.details.todos` 作为已应用快照，复用严格三态、最多 20 项、非空内容的规范化边界。
 - 有效非空快照生成 success“更新任务清单”历史事件，有效空数组生成 clear“清空任务清单”历史事件；无效/缺失快照生成 neutral 摘要。renderer 不根据历史事件宣称当前 Composer Dock 摘要已同步或移除。
 
-### recall-experience-history.ts
+### 记忆工具卡
 
-**用途**: 为 `recall_experience` 工具消息构建不依赖 DOM/React/i18n 的视图模型，供 `recall-experience-tool-renderer.tsx` 消费；服务端 details 形状见 `server/tools/index.mjs` 的 `toolRecallExperience`（`{ type: 'recall_experience_result', query, count, memories }`）。
-
-- 只接受 `details.type === 'recall_experience_result'`，其余（缺失、`null`、别的 details 类型）返回 `available: false` + 空列表——渲染器据此不伪造「已召回」的界面，也不把旧数据瞎猜成笔记条目。
-- 逐条防御：非对象/空正文的行整条丢弃；`kind` 走五枚举（fact/preference/experience/pitfall/decision），无法识别时归一为 `null`，渲染器据此不显示徽标（笔记的 kind 前缀本来就是可选的）。
-- 记忆现在就是 MEMORY.md 里的一份 bullet 列表，所以视图模型只有 `{ id, kind, content }`：没有 scope、confidence、strength、召回次数、证据会话或更新时间可展示。
+四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`）没有专属渲染器：它们走 `LocalWorkspaceToolRenderer`，label 在 `src/lib/local-tools.ts` 注册，摘要由 `src/lib/tool-param-summary.ts` 给出（`scope: 名称`，移动时显示 `scope: 旧名 → 新名`）。旧的 `recall_experience` 卡片与它的视图模型已随工具一起删除。
 
 ### todo-status.ts / todo-status-icon.tsx
 

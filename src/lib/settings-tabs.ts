@@ -4,6 +4,7 @@ import { t } from '@/lib/i18n'
 
 const settingsTabGroupDefinitions = [
   { key: 'basic', name: 'settingsGroupBasic' },
+  { key: 'memory', name: 'settingsGroupMemory' },
   { key: 'ai', name: 'settingsGroupAi' },
   { key: 'automation', name: 'settingsGroupAutomation' },
 ] as const
@@ -11,7 +12,8 @@ const settingsTabGroupDefinitions = [
 const settingsTabDefinitions = [
   { key: 'defaults', name: 'defaultOptions', description: 'defaultOptionsDescription', group: 'basic', keywords: '通用 常规 general preferences language 语言 tool 工具 notification 通知 context 上下文 compact 压缩 archive 归档 terminal shell 终端' },
   { key: 'appearance', name: 'appearance', description: 'appearanceDescription', group: 'basic', keywords: '外观 appearance theme 主题 light 浅色 dark 深色 font 字体 size 字号' },
-  { key: 'memory', name: 'memory', description: 'memoryDescription', group: 'basic', keywords: '记忆 memory 偏好 习惯' },
+  { key: 'memory', name: 'memory', description: 'memoryDescription', group: 'memory', keywords: '记忆 memory 偏好 习惯 用户 user' },
+  { key: 'workingMemory', name: 'workingMemory', description: 'workingMemoryDescription', group: 'memory', beta: true, keywords: '工作记忆 working memory notes 笔记 跨项目 共享 beta' },
   { key: 'network', name: 'networkAndDevices', description: 'networkAndDevicesDescription', group: 'basic', keywords: '网络 设备 network devices lan 局域网 proxy 代理 pac 密码 设备' },
   { key: 'customModels', name: 'customModels', description: 'customModelsDescription', group: 'ai', keywords: '模型 提供商 models providers 供应商 custom 自定义 openai api deepseek ollama' },
   { key: 'agents', name: 'agentsTab', description: 'agentsDescription', group: 'ai', keywords: '智能体 agents agent subagent 子代理 profiles' },
@@ -20,7 +22,7 @@ const settingsTabDefinitions = [
   { key: 'plugins', name: 'plugins', description: undefined, group: 'ai', keywords: '插件 plugins 扩展 extensions' },
   { key: 'hooks', name: 'hooksTab', description: 'hooksTabDescription', group: 'automation', keywords: 'Hooks webhook 命令 事件' },
   { key: 'scheduledTasks', name: 'scheduledTasks', description: 'scheduledTasksDescription', group: 'automation', keywords: '定时任务 scheduled tasks cron 计划 调度' },
-  { key: 'dreaming', name: 'dreamingTab', description: 'dreamingDescription', group: 'automation', beta: true, keywords: '梦境 dreaming 记忆 memory 经验 experience 长期 long-term 沉淀 consolidate 淘汰 beta' },
+  { key: 'dreaming', name: 'dreamingTab', description: 'dreamingDescription', group: 'memory', beta: true, keywords: '梦境 dreaming 记忆 memory 经验 experience 长期 long-term 沉淀 consolidate 淘汰 beta' },
   { key: 'projectCommands', name: 'projectCommands', description: 'projectCommandsDescription', group: 'automation', keywords: '项目命令 commands slash 目录' },
   { key: 'data', name: 'dataManagement', description: 'dataManagementDescription', group: 'automation', keywords: '数据管理 data backup 备份 restore 恢复 archived 归档 conversations 对话 share 分享 links 链接 import 导入 export 导出' },
   { key: 'about', name: 'about', description: 'aboutQuickForgeDescription', group: undefined, keywords: '关于 about version 版本 update 更新 docs 文档 github' },

@@ -145,17 +145,61 @@ ${escapeXml(instructions.globalMemory.content)}
     }
   }
 
-  // Dreaming notes are a separate file from the human memory document, so they get
-  // their own block: the user file is what the user told you, this is what past
-  // sessions taught the worker, and mixing the two hid that difference.
-  if (instructions.dreamingNotes?.content) {
-    const dreamingSource = instructions.dreamingNotes.source
-      ? ` source="${escapeAttribute(instructions.dreamingNotes.source)}"`
+  // The experience library is the long-lived half of memory. Only its index goes
+  // in: enough for the model to notice that something relevant exists, not enough
+  // to let it answer from the summary without opening the file.
+  if (instructions.experiences?.index) {
+    parts.push(`
+<experiences>
+The experience library is a shared folder outside this workspace: ${escapeXml(instructions.experiences.displayPath || instructions.experiences.path)}
+What follows is only its index — one line per experience: the file name (a one-sentence summary) and when to use it. It is a pointer, not the content. Before relying on an entry, open that one file with read_memory_note (scope "experience"); do not answer from the summary line alone.
+
+If nothing in the index looks relevant, do not go browsing the folder. An empty or unrelated index is a normal state, not a problem to fix.
+
+Entries marked ★ are candidates for becoming an Agent Skill. Turning one into a skill changes how you work, so it needs a human to say yes; never create or edit a skill yourself.
+
+<experience_index>
+${escapeXml(instructions.experiences.index)}
+</experience_index>
+</experiences>`)
+  }
+
+  if (instructions.workingMemory?.enabled) {
+    const noteStyle = instructions.workingMemory.prompt
+      ? `\n\nHow to write a note:\n${escapeXml(instructions.workingMemory.prompt)}`
       : ''
     parts.push(`
-<dreaming_memory${dreamingSource}>
-${escapeXml(instructions.dreamingNotes.content)}
-</dreaming_memory>`)
+<working_memory>
+Working memory is a shared folder of short notes outside this workspace: ${escapeXml(instructions.workingMemory.displayPath || instructions.workingMemory.path)}
+Each file is one note, and its file name is the note's summary in one sentence, so listing the folder is the cheapest way to see what is already known. Open only the notes whose names look relevant.
+
+Reach it with the memory tools, not the workspace ones: list_memory_notes, read_memory_note, write_memory_note, move_memory_note, all with scope "working". read_file / write_file / edit_file cannot reach this folder because it is outside the workspace.
+
+Nothing is ever deleted here. Retire an out-of-date note by moving it to "_archive/<name>", or fold it into the note that supersedes it and then archive the leftover.${noteStyle}
+
+When you feel a task is finished, treat that as your cue to look back over the work: was anything in it worth keeping for next time — a decision and the reason behind it, a conclusion you would otherwise have to work out again, a pitfall that cost time, or a clear next step? If something qualifies, write it down, or update an existing note if one already covers it. If nothing qualifies, skip it; an empty folder is perfectly fine.
+
+Never store passwords, keys, tokens, credentials, or sensitive file contents here.
+</working_memory>`)
+  }
+
+  if (instructions.workingMemory?.enabled) {
+    const noteRules = instructions.workingMemory.prompt
+      ? `\n\nNote style and format:\n${escapeXml(instructions.workingMemory.prompt)}`
+      : ''
+    parts.push(`
+<working_memory>
+Working memory is a shared folder of short notes outside this workspace: ${escapeXml(instructions.workingMemory.path)}
+Each file is one note, and its file name is the note's one-sentence summary, so listing the file names is the cheapest way to see what is already known.
+
+How to use it:
+- Before starting non-trivial work, list the folder with run_command and read only the notes whose titles look relevant. Do not read every file.
+- read_file / write_file / edit_file cannot reach this folder because it is outside the workspace. Use run_command with absolute paths instead: ls / cat / mkdir -p / mv on macOS and Linux, dir / type / move on Windows. Creating or renaming files may require approval; keep it to one command when possible.
+- When the work produced something worth reusing (a decision, a conclusion, a pitfall, a next step), write or update one note. Prefer updating an existing note over creating a near-duplicate.
+- Keep the file name equal to the note's one-sentence summary, and rename the file when that summary changes. Avoid / \\ : * ? " < > | in file names, and quote paths in shell commands.
+- Combine writing and renaming into one shell command when possible (for example mv then cat > ... <<'EOF'), so the change needs a single approval.
+- Never store passwords, keys, tokens, credentials, or sensitive file contents in working memory.${noteRules}
+</working_memory>`)
   }
 
   if (instructions.globalSources?.length || instructions.projectSources?.length) {
@@ -175,8 +219,7 @@ When instructions from different sources conflict, prefer project-specific instr
   appendSkillsCatalog(parts, skills)
   appendSubagentCatalog(parts, instructions.subagents)
 
-  // Dreaming notes are part of the user memory document (`<global_user_memory>`),
-  // which already carries the precedence framing. A second experience block would
-  // just repeat the same bullets.
+  // The experience index is already inside `<experiences>`, and working memory is
+  // its own block. Nothing else to add here.
   return parts.join('\n')
 }

@@ -6,6 +6,7 @@ import { useUIStore } from '@/stores/ui-store'
 const AppearanceSettingsTab = lazy(() => import('@/components/settings/tabs/AppearanceSettingsTab').then((m) => ({ default: m.AppearanceSettingsTab })))
 const DefaultOptionsSettingsTab = lazy(() => import('@/components/settings/tabs/DefaultOptionsSettingsTab').then((m) => ({ default: m.DefaultOptionsSettingsTab })))
 const MemorySettingsTab = lazy(() => import('@/components/settings/tabs/MemorySettingsTab').then((m) => ({ default: m.MemorySettingsTab })))
+const WorkingMemorySettingsTab = lazy(() => import('@/components/settings/tabs/WorkingMemorySettingsTab').then((m) => ({ default: m.WorkingMemorySettingsTab })))
 const CustomProvidersSettingsTab = lazy(() => import('@/components/settings/tabs/CustomProvidersSettingsTab').then((m) => ({ default: m.CustomProvidersSettingsTab })))
 const NetworkSettingsTab = lazy(() => import('@/components/settings/tabs/NetworkSettingsTab').then((m) => ({ default: m.NetworkSettingsTab })))
 const DataSettingsTab = lazy(() => import('@/components/settings/tabs/DataSettingsTab').then((m) => ({ default: m.DataSettingsTab })))
@@ -37,6 +38,7 @@ const tabContent = {
   defaults: (_customProvider?: string, active?: boolean) => <DefaultOptionsSettingsTab active={active} />,
   memory: () => <MemorySettingsTab />,
   network: (_customProvider?: string, active?: boolean) => <NetworkSettingsTab active={active} />,
+  workingMemory: () => <WorkingMemorySettingsTab />,
   customModels: (customProvider?: string, active?: boolean) => <CustomProvidersSettingsTab customProvider={customProvider} active={active} />,
   agents: () => <SettingsPanel><AgentProfilesPage /></SettingsPanel>,
   skills: () => <SettingsPanel wide><SkillsManagerPanel active scope="global" embedded onSaved={() => undefined} /></SettingsPanel>,

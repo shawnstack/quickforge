@@ -1,43 +1,66 @@
+/**
+ * Dreaming (memory curator) — transport types and fetchers.
+ *
+ * The worker changed shape: instead of rewriting one bullet list, each finished
+ * session gets its own agent turn that edits the working-memory folder and, when
+ * warranted, promotes something into the experience library. So a run is described
+ * as "what each session did", and the experience library is what you browse.
+ */
 import { t } from '@/lib/i18n'
 
 export type DreamingTrigger = 'schedule' | 'manual'
 export type DreamingRunStatus = 'running' | 'succeeded' | 'failed' | 'skipped'
-export type MemoryKind = 'fact' | 'preference' | 'experience' | 'pitfall' | 'decision'
+
+export type DreamingModelRef = {
+  source: string
+  providerId?: string
+  modelId?: string
+  provider?: string
+} | null
 
 export type DreamingSettings = {
   enabled: boolean
   executeTime: string
-  /** Pinned model reference, or null to follow the chat model. */
-  modelRef: { source: string; providerId?: string; modelId?: string } | null
+  modelRef: DreamingModelRef
   allowSensitive: boolean
   contentLanguage: 'auto' | 'zh' | 'en'
-  /** Minimum note count before unused notes are offered to the model for deletion. */
-  pruneMinNotes: number
-  /** A note older than this many days counts as stale. */
-  pruneUnusedDays: number
-  /** A stale note recalled more than this many times is kept. */
-  pruneMaxRecalls: number
-  /** Delete stale notes in code before the model sees the list (no model vote). */
-  pruneStaleNotes: boolean
   nextRunAt: number | null
   lastRunAt: number | null
 }
 
-/**
- * What a run changed in the notes block.
- *
- * There are no per-entry rows any more, so "what did it learn / what did it
- * forget" is recorded as a line diff. `dropped` explains lines the code refused
- * (sensitive content, or over the size budget).
- */
-export type DreamingRunDiff = {
-  added: string[]
-  removed: string[]
-  dropped?: { reason: string; content: string }[]
-  /** Stale notes deleted by the pruning rule before the model ran. */
-  pruned?: string[]
-  /** Full notes list at the end of that run; null on runs recorded before it. */
-  notesAfter?: string[] | null
+export type MemoryScope = 'working' | 'experience'
+
+/** One note the curator created, renamed or retired during a run. */
+export type DreamingAction = {
+  kind: 'write' | 'rename' | 'archive'
+  scope: MemoryScope
+  name: string
+  title?: string
+  chars?: number
+  from?: string
+  sessionId?: string
+}
+
+/** What one session's curator turn concluded. */
+export type DreamingSessionResult = {
+  ok: boolean
+  sessionId: string
+  reply?: string
+  error?: string
+  toolCalls: number
+  actions: DreamingAction[]
+  timedOut?: boolean
+  durationMs: number
+}
+
+export type DreamingRunOperations = {
+  sessions?: DreamingSessionResult[]
+  actions?: DreamingAction[]
+  /** Directory of the pre-run copy of both folders, or null on older runs. */
+  snapshot?: string | null
+  snapshotFiles?: { workingMemory: number; experiences: number } | null
+  /** Set when the run stopped early, e.g. the wall-clock budget ran out. */
+  stopped?: string | null
 }
 
 export type DreamingRunSession = {
@@ -47,6 +70,7 @@ export type DreamingRunSession = {
   updatedAt: number
   messageCount: number
   chars: number
+  correctionSignals?: number
   preview: string
 }
 
@@ -67,30 +91,29 @@ export type DreamingRun = {
   retiredCount: number
   rejectedCount: number
   summary: string | null
-  operations: DreamingRunDiff
+  operations: DreamingRunOperations | null
   error: string | null
   startedAt: number
   finishedAt: number | null
   durationMs: number | null
 }
 
-/** One bullet of the Dreaming notes block in MEMORY.md. */
-export type DreamingNote = {
-  id: string
-  kind: MemoryKind | null
-  text: string
-  /** Where it first appeared, resolved from recent run snapshots. */
-  firstSeen?: { runId: string; at: number } | null
-  /** How many times recall_experience actually returned this note. */
-  recallCount?: number
-  lastRecalledAt?: number | null
+/** One file in the experience library. */
+export type DreamingExperience = {
+  name: string
+  title: string
+  whenToUse: string
+  /** Marked by the curator as worth turning into an Agent Skill (a human decides). */
+  candidateSkill: boolean
+  chars: number
+  updatedAt: number
 }
 
 export type DreamingModelOption = {
   id: string
   provider: string
   name: string
-  ref: { source: string; providerId?: string; modelId?: string } | null
+  ref: DreamingModelRef
 }
 
 export type DreamingEffectiveModel = {
@@ -109,12 +132,14 @@ export type DreamingOverview = {
   running: boolean
   nextRunAt: number | null
   lastRun: DreamingRun | null
-  counts: { notes: number; runs: number }
-  memoryDocument: { dreamingNotes: boolean; manual: string }
+  counts: { experiences: number; candidateSkills: number; runs: number }
+  /** The generated index, i.e. exactly what every session's system prompt sees. */
+  experienceIndex: string
+  manual: string
 }
 
 export type DreamingRunPage = { runs: DreamingRun[]; page: number; pageSize: number; total: number }
-export type DreamingNotePage = { notes: DreamingNote[]; page: number; pageSize: number; total: number; hasNotes: boolean }
+export type DreamingExperiencePage = { experiences: DreamingExperience[]; index: string; archived: number }
 
 export async function requestDreamingJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -153,39 +178,22 @@ export function fetchDreamingRun(id: string): Promise<DreamingRunDetail> {
 }
 
 /**
- * Write a past run's snapshot back into DREAMING.md. This is the escape hatch for
- * memory drift: the notes are the model's output, so "undo that run" has to be a
- * real operation rather than a manual file edit.
+ * Put both memory folders back the way they were before that run, from the copy
+ * taken at the start of it.
  */
-export function restoreDreamingRun(id: string): Promise<{ restored: number; changed: boolean; run: DreamingRun }> {
+export function restoreDreamingRun(id: string): Promise<{
+  restored: { workingMemoryFiles: number; experienceFiles: number }
+  run: DreamingRun
+}> {
   return requestDreamingJson(`/api/dreaming/runs/${encodeURIComponent(id)}/restore`, { method: 'POST' })
 }
 
 /**
- * The notes are read-only in the UI: they are the model's output, and the only
- * supported way to change them is the next Dreaming run (or editing MEMORY.md's
- * manual section by hand, which is a different block).
+ * The experience library, read-only here: the notes are the curator's output and
+ * retiring one means archiving it, which is a file move rather than a button.
  */
-export function fetchDreamingNotes(params: {
-  query?: string
-  kind?: string
-  page?: number
-  pageSize?: number
-}): Promise<DreamingNotePage> {
-  const search = new URLSearchParams()
-  search.set('page', String(params.page ?? 1))
-  search.set('pageSize', String(params.pageSize ?? 50))
-  if (params.query?.trim()) search.set('query', params.query.trim())
-  if (params.kind) search.set('kind', params.kind)
-  return requestDreamingJson<DreamingNotePage>(`/api/dreaming/notes?${search.toString()}`)
-}
-
-/**
- * Delete one note. The notes file is the only store, so this is a real edit of the
- * file — the next run sees the shortened list and cannot bring the line back.
- */
-export function deleteDreamingNote(id: string): Promise<{ removed: number; total: number }> {
-  return requestDreamingJson(`/api/dreaming/notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+export function fetchDreamingExperiences(): Promise<DreamingExperiencePage> {
+  return requestDreamingJson<DreamingExperiencePage>('/api/dreaming/experiences')
 }
 
 /**

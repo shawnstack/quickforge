@@ -61,7 +61,7 @@ quickforge/
 | [前端状态管理迁移（Zustand）](../architecture/zustand-migration.zh-CN.md) | App 级状态迁入 `src/stores/` 的 10 个 zustand store（兼容层模式、请求信号替代 window 事件桥、迁移守则与测试适配） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
-| [桌面端内嵌 AI 浏览器](../architecture/desktop-agent-browser.zh-CN.md) | 内置 WebContentsView 浏览器、CDP 引用世代、安全边界与 annotations 审批粒度 |
+| [桌面端内嵌 AI 浏览器](../architecture/desktop-agent-browser.zh-CN.md) | 内置 WebContentsView 浏览器、CDP 引用世代、安全边界与 annotations 审批粒度；会话坏死（崩溃/断开/命令超时）整套视图作废重建，不复用坏会话 |
 | [小版本发布 Runbook](../architecture/patch-release-runbook.zh-CN.md) | patch 版本发布流程 |
 | [Bug 追踪](../bug/README.md) | server / 前端待修 bug 清单 |
 

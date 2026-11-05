@@ -154,6 +154,24 @@
 - 合并状态: 已 rebase 到 origin/dev 8489650f（v2.3.7 之后，拉取 117 个提交）之上解决冲突，工作区仍未提交。合并要点：上游把 `src/index.css` 拆成 `src/styles/*`，本 feature 不再有独立样式文件；设置页新增 `group`/`keywords` 与通用 `.quickforge-settings-beta` 徽章，工作记忆项按新结构挂 `basic` 分组；上游新增 `zustand` 依赖已 `npm install` 同步（lock 未改动）。
 - Next Session（下一步）: 真机打开设置里的「工作记忆（Beta）」，开启后发一条对话确认 AI 会先 `ls` 笔记目录再动工、写完后用一句话总结命名/改名；确认观感后可与其他未提交改动一起按 runbook 发小版本。
 
+## desktop-browser-dead-session-healing（done，2026-11-03）
+
+- Current Objective（当前目标）：用户实测内嵌 AI 浏览器，Agent 打开百度连续 4 次 `CDP Page.enable failed: CDP command timed out: Page.enable`；授权「你检查然后优化吧」。
+- 结论（一句话）：坏调试会话被永久复用是三层缺陷叠加（冷启动竞态 + 崩溃/断开无自愈 + 超时零清理）；现在任何会话坏死都会整套作废视图并在下次调用全新重建，外加就绪门与超时熔断重试。
+- 改动文件：`desktop/browser/cdp-client.mjs`、`desktop/browser/browser-host.mjs`、`tests/server/desktop-browser-{cdp-client,host,wiring-contract}.test.mjs`、`docs/architecture/desktop-agent-browser.zh-CN.md`、`docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：定向 5 files / 45 tests 全过（5 个新用例）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run test` → 496 files / 5548 passed / 2 skipped；`npm run build` → 成功（built in 3.19s）。未创建 Git commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：①**实机复验**：当前运行的桌面端还是旧代码，需重启桌面端（或 `npm run desktop:dev`）后再让 Agent 开百度，验证右侧面板正常显示；若实机仍超时，说明另有 Electron 39 attach 时序问题，按架构文档第 11 节手工验收深挖（主进程无落盘日志，可临时加 console）。②session-handoff 此前记录的 2.3.7→2.3.8 版本号升级事项仍待办（若要让更新检查区分新旧需先升版本再打包）。
+
+## nsis-uninstaller-icon-nonfatal（done，2026-11-02）
+
+- Current Objective（当前目标）：升级安装 QuickForge 时被「不能打开要写入的文件：`…\Programs\QuickForge\uninstallericon.ico`」（中止/重试/忽略）打断，要求消除该阻断。
+- 结论（一句话）：这是 electron-builder NSIS 安装器写 19KB 装饰图标（卸载项 `DisplayIcon`）失败时原生 `File` 指令弹的框——图标被 Windows 短时占用即中止整个安装；改成 `File /nonfatal` 后跳过该文件、安装继续，旧图标沿用。
+- 改动文件：`desktop/nsis-patch/apply.mjs`（改为补丁表，新增 installSection.nsh `/nonfatal` 补丁）、`docs/wiki/root-config.md`、`feature_list.json`、`progress.md`、`session-handoff.md`。
+- Evidence（验证）：NSIS 3.04 编译验证通过；独占锁住目标 ico 后静默运行测试安装器 → 退出码 0、后续文件照常写入、无对话框；`apply.mjs` 二次运行全部 `already patched`（幂等）；`npm run desktop:build:win` → 成功（91s，产出 `desktop-dist\QuickForge Setup 2.3.7.exe`，116,429,804 字节 + portable 版）；`npm run lint` → 0 problems。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：重新构建的 `desktop-dist\QuickForge Setup 2.3.7.exe` 可直接覆盖安装验证；若仍想彻底避免图标过期，可在 `customInit` 里先 `Delete "$INSTDIR\uninstallerIcon.ico"`（当前未做，非必需）。未创建 Git commit，未触碰生成产物。
+
 ## goal-v2-single-completion-entry（done，2026-11-02）
 
 - Current Objective（当前目标）：用户问「goal 模式 UI 都停了为什么还结束当前轮又继续新一轮」，并明确「goal 的工具表示完成就应该停止了」；选定方案 A：v2 只留一个完成入口。

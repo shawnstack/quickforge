@@ -48,6 +48,21 @@ describe('desktop browser security contract', () => {
     expect(electronMain).not.toContain('debugger.attach')
   })
 
+  it('keeps dead sessions from being reused: crashes, detaches and timeouts must discard the view', () => {
+    // 渲染进程崩溃与外部 detach 都要整套作废，下次调用全新重建。
+    expect(host).toContain('render-process-gone')
+    expect(host).toMatch(/render-process-gone[\s\S]*discardView\(\)/)
+    expect(host).toMatch(/cdp\.on\('detach'[\s\S]*discardView\(\)/)
+    // CDP 命令超时必须主动断开调试器（熔断），且宿主对超时重建重试一次。
+    expect(cdp).toContain('class CdpTimeoutError')
+    expect(cdp).toMatch(/CdpTimeoutError[\s\S]*this\.detach\(\)/)
+    expect(host).toContain('CdpTimeoutError')
+    expect(host).toMatch(/discardView\(\)[\s\S]*retrying once/)
+    // 新视图要过就绪门（等 dom-ready），消除冷启动命令进黑洞的竞态。
+    expect(host).toContain("wc.on?.('dom-ready'")
+    expect(host).toContain('VIEW_READINESS_TIMEOUT_MS')
+  })
+
   it('keeps the renderer bridge narrow and frame-checked', () => {
     expect(preload).toContain("exposeInMainWorld('QuickForgeDesktopBrowser'")
     expect(preload).not.toContain('require(\'electron\').webContents')

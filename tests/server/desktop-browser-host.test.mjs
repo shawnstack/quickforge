@@ -29,7 +29,12 @@ const electron = vi.hoisted(() => {
     getURL() { return this.url }
     getTitle() { return this.title }
     setWindowOpenHandler(handler) { this.windowOpenHandler = handler }
-    on(name, handler) { this.events.set(name, handler) }
+    on(name, handler) {
+      const list = this.events.get(name) || []
+      list.push(handler)
+      this.events.set(name, list)
+    }
+    emit(name, payload) { (this.events.get(name) || []).forEach((h) => h(payload)) }
     close() { this.closed = true }
   }
 
@@ -195,5 +200,62 @@ describe('desktop browser host', () => {
     expect(win.children).toHaveLength(0)
     expect(host.isViewCreated()).toBe(false)
     expect(host.getState().visible).toBe(false)
+  })
+
+  it('discards the view when the renderer process dies and rebuilds on the next call', async () => {
+    electron.created.views.length = 0
+    const { host, win } = createHost()
+    await host.execute('snapshot')
+    const first = latestView()
+    expect(win.children).toHaveLength(1)
+    first.webContents.emit('render-process-gone', { reason: 'crashed' })
+    expect(host.isViewCreated()).toBe(false)
+    expect(first.webContents.closed).toBe(true)
+    expect(win.children).toHaveLength(0)
+    expect(host.getState().error).toContain('Browser renderer exited')
+    const result = await host.execute('snapshot')
+    expect(result.nodeCount).toBe(0)
+    expect(electron.created.views).toHaveLength(2)
+    expect(latestView()).not.toBe(first)
+    expect(win.children).toHaveLength(1)
+  })
+
+  it('discards the view when the debugger is externally detached and rebuilds on the next call', async () => {
+    electron.created.views.length = 0
+    const { host } = createHost()
+    await host.execute('snapshot')
+    const first = latestView()
+    first.webContents.debugger.attached = false
+    first.webContents.debugger.listeners.get('detach')({}, 'target closed')
+    expect(host.isViewCreated()).toBe(false)
+    expect(host.getState().error).toContain('Debugger detached')
+    const result = await host.execute('snapshot')
+    expect(result.nodeCount).toBe(0)
+    expect(electron.created.views).toHaveLength(2)
+  })
+
+  it('recreates the view and retries once when the first CDP command times out', async () => {
+    vi.useFakeTimers()
+    try {
+      electron.created.views.length = 0
+      const { host } = createHost()
+      // 第一个视图的调试器挂起所有命令；超时熔断后宿主应整套重建并重试成功。
+      let hungCommand = null
+      const hook = (view) => {
+        view.webContents.debugger.sendCommand = (method, params) =>
+          new Promise((resolve, reject) => { hungCommand = reject })
+      }
+      const pending = host.execute('snapshot')
+      // 微任务推进到视图已创建后挂钩。
+      await Promise.resolve()
+      hook(electron.created.views[0])
+      const assertion = expect(pending).resolves.toMatchObject({ nodeCount: 0 })
+      await vi.advanceTimersByTimeAsync(31000)
+      await assertion
+      expect(electron.created.views.length).toBe(2)
+      expect(latestView().webContents.closed).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

@@ -1,6 +1,41 @@
 {
   "features": [
     {
+      "id": "desktop-browser-dead-session-healing",
+      "title": "内嵌浏览器坏会话自愈：就绪门 + 崩溃/断开作废重建 + 超时熔断重试（修复连续 Page.enable 超时）",
+      "status": "done",
+      "summary": "用户实测桌面端内嵌 AI 浏览器，navigate 打开百度连续 4 次 `CDP Page.enable failed: CDP command timed out: Page.enable`。根因三层叠加：① 新视图不等渲染进程就绪就发首条 CDP 命令（冷启动竞态）；② render-process-gone / 调试器外部 detach 只记错误不销毁视图，僵尸 webContents 被永久复用；③ 命令超时后零清理，坏调试会话不 detach 不复位，后续命令在同一会话排队等死。修复以「会话坏死 → 视图整套作废、下次调用全新重建」为唯一不变量：cdp-client 超时抛 CdpTimeoutError 并主动 detach；browser-host 新增 discardView，崩溃/断开即触发；withOperationalView 前置就绪门（等首个 dom-ready，15s 封顶）；execute 对超时丢弃视图重建并重试一次。工具集、审批与面板交互零变化。",
+      "files": [
+        "desktop/browser/cdp-client.mjs（CdpTimeoutError + 超时主动断开）",
+        "desktop/browser/browser-host.mjs（discardView 自愈 + 就绪门 + 超时重建重试一次）",
+        "tests/server/desktop-browser-cdp-client.test.mjs（+1 例超时断开）",
+        "tests/server/desktop-browser-host.test.mjs（+2 例崩溃/断开重建）",
+        "tests/server/desktop-browser-wiring-contract.test.mjs（+1 例死会话契约）",
+        "docs/architecture/desktop-agent-browser.zh-CN.md（新增「会话生命周期与自愈」章节）",
+        "docs/wiki/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 5 files / 45 tests 全过（5 个新用例）；npm run lint → 0 problems；npx tsc -b → 0 错误；npm run test → 496 files / 5548 passed / 2 skipped；npm run build → 成功（built in 3.19s，precompress 12.67MB → 6.49MB）。未创建 Git commit，未触碰生成产物。",
+      "updatedAt": "2026-11-03"
+    },
+    {
+      "id": "nsis-uninstaller-icon-nonfatal",
+      "title": "NSIS 安装器写 uninstallerIcon.ico 失败不再中断升级",
+      "status": "done",
+      "summary": "用户升级到 2.3.7 时被「不能打开要写入的文件：…\\Programs\\QuickForge\\uninstallericon.ico」（中止/重试/忽略）卡住。排查结论：安装包是 electron-builder 的 NSIS 安装器，该 ico 只是卸载项 DisplayIcon 用的 19KB 装饰文件，由 installSection.nsh 在 SetOutPath $INSTDIR 之后、铺主程序之前用一个裸 File 指令写入；文件被杀软/资源管理器/图标缓存短时占用时，NSIS 原生 File 会弹 Abort/Retry/Ignore 并中止整个升级。现场证据：报错文件仍是 7 月 2 日旧版本（本次未覆盖）、attrib 只有 A 无只读、icacls 当前用户完全控制、独占写测试通过、无 QuickForge 或卸载器进程占用、安装日志显示进程检查三次干净且旧卸载器 exit code 2 已走覆盖安装自愈分支。修法：把 desktop/nsis-patch/apply.mjs 从单补丁改成补丁表，在保留 installUtil.nsh「旧卸载器 6 次失败不弹框」的基础上，新增 installSection.nsh 的 `File /nonfatal /oname=uninstallerIcon.ico`——写不进去就跳过，安装继续，旧图标继续沿用；模板不匹配时脚本明确报错退出，保持幂等。",
+      "files": [
+        "desktop/nsis-patch/apply.mjs（改为补丁表，新增 installSection.nsh /nonfatal 补丁）",
+        "docs/wiki/root-config.md（补 nsis-patch 两条补丁说明）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "NSIS 3.04（electron-builder 缓存 makensis）编译含 `File /nonfatal` 的临时脚本通过；运行时用 PowerShell 以 FileShare.None 独占锁住目标 ico 后静默运行测试安装器 → 退出码 0、后续文件照常写入、无对话框；apply.mjs 连续两次运行（首次打补丁、二次全部 already patched）；npm run desktop:build:win → 成功（91s），产出 desktop-dist\\QuickForge Setup 2.3.7.exe（116,429,804 字节）与 portable 版；npm run lint → 0 problems；npx eslint desktop/nsis-patch/apply.mjs → 无输出。",
+      "updatedAt": "2026-11-02"
+    },
+    {
       "id": "global-memory-tool-write-only",
       "title": "manage_global_memory 改成只写：删掉 action 的读取分支",
       "status": "done",

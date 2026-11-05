@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CdpClient } from '../../desktop/browser/cdp-client.mjs'
+import { CdpClient, CdpTimeoutError } from '../../desktop/browser/cdp-client.mjs'
 
 function makeWebContents() {
   const debuggerApi = {
     attached: false,
     attachCalls: 0,
+    detachCalls: 0,
     listeners: new Map(),
     isAttached() { return this.attached },
     attach() { this.attachCalls += 1; this.attached = true },
-    detach() { this.attached = false },
+    detach() { this.detachCalls += 1; this.attached = false },
     on(name, handler) { this.listeners.set(name, handler) },
     async sendCommand() { return {} },
   }
@@ -105,6 +106,20 @@ describe('desktop browser CDP client', () => {
     const assertion = expect(pending).rejects.toThrow(/CDP command timed out: Input.dispatchKeyEvent/)
     await vi.advanceTimersByTimeAsync(31000)
     await assertion
+  })
+
+  it('detaches the debugger when a command times out so the session cannot poison later calls', async () => {
+    vi.useFakeTimers()
+    const webContents = makeWebContents()
+    webContents.debugger.sendCommand = () => new Promise(() => {})
+    const client = new CdpClient(webContents)
+    const pending = client.send('Page.enable')
+    const assertion = expect(pending).rejects.toThrow(CdpTimeoutError)
+    await vi.advanceTimersByTimeAsync(31000)
+    await assertion
+    // 超时必须主动断开调试器，坏会话不得被复用。
+    expect(webContents.debugger.isAttached()).toBe(false)
+    expect(webContents.debugger.detachCalls).toBe(1)
   })
 
   it('resolves waitForEvent when the predicate matches', async () => {

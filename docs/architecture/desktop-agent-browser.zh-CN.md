@@ -70,18 +70,26 @@ React 渲染进程            只有一块占位区域 + 只读状态栏
 
 这些不变量无法在 CI 里跑真实 Electron，已用源码契约测试锁住：tests/server/desktop-browser-wiring-contract.test.mjs。其中「唯一 CDP 控制层」是按目录扫描整个 desktop/ 断言的（只有 browser/cdp-client.mjs 允许出现 .debugger.），新增第二个调试器入口会直接让测试变红。
 
-## 6. 审批粒度
+## 6. 会话生命周期与自愈
+
+三层机制保证坏会话不被复用，实机故障（连续 Page.enable 超时）的教训都来自这三条缺失：
+
+1. **就绪门**：新视图的首条 CDP 命令前等待首个 `dom-ready`（15s 封顶）。渲染进程未起好时 DevTools agent 不应答，命令会挂到超时；就绪门消除这一冷启动竞态。等不到也不炸——放行执行，让命令超时熔断兜底。
+2. **崩溃/断开自愈**：`render-process-gone` 或 CDP `detach` 事件触发 `discardView()`——调试器断开、视图从窗口移除、webContents 关闭。下一次工具调用自动从全新视图重建，绝不复用僵尸 webContents。
+3. **超时熔断与单次重试**：CDP 命令超时（30s）时 CdpClient 抛 `CdpTimeoutError` 并**主动断开调试器**；宿主捕获后整套重建视图并重试一次。业务失败（策略拒绝、参数错误）以 `{ ok: false }` 返回，不进入重试路径。
+
+## 7. 审批粒度
 
 MCP 工具栏原本一律弹审批。浏览器任务是快照→点击→快照→输入的连续调用，逐次打断只会逼用户切到完全访问模式，反而更不安全。现在读取 MCP 规范的 annotations.readOnlyHint：写操作（navigate / click / type / press_key / scroll）照常逐次审批；只读工具（snapshot / screenshot / wait_for）在默认权限下自动放行；注解缺失或服务未连接时按非只读处理，宁可多问一次。不引入按域名批量授权的 UI：那会改变现有交互，收益不足以抵消复杂度。
 
-## 7. 前端契约
+## 8. 前端契约
 
 - 新增 agent-browser 标签，只能由程序打开（加号菜单不变），与 subagent / workflow / goal 同类，不参与持久化。
 - Agent 一旦调用 mcp__desktop-browser__*，App.tsx 把右侧面板切到该标签。
 - 面板 DOM 里只有一块占位区域：真正的网页是原生层，永远盖在 DOM 之上。组件负责用 ResizeObserver 加 requestAnimationFrame 合帧上报 getBoundingClientRect()，并在卸载、切标签、窗口隐藏、设置弹窗打开时 setVisible(false)。
 - 主进程对 rect 做 clamp（最小 120px，且不得超出窗口内容区），错误的矩形不会让网页盖满整个应用。
 
-## 8. 工具集
+## 9. 工具集
 
 | 工具 | 注解 | 说明 |
 |---|---|---|
@@ -95,19 +103,20 @@ MCP 工具栏原本一律弹审批。浏览器任务是快照→点击→快照�
 | screenshot | 只读 | 落盘 PNG 并返回路径（给人看，不进模型上下文） |
 | evaluate | 写（destructive） | 页面内求值，永远审批 |
 
-## 9. 明确不做
+## 10. 明确不做
 
 多标签页、按域名批量授权、截图 base64 回传模型、下载与上传、元素高亮浮层、跨 iframe 元素操作（快照只取主 frame，不猜）。
 
-## 10. 手工验收（CI 覆盖不到的部分）
+## 11. 手工验收（CI 覆盖不到的部分）
 
 1. npm run desktop:dev 启动，打开设置 → MCP：应看到只读的 desktop-browser 项且状态为已连接。
 2. 让 Agent 打开一个公网页面：右侧应自动切到 AI 浏览器标签，网页出现在面板区域内；缩放窗口、拖拽面板宽度时网页跟随。
 3. 打开设置弹窗：网页应立即消失，关闭后恢复。
 4. 让 Agent 访问 http://127.0.0.1:5177：应被策略拒绝并给出可读原因。
 5. 关闭面板后再次触发浏览器工具：面板应自动重新打开。
+6. 自愈验证：任务管理器里强杀内嵌浏览器的渲染进程（或触发页面崩溃），下一次浏览器工具调用应自动恢复（全新视图），而不是连续超时。
 
-## 11. 相关文件
+## 12. 相关文件
 
 - 主进程：desktop/browser/*.mjs（layout 与 ipc-contract 是可单测的纯逻辑，其余为宿主与协议层）、desktop/electron-main.mjs、desktop/electron-preload.cjs
 - 服务端：server/mcp/config.mjs（内置项）、server/mcp/registry.mjs（annotations 与 isReadOnlyMcpTool）、server/agent-manager.mjs（审批）

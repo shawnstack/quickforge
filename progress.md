@@ -122,6 +122,23 @@
 - Notes：写文件和改名依赖 `run_command`，首次创建/改名会走工具审批（用户已接受）。没有新增 rename 工具，没有会话结束自动整理。无依赖变更；未提交；未触碰生成产物。wiki 同步 `docs/wiki/README.md` 与 `docs/wiki/server/README.md`（模块、路由、system-prompt 段）。
 - 无关问题登记（HEAD 基线即失败，本轮未扩大范围修复）：`tests/frontend/process-folding.test.ts`（1 例）、`tests/frontend/subagent-running-indicator.test.ts`（1 例），已用 git worktree 在 HEAD 复跑确认；另有既有登记的 `sqlite-quick-check-gate.test.mjs`（1）+ ACP（3）。
 
+## desktop-browser-dead-session-healing（done，2026-11-03）
+
+- 触发：用户实测桌面端内嵌 AI 浏览器，Agent 调 navigate 打开百度时连续 4 次全部 `CDP Page.enable failed: CDP command timed out: Page.enable`（web-reader 等外部 MCP 正常，排除网络）。用户授权「你检查然后优化吧」。
+- 结论（一句话）：三处叠加缺陷让坏掉的调试会话被永久复用——新视图不等渲染进程就绪就发首条 CDP 命令、渲染进程崩溃/调试器断开只记错误不自愈、命令超时后零清理；现在以「会话坏死 → 视图整套作废重建」为唯一不变量修复，外加就绪门与超时熔断+单次重试。
+- 根因（三层，explore 调研 + 源码复核确认）：
+  1. **冷启动竞态**：首次工具调用创建 WebContentsView 后立即 attach 并发 `Page.enable`，不等 dom-ready/渲染进程就绪；渲染进程没起来时 DevTools agent 不应答，命令挂到 30s 超时（cdp-client.mjs:4/57 报错文本逐字吻合）。
+  2. **无自愈**：`render-process-gone` 与 CDP `detach` 事件只写 `lastError`，视图不销毁（browser-host.mjs 旧 :94-101）；`ensureView` 见 `isDestroyed()===false` 就永久复用僵尸视图。
+  3. **超时零清理**：`Promise.race` 输给定时器后 pending Promise 被丢弃，不 detach 不复位；`ensureEnabled` 因 `enabled` 仍 false 重发 Page.enable，而 `send()` 见 `isAttached()===true` 不重挂——后续所有调用在同一个坏会话上排队等死（解释连续 4 次全挂）。CI 测试替身的 `sendCommand` 永远秒回，对这三层全盲。
+- 改动（一个不变量：任何会话坏死 → 视图整套作废，下次调用全新重建）：
+  1. `desktop/browser/cdp-client.mjs`：新增导出 `CdpTimeoutError`（携带 method）；`send()` 超时路径主动 `detach()` 熔断坏会话，其余错误仍按原样包装。
+  2. `desktop/browser/browser-host.mjs`：新增 `discardView()`（断开调试器、移除视图、关闭 webContents、置空引用）；`render-process-gone` 与 `cdp detach` 事件改为触发 `discardView()` 自愈；`withOperationalView` 前置 `waitForViewReadiness()` 就绪门（新视图等首个 `dom-ready`，15s 封顶，等不到不炸、由命令超时熔断兜底；测试替身无 `isLoadingMainFrame` 时不阻塞）；`execute()` 对 `CdpTimeoutError` 先丢弃视图重建再重试一次（业务失败仍走 `{ ok: false }` 不重试）；`dispose()` 复用 `discardView()`。
+  3. 测试：`tests/server/desktop-browser-cdp-client.test.mjs` 新增「超时后主动断开调试器」用例（fake debugger 加 `detachCalls` 计数）；`tests/server/desktop-browser-host.test.mjs` 新增「渲染进程崩溃后作废并重建」「外部 detach 后作废并重建」两例（fake webContents 支持 `emit`）；`tests/server/desktop-browser-wiring-contract.test.mjs` 新增死会话契约：render-process-gone/detach 必须走 discardView、超时必须主动断开并重建重试一次、就绪门必须存在。
+  4. 文档：`docs/architecture/desktop-agent-browser.zh-CN.md` 新增「6. 会话生命周期与自愈」章节（后续章节顺延），手工验收补第 6 步自愈验证；`docs/wiki/README.md` 架构文档行补自愈描述。
+- 交互影响：工具集、审批、面板交互零变化；正常路径行为不变（就绪门在视图已就绪时立即放行）。异常路径从「连续超时永久卡死」变为「超时一次 → 自动重建重试一次 → 仍失败才报错」，下次调用也总是全新开始。
+- 验证 / Evidence：定向 5 files / 45 tests 全过（5 个新用例：cdp-client 超时断开、host 崩溃重建/断开重建/超时熔断重试、wiring 死会话契约）；`npm run lint` → 0 problems；`npx tsc -b` → 0 错误；`npm run test` → 496 files / 5548 passed / 2 skipped；`npm run build` → 成功（built in 3.19s，precompress 224 files: 12.67MB → 6.49MB）。未创建 Git commit，未手工改生成产物。
+- Notes：①当前正在运行的桌面端（2.3.7 打包版）仍是旧代码，需重启桌面端（或 `npm run desktop:dev`）后实机复验百度打开是否恢复；②若实机仍超时，则说明卡点不在上述三层（如 Electron 39 的 WebContentsView attach 时序另有问题），届时需按架构文档第 11 节手工验收步骤深挖；③主进程 MCP server 无落盘日志，实机排查时可在 `desktop/electron-main.mjs` 临时加 console 输出。
+
 ## goal-v2-single-completion-entry（done，2026-11-02）
 
 - 触发：用户反馈「goal 模式下 goal 的 UI 都已经停止了，为什么还会结束当前轮又继续新一轮次，导致不知道什么时候停止」，并明确「goal 的工具表示完成就应该停止了」。
@@ -1709,3 +1726,27 @@
 - Notes / 已知取舍：
   - 顺带发现（本次未改，避免扩大范围）：该终止按钮缺 `rounded`/`focus-visible` 焦点环，与 `DESIGN_LANGUAGE.md` 278–284「图标按钮或状态点用全圆」不一致；点击区 20px 也小于常见 24px 触控目标。若要做，需单独评审按钮形态（全圆无背景时视觉变化需设计确认）。
   - `tests/frontend/local-tool-running-sweep.test.ts` 已补 `align-items: center` 与「actions 不得再有 margin」两条断言，防止硬编码补偿回归。
+
+## nsis-uninstaller-icon-nonfatal（done，2026-11-02）
+
+- Goal：用户升级安装 QuickForge 2.3.7 时停在「不能打开要写入的文件：`…\Programs\QuickForge\uninstallericon.ico`」对话框（中止/重试/忽略），要求消除这类卡死。
+- 结论（一句话）：不是权限或文件损坏——安装包是 electron-builder 的 NSIS 安装器，`uninstallerIcon.ico` 是 `DisplayIcon` 用的 19KB 装饰文件，被 Windows 短时占用时原生 `File` 指令会弹 Abort/Retry/Ignore 并停住整个安装；改为 `File /nonfatal` 后写不进去就跳过、安装继续。
+- 证据链：
+  - 卡住的进程是 `desktop-dist-next\QuickForge Setup 2.3.7.exe`；报错文件仍是 7 月 2 日的旧 ico（本次未覆盖），目录内其余文件是上一轮 16:48 写入的。
+  - `attrib` 显示该文件只有 `A`、无只读；`icacls` 当前用户为完全控制；独占写测试 `File.Open(Open,Write,None)` 通过；无 QuickForge/卸载器进程占用 → 排除只读/权限/长期占用，判定为写入瞬间的短时占用。
+  - `%TEMP%\QuickForge-installer.log` 结尾：`customCheckAppRunning` 三次均「Main app not running」「All install-dir processes closed」，随后 `old uninstaller exit code = 2` → 走已有的覆盖安装自愈分支，之后无日志（停在图标写入）。
+  - 模板位置：`node_modules/app-builder-lib/templates/nsis/installSection.nsh` 的 `!ifdef UNINSTALLER_ICON` 块，在 `SetOutPath $INSTDIR` 之后、`installApplicationFiles` 之前。
+- 改动文件：
+  1. `desktop/nsis-patch/apply.mjs` — 从单补丁改为补丁表（`patches` 数组）：保留 installUtil.nsh 旧卸载器 6 次失败不弹框，新增 installSection.nsh 的 `File /nonfatal /oname=uninstallerIcon.ico`；仍保持幂等、模板不匹配时报错退出。
+  2. `docs/wiki/root-config.md` — 在 package.json 的 Desktop 脚本段落补 `nsis-patch` 的两条补丁与 `File /nonfatal` 行为。
+  3. `feature_list.json`、`progress.md`、`session-handoff.md` — 记录本 feature。
+- 验证 / Evidence：
+  - NSIS 3.04 语法验证：临时 `.nsi`（`File /nonfatal` + 后续 `File`）用 electron-builder 缓存里的 `makensis.exe` 编译通过。
+  - 运行时验证：PowerShell 以 `FileShare.None` 独占锁住目标 `x.ico` 后静默运行测试安装器 → `INSTALLER-EXIT=0`、后续文件 `y.txt` 已写入、无对话框（证明 nonfatal 真的跳过并继续）。
+  - `node desktop/nsis-patch/apply.mjs` 连续运行两次：首次打上 installSection.nsh 补丁，第二次全部 `already patched`（幂等）。
+  - `npm run desktop:build:win` → 成功（91s）：`tsc -b && vite build` + `apply.mjs` + electron-builder 打包，产出 `desktop-dist\QuickForge Setup 2.3.7.exe`（116,429,804 字节，2026-11-02 20:45）与 portable 版，说明 patch 后的 NSIS 模板能正常编译。
+  - `npm run lint` → 0 problems；`npx eslint desktop/nsis-patch/apply.mjs` → 无输出。
+- Notes / 已知取舍：
+  - 跳过写入时旧图标继续沿用，`DisplayIcon` 仍指向存在的文件；只有被占用的那一刻不更新图标，属于可接受降级。
+  - 上游模板升级若改了 `!ifdef UNINSTALLER_ICON` 块，`apply.mjs` 会明确报错而不是静默跳过。
+  - 未创建 Git commit；`desktop-dist` 由构建生成（`.gitignore` 已忽略），未手工修改生成产物。

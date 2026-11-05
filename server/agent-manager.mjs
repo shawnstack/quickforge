@@ -8,7 +8,7 @@ export {
   canWriteSession,
   clearSessionLease,
 } from './agent-session-lease.mjs'
-export { approveToolCall, rejectToolCall, approveAutoCompact, rejectAutoCompact, answerAsk } from './agent-approval-responses.mjs'
+export { approveToolCall, rejectToolCall, answerAsk } from './agent-approval-responses.mjs'
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { Agent } from '@earendil-works/pi-agent-core'
@@ -61,7 +61,6 @@ import { wrapToolDefinition, wrapMcpToolDefinition, wrapPluginToolDefinition, se
 import {
   safeReadTools,
   pendingApprovals,
-  pendingAutoCompactApprovals,
   commandToolPermissionError,
   createCommandToolPermissions,
 } from './approval-store.mjs'
@@ -88,7 +87,6 @@ export { persistSessionState } from './agent-persistence.mjs'
 import {
   createApprovalPromise,
   createAskUserPromise,
-  createAutoCompactApprovalPromise,
 } from './agent-approval-orchestrator.mjs'
 import { resolveCommandState } from './agent-prompt-commands.mjs'
 import { resetSessionCompaction, summarySession, compactSession, clearSession } from './agent-compaction.mjs'
@@ -523,10 +521,6 @@ async function transformSessionContext(session, messages, signal) {
     emitSessionEvent,
     persistSession,
     logger,
-    // The approval id is minted by `maybeAutoCompactSession` and published in the
-    // notice before this is called, so the decision row and the pending entry
-    // share one id. `createAutoCompactApprovalPromise` adopts it from `details`.
-    confirmAutoCompact: createAutoCompactApprovalPromise,
   })
   if (!autoCompactResult.compacted && autoCompactResult.usage && autoCompactResult.reason && autoCompactResult.reason !== 'below_threshold') {
     logger.info(`Auto compact skipped for session ${session.sessionId}: ${autoCompactResult.reason}`, {
@@ -985,8 +979,6 @@ export async function createAgent(sessionId, config = {}) {
     // on the next successful persist. Surfaced via getSessionState/getSessionStatus
     // so the UI can warn the user instead of silently losing messages.
     persistDegraded: null,
-    lastAutoCompactAt: null,
-    lastAutoCompactRejected: null,
     memoryEnabled: initialMemoryEnabled,
     memoryRevision: initialMemoryRevision,
     workingMemoryEnabled: initialWorkingMemoryEnabled,
@@ -1623,12 +1615,6 @@ export async function abortRun(sessionId) {
       approval.reject(new Error('Run aborted'))
     }
   }
-  for (const [approvalId, approval] of pendingAutoCompactApprovals) {
-    if (approval.sessionId === sessionId) {
-      approval.reject(new Error('Run aborted'))
-      pendingAutoCompactApprovals.delete(approvalId)
-    }
-  }
 
   // A user stop also stops the goal: no continuation is scheduled, and the
   // card shows pausing until the run really settles.
@@ -1886,9 +1872,6 @@ export async function destroyAgent(sessionId) {
 
   // Clean up any pending approvals for this session before removing it.
   for (const [_toolCallId, approval] of pendingApprovals) {
-    if (approval.sessionId === sessionId) approval.reject(new Error('Session destroyed'))
-  }
-  for (const [_approvalId, approval] of pendingAutoCompactApprovals) {
     if (approval.sessionId === sessionId) approval.reject(new Error('Session destroyed'))
   }
 

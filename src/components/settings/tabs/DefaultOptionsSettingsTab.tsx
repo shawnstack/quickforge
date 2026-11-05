@@ -80,7 +80,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const [toolDisplayMode, setToolDisplayMode] = useState<ToolDisplayMode>('compact')
   const [showContextUsage, setShowContextUsage] = useState(false)
   const [autoCompactEnabled, setAutoCompactEnabled] = useState(true)
-  const [autoCompactRequireConfirmation, setAutoCompactRequireConfirmation] = useState(true)
   const [autoCompactThresholdPercent, setAutoCompactThresholdPercent] = useState(80)
   const [autoCompactThresholdPercentInput, setAutoCompactThresholdPercentInput] = useState('80')
   const [goalMaxIterations, setGoalMaxIterations] = useState(20)
@@ -101,7 +100,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   // 保存排队/最新状态镜像：仅加载与事件回调更新，渲染读取 React state。
   const toolDisplayModeRef = useRef(toolDisplayMode)
   const showContextUsageRef = useRef(showContextUsage)
-  const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent, requireConfirmation: autoCompactRequireConfirmation })
+  const autoCompactRef = useRef({ enabled: autoCompactEnabled, thresholdPercent: autoCompactThresholdPercent })
   const goalMaxIterationsRef = useRef(goalMaxIterations)
   const autoArchiveEnabledRef = useRef(autoArchiveEnabled)
   const terminalShellConfigRef = useRef(terminalShellConfig)
@@ -141,7 +140,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       setToolDisplayMode(toolDisplaySettings.toolDisplayMode)
       setShowContextUsage(toolDisplaySettings.showContextUsage)
       setAutoCompactEnabled(autoCompactSettings.enabled)
-      setAutoCompactRequireConfirmation(autoCompactSettings.requireConfirmation)
       setAutoCompactThresholdPercent(autoCompactSettings.thresholdPercent)
       setAutoCompactThresholdPercentInput(String(autoCompactSettings.thresholdPercent))
       setGoalMaxIterations(goalSettings.maxIterations)
@@ -204,13 +202,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
   const updateAutoCompactEnabled = (checked: boolean) => {
     setAutoCompactEnabled(checked)
     autoCompactRef.current = { ...autoCompactRef.current, enabled: checked }
-    setSaved(false)
-    void saveAutoCompactOptions()
-  }
-
-  const updateAutoCompactRequireConfirmation = (checked: boolean) => {
-    setAutoCompactRequireConfirmation(checked)
-    autoCompactRef.current = { ...autoCompactRef.current, requireConfirmation: checked }
     setSaved(false)
     void saveAutoCompactOptions()
   }
@@ -417,7 +408,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
       await saveAutoCompactSettings(getAppStorage(), {
         enabled: autoCompactRef.current.enabled,
         thresholdPercent: autoCompactRef.current.thresholdPercent,
-        requireConfirmation: autoCompactRef.current.requireConfirmation,
       })
       markSaved()
     } catch (err) {
@@ -666,22 +656,6 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
           </div>
           <div className="quickforge-settings-row-control">
             <SettingsSwitch checked={autoCompactEnabled} onChange={updateAutoCompactEnabled} />
-          </div>
-        </div>
-
-        <div className="quickforge-settings-row">
-          <div className="quickforge-settings-row-main">
-            <div className="quickforge-settings-row-title">
-              {t('autoCompactRequireConfirmation')}
-              <InfoTip label={t('autoCompactRequireConfirmationDescription')} />
-            </div>
-          </div>
-          <div className="quickforge-settings-row-control">
-            <SettingsSwitch
-              checked={autoCompactRequireConfirmation}
-              onChange={updateAutoCompactRequireConfirmation}
-              disabled={!autoCompactEnabled}
-            />
           </div>
         </div>
 

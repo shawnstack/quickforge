@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { readStore } from './storage.mjs'
 import {
   compactConversation,
@@ -14,7 +13,6 @@ export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 export const DEFAULT_AUTO_COMPACT_SETTINGS = {
   enabled: true,
   thresholdPercent: 80,
-  requireConfirmation: true,
 }
 
 /**
@@ -40,7 +38,6 @@ export function normalizeAutoCompactSettings(value) {
   return {
     enabled: value.enabled !== false,
     thresholdPercent: clampNumber(value.thresholdPercent, DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent, 50, 95),
-    requireConfirmation: value.requireConfirmation !== false,
   }
 }
 
@@ -50,30 +47,23 @@ export async function readAutoCompactSettings() {
 }
 
 /**
- * Compaction UI state machine (single source of truth for the chat surface).
+ * Compaction UI state (single source of truth for the chat surface).
  *
- * Before this existed the server only emitted fire-and-forget events
- * (`auto_compact_threshold_reached`, `auto_compact_approval_required`,
- * `auto_compact_completed`, `auto_compact_failed`) and kept `autoCompacting` as
- * a private boolean. The three consequences were visible bugs:
+ * Compaction is an internal detail: the full transcript stays in the session
+ * and in the timeline, only the context sent to the model gets shorter. It is
+ * therefore never gated on a user decision — the only thing the surface needs
+ * to know is "summary generation is in flight, the run is waiting on it".
  *
- * 1. Summarizing is an extra LLM round trip that can take tens of seconds. With
- *    no phase exposed, the panel showed nothing at all and the run looked hung.
- * 2. The approval promise resolved `false` both for "user declined" and for
- *    "timed out", and the timeout path emitted no event, so the approval card
- *    stayed on screen after the server had already dropped the approval — the
- *    next click could only fail with a 404.
- * 3. Every early return after the threshold was reached produced no UI state at
- *    all, so "nothing happened" and "it silently gave up" looked identical.
+ * Before this projection existed the server only emitted fire-and-forget events
+ * and kept `autoCompacting` as a private boolean, so a run that stalled for tens
+ * of seconds on the summarization round trip rendered nothing at all and looked
+ * hung.
  *
- * The notice is therefore a complete projection of the pipeline: every entry
- * into a phase and every exit (including cancellation/timeout) publishes it, and
- * `null` means "nothing in flight". Consumers never have to infer state from the
- * absence of events.
+ * The notice is therefore a complete projection of the pipeline: entering the
+ * phase publishes it, every exit (success, skip, throw) publishes `null`, and
+ * consumers never have to infer state from the absence of events.
  */
 export const COMPACTION_NOTICE_PHASES = Object.freeze({
-  /** Threshold reached, waiting for the user's decision (requireConfirmation). */
-  AWAITING_CONFIRMATION: 'awaiting_confirmation',
   /** Summary generation is in flight; the run is blocked until it finishes. */
   SUMMARIZING: 'summarizing',
 })
@@ -427,30 +417,7 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   return value
 }
 
-/**
- * Outcome kinds for `confirmAutoCompact`.
- *
- * The old contract was `boolean`, which collapsed the three cases the UI must
- * tell apart: the user declined (suppress for 10 minutes, hide the card),
- * nobody answered in time (drop the card, do not punish the user), and no
- * approval channel exists (a server-side problem, not a user decision).
- */
-export const AUTO_COMPACT_DECISION = Object.freeze({
-  APPROVED: 'approved',
-  DECLINED: 'declined',
-  TIMED_OUT: 'timed_out',
-  UNAVAILABLE: 'unavailable',
-})
-
-function normalizeDecision(value) {
-  if (value === true) return AUTO_COMPACT_DECISION.APPROVED
-  if (value === AUTO_COMPACT_DECISION.APPROVED) return AUTO_COMPACT_DECISION.APPROVED
-  if (value === AUTO_COMPACT_DECISION.TIMED_OUT) return AUTO_COMPACT_DECISION.TIMED_OUT
-  if (value === AUTO_COMPACT_DECISION.UNAVAILABLE) return AUTO_COMPACT_DECISION.UNAVAILABLE
-  return AUTO_COMPACT_DECISION.DECLINED
-}
-
-export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger, confirmAutoCompact }) {
+export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger }) {
   if (!session || session.autoCompacting) return { compacted: false }
   const settings = await readAutoCompactSettings()
   if (!settings.enabled) return { compacted: false, reason: 'disabled' }
@@ -467,7 +434,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
   if (!shouldCompactContextByPercent(usage, settings.thresholdPercent)) return { compacted: false, usage, reason: 'below_threshold' }
 
-  const now = Date.now()
   if (!hasNewMessagesSinceCompaction(session, messages)) {
     return { compacted: false, usage, reason: 'not_enough_new_messages' }
   }
@@ -477,61 +443,12 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     return { compacted: false, usage, reason: 'not_enough_history' }
   }
 
-  if (settings.requireConfirmation) {
-    // The approval id is minted here (not inside the approval promise) so the
-    // published notice is self-sufficient: the surface can render the decision
-    // row and call the approve/reject route from the notice alone, without a
-    // second source of truth racing the first one.
-    const approvalId = randomUUID()
-    setCompactionNotice(session, {
-      phase: COMPACTION_NOTICE_PHASES.AWAITING_CONFIRMATION,
-      approvalId,
-      usage,
-      thresholdPercent: settings.thresholdPercent,
-      requestedAt: new Date(now).toISOString(),
-    }, emitSessionEvent)
-
-    if (!confirmAutoCompact) {
-      // No approval channel: drop the notice immediately instead of leaving the
-      // user staring at a row whose buttons cannot resolve anything.
-      setCompactionNotice(session, null, emitSessionEvent)
-      return { compacted: false, usage, reason: 'confirmation_unavailable' }
-    }
-
-    let decision = AUTO_COMPACT_DECISION.UNAVAILABLE
-    try {
-      decision = normalizeDecision(await confirmAutoCompact(session, { usage, settings, approvalId }))
-    } catch (error) {
-      // Aborted runs reject the pending approval (see agent-manager's abort
-      // path). Cancellation is not a compaction failure: keep the notice
-      // cleared and let the outer run report its own abort status.
-      logger?.debug?.(`Auto compact confirmation cancelled for session ${session.sessionId}:`, error?.message || error)
-    }
-    // Any decision settles the pending phase; the accepted path immediately
-    // enters `summarizing` below, so the two publishes never both linger.
-    setCompactionNotice(session, null, emitSessionEvent)
-
-    if (decision !== AUTO_COMPACT_DECISION.APPROVED || signal?.aborted) {
-      return {
-        compacted: false,
-        usage,
-        reason: decision === AUTO_COMPACT_DECISION.DECLINED
-          ? 'user_rejected'
-          : decision === AUTO_COMPACT_DECISION.TIMED_OUT
-            ? 'confirmation_timeout'
-            : signal?.aborted
-              ? 'aborted'
-              : 'confirmation_unavailable',
-      }
-    }
-  }
-
   session.autoCompacting = true
   setCompactionNotice(session, {
     phase: COMPACTION_NOTICE_PHASES.SUMMARIZING,
     usage,
     thresholdPercent: settings.thresholdPercent,
-    requestedAt: new Date(now).toISOString(),
+    requestedAt: new Date().toISOString(),
   }, emitSessionEvent)
 
   try {
@@ -544,9 +461,6 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       persistSession,
       reason: 'auto_compact',
       summaryIntro: 'The previous conversation has been automatically compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
-      onBeforePersist: () => {
-        session.lastAutoCompactAt = now
-      },
     })
     if (!result.compacted) return result
     return { compacted: true, usage }

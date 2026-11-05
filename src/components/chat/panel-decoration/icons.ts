@@ -28,8 +28,7 @@ export const errorDetailsChevronIcon = '<svg class="quickforge-error-chevron-ico
  * NOT used by the composer strip any more (方案 A): the strip keeps one neutral
  * identity glyph (`components/goal-icon.tsx`) and lets the state word carry the
  * state. Keying the strip's glyph off the tone painted a paused goal with the
- * planning checklist and a waiting goal with the running clock — see
- * `docs/design/goal-strip-icon-review.html`.
+ * planning checklist and a waiting goal with the running clock.
  */
 export const goalStatusIcon: Record<GoalCardTone, string> = {
   info: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="6" height="6" rx="1"/><path d="m3 17 2 2 4-4"/><path d="M13 6h8"/><path d="M13 12h8"/><path d="M13 18h8"/></svg>',

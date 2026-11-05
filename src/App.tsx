@@ -1030,13 +1030,11 @@ function MainApp() {
     notifySettingsChanged: crossTab.notifySettingsChanged,
   })
 
-  // 工具审批 / ask_user 应答 / auto-compact 审批统一出口（见 useAgentApprovalActions）。
+  // 工具审批 / ask_user 应答统一出口（见 useAgentApprovalActions）。
   const {
     handleApproveToolCall,
     handleRejectToolCall,
     handleAnswerAsk,
-    handleApproveAutoCompact,
-    handleRejectAutoCompact,
   } = useAgentApprovalActions(agentRef)
 
   const {
@@ -1781,8 +1779,6 @@ function MainApp() {
                       onApproveToolCall={handleApproveToolCall}
                       onRejectToolCall={handleRejectToolCall}
                       onAnswerAsk={handleAnswerAsk}
-                      onApproveAutoCompact={handleApproveAutoCompact}
-                      onRejectAutoCompact={handleRejectAutoCompact}
                       onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
                       onOpenLocalFilePath={openLocalFilePathFromChat}
                       onOpenFilePreview={openFilePreviewFromArtifactCard}

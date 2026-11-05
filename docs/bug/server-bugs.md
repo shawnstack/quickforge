@@ -12,7 +12,7 @@
 | CRIT-2 | `server/terminal/terminal-manager.mjs` | 为终端 WebSocket 客户端添加 `error` 处理，并对发送失败做日志记录 |
 | CRIT-4 | `server/routes/terminal.mjs`, `server/index.mjs` | WebSocket upgrade 拒绝路径统一消费 socket error，写响应失败时安全销毁 socket |
 | CRIT-5 | `server/index.mjs` | 为 Vite 子进程添加 `error` 事件处理 |
-| HIGH-5 | `server/agent-manager.mjs` | `destroyAgent` 清理并 reject 待处理 tool/auto-compact approvals |
+| HIGH-5 | `server/agent-manager.mjs` | `destroyAgent` 清理并 reject 待处理的工具审批 |
 | HIGH-8 | `server/routes/lan-access.mjs` | 为 LAN access 失败尝试 Map 添加过期清理 |
 | HIGH-9 | `server/mcp/registry.mjs` | `onclose` 不再覆盖已记录的 MCP error 状态 |
 | HIGH-10 | `server/index.mjs` | 信号处理包装 async shutdown，捕获 Promise rejection |

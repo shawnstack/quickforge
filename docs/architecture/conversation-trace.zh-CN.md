@@ -221,6 +221,5 @@ npm run build
 | `src/hooks/useUIState.ts` | `conversationViewScope` 视图状态 |
 | `src/App.tsx` | 顶部视图切换器、轨迹层挂载、scope 派生 |
 | `src/lib/i18n.ts` | 64 个 `trace.*` 中英文案 key |
-| `docs/design/conversation-trace-mockup.html` | 交互原型（设计阶段的对照物） |
 
 参考实现：`src/components/workspace/WorkflowRunDetailContent.tsx`（时间轴 DOM+百分比契约）、`src/components/chat/panel-decoration/process-folding.ts`（轮次切分语义）、`src/lib/tool-execution-events.ts`（`quickforgeTiming` 契约）。

@@ -12,8 +12,6 @@ type ApprovalCapableAgent = {
   approveToolCall: (toolCallId: string) => Promise<void>
   rejectToolCall: (toolCallId: string) => Promise<void>
   answerAsk?: (askId: string, payload: AskAnswerPayload) => Promise<void>
-  approveAutoCompact?: (approvalId: string) => Promise<void>
-  rejectAutoCompact?: (approvalId: string) => Promise<void>
 }
 
 /** 工具审批 / ask_user 应答 / auto-compact 审批的统一出口：
@@ -52,23 +50,9 @@ export function useAgentApprovalActions(agentRef: React.RefObject<ApprovalCapabl
     }
   }, [agentRef])
 
-  const handleApproveAutoCompact = useCallback(async (approvalId: string) => {
-    const currentAgent = agentRef.current
-    if (!currentAgent?.approveAutoCompact) throw new Error(t('toolApprovalFailed'))
-    await currentAgent.approveAutoCompact(approvalId)
-  }, [agentRef])
-
-  const handleRejectAutoCompact = useCallback(async (approvalId: string) => {
-    const currentAgent = agentRef.current
-    if (!currentAgent?.rejectAutoCompact) throw new Error(t('toolApprovalFailed'))
-    await currentAgent.rejectAutoCompact(approvalId)
-  }, [agentRef])
-
   return {
     handleApproveToolCall,
     handleRejectToolCall,
     handleAnswerAsk,
-    handleApproveAutoCompact,
-    handleRejectAutoCompact,
   }
 }

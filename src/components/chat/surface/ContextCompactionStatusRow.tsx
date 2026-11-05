@@ -23,9 +23,9 @@ import type { ServerAgentCompactionNotice } from '@/lib/server-agent'
  * - **owned by React inside the message list**, at the position where the work
  *   happens, instead of a decoration-layer node that would need a mutation
  *   observer to stay anchored;
- * - **only the summarizing phase** is rendered here. `awaiting_confirmation` is
- *   `ContextCompactionDecisionRow`'s job (it carries the two actions); rendering
- *   a second copy of the same sentence next to it would just be noise.
+ * - **one phase, one row**: compaction is never gated on a user decision (the
+ *   full transcript stays in the timeline, only the model context shrinks), so
+ *   `summarizing` is the only phase this row has to render.
  *
  * It returns `null` when idle, so the message list's child sequence is unchanged
  * in the common case and no test-only placeholder is introduced.

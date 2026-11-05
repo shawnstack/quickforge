@@ -1,5 +1,31 @@
 # Current Session Handoff
 
+## 当前交接：compaction-without-approval（done，2026-11-05）
+
+- Current Objective（当前目标）: 评审上下文压缩的算法与交互后，用户拍板「压缩直接执行，不需要用户同意」，要求把自动压缩的审批整条链删掉。已实现，未提交。
+- 用户拍板的判断:
+  1. 压缩不删历史，只是发给模型的那份变短 → 不需要审批。
+  2. **不要节流**（「X 分钟 / 至少一个回合内不再压」属于过度设计）；不要拒绝抑制；不要「整理中取消」。
+  3. `/compact` 手动命令保留；其他改造（待办队列、暂停续跑）先不做。
+- 结论（一句话）: 把「同步等用户点一下」换成「直接做」——`COMPACTION_NOTICE_PHASES` 只剩 `summarizing`，审批队列、两个路由、决策行组件、设置里的确认开关全部删除。
+- 改动内容:
+  1. `server/auto-compaction.mjs`：过阈值直接进 `summarizing`；删 `AUTO_COMPACT_DECISION` / `normalizeDecision` / `confirmAutoCompact` / `requireConfirmation` / `lastAutoCompact*`。
+  2. `server/approval-store.mjs`、`agent-approval-orchestrator.mjs`、`agent-approval-responses.mjs`、`routes/agent.mjs`、`agent-manager.mjs`、`agent-session-queries.mjs`：删 `pendingAutoCompactApprovals` 整条链与两个 HTTP 路由。
+  3. 前端：删 `ContextCompactionDecisionRow.tsx`；`ChatSurface` / `MessageList` / `ChatTypes` / `ChatPanelHost` / `App` / `useAgentApprovalActions` / `server-agent` / `server-agent-types` / `deferred-session-agent` / `shared-server-agent` / `global-agent-sse-client` 全部清理；`MessageList` 只渲染 `ContextCompactionStatusRow`。
+  4. 设置与文案：`auto-compact-settings.ts` 与 `DefaultOptionsSettingsTab` 删确认开关，`i18n` 删 9 个审批文案（中英）。
+  5. 测试：`auto-compaction-notice.test.mjs` 重写为 5 例；其余 12 个文件清理过期断言。
+- Files（改动文件）: 见 `feature_list.json` 的 `compaction-without-approval`。
+- Evidence（验证）: 压缩相关 10 文件 78 例全过；`tsc -p tsconfig.app.json --noEmit` 通过；`npm run lint` → 0 problems；`npm run build` → 通过；`npm run test` → 502 files / 5536 passed / 3 failed / 1 skipped（3 个失败是既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）。
+- Blockers（阻塞）: 无。
+- Notes:
+  - 不要把这个开关加回来。压缩是可逆且不丢数据的操作，需要审批的应该是「删了就没了」的动作（写文件、跑命令）。
+  - 旧存储里的 `requireConfirmation` 不会报错，normalizer 直接丢弃（有测试锁定）。
+  - 设计稿已全部清理：`docs/design/` 下 31 份 html（临时 mockup / 提案 / 对比稿）全部删除，只留文字稿 `per-compaction-records.zh-CN.md`；5 处指向这些文件的引用（wiki、architecture、两处代码注释、那份 md 的关联链接）已同步清掉，没有死链。历史日志里的旧路径不改写。
+- Next Session（下一步）:
+  1. 实机跑一次长会话触发压缩，确认只出现「正在整理上下文」这一行，完成后照常继续回答。
+  2. 若以后真出现「每步都在压」的病态配置，先看日志与 `contextCompaction.history` 的增长速度，再决定要不要加间隔——不要提前加。
+
+
 ## 当前交接：experience-library-open-actions（done，2026-11-05）
 
 - Current Objective（当前目标）: 设置·梦境记忆的经验库也能「打开」——每条经验一个「打开」+ 一个「打开文件夹」；随后把工作记忆页的「打开文件夹」也补齐，两页对称。已实现，未提交。

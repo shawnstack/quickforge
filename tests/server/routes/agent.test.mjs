@@ -59,7 +59,6 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
     mocks.agentEvents = events
     return events
   })(),
-  approveAutoCompact: vi.fn(),
   approveToolCall: vi.fn(),
   continueSession: vi.fn(),
   createAgent: vi.fn(),
@@ -71,7 +70,6 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   isSessionFileRollbackBusy: mocks.isSessionFileRollbackBusy,
   isSseConnected: vi.fn(),
   listSessions: vi.fn(() => []),
-  rejectAutoCompact: vi.fn(),
   rejectToolCall: vi.fn(),
   releaseSse: mocks.releaseSse,
   restoreAgent: mocks.restoreAgent,

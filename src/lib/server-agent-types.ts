@@ -112,29 +112,17 @@ export type ServerAgentPendingToolApproval = {
   expiresAt?: number
 }
 
-export type ServerAgentPendingAutoCompactApproval = {
-  approvalId: string
-  usage?: { percent?: number }
-  thresholdPercent?: number
-  requestedAt?: number
-  expiresAt?: number
-}
-
 /**
  * In-flight compaction notice (`state.compactionNotice` on the server).
  *
  * The server projects the whole pipeline into this one field so the surface can
- * render "summarizing" / "awaiting you" without inferring anything from event
- * order. `null` means nothing is in flight.
+ * render "summarizing" without inferring anything from event order. `null`
+ * means nothing is in flight. Compaction is never gated on a user decision —
+ * the history stays in the timeline, only the model context shrinks — so there
+ * is exactly one phase.
  */
 export type ServerAgentCompactionNotice = {
-  phase: 'awaiting_confirmation' | 'summarizing'
-  /**
-   * Pending approval this notice belongs to (only on `awaiting_confirmation`).
-   * Minted by the server before the approval promise exists, so the row and the
-   * pending entry share one id instead of racing two sources of truth.
-   */
-  approvalId?: string
+  phase: 'summarizing'
   usage?: { percent?: number; inputTokens?: number; contextWindow?: number }
   thresholdPercent?: number
   /** ISO timestamp of when the phase was entered. */
@@ -178,7 +166,6 @@ export type ServerAgentConfig = {
     contextUsage?: ServerAgentContextUsage | null
     compactionNotice?: ServerAgentCompactionNotice | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
-    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
     persistDegraded?: boolean
     /**
@@ -306,7 +293,6 @@ export type ServerAgentStateSnapshot = {
   /** In-flight compaction notice; null means nothing is running. */
   compactionNotice?: ServerAgentCompactionNotice | null
   pendingToolApproval?: ServerAgentPendingToolApproval | null
-  pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
   pendingAsk?: ServerAgentPendingAsk | null
   pendingToolCalls?: string[]
   backgroundCommands?: BackgroundCommandSnapshot[]

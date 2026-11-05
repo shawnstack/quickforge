@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { ChatSurface, promptApiKey } from './surface'
 import type { ChatSurfaceProps } from './surface'
 import type { WindowedChatSurfaceHandle } from './surface/ChatSurface'
-import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingAutoCompactApproval, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
 import type { SessionLeaseSnapshot } from '@/lib/session-lease-client'
 import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
@@ -105,7 +105,6 @@ type AgentWithContextCompaction = AgentLike & {
     contextCompaction?: ServerAgentContextCompaction | null
     contextUsage?: ServerAgentContextUsage | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
-    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
   }
 }
 
@@ -220,13 +219,11 @@ type ChatPanelHostMessageActionProps = {
   rollbackConfirmDescription?: string
 }
 
-/** 工具审批与 ask_user / auto-compact 应答（写入型，readOnly 面板由调用方不传）。 */
+/** 工具审批与 ask_user 应答（写入型，readOnly 面板由调用方不传）。 */
 type ChatPanelHostApprovalProps = {
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean, remark?: string) => Promise<void> | void
-  onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
-  onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
 }
 
 /** 产物 / 文件 / 外部跳转：把对话里的产出引导到 Workspace Inspector 或系统应用。 */
@@ -308,8 +305,6 @@ type PropsRef = {
   onApproveToolCall: (toolCallId: string) => Promise<void> | void
   onRejectToolCall: (toolCallId: string) => Promise<void> | void
   onAnswerAsk?: (askId: string, answers: ServerAgentAskAnswer[], skipped: boolean, remark?: string) => Promise<void> | void
-  onApproveAutoCompact?: (approvalId: string) => Promise<void> | void
-  onRejectAutoCompact?: (approvalId: string) => Promise<void> | void
   onOpenWorkspaceGitChanges?: () => void
   onOpenLocalFilePath?: (path: string) => void
   onOpenFilePreview?: (relativePath: string) => void
@@ -364,8 +359,6 @@ export function ChatPanelHost({
   onApproveToolCall,
   onRejectToolCall,
   onAnswerAsk,
-  onApproveAutoCompact,
-  onRejectAutoCompact,
   onOpenWorkspaceGitChanges,
   onOpenLocalFilePath,
   onOpenFilePreview,
@@ -585,8 +578,6 @@ export function ChatPanelHost({
     onApproveToolCall,
     onRejectToolCall,
     onAnswerAsk,
-    onApproveAutoCompact,
-    onRejectAutoCompact,
     onOpenWorkspaceGitChanges,
     onOpenLocalFilePath,
     onOpenFilePreview,
@@ -626,8 +617,6 @@ export function ChatPanelHost({
       onApproveToolCall,
       onRejectToolCall,
       onAnswerAsk,
-      onApproveAutoCompact,
-      onRejectAutoCompact,
       onOpenWorkspaceGitChanges,
       onOpenLocalFilePath,
       onOpenFilePreview,
@@ -737,7 +726,6 @@ export function ChatPanelHost({
   // project prop may change (same source as the /api/project/commands fetch).
   const slashCatalogProjectIdRef = useRef<string | undefined>(project?.id)
   const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource } | null>(null)
-  const pendingAutoCompactApprovalRef = useRef<{ approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; sessionId: string } | null>(null)
   const pendingAskRef = useRef<(ServerAgentPendingAsk & { sessionId: string }) | null>(null)
 
   // Keep the slash-catalog project source in sync with the latest props.
@@ -1518,9 +1506,6 @@ export function ChatPanelHost({
         if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
           pendingApprovalRef.current = null
         }
-        if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
-          pendingAutoCompactApprovalRef.current = null
-        }
       }
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         syncProcessStreamingState()
@@ -1621,34 +1606,9 @@ export function ChatPanelHost({
           pendingAskRef.current = null
           scheduleDecorateRef.current?.()
         }
-        if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
-          pendingAutoCompactApprovalRef.current = null
-          scheduleDecorateRef.current?.()
-        }
         // Queue drain: a settled turn auto-sends the next queued message;
         // aborted / errored turns pause the queue so the user stays in control.
         messageQueueWiring.onAgentEnd((event as { status?: string }).status)
-      }
-      if (eventType === 'auto_compact_completed' || eventType === 'auto_compact_failed') {
-        if (pendingAutoCompactApprovalRef.current?.sessionId === agent.sessionId) {
-          pendingAutoCompactApprovalRef.current = null
-        }
-        ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
-        scheduleDecorateRef.current?.()
-      }
-      if (eventType === 'auto_compact_approval_settled') {
-        // The server dropped its pending approval (declined / timed out /
-        // cancelled). Clearing the local ref keeps the decoration pass from
-        // re-rendering a card whose request no longer exists — the click would
-        // only return 404. The decision row itself is React-owned and clears via
-        // `state.compactionNotice`.
-        const settledEvent = event as unknown as { approvalId?: string }
-        const pending = pendingAutoCompactApprovalRef.current
-        if (!settledEvent.approvalId || pending?.approvalId === settledEvent.approvalId) {
-          pendingAutoCompactApprovalRef.current = null
-          ;(agent as AgentWithContextCompaction).state.pendingAutoCompactApproval = null
-          scheduleDecorateRef.current?.()
-        }
       }
       if (eventType === 'auto_compact_completed' || eventType === 'messages_replaced' || eventType === 'message_metadata_updated') {
         // 结构性释放由 React 表面内的 ProcessGroupReleaseBoundary 拥有：它先释放
@@ -1685,16 +1645,6 @@ export function ChatPanelHost({
           pendingAskRef.current = null
           scheduleDecorateRef.current?.()
         }
-      }
-      if (!sideChatMode && (event as Record<string, unknown>).type === 'auto_compact_approval_required') {
-        const approvalEvent = event as unknown as { approvalId: string; usage?: { percent?: number }; thresholdPercent?: number; sessionId: string }
-        pendingAutoCompactApprovalRef.current = {
-          approvalId: approvalEvent.approvalId,
-          usage: approvalEvent.usage,
-          thresholdPercent: approvalEvent.thresholdPercent,
-          sessionId: approvalEvent.sessionId,
-        }
-        scheduleDecorateRef.current?.()
       }
     })
 
@@ -1801,22 +1751,6 @@ export function ChatPanelHost({
           // Context-compaction timeline divider: same gate the decoration layer
           // used (`capabilities.compaction` and never in Side Chat).
           enableCompactionDivider={!sideChatMode && effectiveCapabilities.compaction}
-          // Compaction decision row: React renders it inside the message list and
-          // calls the same agent methods the decoration card used to call. It is
-          // never actionable in Side Chat or when the request lacks a handler
-          // (the row then explains why instead of showing dead buttons).
-          onApproveCompaction={
-            !sideChatMode && !approvalReadOnly && onApproveAutoCompact
-              ? (approvalId: string) => { void onApproveAutoCompact(approvalId) }
-              : undefined
-          }
-          onRejectCompaction={
-            !sideChatMode && !approvalReadOnly && onRejectAutoCompact
-              ? (approvalId: string) => { void onRejectAutoCompact(approvalId) }
-              : undefined
-          }
-          compactionDecisionReadOnly={approvalReadOnly || sideChatMode}
-          compactionDecisionDisabledReason={approvalReadOnly ? approvalReadOnlyMessage : undefined}
           readOnly={readOnly}
           // Host-driven snapshot refresh (model switch without agent events).
           chatPanelRevision={revision}

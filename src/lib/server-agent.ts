@@ -31,7 +31,6 @@ import type {
   ServerAgentContextCompaction,
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
-  ServerAgentPendingAutoCompactApproval,
   ServerAgentCompactionNotice,
   ServerAgentPendingAsk,
   ServerAgentAskAnswer,
@@ -64,7 +63,6 @@ export type {
   ServerAgentContextUsageBreakdown,
   ServerAgentContextUsage,
   ServerAgentPendingToolApproval,
-  ServerAgentPendingAutoCompactApproval,
   ServerAgentCompactionNotice,
   ServerAgentPendingAsk,
   ServerAgentAskAnswer,
@@ -279,7 +277,6 @@ function initialStateFromSnapshot(snapshot: ServerAgentStateSnapshot): NonNullab
     contextUsage: snapshot.contextUsage,
     compactionNotice: snapshot.compactionNotice ?? null,
     pendingToolApproval: snapshot.pendingToolApproval,
-    pendingAutoCompactApproval: snapshot.pendingAutoCompactApproval,
     pendingAsk: snapshot.pendingAsk,
     persistDegraded: snapshot.persistDegraded === true ? true : undefined,
     sessionLease: snapshot.lease ? leaseSnapshotFromWire(snapshot.lease) : undefined,
@@ -347,7 +344,6 @@ export class ServerAgent {
      */
     compactionNotice?: ServerAgentCompactionNotice | null
     pendingToolApproval?: ServerAgentPendingToolApproval | null
-    pendingAutoCompactApproval?: ServerAgentPendingAutoCompactApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
     persistDegraded?: boolean
     /**
@@ -487,7 +483,6 @@ export class ServerAgent {
       contextCompaction: init.contextCompaction ?? null,
       contextUsage: init.contextUsage ?? null,
       pendingToolApproval: init.pendingToolApproval ?? null,
-      pendingAutoCompactApproval: init.pendingAutoCompactApproval ?? null,
       pendingAsk: init.pendingAsk ?? null,
       persistDegraded: init.persistDegraded === true ? true : undefined,
       goal: normalizeGoalState(init.goal),
@@ -908,7 +903,6 @@ export class ServerAgent {
     this.state.streamingMessage = undefined
     this.state.pendingToolCalls = new Set()
     this.state.pendingToolApproval = null
-    this.state.pendingAutoCompactApproval = null
     this.state.compactionNotice = null
     this.state.goal = null
   }
@@ -1178,38 +1172,6 @@ export class ServerAgent {
     }
     if (this.state.pendingAsk?.askId === askId) {
       this.state.pendingAsk = null
-    }
-  }
-
-  async approveAutoCompact(approvalId: string): Promise<void> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/approve-auto-compact`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ approvalId }),
-    })
-    if (!res.ok) {
-      const payload = await res.json().catch(() => null) as { error?: string } | null
-      throw new Error(payload?.error || `Failed to approve auto compact: HTTP ${res.status}`)
-    }
-    if (this.state.pendingAutoCompactApproval?.approvalId === approvalId) {
-      this.state.pendingAutoCompactApproval = null
-    }
-  }
-
-  async rejectAutoCompact(approvalId: string): Promise<void> {
-    const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/reject-auto-compact`
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ approvalId }),
-    })
-    if (!res.ok) {
-      const payload = await res.json().catch(() => null) as { error?: string } | null
-      throw new Error(payload?.error || `Failed to reject auto compact: HTTP ${res.status}`)
-    }
-    if (this.state.pendingAutoCompactApproval?.approvalId === approvalId) {
-      this.state.pendingAutoCompactApproval = null
     }
   }
 
@@ -1541,9 +1503,6 @@ export class ServerAgent {
         if (s.pendingToolApproval !== undefined) {
           this.state.pendingToolApproval = s.pendingToolApproval
         }
-        if (s.pendingAutoCompactApproval !== undefined) {
-          this.state.pendingAutoCompactApproval = s.pendingAutoCompactApproval
-        }
         if (s.pendingAsk !== undefined) {
           this.state.pendingAsk = s.pendingAsk
         }
@@ -1587,7 +1546,6 @@ export class ServerAgent {
           // finished without the client ever seeing message_end).
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
-          this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
           this.stateVersion++
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
@@ -1605,7 +1563,6 @@ export class ServerAgent {
         this.applyServerStreaming(true)
         this.state.errorMessage = undefined
         this.state.pendingToolApproval = null
-        this.state.pendingAutoCompactApproval = null
         this.state.pendingAsk = null
         this.startStateWatchdog()
         break
@@ -1647,7 +1604,6 @@ export class ServerAgent {
               this.applyServerStreaming(false)
               this.state.streamingMessage = undefined
               this.state.pendingToolApproval = null
-              this.state.pendingAutoCompactApproval = null
               this.state.pendingAsk = null
               if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
               this.forwardWireEvent(event)
@@ -1658,7 +1614,6 @@ export class ServerAgent {
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
-          this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
@@ -1674,7 +1629,6 @@ export class ServerAgent {
             this.applyServerStreaming(false)
             this.state.streamingMessage = undefined
             this.state.pendingToolApproval = null
-            this.state.pendingAutoCompactApproval = null
             if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
             this.forwardWireEvent(event)
           })
@@ -1691,7 +1645,6 @@ export class ServerAgent {
           this.state.contextUsage = endEvent.contextUsage !== undefined ? endEvent.contextUsage : null
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
-          this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.stateVersion++
@@ -1705,7 +1658,6 @@ export class ServerAgent {
           this.applyServerStreaming(false)
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
-          this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
           if (endEvent.errorMessage) this.state.errorMessage = endEvent.errorMessage
           this.forwardWireEvent(event)
@@ -1866,7 +1818,6 @@ export class ServerAgent {
         const errMsg = (event as { error?: string }).error
         this.state.errorMessage = errMsg || 'Unknown error'
         this.state.pendingToolApproval = null
-        this.state.pendingAutoCompactApproval = null
         break
       }
 
@@ -2005,18 +1956,6 @@ export class ServerAgent {
         break
       }
 
-      case 'auto_compact_approval_settled': {
-        // The server dropped its pending approval (declined / timed out /
-        // cancelled). Clear the local copy in the same frame, so the card can
-        // never outlive the request it belongs to and produce a 404 on click.
-        const settledEvent = event as { approvalId?: string }
-        const pending = this.state.pendingAutoCompactApproval
-        if (!settledEvent.approvalId || pending?.approvalId === settledEvent.approvalId) {
-          this.state.pendingAutoCompactApproval = null
-        }
-        break
-      }
-
       case 'auto_compact_failed':
       case 'message_start':
       case 'turn_start':
@@ -2044,7 +1983,6 @@ export class ServerAgent {
         const approvalEvent = event as unknown as ServerAgentPendingToolApproval
         if (typeof approvalEvent.toolCallId === 'string' && typeof approvalEvent.toolName === 'string') {
           this.state.pendingToolApproval = approvalEvent
-          this.state.pendingAutoCompactApproval = null
         }
         break
       }
@@ -2065,14 +2003,6 @@ export class ServerAgent {
         break
       }
 
-      case 'auto_compact_approval_required': {
-        const approvalEvent = event as unknown as ServerAgentPendingAutoCompactApproval
-        if (typeof approvalEvent.approvalId === 'string') {
-          this.state.pendingAutoCompactApproval = approvalEvent
-          this.state.pendingToolApproval = null
-        }
-        break
-      }
     }
 
     // Forward event to subscribers
@@ -2176,7 +2106,6 @@ export class ServerAgent {
           this.applyServerStreaming(false)
           this.state.streamingMessage = undefined
           this.state.pendingToolApproval = null
-          this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
           this.emitToListeners({ type: 'agent_end', messages: this.state.messages })
         }
@@ -2625,9 +2554,6 @@ export class ServerAgent {
       if (state.pendingToolApproval !== undefined) {
         this.state.pendingToolApproval = state.pendingToolApproval
       }
-      if (state.pendingAutoCompactApproval !== undefined) {
-        this.state.pendingAutoCompactApproval = state.pendingAutoCompactApproval
-      }
       if (state.pendingToolCalls !== undefined) {
         this.state.pendingToolCalls = new Set(state.pendingToolCalls)
       }
@@ -2656,7 +2582,6 @@ export class ServerAgent {
         } else if (adopted) {
           this.stopStateWatchdog()
           this.state.pendingToolApproval = null
-          this.state.pendingAutoCompactApproval = null
           this.state.pendingAsk = null
         }
         if (adopted && options?.notify && wasStreaming && !state.isStreaming) {
@@ -2854,7 +2779,6 @@ export class ServerAgent {
         contextUsage: serverState.contextUsage as ServerAgentContextUsage | null | undefined,
         compactionNotice: serverState.compactionNotice as ServerAgentCompactionNotice | null | undefined,
         pendingToolApproval: serverState.pendingToolApproval as ServerAgentPendingToolApproval | null | undefined,
-        pendingAutoCompactApproval: serverState.pendingAutoCompactApproval as ServerAgentPendingAutoCompactApproval | null | undefined,
         persistDegraded: serverState.persistDegraded === true ? true : undefined,
         source: (serverState.source ?? config.source) as string | undefined,
         stateVersion: serverState.stateVersion as number | undefined,

@@ -1,4 +1,4 @@
-import { pendingApprovals, pendingAutoCompactApprovals } from './approval-store.mjs'
+import { pendingApprovals } from './approval-store.mjs'
 import { pendingAsks } from './ask-store.mjs'
 
 
@@ -25,26 +25,6 @@ export function rejectToolCall(sessionId, toolCallId) {
   }
   approval.resolve(false)
   return { rejected: true, toolCallId }
-}
-
-
-export function approveAutoCompact(sessionId, approvalId) {
-  const approval = pendingAutoCompactApprovals.get(approvalId)
-  if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending auto compact approval for this session'), { statusCode: 404 })
-  }
-  approval.resolve(true)
-  return { approved: true, approvalId }
-}
-
-
-export function rejectAutoCompact(sessionId, approvalId) {
-  const approval = pendingAutoCompactApprovals.get(approvalId)
-  if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending auto compact approval for this session'), { statusCode: 404 })
-  }
-  approval.resolve(false)
-  return { rejected: true, approvalId }
 }
 
 

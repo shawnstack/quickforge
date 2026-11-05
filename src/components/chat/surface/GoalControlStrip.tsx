@@ -29,7 +29,7 @@ import {
  * gone. Everything the panel used to hold is one click away in the inspector, so
  * the composer regains a tier of vertical space.
  *
- * Icon / text / color still have one job each (see goal-strip-icon-review.html):
+ * Icon / text / color still have one job each:
  * the glyph answers "what is this" and is always the product's goal identity icon
  * (`GoalIcon`, neutral gray), the word answers "what is happening now", and color
  * answers "does it need me" through `view.stateTone`.

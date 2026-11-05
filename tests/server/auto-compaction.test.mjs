@@ -8,23 +8,25 @@ import {
 } from '../../server/auto-compaction.mjs'
 
 describe('auto compact settings', () => {
-  it('defaults to enabled with confirmation and preserves explicit settings', () => {
+  it('defaults to enabled and preserves explicit settings', () => {
     expect(normalizeAutoCompactSettings(null)).toEqual(DEFAULT_AUTO_COMPACT_SETTINGS)
     expect(normalizeAutoCompactSettings({})).toEqual({
       enabled: true,
       thresholdPercent: 80,
-      requireConfirmation: true,
     })
-    expect(normalizeAutoCompactSettings({ enabled: false, thresholdPercent: 90, requireConfirmation: false })).toEqual({
+    expect(normalizeAutoCompactSettings({ enabled: false, thresholdPercent: 90 })).toEqual({
       enabled: false,
       thresholdPercent: 90,
-      requireConfirmation: false,
     })
     // 旧存储里的 keepRecentTurns 已随「压缩点锚定」移除：读取时直接丢弃。
     expect(normalizeAutoCompactSettings({ thresholdPercent: 85, keepRecentTurns: 7 })).toEqual({
       enabled: true,
       thresholdPercent: 85,
-      requireConfirmation: true,
+    })
+    // 旧存储里的 requireConfirmation 也在「压缩不再询问」后移除，同样丢弃。
+    expect(normalizeAutoCompactSettings({ thresholdPercent: 70, requireConfirmation: true })).toEqual({
+      enabled: true,
+      thresholdPercent: 70,
     })
   })
 })

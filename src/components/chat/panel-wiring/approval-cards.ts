@@ -7,10 +7,9 @@
  * the same session guards as before.
  *
  * Auto-compaction used to live here too (an `info`-toned approval card). It is a
- * React row inside the message list now — see
- * `surface/ContextCompactionDecisionRow` — because a decoration-owned card could
- * not be kept in sync with the server dropping the approval, and it scrolled the
- * list on its own.
+ * React row inside the message list now (`surface/ContextCompactionStatusRow`)
+ * because a decoration-owned card could not track the run's own phase, and it
+ * scrolled the list on its own. Compaction no longer asks for approval at all.
  *
  * Plain sync function (no React hooks): the host calls it from inside its
  * decorate pass.

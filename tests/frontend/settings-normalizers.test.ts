@@ -89,21 +89,17 @@ describe('settings normalizers', () => {
     expect(normalizeAutoCompactSettings({})).toEqual({
       enabled: true,
       thresholdPercent: 80,
-      requireConfirmation: true,
     })
-    expect(normalizeAutoCompactSettings({ enabled: false, requireConfirmation: false })).toEqual({
+    expect(normalizeAutoCompactSettings({ enabled: false })).toEqual({
       enabled: false,
       thresholdPercent: 80,
-      requireConfirmation: false,
     })
     expect(normalizeAutoCompactSettings({
       enabled: true,
       thresholdPercent: 99.7,
-      requireConfirmation: false,
     })).toEqual({
       enabled: true,
       thresholdPercent: 95,
-      requireConfirmation: false,
     })
     // Legacy `keepRecentTurns` / `minSourceChars` in stored settings are dropped
     // by the normalizer: the cut is anchored to the compaction point now.
@@ -119,11 +115,10 @@ describe('settings normalizers', () => {
     })
 
     await expect(loadAutoCompactSettings(storage)).resolves.toMatchObject({ thresholdPercent: 95 })
-    await saveAutoCompactSettings(storage, { enabled: true, thresholdPercent: 60.8, requireConfirmation: true })
+    await saveAutoCompactSettings(storage, { enabled: true, thresholdPercent: 60.8 })
     expect(values.get('auto-compact-settings')).toEqual({
       enabled: true,
       thresholdPercent: 61,
-      requireConfirmation: true,
     })
   })
 

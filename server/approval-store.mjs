@@ -1,10 +1,9 @@
 /**
  * Tool approval store — shared state and permission helpers.
  *
- * Manages the pending approval queues and command-tool permission checks.
- * The Promise-based approval functions (createApprovalPromise,
- * createAutoCompactApprovalPromise) remain in agent-manager.mjs because
- * they depend on the agent event buses.
+ * Manages the pending tool-approval queue and command-tool permission checks.
+ * The Promise-based approval functions (createApprovalPromise) remain in
+ * agent-manager.mjs because they depend on the agent event buses.
  */
 
 // ---------------------------------------------------------------------------
@@ -50,9 +49,6 @@ export const safeReadTools = new Set([
 /** toolCallId → { resolve, reject, sessionId, toolName, args, source, timeout, requestedAt, expiresAt } */
 export const pendingApprovals = new Map()
 
-/** approvalId → { resolve, reject, sessionId, timeout, usage, thresholdPercent, requestedAt, expiresAt } */
-export const pendingAutoCompactApprovals = new Map()
-
 export function getPendingApprovalForSession(sessionId) {
   for (const [toolCallId, approval] of pendingApprovals) {
     if (approval.sessionId === sessionId) {
@@ -61,21 +57,6 @@ export function getPendingApprovalForSession(sessionId) {
         toolName: approval.toolName,
         args: approval.args,
         source: approval.source,
-        requestedAt: approval.requestedAt,
-        expiresAt: approval.expiresAt,
-      }
-    }
-  }
-  return null
-}
-
-export function getPendingAutoCompactApprovalForSession(sessionId) {
-  for (const [approvalId, approval] of pendingAutoCompactApprovals) {
-    if (approval.sessionId === sessionId) {
-      return {
-        approvalId,
-        usage: approval.usage,
-        thresholdPercent: approval.thresholdPercent,
         requestedAt: approval.requestedAt,
         expiresAt: approval.expiresAt,
       }

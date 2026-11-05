@@ -37,7 +37,7 @@ const DEFAULT_VIEW_TAIL_MESSAGES = 200
  * - 不返回 `tools`：存储里没有工具定义，而工具卡的图标/label/摘要来自静态
  *   渲染器注册表（按 `toolCall.name` 查），不依赖 `state.tools`；缺失的只是
  *   MCP 卡片的应用期动态注册，运行时 attach 后由现有面板 effect 补齐。
- * - 不返回 `pendingToolApproval` / `pendingAsk` / `pendingAutoCompactApproval`：
+ * - 不返回 `pendingToolApproval` / `pendingAsk`：
  *   这些是进程内状态，历史会话本就没有；一旦 attach 由 `GET /state` 提供。
  * - 不改任何现有端点：`/state`、`/messages`、`/restore` 行为完全不变。
  */

@@ -5,16 +5,13 @@ import {
   commandToolPermissionError,
   createCommandToolPermissions,
   getPendingApprovalForSession,
-  getPendingAutoCompactApprovalForSession,
   pendingApprovals,
-  pendingAutoCompactApprovals,
   planAllowedTools,
   safeReadTools,
 } from '../../server/approval-store.mjs'
 
 afterEach(() => {
   pendingApprovals.clear()
-  pendingAutoCompactApprovals.clear()
 })
 
 describe('approval store constants', () => {
@@ -94,27 +91,6 @@ describe('pending approval queues', () => {
     expect(Object.keys(pending)).not.toContain('resolve')
     expect(Object.keys(pending)).not.toContain('reject')
     expect(getPendingApprovalForSession('session-2')).toBeNull()
-  })
-
-  it('returns a projection of the pending auto-compact approval for a session', () => {
-    pendingAutoCompactApprovals.set('approval-1', {
-      resolve: () => {},
-      reject: () => {},
-      sessionId: 'session-9',
-      usage: { totalTokens: 1234 },
-      thresholdPercent: 85,
-      requestedAt: 10,
-      expiresAt: 10 + APPROVAL_TIMEOUT_MS,
-    })
-
-    expect(getPendingAutoCompactApprovalForSession('session-9')).toEqual({
-      approvalId: 'approval-1',
-      usage: { totalTokens: 1234 },
-      thresholdPercent: 85,
-      requestedAt: 10,
-      expiresAt: 10 + APPROVAL_TIMEOUT_MS,
-    })
-    expect(getPendingAutoCompactApprovalForSession('missing')).toBeNull()
   })
 })
 

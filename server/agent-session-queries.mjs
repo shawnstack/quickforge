@@ -1,5 +1,5 @@
 import { agentSessions } from './agent-session-store.mjs'
-import { getPendingApprovalForSession, getPendingAutoCompactApprovalForSession } from './approval-store.mjs'
+import { getPendingApprovalForSession } from './approval-store.mjs'
 import { getPendingAskForSession } from './ask-store.mjs'
 import { messageLogVersion } from './message-log.mjs'
 
@@ -54,7 +54,6 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
       compactionNotice: session.compactionNotice ?? null,
       contextUsage: getSessionContextUsage(session),
       pendingToolApproval: getPendingApprovalForSession(session.sessionId),
-      pendingAutoCompactApproval: getPendingAutoCompactApprovalForSession(session.sessionId),
       pendingAsk: getPendingAskForSession(session.sessionId),
       isStreaming: session.abortPending ? false : session.agent.state.isStreaming,
       errorMessage: session.agent.state.errorMessage,

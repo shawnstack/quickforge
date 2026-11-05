@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { pendingAsks, clearAskQueues, ASK_QUEUE_MAX_WAITING } from '../../server/ask-store.mjs'
-import { APPROVAL_TIMEOUT_MS, pendingApprovals, pendingAutoCompactApprovals } from '../../server/approval-store.mjs'
+import { APPROVAL_TIMEOUT_MS, pendingApprovals } from '../../server/approval-store.mjs'
 
 const mocks = vi.hoisted(() => ({
   emitSessionEvent: vi.fn(),
@@ -23,7 +23,6 @@ vi.mock('../../server/goal/engine.mjs', () => ({
 const {
   createApprovalPromise,
   createAskUserPromise,
-  createAutoCompactApprovalPromise,
 } = await import('../../server/agent-approval-orchestrator.mjs')
 
 function makeSession(overrides = {}) {
@@ -46,7 +45,6 @@ afterEach(() => {
   vi.useRealTimers()
   vi.clearAllMocks()
   pendingApprovals.clear()
-  pendingAutoCompactApprovals.clear()
   pendingAsks.clear()
   clearAskQueues()
 })
@@ -417,110 +415,5 @@ describe('createAskUserPromise', () => {
     createAskUserPromise(first, 'call-a', { question: 'A?' })
     createAskUserPromise(second, 'call-b', { question: 'B?' })
     expect(pendingAsks.size).toBe(2)
-  })
-})
-
-describe('createAutoCompactApprovalPromise', () => {
-  function compactDetails() {
-    return {
-      usage: { totalTokens: 9000 },
-      settings: { thresholdPercent: 85 },
-    }
-  }
-
-  it('resolves unavailable without a session', async () => {
-    await expect(createAutoCompactApprovalPromise(null)).resolves.toBe('unavailable')
-    expect(pendingAutoCompactApprovals.size).toBe(0)
-  })
-
-  it('registers the approval with usage details and emits the required event', async () => {
-    const session = makeSession({ sessionId: 'session-3' })
-    const promise = createAutoCompactApprovalPromise(session, compactDetails())
-
-    expect(pendingAutoCompactApprovals.size).toBe(1)
-    const [approvalId, entry] = pendingAutoCompactApprovals.entries().next().value
-    expect(entry.sessionId).toBe('session-3')
-    expect(entry.usage).toEqual({ totalTokens: 9000 })
-    expect(entry.thresholdPercent).toBe(85)
-    expect(mocks.emitSessionEvent).toHaveBeenCalledWith(session, {
-      type: 'auto_compact_approval_required',
-      approvalId,
-      usage: { totalTokens: 9000 },
-      thresholdPercent: 85,
-    })
-
-    entry.resolve(true)
-    await expect(promise).resolves.toBe('approved')
-    expect(pendingAutoCompactApprovals.size).toBe(0)
-    // The client is told the approval is gone in the same frame the server drops
-    // it, so the decision row can never outlive the request.
-    expect(mocks.emitSessionEvent).toHaveBeenLastCalledWith(session, {
-      type: 'auto_compact_approval_settled',
-      approvalId,
-      outcome: 'decided',
-    })
-  })
-
-  it('resolves declined when the user declines and reports the outcome', async () => {
-    const session = makeSession()
-    const promise = createAutoCompactApprovalPromise(session, compactDetails())
-    const [approvalId, entry] = pendingAutoCompactApprovals.entries().next().value
-    entry.resolve(false)
-
-    await expect(promise).resolves.toBe('declined')
-    expect(pendingAutoCompactApprovals.size).toBe(0)
-    expect(mocks.emitSessionEvent).toHaveBeenLastCalledWith(session, {
-      type: 'auto_compact_approval_settled',
-      approvalId,
-      outcome: 'decided',
-    })
-  })
-
-  it('distinguishes a timeout from a decline so the client can drop the card', async () => {
-    const session = makeSession()
-    const promise = createAutoCompactApprovalPromise(session, compactDetails())
-    const [approvalId] = pendingAutoCompactApprovals.entries().next().value
-
-    await vi.advanceTimersByTimeAsync(APPROVAL_TIMEOUT_MS)
-    // Not `declined`: nobody answered, so the rejection suppression must not kick
-    // in, and the client must be told the request expired.
-    await expect(promise).resolves.toBe('timed_out')
-    expect(pendingAutoCompactApprovals.size).toBe(0)
-    expect(mocks.emitSessionEvent).toHaveBeenCalledTimes(2)
-    expect(mocks.emitSessionEvent).toHaveBeenLastCalledWith(session, {
-      type: 'auto_compact_approval_settled',
-      approvalId,
-      outcome: 'timed_out',
-    })
-  })
-
-  it('adopts the approval id the caller already published', async () => {
-    const session = makeSession()
-    const promise = createAutoCompactApprovalPromise(session, { ...compactDetails(), approvalId: 'preset-id' })
-
-    // The decision row renders from the published notice, so both sides must key
-    // off the same id or the approve/reject route cannot find the entry.
-    expect(pendingAutoCompactApprovals.has('preset-id')).toBe(true)
-    pendingAutoCompactApprovals.get('preset-id').resolve(true)
-    await expect(promise).resolves.toBe('approved')
-  })
-
-  it('rejects when the run aborts while the approval is pending', async () => {
-    const controller = new AbortController()
-    const session = makeSession({ agent: { signal: controller.signal } })
-    const promise = createAutoCompactApprovalPromise(session, compactDetails())
-
-    controller.abort()
-    await expect(promise).rejects.toThrow('Run aborted')
-    expect(pendingAutoCompactApprovals.size).toBe(0)
-  })
-
-  it('rejects immediately when the run is already aborted', async () => {
-    const controller = new AbortController()
-    controller.abort()
-    const session = makeSession({ agent: { signal: controller.signal } })
-    await expect(createAutoCompactApprovalPromise(session, compactDetails())).rejects.toThrow('Run aborted')
-    expect(pendingAutoCompactApprovals.size).toBe(0)
-    expect(mocks.emitSessionEvent).not.toHaveBeenCalled()
   })
 })

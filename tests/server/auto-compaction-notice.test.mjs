@@ -10,7 +10,6 @@ vi.mock('../../server/storage.mjs', () => ({
     'auto-compact-settings': {
       enabled: true,
       thresholdPercent: 50,
-      requireConfirmation: true,
     },
   })),
 }))
@@ -24,7 +23,6 @@ vi.mock('../../server/conversation-compaction.mjs', async (importOriginal) => {
 })
 
 const {
-  AUTO_COMPACT_DECISION,
   COMPACTION_NOTICE_PHASES,
   maybeAutoCompactSession,
 } = await import('../../server/auto-compaction.mjs')
@@ -33,10 +31,7 @@ function textMessage(role, size = 200) {
   return { role, content: [{ type: 'text', text: 'x'.repeat(size) }], timestamp: Date.now() }
 }
 
-/**
- * A session whose context is already over the 50% threshold, so every call
- * reaches the decision phase instead of returning `below_threshold`.
- */
+/** A session whose context is already over the 50% threshold. */
 function makeSession(overrides = {}) {
   return {
     sessionId: 'session-auto',
@@ -46,8 +41,6 @@ function makeSession(overrides = {}) {
     autoCompacting: false,
     compactionNotice: null,
     contextCompaction: null,
-    lastAutoCompactAt: null,
-    lastAutoCompactRejected: null,
     agent: {
       state: {
         systemPrompt: '',
@@ -71,6 +64,7 @@ function longHistory() {
   return messages
 }
 
+/** Only the notice frames, newest last, with `null` for "idle". */
 function noticeEvents(emitSessionEvent) {
   return emitSessionEvent.mock.calls
     .map(([, event]) => event)
@@ -78,126 +72,71 @@ function noticeEvents(emitSessionEvent) {
     .map((event) => event.compactionNotice ?? null)
 }
 
+function eventTypes(emitSessionEvent) {
+  return emitSessionEvent.mock.calls.map(([, event]) => event.type)
+}
+
 describe('maybeAutoCompactSession notice projection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('publishes awaiting_confirmation, then summarizing, then clears on success', async () => {
+  it('publishes summarizing, then clears it on success', async () => {
     const emitSessionEvent = vi.fn()
     const persistSession = vi.fn(async () => {})
     const session = makeSession()
-    const confirmAutoCompact = vi.fn(async () => AUTO_COMPACT_DECISION.APPROVED)
 
     const result = await maybeAutoCompactSession({
       session,
       messages: longHistory(),
       emitSessionEvent,
       persistSession,
-      confirmAutoCompact,
     })
 
     expect(result.compacted).toBe(true)
     const phases = noticeEvents(emitSessionEvent).map((notice) => notice?.phase ?? null)
-    // Every phase transition is published, and the last frame is `null`: the
-    // surface has no way to render a stale "summarizing" row afterwards.
-    expect(phases).toEqual([
-      COMPACTION_NOTICE_PHASES.AWAITING_CONFIRMATION,
-      null,
-      COMPACTION_NOTICE_PHASES.SUMMARIZING,
-      null,
-    ])
+    // Entering the phase and leaving it are both published; the last frame is
+    // `null`, so the surface has no way to render a stale "summarizing" row.
+    expect(phases).toEqual([COMPACTION_NOTICE_PHASES.SUMMARIZING, null])
     expect(session.compactionNotice).toBeNull()
-    // The notice carries the approval id the decision row must use.
-    const awaitNotice = noticeEvents(emitSessionEvent)[0]
-    expect(typeof awaitNotice.approvalId).toBe('string')
-    expect(awaitNotice.approvalId.length).toBeGreaterThan(0)
-    expect(awaitNotice.thresholdPercent).toBe(50)
   })
 
-  it('clears the notice and reports user_rejected when the user declines', async () => {
+  it('never asks for approval — no approval id, no approval events', async () => {
     const emitSessionEvent = vi.fn()
     const session = makeSession()
-    const confirmAutoCompact = vi.fn(async () => AUTO_COMPACT_DECISION.DECLINED)
 
-    const result = await maybeAutoCompactSession({
+    await maybeAutoCompactSession({
       session,
       messages: longHistory(),
       emitSessionEvent,
       persistSession: vi.fn(async () => {}),
-      confirmAutoCompact,
     })
 
-    expect(result).toMatchObject({ compacted: false, reason: 'user_rejected' })
-    expect(session.compactionNotice).toBeNull()
-    // A decline only skips this attempt; the next over-threshold request asks
-    // again (no rejection suppression anymore).
-    expect(session.lastAutoCompactRejected).toBeNull()
-    expect(noticeEvents(emitSessionEvent).at(-1)).toBeNull()
+    // Compaction is an internal detail: the transcript stays in the timeline, so
+    // it is never gated on a user decision.
+    const types = eventTypes(emitSessionEvent)
+    expect(types).not.toContain('auto_compact_approval_required')
+    expect(types).not.toContain('auto_compact_approval_settled')
+    const published = noticeEvents(emitSessionEvent).filter(Boolean)
+    expect(published).not.toHaveLength(0)
+    for (const notice of published) {
+      expect(notice).not.toHaveProperty('approvalId')
+    }
   })
 
-  it('does not treat a timeout as a user rejection', async () => {
-    const emitSessionEvent = vi.fn()
-    const session = makeSession()
-    const confirmAutoCompact = vi.fn(async () => AUTO_COMPACT_DECISION.TIMED_OUT)
-
-    const result = await maybeAutoCompactSession({
-      session,
-      messages: longHistory(),
-      emitSessionEvent,
-      persistSession: vi.fn(async () => {}),
-      confirmAutoCompact,
-    })
-
-    // The old contract collapsed timeout into `false`, which used to suppress
-    // the next attempt; timeouts and declines are both remembered as nothing.
-    expect(result).toMatchObject({ compacted: false, reason: 'confirmation_timeout' })
-    expect(session.lastAutoCompactRejected).toBeNull()
-    expect(session.compactionNotice).toBeNull()
-  })
-
-  it('keeps the render path quiet when there is no approval channel', async () => {
+  it('stays silent below the threshold', async () => {
     const emitSessionEvent = vi.fn()
     const session = makeSession()
 
     const result = await maybeAutoCompactSession({
       session,
-      messages: longHistory(),
+      messages: [textMessage('user', 4), textMessage('assistant', 4)],
       emitSessionEvent,
       persistSession: vi.fn(async () => {}),
-      confirmAutoCompact: undefined,
     })
 
-    expect(result).toMatchObject({ compacted: false, reason: 'confirmation_unavailable' })
-    expect(session.compactionNotice).toBeNull()
-    // Awaiting is published and immediately retracted; no summarizing frame and
-    // no dangling row.
-    expect(noticeEvents(emitSessionEvent)).toEqual([
-      expect.objectContaining({ phase: COMPACTION_NOTICE_PHASES.AWAITING_CONFIRMATION }),
-      null,
-    ])
-  })
-
-  it('clears the notice when confirmation is cancelled by an abort', async () => {
-    const emitSessionEvent = vi.fn()
-    const session = makeSession()
-    // Aborted runs reject the approval promise (see agent-approval-orchestrator).
-    const confirmAutoCompact = vi.fn(async () => {
-      throw new Error('Run aborted')
-    })
-
-    const result = await maybeAutoCompactSession({
-      session,
-      messages: longHistory(),
-      emitSessionEvent,
-      persistSession: vi.fn(async () => {}),
-      confirmAutoCompact,
-    })
-
-    expect(result.compacted).toBe(false)
-    expect(session.compactionNotice).toBeNull()
-    // Cancellation is not a compaction failure: no `auto_compact_failed` frame.
-    expect(emitSessionEvent.mock.calls.map(([, event]) => event.type)).not.toContain('auto_compact_failed')
+    expect(result).toMatchObject({ compacted: false, reason: 'below_threshold' })
+    expect(noticeEvents(emitSessionEvent)).toEqual([])
   })
 
   it('clears the notice when summarizing throws and reports auto_compact_failed', async () => {
@@ -211,30 +150,35 @@ describe('maybeAutoCompactSession notice projection', () => {
       messages: longHistory(),
       emitSessionEvent,
       persistSession: vi.fn(async () => {}),
-      confirmAutoCompact: vi.fn(async () => AUTO_COMPACT_DECISION.APPROVED),
     })
 
     expect(result).toMatchObject({ compacted: false, reason: 'error' })
     expect(session.compactionNotice).toBeNull()
-    expect(emitSessionEvent.mock.calls.map(([, event]) => event.type)).toContain('auto_compact_failed')
+    // Failed is deliberately not a server-owned phase: the surface renders it
+    // ephemerally from the event, so the projection can never stay stale.
+    expect(noticeEvents(emitSessionEvent).at(-1)).toBeNull()
+    expect(eventTypes(emitSessionEvent)).toContain('auto_compact_failed')
   })
 
-  it('skips confirmation entirely when requireConfirmation is off', async () => {
+  it('does not compact again when nothing new arrived since the last compaction', async () => {
     const emitSessionEvent = vi.fn()
-    const session = makeSession()
-    const confirmAutoCompact = vi.fn()
-
-    await maybeAutoCompactSession({
-      session,
-      messages: longHistory(),
-      emitSessionEvent,
-      persistSession: vi.fn(async () => {}),
-      confirmAutoCompact,
+    const messages = longHistory()
+    const session = makeSession({
+      contextCompaction: {
+        summaryMessage: textMessage('user'),
+        compactedAt: new Date(Date.now() + 60_000).toISOString(),
+        sourceMessageCount: messages.length + 10,
+      },
     })
 
-    // The setting is read from the mocked store above; flipping it requires a
-    // fresh module, so this test documents the default (true) path only.
-    expect(confirmAutoCompact).toHaveBeenCalledTimes(1)
-    expect(noticeEvents(emitSessionEvent)[0]).toMatchObject({ phase: COMPACTION_NOTICE_PHASES.AWAITING_CONFIRMATION })
+    const result = await maybeAutoCompactSession({
+      session,
+      messages,
+      emitSessionEvent,
+      persistSession: vi.fn(async () => {}),
+    })
+
+    expect(result).toMatchObject({ compacted: false })
+    expect(noticeEvents(emitSessionEvent)).toEqual([])
   })
 })

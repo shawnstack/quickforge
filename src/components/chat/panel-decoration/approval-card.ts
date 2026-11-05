@@ -372,8 +372,8 @@ export function injectApprovalCard(
 
   // Tool approval cards anchor to the message list. (The auto-compact card used
   // to land here too, with a kept-turn boundary lookup and a forced
-  // `scrollIntoView`; both are gone — that decision is a React row inside the
-  // list now, see `surface/ContextCompactionDecisionRow`.)
+  // `scrollIntoView`; both are gone — that row is React-owned inside the list
+  // now, see `surface/ContextCompactionStatusRow`.)
   const messageList = panel.querySelector('.qf-message-list')
   if (messageList) {
     messageList.append(card)

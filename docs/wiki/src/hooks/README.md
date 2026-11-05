@@ -27,7 +27,7 @@
 | [useSidebarOrdering.ts](../../../../src/hooks/useSidebarOrdering.ts) | 23 | 侧栏「区块顺序 + 视图/排序模式」兼容层（状态在 `src/stores/sidebar-ordering-store.ts`，localStorage 持久化），桌面/移动两处 `ChatSidebar` 共享（组件已直连订阅） |
 | [useProjectExternalOpen.ts](../../../../src/hooks/useProjectExternalOpen.ts) | 67 | 「在资源管理器 / VS Code / IDEA 中打开项目」：裸请求 + 带 alert 反馈的两层封装 |
 | [useDesktopTitlebarMenu.ts](../../../../src/hooks/useDesktopTitlebarMenu.ts) | 41 | 桌面标题栏菜单（关于 / 检查更新 / 退出）开合状态与动作，点击外部/失焦自动收起 |
-| [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 74 | 工具审批 / ask_user 应答 / auto-compact 审批统一出口（走当前 agent，失败统一抛错）；auto-compact 的批准/拒绝由 `ChatPanelHost` 传入 `ChatSurface`，绑定在 React 决策行上 |
+| [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 58 | 工具审批 / ask_user 应答统一出口（走当前 agent，失败统一抛错）；自动上下文压缩不再需要审批，对应 handler 已删除 |
 | [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
 | [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 101 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |
 | [usePinnedSummaryModel.ts](../../../../src/hooks/usePinnedSummaryModel.ts) | 126 | 置顶摘要 view-model：从 agent 快照派生 Todo/Subagent/后台命令/Goal，内部订阅相关 Agent 事件递增 revision，并同步 Goal UI store；ACP 会话排除 Goal，`invalidate()` 供 Goal 动作后强制刷新 |

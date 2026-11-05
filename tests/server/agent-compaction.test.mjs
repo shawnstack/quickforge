@@ -95,8 +95,6 @@ function makeSession(overrides = {}) {
       },
     },
     contextCompaction: null,
-    lastAutoCompactAt: null,
-    lastAutoCompactRejected: null,
     lastTransformedContextMessages: null,
     autoCompacting: false,
     ...overrides,
@@ -130,8 +128,6 @@ describe('resetSessionCompaction', () => {
   it('clears all compaction-related session state', () => {
     const session = makeSession({
       contextCompaction: { summaryMessage: textMessage('user', 'summary') },
-      lastAutoCompactAt: '2024-01-01T00:00:00.000Z',
-      lastAutoCompactRejected: '2024-01-01T00:00:00.000Z',
       lastTransformedContextMessages: [],
       autoCompacting: true,
     })
@@ -139,8 +135,6 @@ describe('resetSessionCompaction', () => {
     resetSessionCompaction(session)
 
     expect(session.contextCompaction).toBeNull()
-    expect(session.lastAutoCompactAt).toBeNull()
-    expect(session.lastAutoCompactRejected).toBeNull()
     expect(session.lastTransformedContextMessages).toBeNull()
     expect(session.autoCompacting).toBe(false)
   })
@@ -404,7 +398,6 @@ describe('clearSession', () => {
       titleSource: 'ai',
       titleGenerationId: 2,
       contextCompaction: { summaryMessage: textMessage('user', 'summary') },
-      lastAutoCompactAt: '2024-01-01T00:00:00.000Z',
       autoCompacting: true,
     })
     session.agent.state.messages = [textMessage('user', 'u1'), textMessage('assistant', 'a1')]
@@ -413,7 +406,6 @@ describe('clearSession', () => {
 
     expect(session.agent.state.messages).toEqual([])
     expect(session.contextCompaction).toBeNull()
-    expect(session.lastAutoCompactAt).toBeNull()
     expect(session.autoCompacting).toBe(false)
     expect(session.status).toBe('idle')
     expect(session.startedAt).toBeNull()

@@ -1,5 +1,5 @@
-// agent-manager 模块拆分（agent-manager-module-split）：工具审批 / ask_user /
-// 自动压缩审批三类 Promise 编排从 agent-manager.mjs 逐字符搬移至此；
+// agent-manager 模块拆分（agent-manager-module-split）：工具审批 / ask_user
+// 两类 Promise 编排从 agent-manager.mjs 逐字符搬移至此；
 // 行为与注释语义保持不变。
 
 import { randomUUID } from 'node:crypto'
@@ -7,7 +7,6 @@ import { emitSessionEvent } from './agent-session-events.mjs'
 import {
   APPROVAL_TIMEOUT_MS,
   pendingApprovals,
-  pendingAutoCompactApprovals,
 } from './approval-store.mjs'
 import {
   ASK_TIMEOUT_MS,
@@ -214,119 +213,5 @@ function activateAsk(session, toolCallId, questions) {
       questions,
     })
     void notifyGoalAskRequested(session)
-  })
-}
-
-/**
- * Auto-compact confirmation promise.
- *
- * Resolves an `AUTO_COMPACT_DECISION` instead of a boolean so the caller can
- * distinguish "user said no" (skip this attempt; next over-threshold request asks again) from "nobody answered"
- * (drop the card, do not suppress) and "no channel" (server misconfiguration).
- *
- * Every terminal path emits `auto_compact_approval_settled`. The timeout path
- * previously removed the server-side entry silently, which is what left a dead
- * approval card on screen: the client kept rendering it because nothing told it
- * the request was gone, and the next click could only return 404. With a settled
- * event the client drops the notice in the same frame the server drops the entry.
- */
-export function createAutoCompactApprovalPromise(session, details = {}) {
-  if (!session) return Promise.resolve('unavailable')
-  // The caller publishes the notice (and therefore the approval id) before the
-  // promise is created, so the row the user sees and the entry this promise
-  // registers are keyed by the same id. Defaulting keeps the standalone use
-  // (tests, future callers) working unchanged.
-  const approvalId = typeof details.approvalId === 'string' && details.approvalId
-    ? details.approvalId
-    : randomUUID()
-  return new Promise((resolve, reject) => {
-    let settled = false
-    // Whether the client was ever told about this approval. A run that aborts
-    // before `auto_compact_approval_required` was emitted has nothing to retract,
-    // so no settled event is emitted for it (an unmatched "settled" frame would
-    // just be noise on the SSE stream).
-    let announced = false
-    const requestedAt = Date.now()
-    const expiresAt = requestedAt + APPROVAL_TIMEOUT_MS
-
-    const publishSettled = (outcome) => {
-      if (!announced) return
-      emitSessionEvent(session, {
-        type: 'auto_compact_approval_settled',
-        approvalId,
-        outcome,
-      })
-    }
-
-    const settle = (outcome, decision) => {
-      // `settled` guards double-settlement (timeout racing a click, abort racing
-      // a timeout). The event is emitted exactly once, before the promise
-      // resolves, so listeners observe the state change before the run resumes.
-      if (settled) return
-      settled = true
-      pendingAutoCompactApprovals.delete(approvalId)
-      publishSettled(outcome)
-      resolve(decision)
-    }
-
-    const fail = (error, outcome = 'cancelled') => {
-      if (settled) return
-      settled = true
-      pendingAutoCompactApprovals.delete(approvalId)
-      publishSettled(outcome)
-      reject(error)
-    }
-
-    const timeout = setTimeout(() => {
-      settle('timed_out', 'timed_out')
-    }, APPROVAL_TIMEOUT_MS)
-
-    let onAbort = null
-
-    const cleanup = () => {
-      clearTimeout(timeout)
-      if (onAbort) {
-        session.agent.signal?.removeEventListener('abort', onAbort)
-        onAbort = null
-      }
-    }
-
-    const signal = session.agent.signal
-    if (signal) {
-      if (signal.aborted) {
-        cleanup()
-        fail(new Error('Run aborted'))
-        return
-      }
-      onAbort = () => {
-        cleanup()
-        fail(new Error('Run aborted'))
-      }
-      signal.addEventListener('abort', onAbort, { once: true })
-    }
-
-    pendingAutoCompactApprovals.set(approvalId, {
-      resolve: (approved) => {
-        cleanup()
-        settle('decided', approved === true ? 'approved' : 'declined')
-      },
-      reject: (err) => {
-        cleanup()
-        fail(err)
-      },
-      sessionId: session.sessionId,
-      usage: details.usage,
-      thresholdPercent: details.settings?.thresholdPercent,
-      requestedAt,
-      expiresAt,
-    })
-
-    announced = true
-    emitSessionEvent(session, {
-      type: 'auto_compact_approval_required',
-      approvalId,
-      usage: details.usage,
-      thresholdPercent: details.settings?.thresholdPercent,
-    })
   })
 }

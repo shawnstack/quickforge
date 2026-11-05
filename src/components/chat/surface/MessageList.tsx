@@ -9,7 +9,6 @@ import { createRenderKeyIndex } from './render-key-index'
 import { CompactionMessage } from './CompactionMessage'
 import { isCompactionMessage } from './compaction-message'
 import { ContextCompactionStatusRow } from './ContextCompactionStatusRow'
-import { ContextCompactionDecisionRow } from './ContextCompactionDecisionRow'
 import { AssistantWaitingBubble } from './AssistantWaitingBubble'
 import { t } from '@/lib/i18n'
 import type { ServerAgentCompactionNotice } from '@/lib/server-agent'
@@ -80,13 +79,6 @@ type MessageListProps = {
    * belongs after everything produced so far. Absent/null renders nothing.
    */
   compactionNotice?: ServerAgentCompactionNotice | null
-  /** Callbacks for the blocking compaction decision row (approval id is bound by the list). */
-  onApproveCompaction?: (approvalId: string) => void
-  onRejectCompaction?: (approvalId: string) => void
-  compactionDecisionReadOnly?: boolean
-  compactionDecisionDisabledReason?: string
-  compactionApprovePending?: boolean
-  compactionRejectPending?: boolean
 }
 
 /** Build the toolCallId → toolResult lookup used for inline rendering. */
@@ -103,7 +95,7 @@ export function collectToolResultsById(messages: AgentMessage[]): Map<string, To
 /** Messages the list renders standalone (artifact/toolResult are excluded). */
 type RenderableMessage = Extract<AgentMessage, { role: 'user' | 'user-with-attachments' | 'assistant' }>
 
-export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false, assistantWaitingRow, compactionNotice = null, onApproveCompaction, onRejectCompaction, compactionDecisionReadOnly = false, compactionDecisionDisabledReason, compactionApprovePending = false, compactionRejectPending = false }: MessageListProps) {
+export function MessageList({ messages, messageIndexOffset = 0, tools, pendingToolCalls, streamingAssistant, onCostClick, persistDegraded = false, assistantWaitingRow, compactionNotice = null }: MessageListProps) {
   const listRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const elements = listRef.current?.querySelectorAll<HTMLElement>(':scope > .qf-user-message, :scope > .qf-assistant-message')
@@ -216,31 +208,12 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
   }
 
   // Compaction UI is the list's trailing content, after every message row: the
-  // summarization/decision happens inside the turn the user is watching, so the
-  // row belongs where the run is, not anchored to an earlier boundary. Both
-  // components return null when idle, which keeps the child sequence identical
-  // to the pre-existing markup in the common case.
+  // summarization happens inside the turn the user is watching, so the row
+  // belongs where the run is, not anchored to an earlier boundary. The row
+  // returns null when idle, which keeps the child sequence identical to the
+  // pre-existing markup in the common case.
   const compactionTrailing = compactionNotice ? (
-    <>
-      <ContextCompactionDecisionRow
-        key="quickforge-context-compaction-decision"
-        notice={compactionNotice}
-        readOnly={compactionDecisionReadOnly}
-        disabledReason={compactionDecisionDisabledReason}
-        approvePending={compactionApprovePending}
-        rejectPending={compactionRejectPending}
-        // Bind the approval id here, where the notice is in scope: the callbacks
-        // stay id-less in the prop chain so nothing downstream has to re-derive
-        // which approval the visible row belongs to.
-        onApprove={onApproveCompaction && compactionNotice.approvalId
-          ? () => onApproveCompaction(compactionNotice.approvalId as string)
-          : undefined}
-        onReject={onRejectCompaction && compactionNotice.approvalId
-          ? () => onRejectCompaction(compactionNotice.approvalId as string)
-          : undefined}
-      />
-      <ContextCompactionStatusRow key="quickforge-context-compaction-status" notice={compactionNotice} />
-    </>
+    <ContextCompactionStatusRow key="quickforge-context-compaction-status" notice={compactionNotice} />
   ) : null
 
   return (

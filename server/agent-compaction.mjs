@@ -32,8 +32,6 @@ import { persistSession } from './agent-persistence.mjs'
 
 export function resetSessionCompaction(session) {
   session.contextCompaction = null
-  session.lastAutoCompactAt = null
-  session.lastAutoCompactRejected = null
   session.lastTransformedContextMessages = null
   session.autoCompacting = false
   // A rolled-back / cleared session must not keep a notice about history that no

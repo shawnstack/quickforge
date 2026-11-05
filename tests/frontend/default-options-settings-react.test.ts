@@ -31,7 +31,7 @@ vi.mock('@/lib/tool-display-settings', () => ({
   saveToolDisplaySettings: settings.saveToolDisplay,
 }))
 vi.mock('@/lib/auto-compact-settings', () => ({
-  loadAutoCompactSettings: async () => ({ enabled: true, requireConfirmation: false, thresholdPercent: 90 }),
+  loadAutoCompactSettings: async () => ({ enabled: true, thresholdPercent: 90 }),
   saveAutoCompactSettings: settings.saveAutoCompact,
 }))
 vi.mock('@/lib/goal-settings', () => ({ loadGoalSettings: async () => ({ maxIterations: 20 }), saveGoalSettings: vi.fn() }))
@@ -112,7 +112,7 @@ describe('React default options notification persistence', () => {
     settingsSwitch('showContextUsage').props.onChange!(true)
     expect(settings.saveToolDisplay).toHaveBeenCalledWith({}, { toolDisplayMode: 'detailed', showContextUsage: true })
     settingsSwitch('autoCompactEnabled').props.onChange!(false)
-    expect(settings.saveAutoCompact).toHaveBeenCalledWith({}, { enabled: false, requireConfirmation: false, thresholdPercent: 90 })
+    expect(settings.saveAutoCompact).toHaveBeenCalledWith({}, { enabled: false, thresholdPercent: 90 })
   })
 
   it('no longer renders the retired expand-process-stage-default switch', async () => {

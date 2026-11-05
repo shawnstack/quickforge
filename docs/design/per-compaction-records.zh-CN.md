@@ -1,7 +1,7 @@
 # 压缩记录：每次压缩都留过程，UI 不动
 
 > 设计稿 · 2026-11-02 · 已落地
-> 关联：`docs/design/compaction-anchor-preview.html`（方案 B：线在压缩发生点）、`docs/wiki/server/README.md`（auto-compaction 条目）
+> 关联：`docs/wiki/server/README.md`（auto-compaction 条目；当前契约以它为准）
 
 ## 1. 目标（用户裁定）
 

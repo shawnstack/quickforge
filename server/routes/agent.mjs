@@ -33,8 +33,6 @@ import {
   approveToolCall,
   rejectToolCall,
   answerAsk,
-  approveAutoCompact,
-  rejectAutoCompact,
   abortToolCall,
   rollbackSessionMessages,
   isSessionFileRollbackBusy,
@@ -610,22 +608,6 @@ export async function handleAgentApi(req, res, url, context = {}) {
   if (req.method === 'POST' && subPath === 'answer-ask') {
     const body = await readJsonBody(req)
     const result = answerAsk(sessionId, body?.askId, { answers: body?.answers, skipped: body?.skipped === true, remark: body?.remark })
-    sendJson(res, 200, result)
-    return
-  }
-
-  // POST /api/agents/:sessionId/approve-auto-compact — approve a pending automatic context compaction
-  if (req.method === 'POST' && subPath === 'approve-auto-compact') {
-    const body = await readJsonBody(req)
-    const result = approveAutoCompact(sessionId, body?.approvalId)
-    sendJson(res, 200, result)
-    return
-  }
-
-  // POST /api/agents/:sessionId/reject-auto-compact — skip a pending automatic context compaction
-  if (req.method === 'POST' && subPath === 'reject-auto-compact') {
-    const body = await readJsonBody(req)
-    const result = rejectAutoCompact(sessionId, body?.approvalId)
     sendJson(res, 200, result)
     return
   }

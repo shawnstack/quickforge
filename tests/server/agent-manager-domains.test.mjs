@@ -1,14 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as manager from '../../server/agent-manager.mjs'
 import { agentSessions } from '../../server/agent-session-store.mjs'
-import { pendingApprovals, pendingAutoCompactApprovals } from '../../server/approval-store.mjs'
+import { pendingApprovals } from '../../server/approval-store.mjs'
 import { pendingAsks } from '../../server/ask-store.mjs'
 import { normalizeAccessMode, yoloModeFromAccessMode } from '../../server/agent-access-mode.mjs'
 
 const id = 'manager-domains-fixture'
 const toolId = `${id}-tool`
 const askId = `${id}-ask`
-const compactId = `${id}-compact`
 
 function session() {
   const value = {
@@ -24,7 +23,6 @@ function session() {
 afterEach(() => {
   agentSessions.delete(id)
   pendingApprovals.delete(toolId)
-  pendingAutoCompactApprovals.delete(compactId)
   pendingAsks.delete(askId)
 })
 
@@ -80,13 +78,11 @@ describe('agent manager domain contracts before and after extraction', () => {
   it('projects pending queues into state without exposing resolvers', () => {
     session()
     pendingApprovals.set(toolId, { sessionId: id, toolName: 'edit_file', args: {}, resolve: vi.fn() })
-    pendingAutoCompactApprovals.set(compactId, { sessionId: id, usage: { percent: 90 } })
     pendingAsks.set(askId, { sessionId: id, questions: [{ question: '?' }], finish: vi.fn() })
     const state = manager.getSessionState(id)
     expect(state).toMatchObject({ sessionId: id, messageStorage: 'split', stateVersion: 3, persistDegraded: true })
     expect(state.pendingToolApproval).toMatchObject({ toolCallId: toolId, toolName: 'edit_file' })
     expect(state.pendingToolApproval).not.toHaveProperty('resolve')
-    expect(state.pendingAutoCompactApproval.approvalId).toBe(compactId)
     expect(state.pendingAsk.askId).toBe(askId)
     expect(state.pendingAsk).not.toHaveProperty('finish')
     expect(manager.isSessionFileRollbackBusy(id)).toBe(true)
@@ -95,8 +91,6 @@ describe('agent manager domain contracts before and after extraction', () => {
   it.each([
     ['approveToolCall', pendingApprovals, toolId, true, 'No pending approval for this tool call'],
     ['rejectToolCall', pendingApprovals, toolId, false, 'No pending approval for this tool call'],
-    ['approveAutoCompact', pendingAutoCompactApprovals, compactId, true, 'No pending auto compact approval for this session'],
-    ['rejectAutoCompact', pendingAutoCompactApprovals, compactId, false, 'No pending auto compact approval for this session'],
   ])('%s resolves only the matching session and keeps exact errors', (name, store, key, approved, message) => {
     const resolve = vi.fn()
     store.set(key, { sessionId: id, resolve })
@@ -104,7 +98,7 @@ describe('agent manager domain contracts before and after extraction', () => {
     expect(resolve).not.toHaveBeenCalled()
     const result = manager[name](id, key)
     expect(resolve).toHaveBeenCalledWith(approved)
-    expect(result).toEqual({ [approved ? 'approved' : 'rejected']: true, [store === pendingApprovals ? 'toolCallId' : 'approvalId']: key })
+    expect(result).toEqual({ [approved ? 'approved' : 'rejected']: true, toolCallId: key })
     store.delete(key)
     expect(() => manager[name](id, key)).toThrow(expect.objectContaining({ message, statusCode: 404 }))
   })

@@ -1812,3 +1812,27 @@
   - 跳过写入时旧图标继续沿用，`DisplayIcon` 仍指向存在的文件；只有被占用的那一刻不更新图标，属于可接受降级。
   - 上游模板升级若改了 `!ifdef UNINSTALLER_ICON` 块，`apply.mjs` 会明确报错而不是静默跳过。
   - 未创建 Git commit；`desktop-dist` 由构建生成（`.gitignore` 已忽略），未手工修改生成产物。
+
+## compaction-without-approval（done，2026-11-05）
+
+- Goal：用户在评审后判断「压缩直接执行就行，不需要用户同意」，要求把自动上下文压缩的审批整条链删掉；明确不要节流、不要拒绝抑制、不要「整理中取消」，`/compact` 手动命令保留，其他改造（待办队列、暂停续跑）先不做。
+- 结论（一句话）：压缩不删除任何历史（完整 transcript 仍在 `messages` 与界面里，缩小的只是发给模型的上下文），所以它不属于「需要授权」的动作——把它当审批处理，等于让用户批准一个他无法评估的决定，还会把一次回答卡住最长 5 分钟。
+- 改动要点：
+  1. `COMPACTION_NOTICE_PHASES` 只剩 `summarizing`；`maybeAutoCompactSession` 过阈值后直接进摘要阶段，`awaiting_confirmation` 与整段审批等待删除。
+  2. 服务端删除：`AUTO_COMPACT_DECISION` / `normalizeDecision` / `confirmAutoCompact` 参数、`pendingAutoCompactApprovals` 队列、`createAutoCompactApprovalPromise()`、`approve-auto-compact` / `reject-auto-compact` 两个路由与对应导出、`getPendingAutoCompactApprovalForSession`、`getSessionState().pendingAutoCompactApproval` 投影、`lastAutoCompactAt` / `lastAutoCompactRejected`（只写不读）。
+  3. 设置：`requireConfirmation` 从前端与服务端 normalizer 一起删，设置页那一行开关同步移除——**留一个不起作用的开关比没有更糟**；旧存储里的值读取时丢弃。
+  4. 前端删除：`ContextCompactionDecisionRow` 整个组件、`onApproveCompaction` / `onRejectCompaction` / `compactionDecisionReadOnly` / `compactionDecisionDisabledReason` / `compactionApprovePending` / `compactionRejectPending` 整条 props 链、`pendingAutoCompactApproval` 状态与 6 处清理分支、`useAgentApprovalActions` 的两个 handler、SSE 白名单与订阅里的两个 approval 事件、i18n 9 个审批文案（中英各 9）。
+  5. 压缩期间只显示「正在整理上下文」；不可单独取消（要停就停整个 run）。
+- 验证：
+  - 定向：压缩相关 10 个测试文件 78 例全过；`npx tsc -p tsconfig.app.json --noEmit` 通过。
+  - `npm run lint` → 0 problems；`npm run build` → 通过。
+  - `npm run test` → 502 files / 5536 passed / 3 failed / 1 skipped（3 个失败为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）。
+- Notes / 已知取舍：
+  - 不做节流：用户明确否掉。滚动压缩每次只喂「上一版摘要 + 增量」，输入很小、输出 4k 封顶，为「压缩后仍超阈值」的病态配置加状态属于过度设计；真出现时再从日志看出来。
+  - 代价：删掉确认等于删掉唯一的人肉刹车，理论上病态配置下可能每步都压一次（多一次小请求）。这是接受的。
+  - 设计稿清理（用户要求「和当前不一致的全部可以删除，临时 html 之类，不影响代码就行」）：
+    - 删除 `docs/design/` 下**全部 31 份 html**。它们是设计阶段的可交互 mockup / 提案 / 前后对比稿（标题多为「预览」「原型」「提案」「评审」「修复前后」），落地后不再随实现更新，必然过时。其中 `compaction-as-message.html` 已先行核对出 6 处与最终实现冲突（插入点写「当前回合之前」而实现在压缩发生点末尾、`splice(tailStart,0,msg)` 而实现是 append、details 列 6 个字段而实现只写 `{version,kind}`、history「上限 20 条」而实际不设上限、落地计划含未做的幂等迁移与删 history、演示段还留着审批行）。
+    - 只保留 `docs/design/per-compaction-records.zh-CN.md`（文字契约，与实现一致：history 不设上限、UI 不动、details 只有 `{version,kind}`）。
+    - 同步清理 5 处指向已删文件的引用，避免死链：`docs/wiki/src/components/README.md`（goal 图标评审那句改成「评审结论已并入本节」）、`docs/architecture/conversation-trace.zh-CN.md`（删掉「交互原型」表格行）、`src/components/chat/panel-decoration/icons.ts` 与 `src/components/chat/surface/GoalControlStrip.tsx`（注释去掉文件名，说明本身保留）、`docs/design/per-compaction-records.zh-CN.md`（关联链接改为只指向 wiki）。
+    - 历史日志（`progress.md` / `session-handoff.md` / `feature_list.json` 的旧 feature）里仍会出现这些路径——那是「当时改过什么」的时间线，不改写。
+  - 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。

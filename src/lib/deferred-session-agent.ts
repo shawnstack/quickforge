@@ -217,14 +217,6 @@ export class DeferredSessionAgent {
     throw new Error('No pending tool call')
   }
 
-  async approveAutoCompact(): Promise<never> {
-    throw new Error('No pending auto compact request')
-  }
-
-  async rejectAutoCompact(): Promise<never> {
-    throw new Error('No pending auto compact request')
-  }
-
   async updateAccessMode(accessMode: AgentAccessMode): Promise<void> {
     const normalized = normalizeAgentAccessMode(accessMode)
     this.state.accessMode = normalized

@@ -24,6 +24,7 @@
   - `dreaming_note_stats` 表保留未迁移，已无写入方；如需彻底清掉，要加一条 v20 迁移。
   - 运行中的老进程需重启 QuickForge 才会重建 system prompt（新经验要等新会话才进索引）。
   - 未新增依赖；未触碰 dist/package-dist/package-offline；未提交 Git。
+  - 2026-11-05 追加：用户要求「设置 → 用户记忆」不要有梦境记忆的跳转，已删掉 `memoryExperiencesNote` 中英文末尾那句「可在「设置 → 梦境记忆」里查看」。只改 `src/lib/i18n.ts` 一条文案（定向 vitest 23 passed + lint 0 problems），详情见 `progress.md` 的 `memory-experiences-note-no-dreaming-link`。
 - Next Session（下一步）:
   1. 重启 QuickForge，打开设置 → 梦境记忆，确认「经验库」页签能看到那 2 条经验、生成的索引预览正确。
   2. 手动点一次「立即处理」，看逐会话报告与 `~/.quickforge/dreaming-snapshots/` 是否按需生成。

@@ -1,6 +1,17 @@
 {
   "features": [
     {
+      "id": "memory-experiences-note-no-dreaming-link",
+      "title": "用户记忆页去掉指向梦境记忆的跳转文案",
+      "status": "done",
+      "summary": "用户要求「设置 → 用户记忆」里不再出现跳去梦境记忆的指引。memoryExperiencesNote 中英文都删掉末尾那句「可在「设置 → 梦境记忆」里查看」/「open Settings → Dreaming to read them」，只保留经验库路径、注入方式和「由后台任务维护、不在此处编辑」。经验库自己的入口就在梦境记忆页里，这句话不必再指一次路。",
+      "files": [
+        "src/lib/i18n.ts"
+      ],
+      "verification": "npx vitest run tests/frontend/i18n-language-snapshot.test.ts tests/frontend/settings-workspace-react.test.ts -> 2 files / 23 passed; npm run lint -> 0 problems",
+      "updatedAt": "2026-11-05"
+    },
+    {
       "id": "memory-system-experience-library",
       "title": "记忆体系重构：工作记忆 + 全局经验库（index.md 渐进式披露），梦境改为逐会话 agent 整理",
       "status": "done",

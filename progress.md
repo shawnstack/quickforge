@@ -2,6 +2,14 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## memory-experiences-note-no-dreaming-link（done，2026-11-05）
+
+- 反馈：「设置 → 用户记忆不要有梦境记忆的跳转」。
+- 改动：只动文案。`memoryExperiencesNote`（中英各一条）删掉末尾的「可在「设置 → 梦境记忆」里查看」/「open Settings → Dreaming to read them」，其余保留——经验库在 `~/.quickforge/experiences/`、以索引形式随本文件注入、由后台任务维护、不在此处编辑。
+- Files（改动文件）: src/lib/i18n.ts、feature_list.json、progress.md、session-handoff.md。
+- 验证：定向 vitest `tests/frontend/i18n-language-snapshot.test.ts` + `tests/frontend/settings-workspace-react.test.ts` 23 passed；`npm run lint` 0 problems。纯文案改动，未跑全量 test/build。
+- Notes：`hasExperiences` 为真时才显示这句（`MemorySettingsTab.tsx`），逻辑未动；梦境记忆页自身仍保留「经验库」页签作为唯一入口。未新增依赖；未触碰生成产物；未提交。
+
 ## memory-system-experience-library（done，2026-11-05）
 
 - Goal：定时任务机制不变，但梦境改成「专门整理工作记忆 + 结合会话沉淀经验」。经验无需人审（纯文本、有快照可回滚），技能仍需人确认（会改变 AI 的行为方式）；索引文件注入系统提示词但只当指针，正文由 AI 自己决定要不要读；`recall_experience` 不要了；一次只处理一个 session。

@@ -922,7 +922,6 @@ function MainApp() {
     copyAnswer,
     forkFromMessage,
   } = useChatActions({
-    storageRef,
     activeModelRef,
     activeProjectRef,
     currentChatScopeRef,
@@ -1203,10 +1202,14 @@ function MainApp() {
       })
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
+  // 「新对话空态」= 真的没有会话。回滚会把已有会话截断成空消息，但会话本身还在
+  // （currentSessionId 非空），那只是「空会话」，不是「新对话」：把它当成空态会触发
+  // 下面的「空态自动切到项目会话」，用户看到的就是「回滚后跳回新对话页」。
   const showNewChatEmptyState = !needsModelSetup
     && Boolean(agentManager.agent)
     && !agentManager.agent?.state.isStreaming
     && (agentManager.agent?.state.messages.length ?? 0) === 0
+    && !agentManager.currentSessionId
 
   // 随机只在进入新对话空状态时锁定一次，避免重渲染导致文案抖动。
   const newChatGreeting = useMemo(

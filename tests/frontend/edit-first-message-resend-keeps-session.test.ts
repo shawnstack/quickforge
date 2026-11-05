@@ -3,11 +3,12 @@ import type { Api, Model } from '@earendil-works/pi-ai'
 import { useChatActions } from '../../src/hooks/useChatActions'
 
 /**
- * 回归：就地编辑「第一条」消息后直接重发时，必须留在当前会话。
+ * 回归：回滚必须留在当前会话，不论入口是「就地编辑后重发」还是「回滚填回输入框」。
  *
  * 旧实现里截断后为空 → `shouldSaveSession` 为 false → 删旧会话 + createAgent
  * 新 session（attachToView 会 replaceState 写入 ?session=），用户看到的是
- * 「跳回新对话页」，紧接着的新文案也发到了那个新会话里。
+ * 「跳回新对话页」；在 global scope 下还会进一步触发「空态自动切项目会话」。
+ * 现在 project / global 两种 scope 都保留原会话，行为一致。
  */
 vi.mock('react', () => ({
   useCallback: (callback: unknown) => callback,
@@ -143,7 +144,7 @@ describe('edit-and-resend on the first message', () => {
     expect(harness.syncSessionUI).toHaveBeenCalledWith(harness.task)
   })
 
-  it('keeps the legacy "reset to a new chat" behaviour for plain rollback', async () => {
+  it('keeps the current session for plain rollback as well (no delete + recreate)', async () => {
     const harness = useChatActionsHarness({
       messages: [userMessage('hello'), assistantMessage('hi')],
       rolledBackMessages: [],
@@ -151,11 +152,16 @@ describe('edit-and-resend on the first message', () => {
 
     await harness.actions.rollbackFromMessage(0)
 
-    expect(harness.deleteSession).toHaveBeenCalledWith(SESSION_ID)
-    expect(harness.refreshSessions).toHaveBeenCalled()
-    expect(harness.createAgent).toHaveBeenCalledTimes(1)
-    const [, , createOptions] = harness.createAgent.mock.calls[0] as unknown as [unknown, string, { attachToView?: boolean }]
-    expect(createOptions.attachToView).toBe(true)
-    expect(harness.setRestoredDraft).toHaveBeenCalled()
+    // 会话原地保留：不删旧会话、不新建 agent、不写新的 ?session=、不触发列表刷新。
+    expect(harness.deleteSession).not.toHaveBeenCalled()
+    expect(harness.createAgent).not.toHaveBeenCalled()
+    expect(harness.refreshSessions).not.toHaveBeenCalled()
+    expect(window.history.replaceState).not.toHaveBeenCalled()
+    // 原文案回填输入框，且仍指向原会话。
+    expect(harness.setRestoredDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: SESSION_ID, text: 'hello' }),
+    )
+    expect(harness.agent.state.messages).toEqual([])
+    expect(harness.setChatPanelRevision).toHaveBeenCalled()
   })
 })

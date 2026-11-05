@@ -2,7 +2,6 @@ import { useCallback } from 'react'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { AgentManager } from '@/hooks/useAgentManager'
-import { initializePiStorage } from '@/lib/pi-chat'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
 import {
@@ -10,19 +9,16 @@ import {
   draftTextFromUserMessage,
   turnEndedWithError,
   rollbackStartIndexFromMessage,
-  shouldSaveSession,
   generateForkTitle,
   hasUserMessage,
 } from '@/lib/message-utils'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
-import { disposeAgentTask } from '@/lib/agent-task-retention'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
 import { resolveAttachmentsForDraft, resolveMessagesForUpload } from '@/components/chat/surface/attachment-client'
 
 type UseChatActionsOptions = {
-  storageRef: React.MutableRefObject<Awaited<ReturnType<typeof initializePiStorage>> | null>
   activeModelRef: React.MutableRefObject<Model<Api>>
   activeProjectRef: React.MutableRefObject<ProjectInfo | undefined>
   currentChatScopeRef: AgentManager['currentChatScopeRef']
@@ -50,7 +46,6 @@ function clearSessionQueryParam() {
 type StartNewChatResult = 'created' | 'reused' | 'cancelled'
 
 export function useChatActions({
-  storageRef,
   activeModelRef,
   activeProjectRef,
   currentChatScopeRef,
@@ -163,13 +158,11 @@ export function useChatActions({
       attachments: rollbackAttachments,
     }
 
-    let nextMessages: AgentMessage[]
     try {
-      const result = await currentAgent.rollback(messageIndex)
       // 服务端返回的全量历史已由 agent 自己按「全量坐标」采纳（见
-      // `ServerAgent.rollback`）：这里只取权威结果做会话去留判断，绝不再写
-      // 消息数组——那条旁路会把「数组」和「窗口起点」拆开。
-      nextMessages = result.session.messages ?? currentAgent.state.messages
+      // `ServerAgent.rollback`）：这里只关心是否成功，绝不另写消息数组——
+      // 那条旁路会把「数组」和「窗口起点」拆开。
+      await currentAgent.rollback(messageIndex)
     } catch (error) {
       logger.error('Failed to rollback conversation:', error)
       void showAlert(error instanceof Error ? error.message : t('rollbackFailed'))
@@ -180,71 +173,28 @@ export function useChatActions({
       ? taskMapRef.current.get(currentSessionIdRef.current)
       : undefined
 
-    // 就地编辑「发送」（restoreDraft=false）必须留在当前会话：编辑第一条消息时
-    // 截断后为空，`shouldSaveSession` 为 false，但这里不能删会话 + 新建 agent——
-    // attachTaskToView 会 replaceState 写入新的 ?session=，表现为「跳回新对话页」，
-    // 紧随其后的 composer 发送也落到新会话里。删空会话只保留给传统回滚。
-    const keepCurrentSession = !restoreDraft || shouldSaveSession(nextMessages)
-    if (keepCurrentSession) {
-      if (restoreDraft) setRestoredDraft(restoredRollbackDraft)
-      setChatPanelRevision((value) => value + 1)
-      if (currentTask) {
-        syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI:', err))
-      }
-      return true
-    }
-
-    const storage = storageRef.current
-    const previousSessionId = currentSessionIdRef.current
-    const scope = currentChatScopeRef.current
-    const project = scope === 'project' ? activeProjectRef.current : undefined
-    const model = currentAgent.state.model ?? activeModelRef.current
-    const thinkingLevel = currentAgent.state.thinkingLevel
-
-    if (previousSessionId) {
-      disposeAgentTask(taskMapRef.current, previousSessionId)
-    }
-
-    if (storage && previousSessionId) {
-      try {
-        await storage.sessions.delete(previousSessionId)
-        await refreshSessions({ broadcast: true })
-      } catch (error) {
-        logger.error('Failed to delete rolled back empty session:', error)
-      }
-    }
-
-    const newSessionId = randomId()
-    await createAgent(
-      {
-        model,
-        thinkingLevel,
-        messages: [],
-        tools: [],
-      },
-      newSessionId,
-      {
-        scope,
-        project,
-        attachToView: true,
-        title: 'New chat',
-      },
-    )
-
-    if (restoreDraft) setRestoredDraft({ ...restoredRollbackDraft, sessionId: newSessionId })
+    // 回滚只截断历史，会话原地保留——「回滚填回输入框」与「就地编辑重发」两种
+    // 入口走同一条收尾路径。
+    //
+    // 旧实现对传统回滚额外做了「删旧会话 + createAgent 新会话」：`shouldSaveSession`
+    // 为 false（截断后没有 user+assistant）就重建一个空会话。这会带来三个连锁问题：
+    // 1. 会话 id 变更，分享链接、引用、外部记录全部失效；
+    // 2. 列表项先删后插，任务/项目列表都会抖一下；
+    // 3. `attachToView` 会 replaceState 写入新的 `?session=`，表现为「跳回新对话页」；
+    //    在 global scope 下还会触发「空态自动切项目会话」，看起来像被弹走。
+    //
+    // 会话去留不再由 scope 决定：project 与 global 都保留原会话，行为一致。
+    if (restoreDraft) setRestoredDraft(restoredRollbackDraft)
     setChatPanelRevision((value) => value + 1)
+    if (currentTask) {
+      syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI:', err))
+    }
     return true
   }, [
-    activeModelRef,
-    activeProjectRef,
     agentRef,
-    createAgent,
-    currentChatScopeRef,
     currentSessionIdRef,
-    refreshSessions,
     setChatPanelRevision,
     setRestoredDraft,
-    storageRef,
     syncSessionUI,
     taskMapRef,
   ])

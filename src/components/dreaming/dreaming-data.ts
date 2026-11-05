@@ -197,6 +197,23 @@ export function fetchDreamingExperiences(): Promise<DreamingExperiencePage> {
 }
 
 /**
+ * Reveal one experience in the system file manager — the same action the working
+ * memory note list offers. The server owns the folder and validates the name, so
+ * the client only ever sends a file name.
+ */
+export function openDreamingExperience(name: string): Promise<{ ok: boolean; name: string }> {
+  return requestDreamingJson('/api/dreaming/experiences/open', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+}
+
+/** Reveal the library folder itself (created on demand when it is still empty). */
+export function openDreamingExperiencesFolder(): Promise<{ ok: boolean; path: string }> {
+  return requestDreamingJson('/api/dreaming/experiences/open-folder', { method: 'POST' })
+}
+
+/**
  * Label for a model in the selector.
  *
  * Custom models are commonly *named* "GLM-4.6V (智谱)", i.e. the provider is

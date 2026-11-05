@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { openPathInFileManager } from './utils/platform.mjs'
 
 /**
  * File operations for the two memory folders: working memory and experiences.
@@ -187,6 +188,27 @@ export async function readNoteFile(dir, name) {
     if (error?.code === 'ENOENT') throw new NoteStoreError(`Note "${noteTitleOfName(fileName)}" does not exist.`, 404)
     throw error
   }
+}
+
+/**
+ * Reveal one note in the system file manager.
+ *
+ * Shared by both folders: "open" means the same thing in Settings whether the row
+ * is a working note or an experience. The name goes through the same validation as
+ * a write and the path is built from the folder here, never accepted from the
+ * caller, so this cannot be used to open arbitrary files.
+ */
+export async function revealNoteFile(dir, name, options = {}) {
+  const fileName = normalizeNoteName(name)
+  const file = path.join(dir, fileName)
+  try {
+    await fs.access(file)
+  } catch {
+    throw new NoteStoreError(`Note "${noteTitleOfName(fileName)}" does not exist.`, 404)
+  }
+  const reveal = options.openPath || openPathInFileManager
+  await reveal(file)
+  return { ok: true, name: fileName }
 }
 
 /**

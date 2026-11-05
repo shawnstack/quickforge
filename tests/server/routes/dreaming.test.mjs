@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -72,9 +72,9 @@ function response() {
   }
 }
 
-async function call(method, pathname, body) {
+async function call(method, pathname, body, options) {
   const res = response()
-  await handleDreamingApi(request(method, body), res, new URL(`http://localhost${pathname}`))
+  await handleDreamingApi(request(method, body), res, new URL(`http://localhost${pathname}`), options)
   return { status: res.status, json: JSON.parse(res.body) }
 }
 
@@ -154,6 +154,63 @@ describe('removed endpoints', () => {
   it('no longer exposes the note list or single-note deletion', async () => {
     await expect(call('GET', '/api/dreaming/notes')).rejects.toMatchObject({ statusCode: 404 })
     await expect(call('DELETE', '/api/dreaming/notes/abc')).rejects.toMatchObject({ statusCode: 404 })
+  })
+})
+
+describe('experience library open actions', () => {
+  const experienceDir = () => path.join(directory, 'experiences')
+
+  it('reveals one experience file in the file manager', async () => {
+    await mkdir(experienceDir(), { recursive: true })
+    const file = path.join(experienceDir(), '构建 9 秒.md')
+    await writeFile(file, '# 构建 9 秒\n', 'utf8')
+    const opened = []
+    const { status, json } = await call('POST', '/api/dreaming/experiences/open', { name: '构建 9 秒' }, {
+      dataDir: directory,
+      openPath: async (target) => { opened.push(target) },
+    })
+
+    expect(status).toBe(200)
+    expect(json).toEqual({ ok: true, name: '构建 9 秒.md' })
+    expect(opened).toEqual([file])
+  })
+
+  it('refuses a name that escapes the folder', async () => {
+    let opened = 0
+    await expect(call('POST', '/api/dreaming/experiences/open', { name: '../MEMORY.md' }, {
+      dataDir: directory,
+      openPath: async () => { opened += 1 },
+    })).rejects.toThrow('cannot contain')
+    expect(opened).toBe(0)
+  })
+
+  it('refuses to open an experience that does not exist', async () => {
+    let opened = 0
+    await expect(call('POST', '/api/dreaming/experiences/open', { name: '不存在' }, {
+      dataDir: directory,
+      openPath: async () => { opened += 1 },
+    })).rejects.toThrow('does not exist')
+    expect(opened).toBe(0)
+  })
+
+  it('requires a name', async () => {
+    await expect(call('POST', '/api/dreaming/experiences/open', {}, {
+      dataDir: directory,
+      openPath: async () => undefined,
+    })).rejects.toThrow('Experience name is required.')
+  })
+
+  it('opens the folder itself, creating it on a fresh install', async () => {
+    const opened = []
+    const { status, json } = await call('POST', '/api/dreaming/experiences/open-folder', undefined, {
+      dataDir: directory,
+      openPath: async (target) => { opened.push(target) },
+    })
+
+    expect(status).toBe(200)
+    expect(json.ok).toBe(true)
+    expect(opened).toEqual([experienceDir()])
+    await expect(stat(experienceDir())).resolves.toBeDefined()
   })
 })
 

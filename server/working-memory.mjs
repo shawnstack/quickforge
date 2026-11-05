@@ -4,15 +4,13 @@ import path from 'node:path'
 import { atomicUpdate, dataDir, readStore } from './storage.mjs'
 import {
   ARCHIVE_DIR_NAME,
-  NoteStoreError,
   copyNoteDir,
   listArchivedNoteFiles,
   listNoteFiles,
   listNotePage,
   moveNoteFile,
-  normalizeNoteName,
-  noteTitleOfName,
   readNoteFile,
+  revealNoteFile,
   writeNoteFile,
 } from './note-store.mjs'
 import { openPathInFileManager } from './utils/platform.mjs'
@@ -148,21 +146,24 @@ export async function listWorkingMemoryNotePage(options = {}, { offset = 0, limi
 /**
  * Reveal one note in the system file manager.
  *
- * The name goes through the same validation as writes, and the path is built
- * from `workingMemoryDir` here rather than accepted from the client, so the
- * endpoint cannot be used to open arbitrary files.
+ * The name/path rules live in `note-store.mjs` and are shared with the experience
+ * library, so both folders answer "open" the same way.
  */
 export async function openWorkingMemoryNote(options = {}, name) {
-  const fileName = normalizeNoteName(name)
-  const file = path.join(workingMemoryDir(options), fileName)
-  try {
-    await fs.access(file)
-  } catch {
-    throw new NoteStoreError(`Note "${noteTitleOfName(fileName)}" does not exist.`, 404)
-  }
+  return revealNoteFile(workingMemoryDir(options), name, options)
+}
+
+/**
+ * Reveal the notes folder itself.
+ *
+ * Created first, for the same reason as the experience library: "open the folder"
+ * has to work before the first note exists.
+ */
+export async function openWorkingMemoryFolder(options = {}) {
+  const dir = await ensureWorkingMemoryDir(options)
   const reveal = options.openPath || openPathInFileManager
-  await reveal(file)
-  return { ok: true, name: fileName }
+  await reveal(dir)
+  return { ok: true, path: WORKING_MEMORY_DISPLAY_PATH }
 }
 
 export async function readWorkingMemoryNote(options = {}, name) {

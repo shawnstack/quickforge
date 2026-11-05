@@ -424,13 +424,14 @@
 }
 
 /* List rows whose right-hand action must never be squeezed by long content. */
-/* Rows sit inside a divide-y container, so drop the per-row border and the
-   settings-page min-height: these rows are content-sized, like shadcn items. */
+/* Rows sit inside a padded card, so they add vertical rhythm only: the surrounding
+   container already owns the horizontal inset. No per-row border, no settings-page
+   min-height — these rows are content-sized, like shadcn items. */
 .quickforge-dreaming-list > .quickforge-settings-list-item {
   min-height: 0;
   align-items: flex-start;
   border-bottom: 0;
-  padding: 0.875rem 1.25rem;
+  padding: 0.625rem 0;
 }
 
 .quickforge-dreaming-list .quickforge-settings-list-item-actions {

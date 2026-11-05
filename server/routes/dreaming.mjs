@@ -5,7 +5,7 @@ import { isDreamingRunning, modelLabelOf, nextScheduledRunAt, resolveDreamingMod
 import { restoreMemorySnapshot } from '../dreaming/snapshot.mjs'
 import { listModelCatalog, modelReferenceFromSnapshot, resolveModelBinding } from '../model-catalog.mjs'
 import { readGlobalMemory } from '../global-memory.mjs'
-import { listArchivedExperiences, listExperiences, readExperienceIndex } from '../experiences.mjs'
+import { listArchivedExperiences, listExperiences, openExperience, openExperiencesFolder, readExperienceIndex } from '../experiences.mjs'
 
 const MAX_DREAMING_REQUEST_BYTES = 32 * 1024
 
@@ -56,7 +56,7 @@ async function overview(repository) {
   }
 }
 
-export async function handleDreamingApi(req, res, url) {
+export async function handleDreamingApi(req, res, url, options = {}) {
   const repository = createDreamingRepository()
   const parts = url.pathname.split('/').filter(Boolean)
   // parts = ['api', 'dreaming', ...rest]
@@ -116,6 +116,22 @@ export async function handleDreamingApi(req, res, url) {
   }
 
   if (rest[0] === 'experiences') {
+    // "Open" mirrors the working memory note list: one file revealed in the system
+    // file manager, or the whole folder. Both are POST because they have a side
+    // effect on the user's desktop, not on our data.
+    if (rest.length === 2 && rest[1] === 'open') {
+      if (req.method !== 'POST') throw requestError('Method not allowed', 405)
+      const body = await readJsonBody(req, MAX_DREAMING_REQUEST_BYTES)
+      const name = typeof body?.name === 'string' ? body.name.trim() : ''
+      if (!name) throw requestError('Experience name is required.')
+      sendJson(res, 200, await openExperience(options, name))
+      return
+    }
+    if (rest.length === 2 && rest[1] === 'open-folder') {
+      if (req.method !== 'POST') throw requestError('Method not allowed', 405)
+      sendJson(res, 200, await openExperiencesFolder(options))
+      return
+    }
     if (req.method !== 'GET') throw requestError('Method not allowed', 405)
     if (rest.length === 1) {
       const [experiences, index] = await Promise.all([

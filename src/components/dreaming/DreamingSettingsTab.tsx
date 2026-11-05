@@ -12,6 +12,8 @@ import {
   formatDreamingDuration,
   formatDreamingTimestamp,
   formatModelOptionLabel,
+  openDreamingExperience,
+  openDreamingExperiencesFolder,
   restoreDreamingRun,
   saveDreamingSettings,
   triggerDreamingRun,
@@ -352,6 +354,9 @@ export function DreamingSettingsTab() {
   const [experiences, setExperiences] = useState<DreamingExperience[]>([])
   const [experienceQuery, setExperienceQuery] = useState('')
   const [indexOpen, setIndexOpen] = useState(false)
+  const [openingExperience, setOpeningExperience] = useState('')
+  const [openingFolder, setOpeningFolder] = useState(false)
+  const [experienceError, setExperienceError] = useState('')
 
   const pageSize = 20
   const settings = overview?.settings
@@ -417,6 +422,33 @@ export function DreamingSettingsTab() {
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
       setRunning(false)
+    }
+  }
+
+  // "Open" is the one write-ish action this page offers: it hands the file to the
+  // system file manager. Failures are per-list messages, because a missing file
+  // must not look like the whole tab failed.
+  const revealExperience = async (name: string) => {
+    setOpeningExperience(name)
+    setExperienceError('')
+    try {
+      await openDreamingExperience(name)
+    } catch (err) {
+      setExperienceError(err instanceof Error ? err.message : t('requestFailed'))
+    } finally {
+      setOpeningExperience('')
+    }
+  }
+
+  const revealExperiencesFolder = async () => {
+    setOpeningFolder(true)
+    setExperienceError('')
+    try {
+      await openDreamingExperiencesFolder()
+    } catch (err) {
+      setExperienceError(err instanceof Error ? err.message : t('requestFailed'))
+    } finally {
+      setOpeningFolder(false)
     }
   }
 
@@ -597,6 +629,15 @@ export function DreamingSettingsTab() {
                 placeholder={t('dreamingExperienceSearchPlaceholder')}
                 onChange={(event) => setExperienceQuery(event.currentTarget.value)}
               />
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                disabled={openingFolder}
+                onClick={() => void revealExperiencesFolder()}
+              >
+                {openingFolder ? t('loading') : t('dreamingExperienceOpenFolder')}
+              </Button>
             </div>
           ) : null}
         </div>
@@ -607,12 +648,12 @@ export function DreamingSettingsTab() {
             {filteredExperiences.length === 0 ? (
               <div className="text-sm text-muted-foreground">{t('dreamingExperienceEmpty')}</div>
             ) : (
-              <ul className="quickforge-recall-list">
+              <ul className="quickforge-dreaming-list">
                 {filteredExperiences.map((entry) => (
-                  <li className="quickforge-recall-item" key={entry.name}>
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                  <li className="quickforge-settings-list-item" key={entry.name}>
+                    <div className="quickforge-settings-list-item-main flex flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="quickforge-recall-content">{entry.title}</span>
+                        <span className="min-w-0 truncate text-sm text-foreground" title={entry.name}>{entry.title}</span>
                         {entry.candidateSkill ? (
                           <span className="quickforge-settings-badge quickforge-settings-badge-info">
                             {t('dreamingExperienceCandidateSkill')}
@@ -628,10 +669,22 @@ export function DreamingSettingsTab() {
                         {t('dreamingExperienceMeta', { chars: entry.chars, when: formatDreamingTimestamp(entry.updatedAt) })}
                       </span>
                     </div>
+                    <div className="quickforge-settings-list-item-actions">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        type="button"
+                        disabled={openingExperience === entry.name}
+                        onClick={() => void revealExperience(entry.name)}
+                      >
+                        {openingExperience === entry.name ? t('loading') : t('dreamingExperienceOpen')}
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
             )}
+            {experienceError ? <div className="quickforge-dreaming-error">{experienceError}</div> : null}
             <div className="flex flex-col gap-2">
               <button
                 aria-expanded={indexOpen}

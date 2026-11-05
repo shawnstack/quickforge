@@ -108,6 +108,18 @@ describe('Working memory settings note list', () => {
     expect(JSON.parse(String(init.body))).toEqual({ name: 'note-1.md' })
   })
 
+  it('opens the notes folder itself from the folder row', async () => {
+    const fetchMock = await mount(1)
+
+    buttonNamed('workingMemoryFolderOpen')?.props.onClick()
+    await vi.waitFor(() => {
+      expect(fetchMock.mock.calls.some(([input]) => input === '/api/working-memory/open-folder')).toBe(true)
+    })
+
+    const [, init] = fetchMock.mock.calls.find(([input]) => input === '/api/working-memory/open-folder') as [string, RequestInit]
+    expect(init.method).toBe('POST')
+  })
+
   it('no longer renders the "how notes are written" explainer', async () => {
     await mount(1)
     const rendered = render().map((node) => text(node)).join('\n')

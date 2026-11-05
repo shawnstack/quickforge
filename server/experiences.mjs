@@ -10,8 +10,10 @@ import {
   moveNoteFile,
   noteTitleOfName,
   readNoteFile,
+  revealNoteFile,
   writeNoteFile,
 } from './note-store.mjs'
+import { openPathInFileManager } from './utils/platform.mjs'
 
 /**
  * The experience library: the long-lived, machine-curated half of memory.
@@ -130,6 +132,29 @@ export async function countExperiences(options = {}) {
 
 export async function readExperience(options = {}, name) {
   return readNoteFile(experiencesDir(options), name)
+}
+
+/**
+ * Reveal one experience in the system file manager.
+ *
+ * Same contract as the working memory note list: the client sends a name, the
+ * server validates it and builds the path itself.
+ */
+export async function openExperience(options = {}, name) {
+  return revealNoteFile(experiencesDir(options), name, options)
+}
+
+/**
+ * Reveal the library folder itself.
+ *
+ * The folder (and its `_archive/`) is created first: "open the library" has to
+ * work on a fresh install where the curator has not written anything yet.
+ */
+export async function openExperiencesFolder(options = {}) {
+  const dir = await ensureExperiencesDir(options)
+  const reveal = options.openPath || openPathInFileManager
+  await reveal(dir)
+  return { ok: true, path: EXPERIENCES_DISPLAY_PATH }
 }
 
 export async function writeExperience(options = {}, name, content) {

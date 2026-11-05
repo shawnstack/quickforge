@@ -61,6 +61,9 @@ const requestOpenWorkingMemoryNote = (name: string) =>
     body: JSON.stringify({ name }),
   })
 
+const requestOpenWorkingMemoryFolder = () =>
+  requestJson<{ ok: boolean; path: string }>('/api/working-memory/open-folder', { method: 'POST' })
+
 function formatNoteTime(value: number) {
   if (!value) return '—'
   return new Date(value).toLocaleString(getDateLocale())
@@ -80,6 +83,7 @@ export function WorkingMemorySettingsTab() {
   const [notesLoading, setNotesLoading] = useState(true)
   const [notesError, setNotesError] = useState('')
   const [openingName, setOpeningName] = useState('')
+  const [openingFolder, setOpeningFolder] = useState(false)
 
   const applyDocument = (payload: WorkingMemoryDocument) => {
     setEnabled(payload.enabled)
@@ -176,6 +180,18 @@ export function WorkingMemorySettingsTab() {
     }
   }
 
+  const openFolder = async () => {
+    setOpeningFolder(true)
+    setNotesError('')
+    try {
+      await requestOpenWorkingMemoryFolder()
+    } catch (err) {
+      setNotesError(err instanceof Error ? err.message : t('requestFailed'))
+    } finally {
+      setOpeningFolder(false)
+    }
+  }
+
   if (loading) {
     return <div className="text-sm text-muted-foreground">{t('loading')}</div>
   }
@@ -207,6 +223,15 @@ export function WorkingMemorySettingsTab() {
           </div>
           <div className="quickforge-settings-row-control quickforge-settings-row-control-wide">
             <code className="text-xs text-muted-foreground">{folderPath}</code>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              disabled={openingFolder}
+              onClick={() => void openFolder()}
+            >
+              {openingFolder ? t('loading') : t('workingMemoryFolderOpen')}
+            </Button>
           </div>
         </div>
       </section>

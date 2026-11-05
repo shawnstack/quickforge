@@ -164,6 +164,29 @@ describe('working memory routes', () => {
     })).rejects.toThrow('cannot contain')
   })
 
+  it('opens the notes folder itself, creating it on first use', async () => {
+    const dataDir = await createTempDir()
+    const opened = []
+    const response = mockResponse()
+    await handleWorkingMemoryApi(mockRequest('POST'), response, {
+      dataDir,
+      url: new URL('http://localhost/api/working-memory/open-folder'),
+      openPath: async (target) => { opened.push(target) },
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.body.ok).toBe(true)
+    expect(opened).toEqual([workingMemoryDir({ dataDir })])
+  })
+
+  it('only opens the folder on POST', async () => {
+    const response = mockResponse()
+    await expect(handleWorkingMemoryApi(mockRequest('GET'), response, {
+      url: new URL('http://localhost/api/working-memory/open-folder'),
+      openPath: async () => undefined,
+    })).rejects.toThrow('Method not allowed')
+  })
+
   it('404s on an unknown working memory sub-path', async () => {
     const response = mockResponse()
     await expect(handleWorkingMemoryApi(mockRequest('GET'), response, {

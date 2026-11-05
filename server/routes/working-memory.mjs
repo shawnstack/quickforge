@@ -1,6 +1,7 @@
 import { readJsonBody, sendJson } from '../utils/response.mjs'
 import {
   listWorkingMemoryNotePage,
+  openWorkingMemoryFolder,
   openWorkingMemoryNote,
   readWorkingMemoryDocument,
   saveWorkingMemorySettings,
@@ -57,6 +58,14 @@ export async function handleWorkingMemoryApi(req, res, options = {}) {
     }
 
     throw requestError('Method not allowed', 405)
+  }
+
+  // POST /api/working-memory/open-folder — reveal the notes folder itself, the
+  // same action the experience library offers.
+  if (rest.length === 1 && rest[0] === 'open-folder') {
+    if (req.method !== 'POST') throw requestError('Method not allowed', 405)
+    sendJson(res, 200, await openWorkingMemoryFolder(options))
+    return
   }
 
   // GET /api/working-memory/notes?page=1&pageSize=20 — titles and times only.

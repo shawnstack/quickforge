@@ -71,6 +71,15 @@ describe('agent manager rollback with compaction', () => {
     return { role, content: [{ type: 'text', text }] }
   }
 
+  /** 方案 B：压缩摘要就是数组里的一条消息；滚动压缩每压一次追加一条。 */
+  function compactionMessage(text) {
+    return {
+      role: 'user',
+      content: [{ type: 'text', text }],
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+    }
+  }
+
   /** 8 messages [u0..a3], compactedUpToIndex 4 → 前 4 条被摘要覆盖，tail 为 [u2,a2,u3,a3] */
   function compactedSession(session) {
     session.agent.state.messages = [
@@ -124,5 +133,42 @@ describe('agent manager rollback with compaction', () => {
 
     expect(session.contextCompaction).toBeNull()
     expect(session.agent.state.messages).toHaveLength(2)
+  })
+
+  it('re-points compaction at the surviving summary when rolling back between two compactions', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { createAgent, rollbackSessionMessages } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('rollback-between-compactions', {
+      scope: 'global',
+      model: { provider: 'mock', id: 'mock-model' },
+    })
+    const firstSummary = compactionMessage('First summary.\n<compact_summary>\nEarlier history.\n</compact_summary>')
+    const secondSummary = compactionMessage('Second summary.\n<compact_summary>\nLater history.\n</compact_summary>')
+    session.agent.state.messages = [
+      textMessage('user', 'u0'),
+      textMessage('assistant', 'a0'),
+      firstSummary,
+      textMessage('user', 'u1'),
+      textMessage('assistant', 'a1'),
+      secondSummary,
+      textMessage('user', 'u2'),
+      textMessage('assistant', 'a2'),
+    ]
+    session.contextCompaction = {
+      summaryMessage: secondSummary,
+      compactedUpToIndex: 6,
+      sourceMessageCount: 8,
+    }
+
+    // 撤回 u1（下标 3）：secondSummary 被截掉，firstSummary 留下
+    await rollbackSessionMessages('rollback-between-compactions', 3)
+
+    expect(session.agent.state.messages).toHaveLength(3)
+    expect(session.contextCompaction).not.toBeNull()
+    // 下一次压缩会拿 summaryMessage 当 previousSummary 重建摘要源；这里若不换回
+    // 现存的 firstSummary，已被回撤掉的内容就会重新出现在新摘要里。
+    expect(session.contextCompaction.summaryMessage).toBe(firstSummary)
+    expect(session.contextCompaction.compactedUpToIndex).toBe(3)
   })
 })

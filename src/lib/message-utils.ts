@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import { t } from '@/lib/i18n'
+import { isCompactionMessage } from '@/components/chat/surface/compaction-message'
 
 function textFromContentBlocks(content: unknown, separator = ' ') {
   if (!Array.isArray(content)) return ''
@@ -109,8 +110,12 @@ export async function copyTextToClipboard(text: string) {
 export const FORK_TITLE_PREFIX = '[fork] '
 
 export function generateTitle(messages: AgentMessage[], prefix = '') {
+  // 压缩摘要也是一条 role: 'user' 的消息（方案 B），但它不是用户说的话。
+  // `/summary` 生成的新会话首条就是它，直接取首条 user 会把标题变成
+  // 「The previous conversation has been compacted...」，fork 出来的列表项尤其明显。
   const firstUser = messages.find(
-    (message) => message.role === 'user' || message.role === 'user-with-attachments',
+    (message) => (message.role === 'user' || message.role === 'user-with-attachments')
+      && !isCompactionMessage(message),
   )
 
   if (!firstUser || (firstUser.role !== 'user' && firstUser.role !== 'user-with-attachments')) {

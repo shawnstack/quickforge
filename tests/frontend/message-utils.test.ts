@@ -168,6 +168,28 @@ describe('fork title', () => {
     expect(generateForkTitle([message('assistant')])).toBe('[fork] New chat')
   })
 
+  it('skips a compaction summary when picking the fork title', () => {
+    // `/summary` 生成的新会话首条就是压缩摘要（role: 'user'），标题必须取它后面
+    // 真正的用户消息，否则会话列表里会出现整句 "The previous conversation has
+    // been compacted..."。
+    const summary = message('user', {
+      content: 'The previous conversation has been compacted.\n<compact_summary>\nEarlier history.\n</compact_summary>',
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+    })
+    const messages = [summary, message('assistant'), message('user', { content: '继续修这个 bug' })]
+
+    expect(generateForkTitle(messages)).toBe('[fork] 继续修这个 bug')
+  })
+
+  it('falls back to a new chat when the fork only holds a compaction summary', () => {
+    const summary = message('user', {
+      content: 'The previous conversation has been compacted.\n<compact_summary>\nEarlier history.\n</compact_summary>',
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+    })
+
+    expect(generateForkTitle([summary])).toBe('[fork] New chat')
+  })
+
   it('leaves non-fork titles unprefixed', () => {
     expect(generateTitle([message('user', { content: '普通对话' })])).toBe('普通对话')
   })

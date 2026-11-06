@@ -1215,7 +1215,7 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
   const compactionIndex = lastCompactionMessageIndex(nextMessages)
   const legacyCut = Number(session.contextCompaction?.compactedUpToIndex) || 0
   if (compactionIndex >= 0) {
-    syncCompactionIndex(session, compactionIndex, nextMessages.length)
+    syncCompactionIndex(session, compactionIndex, nextMessages.length, nextMessages[compactionIndex])
     session.lastTransformedContextMessages = null
   } else if (session.contextCompaction && legacyCut > 0 && rollbackIndex >= legacyCut) {
     // 还没迁移成消息的旧会话：截断点仍在压缩点之后，摘要依然有效。
@@ -1566,7 +1566,7 @@ export async function continueSession(sessionId, modelAccessContext = null, appe
   const retryCompactionIndex = lastCompactionMessageIndex(trimmedMessages)
   const retryLegacyCut = Number(session.contextCompaction?.compactedUpToIndex) || 0
   if (retryCompactionIndex >= 0) {
-    syncCompactionIndex(session, retryCompactionIndex, trimmedMessages.length)
+    syncCompactionIndex(session, retryCompactionIndex, trimmedMessages.length, trimmedMessages[retryCompactionIndex])
     session.lastTransformedContextMessages = null
   } else if (session.contextCompaction && retryLegacyCut > 0 && lastUserIndex >= retryLegacyCut) {
     session.lastTransformedContextMessages = null

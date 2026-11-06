@@ -197,6 +197,85 @@ describe('context usage after compaction', () => {
     expect(usage.percent).toBe(8.5)
   })
 
+  it('ignores stale provider usage in the tail when the summary is only a message', () => {
+    // `/summary` 生成的新会话 = [摘要, 提示行, ...保留的最近几轮]，没有
+    // `contextCompaction` 元数据；tail 里那条 assistant 还带着压缩前那次请求上报的
+    // 72k usage。它不能被当成「当前上下文」，否则界面显示已压缩、百分比却不下降。
+    const compactedAt = Date.now() - 1000
+    const summary = {
+      ...textMessage('user', 'The previous conversation has been compacted.\n<compact_summary>\nshort summary\n</compact_summary>'),
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+      timestamp: compactedAt,
+    }
+    const messages = [
+      summary,
+      {
+        ...textMessage('assistant', 'compaction notice'),
+        details: { quickforgeCompaction: { version: 1, kind: 'notice' } },
+        timestamp: compactedAt + 1,
+      },
+      { ...textMessage('user', 'recent question'), timestamp: compactedAt - 3000 },
+      {
+        ...textMessage('assistant', 'recent answer'),
+        timestamp: compactedAt - 2000,
+        stopReason: 'stop',
+        usage: { input: 70_000, output: 2_000, cacheRead: 0, cacheWrite: 0, totalTokens: 72_000 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 4_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.isCompacted).toBe(true)
+    expect(usage.inputTokenSource).toBe('estimated')
+    expect(usage.knownInputTokens).toBe(0)
+    expect(usage.breakdown.providerUsageTokens).toBe(0)
+    expect(usage.percent).toBeLessThan(10)
+  })
+
+  it('uses provider usage again once a response lands after a message-only compaction point', () => {
+    const compactedAt = Date.now() - 1000
+    const summary = {
+      ...textMessage('user', 'The previous conversation has been compacted.\n<compact_summary>\nshort summary\n</compact_summary>'),
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+      timestamp: compactedAt,
+    }
+    const messages = [
+      summary,
+      {
+        ...textMessage('assistant', 'compaction notice'),
+        details: { quickforgeCompaction: { version: 1, kind: 'notice' } },
+        timestamp: compactedAt + 1,
+      },
+      { ...textMessage('user', 'recent question'), timestamp: compactedAt - 3000 },
+      {
+        ...textMessage('assistant', 'recent answer'),
+        timestamp: compactedAt - 2000,
+        stopReason: 'stop',
+        usage: { input: 70_000, output: 2_000, cacheRead: 0, cacheWrite: 0, totalTokens: 72_000 },
+      },
+      { ...textMessage('user', 'next question'), timestamp: compactedAt + 100 },
+      {
+        ...textMessage('assistant', 'next answer'),
+        timestamp: compactedAt + 200,
+        stopReason: 'stop',
+        usage: { input: 8_000, output: 500, cacheRead: 0, cacheWrite: 0, totalTokens: 8_500 },
+      },
+    ]
+    const session = {
+      model: { contextWindow: 100_000, maxTokens: 4_000 },
+      agent: { state: { systemPrompt: '', tools: [], messages } },
+    }
+
+    const usage = estimateSessionContextUsage(session, messages)
+
+    expect(usage.inputTokenSource).toBe('provider')
+    expect(usage.knownInputTokens).toBe(8_500)
+  })
+
   it('restores provider usage from a replayed assistant after rollback', () => {
     const compactedAt = Date.now() - 1000
     const messages = [

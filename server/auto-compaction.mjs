@@ -170,12 +170,18 @@ export function lastCompactionMessageIndex(messages) {
 /**
  * 截断/重试之后把压缩下标对齐到当前数组（tail 起点 = 压缩消息下标 + 1）。
  * 位置语义由消息表达，这里只维护派生索引，供用量估算与诊断使用。
+ *
+ * 滚动压缩每压一次就往数组追加一条摘要，旧摘要仍留在原处。所以回撤/重试可能
+ * 截掉「当前」那条摘要，而数组里还剩下更早的一条：下标跟着数组走的同时，
+ * `summaryMessage` 也必须换成现存的那条。否则下一次压缩会把已被删除的摘要
+ * 当成 `previousSummary` 再喂一遍，用户已经回撤掉的内容会重新出现在新摘要里。
  */
-export function syncCompactionIndex(session, compactionIndex, messageCount) {
+export function syncCompactionIndex(session, compactionIndex, messageCount, summaryMessage) {
   const compaction = session?.contextCompaction
   if (!compaction) return
   session.contextCompaction = {
     ...compaction,
+    summaryMessage: summaryMessage ?? compaction.summaryMessage,
     compactedUpToIndex: Math.max(0, Number(compactionIndex) + 1),
     sourceMessageCount: Math.max(0, Number(messageCount) || 0),
   }
@@ -211,19 +217,69 @@ function messageTimestampMs(message) {
   return 0
 }
 
-function minimumProviderUsageIndex(session, messages) {
-  if (!session?.contextCompaction?.summaryMessage) return 0
+/**
+ * 压缩发生时刻（毫秒）。
+ *
+ * 元数据里的 `compactedAt` 优先；只有消息里的摘要时（`/summary` 新会话、fork 出来的
+ * 压缩会话）退回摘要消息自己的时间戳——摘要消息就是压缩发生那一刻创建的。
+ */
+function compactionCutoffMs(session, messages) {
+  const stored = Date.parse(session?.contextCompaction?.compactedAt || '')
+  if (Number.isFinite(stored) && stored > 0) return stored
   const source = Array.isArray(messages) ? messages : []
-  let tailStart = compactedUpToIn(session, source)
+  const index = lastCompactionMessageIndex(source)
+  const summaryMessage = index >= 0 ? source[index] : session?.contextCompaction?.summaryMessage
+  return messageTimestampMs(summaryMessage)
+}
+
+/**
+ * 遮掉压缩点之前产生、却被 tail 原样保留的 assistant usage。
+ *
+ * `/summary` 的 keepTurns 与 fork 出来的压缩会话会把压缩前的消息原样带在摘要后面，
+ * 这些消息还带着压缩前那次请求的 provider usage。估算上下文时若沿用它，占用会停在
+ * 压缩前的量级——界面显示“已压缩”，百分比却不下降。只有压缩之后产生的回复才继续
+ * 参与 provider 口径。返回新数组是为了不修改会话里的消息本身。
+ */
+function withoutStaleProviderUsage(messages, compactedAt) {
+  if (!(Number(compactedAt) > 0)) return messages
+  let changed = false
+  const next = (Array.isArray(messages) ? messages : []).map((message) => {
+    if (message?.role !== 'assistant' || !message.usage) return message
+    const timestamp = messageTimestampMs(message)
+    // 时间戳未知时不猜：旧数据/构造出来的消息保持原有口径，避免误伤。
+    if (!(timestamp > 0) || timestamp > compactedAt) return message
+    changed = true
+    const { usage: _usage, ...rest } = message
+    return rest
+  })
+  return changed ? next : messages
+}
+
+function minimumProviderUsageIndex(session, messages) {
+  const source = Array.isArray(messages) ? messages : []
+  // 方案 B：压缩点本身可能就是数组里的一条消息（`/summary` 生成的新会话、fork
+  // 出来的压缩会话、升级前的旧会话）。这些会话没有 `contextCompaction` 元数据，
+  // 只认元数据会返回 0，让压缩前那次请求上报的 provider usage 被当成「当前
+  // 上下文」——界面显示已压缩，占用却不下降。所以先按消息定界，与
+  // `buildAutoCompactLoopMessages` 同源。
+  const compactionIndex = lastCompactionMessageIndex(source)
+  const summaryMessage = compactionIndex >= 0
+    ? source[compactionIndex]
+    : session?.contextCompaction?.summaryMessage
+  if (!summaryMessage) return 0
+
+  let tailStart = compactionIndex >= 0
+    ? compactionIndex + 1
+    : compactedUpToIn(session, source)
   while (tailStart < source.length && isToolResultMessage(source[tailStart])) tailStart += 1
 
-  const compactedAt = Date.parse(session.contextCompaction.compactedAt || '')
-  if (Number.isFinite(compactedAt)) {
+  const compactedAt = compactionCutoffMs(session, source)
+  if (compactedAt > 0) {
     const firstNewMessageIndex = source.findIndex((message) => messageTimestampMs(message) > compactedAt)
     if (firstNewMessageIndex >= 0) return Math.max(1, firstNewMessageIndex - tailStart + 1)
   }
 
-  const sourceMessageCount = Number(session.contextCompaction.sourceMessageCount)
+  const sourceMessageCount = Number(session?.contextCompaction?.sourceMessageCount)
   if (Number.isFinite(sourceMessageCount) && sourceMessageCount > 0 && source.length >= sourceMessageCount) {
     return Math.max(1, sourceMessageCount - tailStart + 1)
   }
@@ -399,9 +455,10 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   }
 
   const loopMessages = buildAutoCompactLoopMessages(session, sourceMessages)
+  const estimateMessages = withoutStaleProviderUsage(loopMessages, compactionCutoffMs(session, sourceMessages))
   const value = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
-    messages: loopMessages,
+    messages: estimateMessages,
     tools: session.agent.state.tools,
     model: session.model,
     minimumProviderUsageIndex: minimumProviderUsageIndex(session, sourceMessages),
@@ -426,7 +483,7 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
   const loopMessages = buildAutoCompactLoopMessages(session, messages)
   const usage = estimateContextUsage({
     systemPrompt: session.agent.state.systemPrompt,
-    messages: loopMessages,
+    messages: withoutStaleProviderUsage(loopMessages, compactionCutoffMs(session, messages)),
     tools: session.agent.state.tools,
     model: session.model,
     minimumProviderUsageIndex: minimumProviderUsageIndex(session, messages),

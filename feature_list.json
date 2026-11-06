@@ -1,6 +1,57 @@
 {
   "features": [
     {
+      "id": "queued-messages-never-drop",
+      "title": "排队消息被静默丢弃：prompt 发送失败被当成成功，后台续发会清空整个队列",
+      "status": "done",
+      "summary": "用户反馈「shell 后台命令的回调会让排队消息消失」。定位：排队消息是前端 localStorage 的独立队列（quickforge:message-queue:v1），服务端完全不知道它；后台命令跑完时服务端会自己 session.agent.prompt(notice) 开一轮，凭空多出一次 agent_end，把前端「回合结束自动发下一条」的调度撞进服务端并发保护（409）里。真正的丢消息点有两处：①ServerAgent.prompt 在已销毁 / 无写租约 / 已在流式时静默 return（promise 仍然 resolve），而调用方只判断「有没有 reject」就删队列条目，message-queue-drainer 的循环会一口气删光整队列且一条都没发出去（即「两条一起消失」）；②panel-wiring 的 cleanup 无条件用内存 state 覆盖 localStorage，面板在 hydrate（双 rAF 之后）之前被销毁时，内存里的空队列会抹掉已持久化的排队消息。修复：prompt 改为返回 Promise<boolean>（true=服务端 2xx 接受，false=没发出去），fetch 改为 await 后判定；DeferredSessionAgent 转发真实 agent 的接受结果；drainer 与面板发送点只有 accepted 才删条目，否则 restoreHead + 暂停保留；「立即」（steering）同源漏洞一并修掉——ServerAgent.steer 也返回 Promise<boolean>，submitJump 只在 true 时删条目；cleanup 增加 hydrated 标记，未 hydrate 前不用空 state 覆盖存储。",
+      "files": [
+        "src/lib/server-agent.ts（prompt / steer 均返回 Promise<boolean>；fetch 改 await 判定；retryFailedPrompt 透传结果）",
+        "src/lib/deferred-session-agent.ts（prompt 转发真实 agent 的接受结果）",
+        "src/lib/message-queue-drainer.ts（只有 accepted 才删条目，否则保留队首并暂停）",
+        "src/components/chat/panel-wiring/message-queue.ts（submitQueuedPrompt 失败时 restoreHead + 暂停；hydrated 标记避免空 state 覆盖存储）",
+        "tests/frontend/message-queue-drainer.test.ts（新增 2 例：静默未发送保留整队列；第一条成功、第二条未接受时保留其后的全部条目）",
+        "tests/frontend/server-agent-session-lease.test.ts（无写租约时 prompt 解析为 false）",
+        "tests/frontend/server-agent.test.ts（HTTP 失败用例改为断言 prompt 解析为 false 且乐观消息已同步回滚）",
+        "progress.md",
+        "session-handoff.md",
+        "docs/wiki/src/lib/README.md（message-queue-drainer 条目补「只有明确 accepted 才删条目」契约）"
+      ],
+      "verification": "定向：npx vitest run message-queue-drainer / message-queue / server-agent-session-lease / server-agent.test → 4 files / 181 passed（drainer 11 例、server-agent 135 例）；npm run test → 500 files passed、3 failed、5545 passed（tests/server/sqlite-quick-check-gate.test.mjs 的 marker/process 断言、tests/server/acp/server.workspace-mapping.test.mjs 两例 setActiveProjectPath 返回 undefined，均在 server 侧且本次未触碰；工作区另有多份未提交改动）；npm run lint 0 problems；npx tsc -b 通过；npm run build 通过（仅既有 chunk 体积警告）。",
+      "updatedAt": "2026-11-06T07:48:05.000Z"
+    },
+    {
+      "id": "compaction-usage-stale-provider-usage",
+      "title": "压缩后上下文占用不下降：/summary 新会话与 fork 出来的压缩会话沿用了压缩前的 provider usage",
+      "status": "done",
+      "summary": "用户反馈「压缩后上下文并没有减少，在某些时候」。复现：/summary 生成的新会话消息是 [摘要, 提示行, ...保留的最近几轮]，没有 contextCompaction 元数据；tail 里那条 assistant 仍带着压缩前那次请求上报的 provider usage，estimateContextUsage 用 Math.max(本地估算, provider) 取了大值，界面显示 isCompacted: true 且 42%，而实际发给模型的上下文只有 1%（1031 tokens）。根因是 minimumProviderUsageIndex 只认 contextCompaction.summaryMessage，而压缩点的权威表达是「消息里的摘要」（方案 B）；buildAutoCompactLoopMessages 已按消息判定，两处口径不一致。修复：minimumProviderUsageIndex 先用 lastCompactionMessageIndex 定界、压缩时刻用摘要消息 timestamp 兜底；新增 compactionCutoffMs() 与 withoutStaleProviderUsage()，估算前遮蔽「压缩点之前产生却被 tail 保留」的 assistant usage（时间戳未知的不动，避免误伤旧数据）；estimateSessionContextUsage 与 maybeAutoCompactSession 共用同一份估算消息，显示与阈值判断口径一致。",
+      "files": [
+        "server/auto-compaction.mjs（minimumProviderUsageIndex 定界改造；新增 compactionCutoffMs / withoutStaleProviderUsage；estimateSessionContextUsage 与 maybeAutoCompactSession 共用估算消息）",
+        "tests/server/auto-compaction.test.mjs（新增 2 例：摘要 + 旧 usage 不被当成当前占用；压缩后新回复恢复 provider 口径）",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向：npx vitest run tests/server/auto-compaction.test.mjs → 14 passed；压缩 / 用量回归 10 files / 96 passed；前端 usage 2 files / 17 passed；npx eslint 改动文件 → 0 problems；npm run build → 通过。未创建 Git commit，未触碰生成产物。",
+      "updatedAt": "2026-11-06"
+    },
+    {
+      "id": "compaction-rollback-fork-title-fix",
+      "title": "压缩后回撤 / fork 的两条真 bug：多摘要回撤残留已删除的摘要；/summary 会话 fork 后标题变成压缩提示词",
+      "status": "done",
+      "summary": "用户问「压缩后再回撤会不会有问题，还有 fork」，要求只修确认成立的 bug、不做其他改造。复核后确认压缩后回撤主路径没问题（回撤按钮只挂在 user 行，锚点永远是用户点的那条消息；摘要前/后各有分支与测试）。只修两条：(1) 滚动压缩每压一次往数组追加一条摘要，回撤/重试截掉当前摘要后 `syncCompactionIndex` 只改下标、`contextCompaction.summaryMessage` 仍指向已删除消息，下一次压缩会把它当 previousSummary 重建摘要源，让用户已回撤的内容重新出现在新摘要里——改为 `syncCompactionIndex(session, index, count, summaryMessage)`，回撤与重试两处调用点传入数组里现存的那条摘要；(2) `generateTitle` 取首条 user 消息，而 /summary 新会话首条就是压缩摘要，fork 标题会变成「The previous conversation has been compacted…」——改为跳过 `isCompactionMessage` 的消息，只剩摘要时回落 `[fork] New chat`。压缩后瞬间的重试入口、notice 行按钮、fork 不复制 contextCompaction 三条都属既有行为，按「只修复 bug」记录在 progress.md Notes，未改动。",
+      "files": [
+        "server/auto-compaction.mjs（syncCompactionIndex 增加可选 summaryMessage 参数并注释理由）",
+        "server/agent-manager.mjs（rollbackSessionMessages / continueSession 两处调用点传 nextMessages[compactionIndex] / trimmedMessages[retryCompactionIndex]）",
+        "src/lib/message-utils.ts（generateTitle 跳过 isCompactionMessage）",
+        "tests/server/agent-manager.rollback-compaction.test.mjs（新增 compactionMessage helper + 多摘要回撤用例）",
+        "tests/frontend/message-utils.test.ts（新增 fork 标题跳过摘要、只剩摘要回落两例）",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向：npx vitest run tests/server/agent-manager.rollback-compaction.test.mjs tests/frontend/message-utils.test.ts → 2 files / 21 passed；压缩与 fork 回归（auto-compaction / notice / history / compaction-message / agent-compaction / conversation-compaction / frontend notice / rows / chat-compact-controls / fork-session-visibility）→ 10 files / 76 passed；npx eslint 改动文件 → 0 problems；npm run build → 通过。未创建 Git commit，未触碰生成产物。",
+      "updatedAt": "2026-11-06"
+    },
+    {
       "id": "compaction-without-approval",
       "title": "压缩不再征求用户同意：删掉自动压缩审批整条链（决策行、路由、设置开关、事件与测试）",
       "status": "done",
@@ -45,8 +96,8 @@
         "tests/frontend/settings-normalizers.test.ts / default-options-settings-react.test.ts / default-options-settings-tab.test.ts（去 requireConfirmation 断言）",
         "docs/wiki/server/README.md（orchestrator 职责三类、压缩触发段、compactionNotice 段重写）",
         "docs/wiki/src/components/README.md（组件树去 DecisionRow；「三个显示时机」改「两个」）",
-    "docs/design/*.html（31 份可交互设计稿全部删除：均为设计阶段的临时 mockup / 前后对比稿，落地后与实现不一致或已冗余；仅保留文字稿 per-compaction-records.zh-CN.md）",
-    "docs/wiki/src/components/README.md / docs/architecture/conversation-trace.zh-CN.md / src/components/chat/panel-decoration/icons.ts / src/components/chat/surface/GoalControlStrip.tsx / docs/design/per-compaction-records.zh-CN.md（清理 5 处指向已删设计稿的引用）",
+        "docs/design/*.html（31 份可交互设计稿全部删除：均为设计阶段的临时 mockup / 前后对比稿，落地后与实现不一致或已冗余；仅保留文字稿 per-compaction-records.zh-CN.md）",
+        "docs/wiki/src/components/README.md / docs/architecture/conversation-trace.zh-CN.md / src/components/chat/panel-decoration/icons.ts / src/components/chat/surface/GoalControlStrip.tsx / docs/design/per-compaction-records.zh-CN.md（清理 5 处指向已删设计稿的引用）",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"

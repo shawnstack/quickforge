@@ -14,14 +14,27 @@ function stubLocalStorage(): Map<string, string> {
   return backing
 }
 
-function createAgent(options: { streaming?: boolean; failOn?: (text: string) => boolean; onPrompt?: (text: string) => void } = {}) {
+function createAgent(options: {
+  streaming?: boolean
+  failOn?: (text: string) => boolean
+  accepted?: (text: string) => boolean
+  streamOnPrompt?: (text: string) => boolean
+  onPrompt?: (text: string) => void
+} = {}) {
   const calls: string[] = []
+  const state = { isStreaming: options.streaming ?? false }
   const agent: QueueDrainAgent = {
-    state: { isStreaming: options.streaming ?? false },
+    state,
     prompt: (text: string) => {
       calls.push(text)
       options.onPrompt?.(text)
-      return options.failOn?.(text) ? Promise.reject(new Error('prompt failed')) : Promise.resolve()
+      if (options.streamOnPrompt?.(text)) {
+        // 模拟「外层判断时还没流式，微任务里回合已经开跑」。
+        state.isStreaming = true
+        return Promise.resolve(false)
+      }
+      if (options.failOn?.(text)) return Promise.reject(new Error('prompt failed'))
+      return Promise.resolve(options.accepted ? options.accepted(text) : true)
     },
   }
   return { agent, calls }
@@ -63,6 +76,52 @@ describe('drainStoredMessageQueue', () => {
     expect(loadStoredMessageQueueState('s1')).toEqual({
       items: [{ id: 'q1', text: 'one' }, { id: 'q2', text: 'two' }],
       paused: true,
+    })
+  })
+
+  it('keeps the whole queue when a prompt resolves without being sent', async () => {
+    stubLocalStorage()
+    saveStoredMessageQueueState('s1', {
+      items: [{ id: 'q1', text: 'one' }, { id: 'q2', text: 'two' }],
+      paused: false,
+    })
+    // 静默未发送（无写租约 / agent 已销毁）：promise 正常 resolve，但返回 false。
+    // 这条回归钉的是「没发出去也被当成成功删掉」——两条一起消失的根因。
+    const { agent, calls } = createAgent({ accepted: () => false })
+    await drainStoredMessageQueue('s1', agent)
+    expect(calls).toEqual(['one'])
+    expect(loadStoredMessageQueueState('s1')).toEqual({
+      items: [{ id: 'q1', text: 'one' }, { id: 'q2', text: 'two' }],
+      paused: true,
+    })
+  })
+
+  it('stops at the first unaccepted item and keeps everything after it', async () => {
+    stubLocalStorage()
+    saveStoredMessageQueueState('s1', {
+      items: [{ id: 'q1', text: 'one' }, { id: 'q2', text: 'two' }, { id: 'q3', text: 'three' }],
+      paused: false,
+    })
+    const { agent, calls } = createAgent({ accepted: (text) => text !== 'two' })
+    await drainStoredMessageQueue('s1', agent)
+    expect(calls).toEqual(['one', 'two'])
+    expect(loadStoredMessageQueueState('s1')).toEqual({
+      items: [{ id: 'q2', text: 'two' }, { id: 'q3', text: 'three' }],
+      paused: true,
+    })
+  })
+
+  it('keeps the queue running (not paused) when the turn is merely still streaming', async () => {
+    stubLocalStorage()
+    saveStoredMessageQueueState('s1', { items: [{ id: 'q1', text: 'one' }], paused: false })
+    // 竞态：外层判断时还没流式，微任务里回合已经开跑 → prompt 静默返回 false。
+    // 这不是发送失败，不能把队列暂停。
+    const { agent, calls } = createAgent({ streamOnPrompt: () => true })
+    await drainStoredMessageQueue('s1', agent)
+    expect(calls).toEqual(['one'])
+    expect(loadStoredMessageQueueState('s1')).toEqual({
+      items: [{ id: 'q1', text: 'one' }],
+      paused: false,
     })
   })
 

@@ -18,7 +18,11 @@ import {
 
 export interface QueueDrainAgent {
   readonly state: { isStreaming: boolean }
-  prompt(text: string): Promise<unknown>
+  /**
+   * 发出去返回 `true`；**明确没发出去**（已销毁 / 无写租约 / 已在流式 / HTTP 失败）
+   * 返回 `false`。返回 `void` 视为成功仅为兼容既有实现，真实 agent 必须给明确结果。
+   */
+  prompt(text: string): Promise<boolean | void>
 }
 
 const activeDrains = new Map<string, Promise<void>>()
@@ -29,10 +33,17 @@ async function runStoredQueueDrain(sessionId: string, agent: QueueDrainAgent): P
     if (state.paused || state.items.length === 0) return
     if (agent.state.isStreaming) return // Turn restarted — wait for the next agent_end.
     const item = state.items[0]
+    let accepted: boolean
     try {
-      await agent.prompt(item.text)
+      // 「promise 没 reject」不等于发出去了：静默不发送必须按失败处理。
+      accepted = (await agent.prompt(item.text)) !== false
     } catch {
-      // Keep the failed item at the head and pause; never rejects.
+      accepted = false
+    }
+    if (!accepted) {
+      // 回合正在跑：不是失败，只是还不能发。保留队首，等下一次 agent_end。
+      if (agent.state.isStreaming) return
+      // 没发出去就绝不删条目：保留队首并暂停，等用户重试。
       saveStoredMessageQueueState(sessionId, { ...loadStoredMessageQueueState(sessionId), paused: true })
       return
     }

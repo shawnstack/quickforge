@@ -171,7 +171,7 @@ describe('ServerAgent session lease', () => {
     agent.enableSessionLease()
     await vi.waitFor(() => expect(agent.canWrite()).toBe(false))
 
-    await agent.prompt('hello')
+    await expect(agent.prompt('hello')).resolves.toBe(false)
 
     // 服务端会以 409 拒绝；本地必须一个请求都不发，否则会先乐观插入一条
     // 最终被回滚的用户消息，界面闪一下。
@@ -188,7 +188,8 @@ describe('ServerAgent session lease', () => {
 
     agent.abort()
     agent.followUp({ role: 'user', content: 'x' })
-    await agent.steer({ role: 'user', content: 'x' })
+    // 排队消息的「立即」按钮靠这个返回值决定删不删条目：静默不发送必须是 false。
+    await expect(agent.steer({ role: 'user', content: 'x' })).resolves.toBe(false)
     await agent.updateAccessMode('full-access')
     await agent.updateModel({ id: 'm', provider: 'p' })
     await agent.updateThinkingLevel('high')

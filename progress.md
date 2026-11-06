@@ -2,6 +2,48 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## queued-messages-never-drop（done，2026-11-06）
+
+- 起因：用户反馈「shell 后台命令的回调会让队列里排队的消息被清理掉」，要求「不能丢」。
+- 定位（结论）：排队消息只活在前端 `localStorage`（`quickforge:message-queue:v1`，按 `session:<id>` 分开），服务端根本不知道它存在，所以「命令删队列」这种直接因果不成立。真正的链路是：后台命令跑完时服务端会自己 `session.agent.prompt(notice)` 开一轮（`server/agent-manager.mjs` 的 `deliverBackgroundCommandNotification`），凭空多出一次 `agent_end`，把前端「回合结束自动发下一条」的调度撞进服务端 `runPrompt` 的 409 并发保护；而前端判断「发出去没有」的标准是「promise 有没有 reject」，`ServerAgent.prompt` 恰好有三种静默 return（已销毁 / 无写租约 / 已在流式）。于是静默失败被当成成功，`message-queue-drainer` 的循环一口气把整队列删光且一条都没发出去——就是用户看到的「两条一起消失」。
+- 修复 1（权威信号）：`ServerAgent.prompt` 由 `Promise<void>` 改为 `Promise<boolean>`，`true` = 服务端 2xx 接受，`false` = 没发出去；fetch 从 fire-and-forget 改为 `await` 后判定，HTTP 失败走原有回滚 + `agent_end(error)` 并返回 `false`；`retryFailedPrompt` 透传结果；`DeferredSessionAgent.prompt` 转发真实 agent 的结果。
+- 修复 2（绝不丢）：`message-queue-drainer` 与 `panel-wiring/message-queue.ts` 的 `submitQueuedPrompt` 只有 `accepted === true` 才删条目；否则 `restoreHead` + 暂停并落盘（`restoreHead` 对仍在队列里的条目是幂等的）。自评审补上同源漏洞：`ServerAgent.steer` 也有同样的静默 return，「立即」（steering）路径改为返回 `Promise<boolean>`，`submitJump` 只在 `true` 时删条目。自评审时补上同源漏洞：「立即」（steering）路径的 `ServerAgent.steer` 也有同样的静默 return，改为返回 `Promise<boolean>`，`submitJump` 只在 `true` 时删条目，`false` 则保留并暂停。
+- 修复 3（空 state 覆盖）：panel 增加 `hydrated` 标记；面板在 hydrate（双 rAF 之后）之前被销毁时，不再用内存里的空队列覆盖 `localStorage` 已存的排队消息，也不把这种 agent 交给后台续发。
+- 改动文件：`src/lib/server-agent.ts`；`src/lib/deferred-session-agent.ts`；`src/lib/message-queue-drainer.ts`；`src/components/chat/panel-wiring/message-queue.ts`；`tests/frontend/message-queue-drainer.test.ts`（新增 2 例）；`tests/frontend/server-agent-session-lease.test.ts`（补断言）；`tests/frontend/server-agent.test.ts`（HTTP 失败用例适配同步返回）；`feature_list.json`；`progress.md`；`session-handoff.md`。
+- Evidence（验证）：定向 4 files / 181 passed（drainer 11、message-queue 21、session-lease 14、server-agent 135）；`npm run test` → 500 files passed / 3 failed（5545 passed）；`npm run lint` 0 problems；`npx tsc -b` 通过；`npm run build` 通过（仅既有 chunk 体积警告）。
+- Notes：
+  - 剩余 3 个失败都在 server 侧且本次未触碰：`tests/server/sqlite-quick-check-gate.test.mjs`（`expected 'marker' to be 'process'`）、`tests/server/acp/server.workspace-mapping.test.mjs` 两例（`setActiveProjectPath` 返回 undefined）。工作区里同时存在其他会话未提交的 `server/agent-manager.mjs`、`server/auto-compaction.mjs` 等改动，合并后需要复跑确认归属。
+  - 行为变化：`prompt()` 现在等 HTTP 答复后才 resolve，`await prompt()` 返回时失败回滚已同步完成；原先依赖「await 立刻返回」的调用点/测试需要适配（本次已改 `tests/frontend/server-agent.test.ts`）。
+  - 仍保留的设计风险：面板 `cleanup()` 会把队列交给即将被销毁的 agent 去续发；现在最坏结果从「删光」变成「暂停保留」，但用户切回会话需要手动点继续。后续可考虑让 cleanup 不复用旧 agent。
+
+## compaction-rollback-fork-title-fix（done，2026-11-06）
+
+- 起因：用户问「压缩后回撤会不会有问题，还有 fork」。第一轮分析里有一条判断错了——以为回撤锚点会命中压缩摘要、把摘要灌进输入框；复核按钮挂载后确认回撤按钮只挂在 user 行（`message-actions.ts:755-804`），assistant 行只有 copy/fork，所以锚点永远是用户点的那条消息，主路径没问题。只修两条确认成立的 bug。
+- 修复 1（服务端，多摘要回撤的幽灵内容）：滚动压缩每次往数组**追加**一条摘要，旧摘要留在原处。回撤/重试截掉「当前」那条摘要后，`syncCompactionIndex` 只改下标，`contextCompaction.summaryMessage` 仍指向已删除的消息；下一次压缩把它当 `previousSummary` 重建摘要源，用户已经回撤掉的内容会重新出现在新摘要里。改为 `syncCompactionIndex(session, index, count, summaryMessage)`，两处调用点（`rollbackSessionMessages` / `continueSession`）传入 `nextMessages[compactionIndex]`。
+- 修复 2（前端，fork 标题）：`generateTitle` 取首条 user 消息，而 `/summary` 生成的新会话首条就是压缩摘要，fork 后标题变成「The previous conversation has been compacted…」。改为跳过 `isCompactionMessage` 的消息；只剩摘要时回落到 `[fork] New chat`。
+- 改动文件：`server/auto-compaction.mjs`；`server/agent-manager.mjs`（两处调用点）；`src/lib/message-utils.ts`；`tests/server/agent-manager.rollback-compaction.test.mjs`；`tests/frontend/message-utils.test.ts`。
+- Evidence（验证）：目标测试 2 files / 21 passed（新增 2 例：回撤到两条摘要之间时 `summaryMessage` 指向幸存摘要且 `compactedUpToIndex` 正确；fork 标题跳过摘要，另加只剩摘要时回落 `[fork] New chat`）；压缩与 fork 回归 10 files / 76 passed；`npx eslint` 改动文件 0 problems；`npm run build` 通过。
+- Notes（都是既有行为，本次按「只修复 bug」没动）：
+  - 压缩刚结束、数组末尾还是摘要时，UI 的「最后一条用户消息」判定（`role !== 'assistant'`）会指向摘要，普通重试按钮那一小段时间不出现；若此时恰好终态报错，错误行的重试会把摘要当用户请求重发（`continueSession` 的 `lastUserIndex` 同样不排除摘要）。需要「压缩后立刻报错」才触发。
+  - `/summary` 的提示行（`kind: 'notice'`）不被 `isCompactionMessage` 认作压缩消息，所以它有 fork/回撤按钮。
+  - fork 不复制 `contextCompaction`：模型上下文仍然正确（压缩点由消息 `details` 表达），只是元数据/用量口径不一致，再次压缩会把旧摘要当普通历史多压一遍。
+  - `hasUserMessage` 仍把压缩摘要算作用户消息（本次只改标题，未动它，避免影响 `shouldSaveSession`）。
+
+## compaction-usage-stale-provider-usage（done，2026-11-06）
+
+- 起因：用户反馈「压缩后上下文并没有减少，在某些时候」。
+- 复现：`/summary` 生成的新会话（`messages = [摘要, 提示行, ...保留的最近几轮]`，没有 `contextCompaction` 元数据）。tail 里那条 assistant 还带着压缩前那次请求上报的 provider usage，`estimateContextUsage` 的 `Math.max(本地估算, provider)` 取了大值——界面显示 `isCompacted: true` 且 42%，实际发给模型的上下文只有 1%。发一条新消息后新回复带的是压缩后的真实 usage，所以只是「某些时候」。
+- 根因：`minimumProviderUsageIndex` 只认 `contextCompaction.summaryMessage`，而压缩点的权威表达是「消息里的摘要」（方案 B）。`buildAutoCompactLoopMessages` 已经按消息判定，它没跟上，两个口径不一致。fork 出来的压缩会话同理会中招。
+- 修复（`server/auto-compaction.mjs`）：
+  1. `minimumProviderUsageIndex` 先用 `lastCompactionMessageIndex` 定界，压缩时刻用摘要消息自己的 timestamp 兜底；
+  2. 新增 `compactionCutoffMs()` 与 `withoutStaleProviderUsage()`：估算前把「压缩点之前产生、却被 tail 原样保留」的 assistant usage 遮掉（时间戳未知的不动，避免误伤旧数据）；
+  3. `estimateSessionContextUsage` 与 `maybeAutoCompactSession` 共用同一份估算消息，显示口径与阈值判断一致。
+- 改动文件：`server/auto-compaction.mjs`；`tests/server/auto-compaction.test.mjs`；`progress.md`；`session-handoff.md`。
+- Evidence（验证）：`tests/server/auto-compaction.test.mjs` 14 passed（新增 2 例：摘要 + 旧 usage 不被当成当前占用；压缩后新回复恢复 provider 口径）；压缩 / 用量回归 10 files / 96 passed；前端 usage 2 files / 17 passed；`npx eslint` 改动文件 0 problems；`npm run build` 通过。
+- Notes（不是 bug，但会影响观感）：
+  - provider 的 `totalTokens` 含输出 token（pi-agent-core `calculateContextTokens`），读数本身略偏高，本次未动。
+  - 系统提示词与工具定义不随压缩减少；小上下文窗口 + 大量工具时，压缩后总占用可能只小幅下降，这是口径问题。
+
 ## release-2-4-0-minor（done，2026-11-05）
 
 - 触发：用户「发布一个中版本」。确认后按 minor 执行：`2.3.7 → 2.4.0`，范围是 `v2.3.7` 之后全部 12 个提交，Git 走 commit + tag + push `origin dev`。

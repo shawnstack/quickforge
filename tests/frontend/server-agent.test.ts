@@ -376,11 +376,9 @@ describe('ServerAgent', () => {
       })
       expect(agent.state.streamingMessage).toMatchObject({ role: 'assistant' })
 
-      await agent.prompt('hello')
-      expect(agent.state.messages).toEqual([
-        { role: 'assistant', content: 'ready' },
-        expect.objectContaining({ role: 'user', content: 'hello' }),
-      ])
+      // prompt 现在等得到服务端的明确答复：HTTP 失败即返回 false，
+      // 乐观消息同时被回滚（不再靠微任务先后顺序）。
+      await expect(agent.prompt('hello')).resolves.toBe(false)
 
       await vi.waitFor(() => {
         expect(agent.state.messages).toHaveLength(2)
@@ -416,6 +414,28 @@ describe('ServerAgent', () => {
         errorMessage,
         messages: agent.state.messages,
       }))
+    } finally {
+      agent.dispose()
+      vi.clearAllTimers()
+    }
+  })
+
+  it('resolves prompt with true only after the server accepts it', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const agent = await createServerAgent({
+      sessionId: 'session-1',
+      initialState: {
+        model: { api: 'openai-completions', provider: 'mock', id: 'mock-model' },
+        messages: [] as AgentMessage[],
+      },
+    })
+
+    try {
+      // 2xx 是「发出去了」的唯一依据：排队消息据此才会删条目。
+      await expect(agent.prompt('hello')).resolves.toBe(true)
+      expect(fetchMock).toHaveBeenCalled()
     } finally {
       agent.dispose()
       vi.clearAllTimers()

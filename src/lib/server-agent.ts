@@ -668,23 +668,32 @@ export class ServerAgent {
     return true
   }
 
+  /**
+   * 发送一条用户消息。
+   *
+   * 返回值是「这条消息到底有没有交给服务端」的唯一权威信号：
+   * - `true`：请求已被服务端接受（HTTP 2xx），消息进入本轮。
+   * - `false`：**没有发出去**（已销毁 / 没有写租约 / 已在流式 / HTTP 失败）。
+   *   调用方（排队消息、后台续发）必须保留这条消息，绝不能因为
+   *   「promise 没有 reject」就当成发送成功。
+   */
   async prompt(
     input: string | AgentMessage | AgentMessage[],
     options?: { messageAlreadyInState?: boolean },
-  ): Promise<void> {
-    if (this.disposed) return
+  ): Promise<boolean> {
+    if (this.disposed) return false
 
     if (!this.canWrite()) {
       // Another window holds the write lease. The server would reject the
       // request anyway (SESSION_LEASE_HELD); failing here keeps the optimistic
       // user message out of the transcript.
       logger.warn('Ignored prompt while another window holds the session lease')
-      return
+      return false
     }
 
     if (this.state.isStreaming) {
       logger.warn('Ignored prompt while agent is already streaming')
-      return
+      return false
     }
 
     // Normalize input to a message
@@ -760,42 +769,46 @@ export class ServerAgent {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), PROMPT_TIMEOUT_MS)
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/prompt`
-    fetch(url, {
-      method: 'POST',
-      headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
-      body: JSON.stringify({ message: agentMessage, selectedCapabilities, contextReferences, command: selectedCommand }),
-      signal: controller.signal,
-    }).then(async (response) => {
+    this.startStateWatchdog()
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { ...this.writeHeaders(), 'content-type': 'application/json' },
+        body: JSON.stringify({ message: agentMessage, selectedCapabilities, contextReferences, command: selectedCommand }),
+        signal: controller.signal,
+      })
       clearTimeout(timeoutId)
       if (!response.ok) {
         const payload = await response.json().catch(() => null) as ServerErrorPayload | null
         throw new Error(serverErrorMessage(payload, `Failed to send prompt: HTTP ${response.status}`))
       }
-    }).catch((err) => {
+      // 服务端已接受（2xx）：这是「发出去了」的唯一依据。
+      return true
+    } catch (err) {
       clearTimeout(timeoutId)
-      const message = err instanceof Error ? err.message : String(err)
+      const errorText = err instanceof Error ? err.message : String(err)
       logger.error('Failed to send prompt:', err)
       // Roll back the optimistic message so the UI doesn't show a message
       // that was never received by the server.
       if (this.state.messages.length === msgCountBeforeOptimistic + 1 && this.state.messages[this.state.messages.length - 1] === agentMessage) {
         this.state.messages = this.state.messages.slice(0, -1)
       }
-      this.state.messages = appendAssistantErrorMessageOnce(this.state.messages, message, this.state.model, agentMessage)
-      this.state.errorMessage = message
+      this.state.messages = appendAssistantErrorMessageOnce(this.state.messages, errorText, this.state.model, agentMessage)
+      this.state.errorMessage = errorText
       // 本地已知失败：这是本地结算的事实，不受「未确认回合」规则限制。
       this.pendingPrompt = false
       this.applyServerStreaming(false)
       this.state.streamingMessage = undefined
       this.stopStateWatchdog()
-      this.emitToListeners({ type: 'error', error: message })
+      this.emitToListeners({ type: 'error', error: errorText })
       this.emitToListeners({
         type: 'agent_end',
         messages: this.state.messages,
-        errorMessage: message,
+        errorMessage: errorText,
         status: 'error',
       })
-    })
-    this.startStateWatchdog()
+      return false
+    }
   }
 
   /**
@@ -822,8 +835,7 @@ export class ServerAgent {
     if (index >= 0 && index === messages.length - 1) {
       this.state.messages = messages.slice(0, index)
     }
-    await this.prompt(failedPrompt)
-    return true
+    return await this.prompt(failedPrompt)
   }
 
   abort(): void {
@@ -852,8 +864,10 @@ export class ServerAgent {
    * the identical message (same role+timestamp) via message_end, which
    * upsertMessage reconciles with this optimistic copy in place.
    */
-  async steer(message: AgentMessage): Promise<void> {
-    if (this.disposed || !this.canWrite()) return
+  async steer(message: AgentMessage): Promise<boolean> {
+    // 与 prompt 同一契约：false = 没有交给服务端，调用方必须保留这条消息
+    // （排队消息的「立即」按钮就靠这个判断，不能把没发出去的消息删掉）。
+    if (this.disposed || !this.canWrite()) return false
     this.state.messages = [...this.state.messages, message]
     this.emitToListeners({ type: 'message_start', message })
     const url = `${this.baseUrl}/api/agents/${encodeURIComponent(this.sessionId)}/steer`
@@ -866,6 +880,7 @@ export class ServerAgent {
       if (!response.ok) {
         throw new Error(`Failed to steer: HTTP ${response.status}`)
       }
+      return true
     } catch (err) {
       logger.error('Failed to send steer:', err)
       // Roll back the optimistic copy so the UI never shows a message the

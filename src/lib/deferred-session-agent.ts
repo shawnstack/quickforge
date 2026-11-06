@@ -114,8 +114,9 @@ export class DeferredSessionAgent {
     this.setPromptMode(mode ? 'plan' : null, onConsumed)
   }
 
-  async prompt(input: string | AgentMessage | AgentMessage[]): Promise<void> {
-    if (this.disposed || this.state.isStreaming) return
+  async prompt(input: string | AgentMessage | AgentMessage[]): Promise<boolean> {
+    // 与 ServerAgent.prompt 同一契约：false = 没有交给服务端，调用方必须保留消息。
+    if (this.disposed || this.state.isStreaming) return false
 
     const normalizedMessage = this.normalizePromptInput(input)
     const selectedCapabilities = normalizeSelectedCapabilities(this.nextPromptCapabilities)
@@ -174,7 +175,8 @@ export class DeferredSessionAgent {
     this.promptMode = null
     this.onPromptModeConsumed = undefined
     // 这条消息已随 `handoffMessages` 进了真实 agent 的 state，别再追加一次。
-    await realAgent.prompt(message, { messageAlreadyInState: true })
+    // 转发真实 agent 的「发出去没有」结果，交接链路也不许把失败当成成功。
+    return (await realAgent.prompt(message, { messageAlreadyInState: true })) !== false
   }
 
   abort(): void {

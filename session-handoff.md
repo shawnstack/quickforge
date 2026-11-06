@@ -1,5 +1,32 @@
 # Current Session Handoff
 
+## 当前交接：queued-messages-never-drop（done，2026-11-06）
+
+- Current Objective（当前目标）：用户反馈「shell 后台命令的回调导致排队消息被清理」，要求排队消息「不能丢」。只修确定的丢消息路径，不做队列架构改造。
+- 结论（一句话）：排队消息是纯前端 `localStorage` 队列，服务端不知情；后台命令回调只会凭空多造一次 `agent_end`。真正的丢消息来自「`ServerAgent.prompt` 静默 return 被当成发送成功」——后台续发的循环会一口气删光整队列；外加 panel cleanup 在 hydrate 之前用空 state 覆盖存储。
+- 改动文件：`src/lib/server-agent.ts`（prompt / steer → `Promise<boolean>`，fetch 改 await 判定，失败返回 false）；`src/lib/deferred-session-agent.ts`（转发接受结果）；`src/lib/message-queue-drainer.ts`（只有 accepted 才删条目）；`src/components/chat/panel-wiring/message-queue.ts`（失败 restoreHead + 暂停；`hydrated` 标记防空 state 覆盖）；`tests/frontend/message-queue-drainer.test.ts`、`server-agent-session-lease.test.ts`、`server-agent.test.ts`；`docs/wiki/src/lib/README.md`；`feature_list.json`；`progress.md`；本文件。
+- Evidence（验证）：定向 4 files / 181 passed；`npm run test` → 500 files passed / 3 failed（5545 passed，均在 server 侧、本次未触碰，详见 `progress.md` 的 Notes）；`npm run lint` 0 problems；`npx tsc -b` 通过；`npm run build` 通过。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：需要一次真机复现验证——流式期间排两条 → 跑一个后台 shell 命令 → 等它结束；期望不再出现「两条一起消失」，失败时队列暂停并保留原文可重发。未创建 Git commit，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## 当前交接：compaction-usage-stale-provider-usage（done，2026-11-06）
+
+- Current Objective（当前目标）：用户反馈「压缩后上下文并没有减少，在某些时候」，只修确认成立的计算错误。
+- 结论（一句话）：`minimumProviderUsageIndex` 只认 `contextCompaction` 元数据，而 `/summary` 新会话与 fork 出来的压缩会话只有「消息里的摘要」，于是 tail 里压缩前的 assistant usage 被当成当前上下文，`Math.max(估算, provider)` 取了大值——界面显示已压缩但百分比不降。改为按消息定界 + 遮蔽压缩点之前的 provider usage。
+- 改动文件：`server/auto-compaction.mjs`（`minimumProviderUsageIndex` 定界改造、新增 `compactionCutoffMs` / `withoutStaleProviderUsage`、`estimateSessionContextUsage` 与 `maybeAutoCompactSession` 共用估算消息）；`tests/server/auto-compaction.test.mjs`（新增 2 例）；`progress.md`；本文件。
+- Evidence（验证）：`tests/server/auto-compaction.test.mjs` 14 passed；压缩 / 用量回归 10 files / 96 passed；前端 usage 2 files / 17 passed；`npx eslint` 0 problems；`npm run build` 通过。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：复现数据是 `/summary` 会话显示 42%、实际 1%，修复后同一构造显示 1%。若仍有「不降」，先看占用条 tooltip 的 source：`provider context` 才是供应商口径，`local estimate` 是本地估算；再看 `breakdown.systemPromptTokens / toolsTokens` 是否本来就占大头。未创建 Git commit，未触碰生成产物。
+
+## 当前交接：compaction-rollback-fork-title-fix（done，2026-11-06）
+
+- Current Objective（当前目标）：用户问「压缩后再回撤会不会有问题，还有 fork」。只修确认成立的 bug，不做其他改造。
+- 结论（一句话）：压缩后回撤主路径没问题（摘要前/后都有分支和测试）；修掉两条真 bug——多摘要回撤后 `contextCompaction.summaryMessage` 指向已删除摘要（下次压缩会把已回撤内容写回新摘要），以及 `/summary` 会话 fork 后标题变成压缩提示词。
+- 改动文件：`server/auto-compaction.mjs`（`syncCompactionIndex` 增加 `summaryMessage` 参数）；`server/agent-manager.mjs`（回撤 / 重试两处调用点传现存摘要）；`src/lib/message-utils.ts`（`generateTitle` 跳过 `isCompactionMessage`）；`tests/server/agent-manager.rollback-compaction.test.mjs`；`tests/frontend/message-utils.test.ts`；`progress.md`；本文件。
+- Evidence（验证）：目标测试 2 files / 21 passed；压缩与 fork 回归 10 files / 76 passed；`npx eslint` 改动文件 0 problems；`npm run build` 通过。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：本次刻意没动的三条（压缩后瞬间重试按钮/终态重试把摘要当用户消息、`notice` 行仍有 fork/回撤按钮、fork 不复制 `contextCompaction`）都记在 `progress.md` 的 Notes 里，等真的有人踩到再评估。未创建 Git commit，未触碰生成产物。
+
 ## 当前交接：release-2-4-0-minor（done，2026-11-05）
 
 - Current Objective（当前目标）: 用户说「发布一个中版本」。确认后按 minor 发布 `2.3.7 → 2.4.0`，范围是 `v2.3.7` 之后全部 12 个提交；Git 走 commit + tag + push `origin dev`。

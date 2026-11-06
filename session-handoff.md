@@ -1,5 +1,17 @@
 # Current Session Handoff
 
+## 当前交接：release-2-4-1（done，2026-11-06）
+
+- Current Objective（当前目标）：用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 把 `2.4.0` 推到 `2.4.1`，范围是 `v2.4.0..HEAD` 的三个功能提交。
+- 结论（一句话）：版本号、CHANGELOG、README、三件套验证、runtime/offline 包、commit/tag/push 全部完成；npm 未登录，所以没发布，只留命令。
+- 改动文件：`package.json`、`package-lock.json`（2.4.0 → 2.4.1）；`CHANGELOG.md`（新增 `[2.4.1] - 2026-11-06`）；`README.md`（当前版本 2.3.7 → 2.4.1，补上 2.4.0 漏改的那处）；`feature_list.json`；`progress.md`；本文件。
+- Evidence（验证）：`npm run test` → 502 files / 5551 passed、2 skipped；`npm run lint` → 0 problems；`npm run build` → 通过（仅既有大 chunk / plugin timing warning），precompress 225 files 12.67MB → 6.49MB；`prepare-runtime-package.cjs` + `prepare-offline-package.cjs` → 产物版本 2.4.1；`npm pack` → `package-offline/shawnstack-quickforge-2.4.1.tgz`（14.5 MB / 1036 files）；release commit `0ce8d622`、tag `v2.4.1`、已推送 `origin dev` 与 tag。
+- Blockers（阻塞）：npm 未登录（`npm whoami` 未通过），所以没有 `npm publish`。
+- Next Session（下一步）：
+  1. 想真正发到 npm：`npm login` 后执行 `cd package-offline && npm publish --access public`，再用 `npm view @shawnstack/quickforge version` 验证。
+  2. 实机验收这三个修复：流式期间排两条消息 + 跑一个后台 shell 命令，结束后不应「一起消失」；`/summary` 或 fork 的压缩会话看上下文占用是否还虚高；让主 AI 调 explore 时确认它能直接 `read_memory_note` 而不弹审批。
+  3. 桌面端安装版仍是旧产物，复验前重启或 `npm run desktop:dev`；生成产物（`dist/` / `package-dist/` / `package-offline/`）不要手工改。
+
 ## 当前交接：subagent-memory-read-tools（done，2026-11-06）
 
 - Current Objective（当前目标）：用户问「subagent 是不是应该给读取笔记的工具」，分析后拍板「只给只读两个」，把 `list_memory_notes` / `read_memory_note` 交给 subagent 与自定义 Agent Profile，写/移笔记仍然不给。

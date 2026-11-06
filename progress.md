@@ -2,6 +2,21 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## release-2-4-1（done，2026-11-06）
+
+- 起因：用户说「发布一个小版本」。按 `docs/architecture/patch-release-runbook.zh-CN.md` 走手动流程（不跑 `npm run release:patch:prepare`，runbook 3.2 已记录它在 Windows 上 `spawnSync npm.cmd EINVAL` 失败），把 `2.4.0` 推到 `2.4.1`。
+- 发布范围（`v2.4.0..HEAD`，3 个功能提交 + 2 个 docs 提交）：`38f7e4eb` 排队消息不再因发送失败被静默丢弃；`deb17d1d` 压缩摘要的用量口径与回撤锚点；`21429eb7` 子 Agent 可读工作记忆与经验库。
+- 改动：
+  1. `package.json` / `package-lock.json`：2.4.0 → 2.4.1（`npm version patch --no-git-tag-version`）。
+  2. `CHANGELOG.md`：新增 `## [2.4.1] - 2026-11-06`，Added 一条（子 Agent 读笔记）、Fixed 四条（排队消息丢失、回撤后压缩点指向已删摘要、`/summary` 与 fork 会话用量虚高、fork 标题变成压缩提示词）、Released 三条。
+  3. `README.md`：顶部「当前版本 **2.3.7**」→ **2.4.1**。这是 README 里唯一硬编码版本处，安装说明本来就用 `@latest`；上一次 2.4.0 发布漏改了这个数字，这次一并补上。
+- Evidence（验证）：`npm run test` → 502 files / 5551 passed、2 skipped、exit 0；`npm run lint` → 0 problems（耗时约 3 分钟）；`npm run build` → 通过（仅既有大 chunk 与 plugin timing warning），precompress 225 files 12.67MB → 6.49MB；`node scripts/prepare-runtime-package.cjs` + `prepare-offline-package.cjs` → `package-dist` / `package-offline` 都是 2.4.1；`cd package-offline && npm pack` → `shawnstack-quickforge-2.4.1.tgz`（14.5 MB，unpacked 29.1 MB，1036 files）。release commit `0ce8d622`，tag `v2.4.1`，已推送 `origin dev` 与 tag。
+- Notes：
+  - `npm publish` 未执行（npm 未登录）。发布命令见 `session-handoff.md`。
+  - `dist/`、`package-dist/`、`package-offline/` 均为脚本产物，未纳入 Git。
+  - 提交时 husky pre-commit 又跑了一遍 `eslint .`，通过。
+- Next Session（下一步）：见 `session-handoff.md` 顶部条目。
+
 ## subagent-memory-read-tools（done，2026-11-06）
 
 - 起因：用户问「subagent 是不是应该给读取笔记的工具」。上一轮分析结论是「该给，只给读的两个」——这是漏配，不是刻意的设计决定；用户回「只给只读两个 方案 动手」。

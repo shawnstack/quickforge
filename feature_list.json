@@ -1,6 +1,23 @@
 {
   "features": [
     {
+      "id": "release-2-4-1",
+      "title": "发布 patch 小版本 v2.4.1（排队消息不丢 / 压缩用量口径 / 子 Agent 读笔记）",
+      "status": "done",
+      "summary": "用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 走手动流程把 `2.4.0` 推到 `2.4.1`。范围是 `v2.4.0..HEAD` 的 3 个功能提交：排队消息不再因发送失败被静默丢弃（`ServerAgent.prompt` / `steer` 改返回接受结果）、压缩回撤锚点与用量口径修正（多摘要回撤不再指向已删除摘要、`/summary` 与 fork 会话不再虚高、fork 标题不再变成压缩提示词）、子 Agent 可读工作记忆与经验库（只读两个工具进白名单与 `/plan` 允许集，写/移仍不给）。执行内容：`npm version patch --no-git-tag-version`；`CHANGELOG.md` 顶部新增 `## [2.4.1] - 2026-11-06`（Added / Fixed / Released）；`README.md` 顶部「当前版本」由 `2.3.7` 更新为 `2.4.1`（这是 README 里唯一硬编码版本处，上次 2.4.0 发布时漏改）；三件套验证后生成 runtime 包、离线包与 npm tarball；最后 commit + tag + push `origin dev`。npm 未登录，未执行 `npm publish`，只留命令。",
+      "files": [
+        "package.json（2.4.0 → 2.4.1）",
+        "package-lock.json（同上，保持一致）",
+        "CHANGELOG.md（新增 [2.4.1] - 2026-11-06 章节：Added 子 Agent 读笔记；Fixed 排队消息、压缩回撤锚点、上下文用量、fork 标题；Released 离线包说明）",
+        "README.md（「当前版本 2.3.7」→「当前版本 2.4.1」，其余安装说明本来就用 @latest）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 502 files / 5551 passed、2 skipped（exit 0）；npm run lint → 0 problems；npm run build → 通过（仅既有大 chunk 与插件耗时 warning），precompress 225 files 12.67MB → 6.49MB；node scripts/prepare-runtime-package.cjs + prepare-offline-package.cjs → package-dist / package-offline 均为 2.4.1；package-offline 内 npm pack → shawnstack-quickforge-2.4.1.tgz（14.5 MB / 1036 files）。release commit `0ce8d622`，tag `v2.4.1`，已推送 `origin dev` 与 tag。未执行 npm publish（npm 未登录）。",
+      "updatedAt": "2026-11-06T10:34:00.000Z"
+    },
+    {
       "id": "subagent-memory-read-tools",
       "title": "subagent 拿不到笔记工具：父提示词整段透着笔记索引，工具白名单里却没有 read_memory_note",
       "status": "done",

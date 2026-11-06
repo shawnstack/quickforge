@@ -4,6 +4,32 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-06
+
+### Added
+
+- Subagents can read working memory and the experience library. `list_memory_notes` and `read_memory_note` joined the tool whitelist and the five capability policies (including `code-edit`, since reading a note and editing code are separate concerns), and both `safeReadTools` and the `/plan` read-only whitelist pass them through, so an unattended run no longer stops for approval and plan mode no longer rejects them. `listAvailableAgentTools` merges `memoryNoteTools`, so custom profiles can tick them. `composeSubagentSystemPrompt` adds a "open only the notes the index points at" constraint, and `explore` is told a note is not repository evidence. Writing and moving notes stay out of the whitelist on purpose: subagents are short-lived and run in parallel, so curating memory belongs to the parent session.
+
+### Fixed
+
+- A queued message is no longer silently dropped when sending it fails. `ServerAgent.prompt` / `steer` now return `Promise<boolean>` (true = the server accepted with 2xx, false = destroyed / no write lease / already streaming / HTTP error) instead of resolving before the request finished, and `DeferredSessionAgent` forwards the real agent's verdict. The queue drainer, the panel's `submitQueuedPrompt` and the jump button's `submitJump` delete an entry only when it was accepted; otherwise they `restoreHead` and pause persistence. "The turn is still running" is told apart from a failure and only keeps the entry. The panel also gained a `hydrated` flag, so an in-memory empty queue can no longer overwrite a stored queue when the panel is destroyed before the double-rAF hydrate runs.
+
+- Rolling back several summaries left the compaction point pointing at a deleted summary. `syncCompactionIndex` now takes a `summaryMessage` argument, and `rollbackSessionMessages` / `continueSession` pass the surviving summary, so the next compaction no longer treats the deleted summary as `previousSummary` and writes the rolled-back content back into a fresh summary.
+
+- `/summary` sessions and forked sessions no longer report inflated context usage. `minimumProviderUsageIndex` is bounded by the summary inside the message list, and the new `compactionCutoffMs` / `withoutStaleProviderUsage` hide provider usage that was produced before the compaction point but kept verbatim in the tail; the displayed number and the threshold check share the same estimate.
+
+- The title of a forked compaction session is no longer the compaction prompt. `generateTitle` skips `isCompactionMessage` and falls back to `[fork] New chat` when the summary is all that is left.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.4.1` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.4.1.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.4.1.tgz
+  ```
+
 ## [2.4.0] - 2026-11-05
 
 ### Added

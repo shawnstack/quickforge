@@ -20,7 +20,7 @@
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "定向：npx vitest run tests/server/approval-store.test.mjs tests/server/agent-profiles.test.mjs tests/server/subagents.test.mjs tests/server/agent-manager.subagents.test.mjs tests/server/agent-profile-files.test.mjs → 5 files / 57 passed；tests/server 全量 → 207 files passed / 2 failed（3 个失败用例，均为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1，与本次改动无关）；npm run lint → 0 problems。未跑 build（未改前端与构建配置，server 侧为 .mjs 不参与打包）。未创建 Git commit，未触碰 dist/ 等生成产物。",
+      "verification": "定向：npx vitest run tests/server/approval-store.test.mjs tests/server/agent-profiles.test.mjs tests/server/subagents.test.mjs tests/server/agent-manager.subagents.test.mjs tests/server/agent-profile-files.test.mjs → 5 files / 57 passed；tests/server 全量 → 207 files passed / 2 failed（3 个失败用例，均为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1，与本次改动无关）；npm run lint → 0 problems。未跑 build（未改前端与构建配置，server 侧为 .mjs 不参与打包）。已提交 `21429eb7` 并推送 `origin dev`；未触碰 dist/ 等生成产物。",
       "updatedAt": "2026-11-06T10:06:00.000Z"
     },
     {

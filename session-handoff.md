@@ -5,12 +5,12 @@
 - Current Objective（当前目标）：用户问「subagent 是不是应该给读取笔记的工具」，分析后拍板「只给只读两个」，把 `list_memory_notes` / `read_memory_note` 交给 subagent 与自定义 Agent Profile，写/移笔记仍然不给。
 - 结论（一句话）：这是漏配不是设计——subagent 的 system prompt 整段继承父会话，笔记索引和「用 read_memory_note 打开」的说明都在里面，但工具白名单只列 5 个工作区工具，`applyCapabilityPolicy()` 又静默过滤，于是它只能绕 `run_command` 去 `cat` 绝对路径、还要弹审批。
 - 改动文件：`server/agent-profile-schema.mjs`（`MEMORY_READ_TOOL_NAMES` 进白名单与五条策略）；`server/approval-store.mjs`（`safeReadTools` + `planAllowedTools`）；`server/agent-profiles.mjs`（`listAvailableAgentTools` 合并 `memoryNoteTools`）；`server/subagents.mjs`（explore / general 白名单、按需出现的「只打开索引相关笔记」约束、explore 提示词）；三个测试文件；`docs/architecture/memory-system.zh-CN.md`、`docs/architecture/custom-agents-design.zh-CN.md`、`docs/wiki/server/README.md`；`feature_list.json`；`progress.md`；本文件。
-- Evidence（验证）：定向 5 files / 57 passed；`tests/server` 全量 → 207 files passed / 2 failed（3 个失败用例均为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；`npm run lint` → 0 problems。未跑 build（只改 server 侧 `.mjs` 与文档）。
+- Evidence（验证）：定向 5 files / 57 passed；`tests/server` 全量 → 207 files passed / 2 failed（3 个失败用例均为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；`npm run lint` → 0 problems。未跑 build（只改 server 侧 `.mjs` 与文档）；已提交 `21429eb7` 并推送 `origin dev`。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：
   1. 实机验证一次：让主 AI 调 explore 做一段调研，确认子 agent 的工具列表里出现 `list_memory_notes` / `read_memory_note`，且调用不再弹审批框。
   2. 确认内置 profile 的 md 已被启动期重写（`~/.quickforge/agents/builtin/explore.md` 的 `tools:` 行），否则重启一次 QuickForge 再验。
-  3. 顺手看一眼设置 → 自定义 Agent 的工具勾选列表，应该多出「List/Read memory notes」两项，且没有写/移笔记。未创建 Git commit，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+  3. 顺手看一眼设置 → 自定义 Agent 的工具勾选列表，应该多出「List/Read memory notes」两项，且没有写/移笔记。已提交 `21429eb7` 并推送 `origin dev`；未触碰 `dist/`、`package-dist/`、`package-offline/`。
 
 ## 当前交接：queued-messages-never-drop（done，2026-11-06）
 

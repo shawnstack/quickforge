@@ -17,7 +17,7 @@
   - 上一轮分析里说错了一句「前端不用改，UI 会自动多两项」——`listAvailableAgentTools()` 从 `workspaceTools` 派生，笔记工具压根不在那个数组里，必须显式合并。改动已包含。
   - `safeReadTools` 现在含 4 个工具，`tests/server/approval-store.test.mjs` 里那条「白名单只有 read_file / grep_files」的守护断言已同步更新为「只读工具白名单」。
   - 内置 explore / general 的 Markdown 由 `ensureBuiltinSubagentMarkdownFiles()` 按全内容比对重写，`tools:` 行会随之更新，旧安装不需要手工改文件。
-  - 未跑 `npm run build`：改动只在 server 侧 `.mjs` 与文档，前端与构建配置没动；`npm run lint` 已过。未创建 Git commit，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+  - 未跑 `npm run build`：改动只在 server 侧 `.mjs` 与文档，前端与构建配置没动；`npm run lint` 已过。已提交 `21429eb7` 并推送 `origin dev`；未触碰 `dist/`、`package-dist/`、`package-offline/`。
 
 ## queued-messages-never-drop（done，2026-11-06）
 

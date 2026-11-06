@@ -163,7 +163,7 @@ const builtinAgentProfiles = [
     name: 'explore',
     label: 'Explore',
     description: 'Preferred read-only repository exploration for file discovery, source search, call-chain lookup, related tests/docs/wiki discovery, safe inspection commands, and impact analysis.',
-    allowedTools: ['read_file', 'grep_files', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'run_command', 'list_memory_notes', 'read_memory_note'],
     enabledAsSubagent: true,
     builtin: true
   },
@@ -172,7 +172,7 @@ const builtinAgentProfiles = [
     name: 'general',
     label: 'General',
     description: 'General-purpose agent for bounded complex multi-step implementation or broader independent work; prefer Explore for focused read-only repository discovery.',
-    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command', 'list_memory_notes', 'read_memory_note'],
     enabledAsSubagent: true,
     builtin: true
   }
@@ -482,9 +482,13 @@ allowedTools -> createServerTools({ allowedToolNames }) -> Agent tools
 |------|----------|----------|
 | `read_file` | 安全 | 可选，默认开启 |
 | `grep_files` | 安全 | 可选，默认开启 |
+| `list_memory_notes` | 安全 | 只读，五条能力策略都允许 |
+| `read_memory_note` | 安全 | 只读，五条能力策略都允许 |
 | `write_file` | 高风险 | 默认关闭 |
 | `edit_file` | 高风险 | 默认关闭 |
 | `run_command` | 高风险 | 默认关闭 |
+
+笔记的两个读工具在 workspace 之外（`~/.quickforge/working-memory`、`~/.quickforge/experiences`），但接口只接受 `scope` 和笔记名，路径由服务端拼，且没有删除；因此它们对任何策略都是安全的，`code-edit` 也不例外——「能不能改代码」和「能不能记住这段代码为什么长这样」是两件事。`write_memory_note` / `move_memory_note` 刻意不在白名单内，见 [记忆体系](memory-system.zh-CN.md#谁能拿到哪几个)。
 
 暂不开放：
 
@@ -509,6 +513,8 @@ includeSkillTools?: boolean
 
 - `read_file`
 - `grep_files`
+- `list_memory_notes`
+- `read_memory_note`
 
 高风险工具：
 

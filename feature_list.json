@@ -1,6 +1,29 @@
 {
   "features": [
     {
+      "id": "subagent-memory-read-tools",
+      "title": "subagent 拿不到笔记工具：父提示词整段透着笔记索引，工具白名单里却没有 read_memory_note",
+      "status": "done",
+      "summary": "用户问「subagent 是不是应该给读取笔记的工具」。核对源码后确认这是漏配而非设计：`composeSubagentSystemPrompt` 把父会话的完整 system prompt（含 `<memory_policy>`、工作记忆与经验库索引、以及「用 read_memory_note 打开某条」的说明）原样拼进 subagent 提示词，但紧随其后写的是 `Allowed tools: read_file, grep_files, run_command`；原因是 `agent-profile-schema.mjs` 的 `AGENT_PROFILE_TOOL_NAMES` 和五条能力策略都只列 5 个工作区工具，`applyCapabilityPolicy()` 又会静默过滤掉不在策略里的名字。结果是 subagent 看得见菜单点不了菜：要么白试一次被 `not allowed to use read_memory_note` 拒绝，要么改走 `run_command cat 绝对路径`——而 run_command 不在 `safeReadTools` 里，会弹审批，无人值守时就卡到超时。而 `tools/memory-notes.mjs` 开头的注释本来就写着这几个工具是「给不能拿 shell 的后台 agent」准备的，subagent 恰恰就是这种 agent。修复只给读不给写：新增 `MEMORY_READ_TOOL_NAMES = ['list_memory_notes', 'read_memory_note']`，加进 `AGENT_PROFILE_TOOL_NAMES` 与全部五条策略（含 code-edit——能不能改代码与能不能记住这段代码为什么这样是两件事）；两个工具同时加入 `safeReadTools` 与 `/plan` 的 `planAllowedTools`（否则 /plan 轮调用 subagent 读笔记会被命令白名单直接拒绝）；`listAvailableAgentTools()` 原先只从 `workspaceTools` 派生，补上 `memoryNoteTools` 后自定义 Profile 页才能勾选；`composeSubagentSystemPrompt` 在具备笔记工具时补一条「先看索引，只打开明确相关的，索引里没有就别翻文件夹」；Explore 提示词明确笔记是先前上下文、不是仓库证据。写/移笔记刻意留在白名单外：subagent 短命且可能并行，各自判断「这条值得记」会往同一份工作记忆塞重复笔记，收尾沉淀归父会话。",
+      "files": [
+        "server/agent-profile-schema.mjs（新增 MEMORY_READ_TOOL_NAMES；AGENT_PROFILE_TOOL_NAMES 与五条能力策略都带上两个只读笔记工具）",
+        "server/approval-store.mjs（safeReadTools 与 planAllowedTools 各加两个只读笔记工具）",
+        "server/agent-profiles.mjs（listAvailableAgentTools 合并 memoryNoteTools，让 Profile 页可勾选，写/移工具被 allowedToolNames 挡住）",
+        "server/subagents.mjs（explore / general 的 allowedTools 加两个只读笔记工具；composeSubagentSystemPrompt 增加按需才出现的「只打开索引相关笔记」约束；explore 提示词说明笔记不是仓库证据）",
+        "tests/server/agent-profiles.test.mjs（新增 2 例：可用工具列表含读不含写、五条策略接受笔记读且拒绝写笔记；修正 1 处硬断言的工具列表）",
+        "tests/server/subagents.test.mjs（新增 2 例：内置 subagent 有读无写、约束行只在具备笔记工具时出现；更新 Allowed tools 断言）",
+        "tests/server/approval-store.test.mjs（safeReadTools 与 planAllowedTools 断言更新，补 /plan 放行 read_memory_note 的断言）",
+        "docs/architecture/memory-system.zh-CN.md（新增「谁能拿到哪几个」：主 AI / 整理员 / subagent 各自拿到什么及理由）",
+        "docs/architecture/custom-agents-design.zh-CN.md（工具白名单表、安全工具清单、内置 Profile 示例同步）",
+        "docs/wiki/server/README.md（Agent Profile 工具限制与 /plan 白名单说明同步）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向：npx vitest run tests/server/approval-store.test.mjs tests/server/agent-profiles.test.mjs tests/server/subagents.test.mjs tests/server/agent-manager.subagents.test.mjs tests/server/agent-profile-files.test.mjs → 5 files / 57 passed；tests/server 全量 → 207 files passed / 2 failed（3 个失败用例，均为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1，与本次改动无关）；npm run lint → 0 problems。未跑 build（未改前端与构建配置，server 侧为 .mjs 不参与打包）。未创建 Git commit，未触碰 dist/ 等生成产物。",
+      "updatedAt": "2026-11-06T10:06:00.000Z"
+    },
+    {
       "id": "queued-messages-never-drop",
       "title": "排队消息被静默丢弃：prompt 发送失败被当成成功，后台续发会清空整个队列",
       "status": "done",

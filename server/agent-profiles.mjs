@@ -3,7 +3,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { readStore, userAgentsDir, writeStore } from './storage.mjs'
 import { builtinSubagentProfilePath, ensureBuiltinSubagentMarkdownFiles, subagentDefinitions } from './subagents.mjs'
-import { workspaceTools } from './tools/definitions.mjs'
+import { memoryNoteTools, workspaceTools } from './tools/definitions.mjs'
 import { defaultGlobalWorkspaceContext, projectContextFromId } from './project-config.mjs'
 import {
   deleteUserAgentProfileMarkdown,
@@ -396,9 +396,14 @@ export function listAvailableAgentTools() {
     write_file: 'Write file',
     edit_file: 'Edit file',
     run_command: 'Run command',
+    list_memory_notes: 'List memory notes',
+    read_memory_note: 'Read memory note',
   }
   const risks = new Set(['write_file', 'edit_file', 'run_command'])
-  return workspaceTools
+  // Note tools live outside `workspaceTools` (they reach folders that are not in
+  // the project), but they are valid profile tools, so they have to be listed
+  // here as well — `allowedToolNames` is what keeps write/move out of the UI.
+  return [...workspaceTools, ...memoryNoteTools]
     .filter((tool) => allowedToolNames.has(tool.name))
     .map((tool) => ({
       name: tool.name,

@@ -49,10 +49,35 @@ describe('subagent definitions', () => {
       projectContext: { project: { name: 'test-project' }, workspaceRoot: '/workspace' },
     })
 
-    expect(prompt).toContain('Allowed tools: read_file, grep_files, run_command')
+    expect(prompt).toContain('Allowed tools: read_file, grep_files, run_command, list_memory_notes, read_memory_note')
     expect(prompt).toContain('Use run_command only for safe inspection or diagnostic commands.')
     expect(prompt).not.toContain('Do not modify files or run commands.')
     expect(prompt).not.toContain('cannot modify files or run commands')
+  })
+
+  it('lets built-in subagents read memory notes but never write them', () => {
+    for (const name of ['explore', 'general']) {
+      const definition = getSubagentDefinition(name)
+      expect(definition.allowedTools).toContain('list_memory_notes')
+      expect(definition.allowedTools).toContain('read_memory_note')
+      expect(definition.allowedTools).not.toContain('write_memory_note')
+      expect(definition.allowedTools).not.toContain('move_memory_note')
+    }
+  })
+
+  it('tells note-reading subagents to open only the indexed notes', () => {
+    const withNotes = composeSubagentSystemPrompt({
+      definition: getSubagentDefinition('explore'),
+      parentSystemPrompt: '',
+    })
+    expect(withNotes).toContain('do not browse those folders')
+
+    const withoutNotes = composeSubagentSystemPrompt({
+      definition: getSubagentDefinition('explore'),
+      parentSystemPrompt: '',
+      effectiveAllowedTools: ['read_file', 'grep_files'],
+    })
+    expect(withoutNotes).not.toContain('do not browse those folders')
   })
 
   it('constrains Explore systemPrompt to evidence-only research without solutioning', () => {

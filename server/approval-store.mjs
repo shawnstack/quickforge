@@ -28,6 +28,10 @@ export const commandRestrictedTools = new Set([
 export const planAllowedTools = new Set([
   'read_file',
   'grep_files',
+  // Read-only like the two above; reading a past decision is exactly what a
+  // read-only planning turn wants, and subagents inherit the same boundary.
+  'list_memory_notes',
+  'read_memory_note',
   'activate_skill',
   'read_skill_resource',
   'run_subagent',
@@ -40,6 +44,10 @@ export const planAllowedTools = new Set([
 export const safeReadTools = new Set([
   'read_file',
   'grep_files',
+  // The note tools are locked to two folders and have no delete; an unattended
+  // subagent reading them must not queue an approval nobody will answer.
+  'list_memory_notes',
+  'read_memory_note',
 ])
 
 // ---------------------------------------------------------------------------

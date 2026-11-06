@@ -2,6 +2,23 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## subagent-memory-read-tools（done，2026-11-06）
+
+- 起因：用户问「subagent 是不是应该给读取笔记的工具」。上一轮分析结论是「该给，只给读的两个」——这是漏配，不是刻意的设计决定；用户回「只给只读两个 方案 动手」。
+- 定位（结论）：`server/subagents.mjs` 的 `composeSubagentSystemPrompt` 把父会话的**完整** system prompt 原样拼进 `<subagent_instructions>` 前面，那份里带着 `<memory_policy>`、工作记忆与经验库索引，还有一句「open that one file with read_memory_note」。紧接着 Tool constraints 却写 `Allowed tools: read_file, grep_files, run_command`。根因在 `server/agent-profile-schema.mjs`：`AGENT_PROFILE_TOOL_NAMES` 只有 5 个工作区工具，五条能力策略也只列这 5 个，而 `applyCapabilityPolicy()` 会**静默 filter 掉**不在策略里的名字。于是 subagent 看得见菜单点不了菜：要么白试一次被 `not allowed to use read_memory_note` 弹回，要么绕 `run_command` 去 `cat` 绝对路径——run_command 不在 `safeReadTools` 里，要人点审批，无人值守就卡到超时。讽刺的是 `server/tools/memory-notes.mjs` 开头注释写的就是「这几个工具是给不能拿 shell 的后台 agent 准备的」，subagent 正是这种 agent。
+- 改动 1（白名单）：`MEMORY_READ_TOOL_NAMES = ['list_memory_notes', 'read_memory_note']` 进 `AGENT_PROFILE_TOOL_NAMES`，并加进全部五条策略。**刻意也给 `code-edit`**：能不能改代码与能不能记住这段代码为什么长这样是两件事；这两个工具只读、锁死两个目录、没有删除。
+- 改动 2（免审批）：两个工具进 `safeReadTools`，否则 subagent 调它照样弹框。同时进 `planAllowedTools`——这是上一轮分析漏掉的连带问题：`/plan` 白名单会在 `commandToolPermissionError` 里直接拒绝未列名的工具，而 /plan 明确允许调用只读 subagent，不补的话「计划模式里叫 explore 查笔记」会报一个自相矛盾的错（明明只读却说不许用）。
+- 改动 3（可选工具列表）：`listAvailableAgentTools()` 原先只从 `workspaceTools` 派生，笔记工具不在里面，自定义 Profile 页根本勾不到；改为 `[...workspaceTools, ...memoryNoteTools]` 再过 `allowedToolNames`，写/移笔记自然被挡住。
+- 改动 4（提示词口径）：具备笔记工具时补一行「start from the index already in this prompt and open only the notes that clearly apply；索引里没有相关的就别翻文件夹」，防止把有限的工具调用预算花在扫目录上；Explore 的 systemPrompt 明确笔记是先前上下文、不是仓库证据。
+- 不改的那半边：`write_memory_note` / `move_memory_note` 不进白名单。subagent 短命且可能并行，各自判断「这条值得记」会往同一份工作记忆塞重复笔记，而收尾沉淀本来就是父会话的活（`memory_policy` 那句「一件事做完，回头看看」是说给父的）。
+- 改动文件：`server/agent-profile-schema.mjs`；`server/approval-store.mjs`；`server/agent-profiles.mjs`；`server/subagents.mjs`；`tests/server/agent-profiles.test.mjs`；`tests/server/subagents.test.mjs`；`tests/server/approval-store.test.mjs`；`docs/architecture/memory-system.zh-CN.md`；`docs/architecture/custom-agents-design.zh-CN.md`；`docs/wiki/server/README.md`；`feature_list.json`；`progress.md`；`session-handoff.md`。
+- Evidence（验证）：定向 5 files / 57 passed；`tests/server` 全量 → 207 files passed / 2 failed（3 个失败用例，均为既有基线：ACP workspace-mapping 2 + sqlite quick_check 1）；`npm run lint` → 0 problems。
+- Notes：
+  - 上一轮分析里说错了一句「前端不用改，UI 会自动多两项」——`listAvailableAgentTools()` 从 `workspaceTools` 派生，笔记工具压根不在那个数组里，必须显式合并。改动已包含。
+  - `safeReadTools` 现在含 4 个工具，`tests/server/approval-store.test.mjs` 里那条「白名单只有 read_file / grep_files」的守护断言已同步更新为「只读工具白名单」。
+  - 内置 explore / general 的 Markdown 由 `ensureBuiltinSubagentMarkdownFiles()` 按全内容比对重写，`tools:` 行会随之更新，旧安装不需要手工改文件。
+  - 未跑 `npm run build`：改动只在 server 侧 `.mjs` 与文档，前端与构建配置没动；`npm run lint` 已过。未创建 Git commit，未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
 ## queued-messages-never-drop（done，2026-11-06）
 
 - 起因：用户反馈「shell 后台命令的回调会让队列里排队的消息被清理掉」，要求「不能丢」。

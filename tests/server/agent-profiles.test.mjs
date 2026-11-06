@@ -147,7 +147,7 @@ describe('managed custom agent markdown profiles', () => {
   it('persists capability overrides for built-in agents without changing other fields', async () => {
     const { getAgentProfile, updateBuiltinAgentOverrides } = await import('../../server/agent-profiles.mjs')
     const updated = await updateBuiltinAgentOverrides('explore', { allowMcpTools: true, allowAgentSkills: true })
-    expect(updated).toMatchObject({ builtin: true, allowMcpTools: true, allowAgentSkills: true, allowedTools: ['read_file', 'grep_files', 'run_command'] })
+    expect(updated).toMatchObject({ builtin: true, allowMcpTools: true, allowAgentSkills: true, allowedTools: ['read_file', 'grep_files', 'run_command', 'list_memory_notes', 'read_memory_note'] })
     expect(await getAgentProfile('explore')).toMatchObject({ allowMcpTools: true, allowAgentSkills: true })
     await updateBuiltinAgentOverrides('explore', { allowMcpTools: false, allowAgentSkills: false })
   })
@@ -208,5 +208,24 @@ describe('managed custom agent markdown profiles', () => {
     const { listAgentProfiles } = await import('../../server/agent-profiles.mjs')
     const profiles = await listAgentProfiles({ includeDisabled: true })
     expect(profiles.some((profile) => profile.name === 'fake')).toBe(false)
+  })
+
+  it('offers the read-only note tools to profiles but never the writing ones', async () => {
+    const { listAvailableAgentTools } = await import('../../server/agent-profiles.mjs')
+    const names = listAvailableAgentTools().map((tool) => tool.name)
+
+    expect(names).toContain('list_memory_notes')
+    expect(names).toContain('read_memory_note')
+    expect(names).not.toContain('write_memory_note')
+    expect(names).not.toContain('move_memory_note')
+  })
+
+  it('accepts note reads in every policy and rejects note writes', async () => {
+    const { validateAgentProfileTools } = await import('../../server/agent-profile-schema.mjs')
+
+    for (const policy of ['readonly-research', 'safe-validation', 'review-only', 'docs-edit', 'code-edit']) {
+      expect(validateAgentProfileTools(['read_file', 'read_memory_note', 'list_memory_notes'], policy)).toBe(true)
+    }
+    expect(() => validateAgentProfileTools(['write_memory_note'], 'code-edit')).toThrow('Unsupported tool for custom agent')
   })
 })

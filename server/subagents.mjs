@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { builtinAgentsDir, ensureStorage } from './storage.mjs'
+import { MEMORY_READ_TOOL_NAMES } from './agent-profile-schema.mjs'
 
 const commonSubagentRules = `
 You are a focused QuickForge subagent invoked by a parent coding assistant.
@@ -27,7 +28,7 @@ export const subagentDefinitions = [
     label: 'General',
     mode: 'subagent',
     description: 'A general-purpose agent for bounded complex multi-step implementation or broader independent work. It has full built-in workspace tool access; MCP tools and Agent Skills depend on the profile settings and parent session. Prefer Explore for focused read-only repository discovery, source search, tests/docs discovery, and impact analysis.',
-    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command', ...MEMORY_READ_TOOL_NAMES],
     capabilityPolicy: 'code-edit',
     model: { mode: 'inherit' },
     lifecycle: 'builtin',
@@ -43,7 +44,7 @@ export const subagentDefinitions = [
     label: 'Explore',
     mode: 'subagent',
     description: 'The preferred subagent for focused read-only repository exploration, file discovery, source search, call-chain lookup, related tests/docs/wiki discovery, safe inspection commands, pattern lookup, and impact analysis before non-trivial implementation. It cannot modify files.',
-    allowedTools: ['read_file', 'grep_files', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'run_command', ...MEMORY_READ_TOOL_NAMES],
     capabilityPolicy: 'readonly-research',
     model: { mode: 'inherit' },
     lifecycle: 'builtin',
@@ -52,7 +53,7 @@ export const subagentDefinitions = [
     allowAgentSkills: false,
     maxRuntimeMs: 2 * 60 * 60 * 1000,
     maxToolCalls: 300,
-    systemPrompt: `You are Explore, the preferred read-only repository research subagent. Investigate the delegated question using read_file, grep_files, and safe read-only run_command calls, and report only findings grounded in repository evidence. Do not design solutions or propose implementation, architecture, refactoring, or code changes. Cite relevant file paths, symbols, and line ranges when practical. Clearly separate verified facts, reasonable inferences, and unknowns, and never present an inference as a verified fact. Unless the parent Agent explicitly requests them, do not provide an implementation plan, recommendations, or suggested next steps. You cannot modify files.`,
+    systemPrompt: `You are Explore, the preferred read-only repository research subagent. Investigate the delegated question using read_file, grep_files, and safe read-only run_command calls, and report only findings grounded in repository evidence. You may also open working-memory and experience notes with list_memory_notes / read_memory_note when the injected index points at something directly relevant; treat them as prior context, not as repository evidence, and cite them as notes. Do not design solutions or propose implementation, architecture, refactoring, or code changes. Cite relevant file paths, symbols, and line ranges when practical. Clearly separate verified facts, reasonable inferences, and unknowns, and never present an inference as a verified fact. Unless the parent Agent explicitly requests them, do not provide an implementation plan, recommendations, or suggested next steps. You cannot modify files.`,
   },
 ]
 
@@ -128,6 +129,9 @@ export function composeSubagentSystemPrompt({
   const allowedTools = Array.isArray(effectiveAllowedTools) ? effectiveAllowedTools : definition.allowedTools
   const hasMcpTools = allowedTools.some((toolName) => toolName.startsWith('mcp__'))
   const hasAgentSkills = allowedTools.includes('activate_skill') || allowedTools.includes('read_skill_resource')
+  // The parent prompt above already carries the note indexes, so a subagent with
+  // the read tools only has to open the entries that apply — not walk the folders.
+  const hasMemoryReadTools = allowedTools.includes('read_memory_note') || allowedTools.includes('list_memory_notes')
   const parentPrompt = hasAgentSkills ? parentSystemPrompt : withoutAvailableSkillsPrompt(parentSystemPrompt)
 
   return [
@@ -145,6 +149,9 @@ export function composeSubagentSystemPrompt({
     `- Allowed tools: ${allowedTools.join(', ')}`,
     hasMcpTools ? '- MCP tools inherited from the parent session are available and remain subject to the parent session approval/YOLO policy.' : '- MCP tools are not available to this subagent.',
     hasAgentSkills ? '- Agent Skill tools inherited from the parent session are available.' : '- Agent Skill tools are not available to this subagent.',
+    hasMemoryReadTools
+      ? '- Working memory and experience notes are read-only here: start from the index already in this prompt and open only the notes that clearly apply. If nothing in the index is relevant, do not browse those folders.'
+      : '',
     '- run_subagent is not available to subagents.',
     definition.allowFileMutations
       ? '- File modification tools are available when needed, subject to the parent session approval/YOLO policy.'

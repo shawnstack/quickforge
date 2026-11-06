@@ -100,6 +100,18 @@ skills/                     能力：改变 AI 做事方式            人工确
 
 `write_memory_note` 拒绝空正文——「写空 = 删除」是这一层唯一不提供的破坏性操作，否则一次被截断的模型回复就能抹掉一篇笔记。
 
+### 谁能拿到哪几个
+
+| 调用方 | 拿到什么 |
+| --- | --- |
+| 会话主 AI | 四个全给（`createServerTools` 无条件挂载，再按 `allowedToolNames` 过滤） |
+| 梦境整理员 | 自己单独建工具集，四个全给 |
+| subagent / 自定义 Agent Profile | 只有 `list_memory_notes` 和 `read_memory_note`（`MEMORY_READ_TOOL_NAMES`），且五条能力策略都允许 |
+
+subagent 只给读：它短命且可能并行，几个 subagent 各自判断「这条值得记」，就会往同一个工作记忆里塞重复笔记，而收尾沉淀本来就归父会话。反过来，读是必须给的——父会话的 system prompt 整段透传给 subagent，那份索引它已经看见了；不给工具只会让它绕 `run_command` 去 `cat` 绝对路径，那条路要人点审批，无人值守时就卡到超时。这两个工具同时在 `safeReadTools` 里，所以 subagent 读笔记不弹框。
+
+`write_memory_note` / `move_memory_note` 不在 `AGENT_PROFILE_TOOL_NAMES` 里，因此不会出现在 Agent Profile 的可选工具列表，也进不了任何策略。
+
 ### 人怎么看到这些文件
 
 设置页不提供编辑，但给了一个出口：工作记忆的每条笔记、经验库的每条经验后面都有「打开」，两个页面也各有「打开文件夹」——都在系统文件管理器里定位到那个 `.md` 文件 / 打开整个目录。

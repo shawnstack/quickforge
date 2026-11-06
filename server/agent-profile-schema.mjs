@@ -1,6 +1,14 @@
 import { resolveModelBinding } from './model-catalog.mjs'
 
-export const AGENT_PROFILE_TOOL_NAMES = ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command']
+// Reading memory notes is offered to every policy, edit policies included: these
+// two tools are locked to the two note folders, cannot delete anything, and are
+// pure reads, so "may this agent write code" says nothing about whether it should
+// be allowed to remember why the code looks like this. Writing and moving notes
+// are deliberately absent: a subagent is short-lived and parallel, and the parent
+// session owns consolidation.
+export const MEMORY_READ_TOOL_NAMES = ['list_memory_notes', 'read_memory_note']
+
+export const AGENT_PROFILE_TOOL_NAMES = ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command', ...MEMORY_READ_TOOL_NAMES]
 export const AGENT_PROFILE_MODEL_INHERIT = { mode: 'inherit' }
 export const AGENT_PROFILE_THINKING_LEVELS = ['inherit', 'off', 'low', 'medium', 'high', 'xhigh']
 
@@ -9,24 +17,24 @@ const agentProfileThinkingLevels = new Set(AGENT_PROFILE_THINKING_LEVELS)
 export const CAPABILITY_POLICIES = {
   'readonly-research': {
     readonly: true,
-    allowedTools: ['read_file', 'grep_files', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'run_command', ...MEMORY_READ_TOOL_NAMES],
   },
   'safe-validation': {
     readonly: true,
-    allowedTools: ['read_file', 'grep_files', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'run_command', ...MEMORY_READ_TOOL_NAMES],
   },
   'review-only': {
     readonly: true,
-    allowedTools: ['read_file', 'grep_files'],
+    allowedTools: ['read_file', 'grep_files', ...MEMORY_READ_TOOL_NAMES],
   },
   'docs-edit': {
     readonly: false,
-    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file'],
+    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', ...MEMORY_READ_TOOL_NAMES],
     pathScope: ['docs/**', 'README.md', 'CHANGELOG.md'],
   },
   'code-edit': {
     readonly: false,
-    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command'],
+    allowedTools: ['read_file', 'grep_files', 'write_file', 'edit_file', 'run_command', ...MEMORY_READ_TOOL_NAMES],
   },
 }
 

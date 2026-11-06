@@ -40,7 +40,9 @@ describe('approval store constants', () => {
       'ask_user',
       'goal_report',
       'grep_files',
+      'list_memory_notes',
       'read_file',
+      'read_memory_note',
       'read_skill_resource',
       'run_subagent',
     ])
@@ -51,8 +53,10 @@ describe('approval store constants', () => {
     }
   })
 
-  it('keeps the free-permission read whitelist to read_file and grep_files', () => {
-    expect([...safeReadTools].sort()).toEqual(['grep_files', 'read_file'])
+  it('keeps the free-permission read whitelist to read-only tools', () => {
+    // Note reads are exempt from approval on purpose: an unattended subagent that
+    // had to wait for a click would just time out instead of reading the note.
+    expect([...safeReadTools].sort()).toEqual(['grep_files', 'list_memory_notes', 'read_file', 'read_memory_note'])
   })
 })
 
@@ -119,6 +123,7 @@ describe('commandToolPermissionError', () => {
     // Whitelisted tools pass the plan gate and fall through to the restricted check.
     expect(commandToolPermissionError(session, 'read_file')).toBeNull()
     expect(commandToolPermissionError(session, 'grep_files')).toBeNull()
+    expect(commandToolPermissionError(session, 'read_memory_note')).toBeNull()
     expect(commandToolPermissionError(session, 'ask_user')).toBeNull()
     expect(commandToolPermissionError(session, 'goal_report')).toBeNull()
   })

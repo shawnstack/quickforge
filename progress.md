@@ -7,7 +7,7 @@
 - 起因：用户反馈「压缩后马上又满，任务做到一半又压缩」。上一条 `context-usage-provider-only-accounting` 记录的「压缩内容没有重发」不完整，漏了本条场景。
 - 根因：pi-agent-core 每次 run 用启动时的消息副本。副本里已有旧摘要时，run 内新摘要只写入 state；`buildAutoCompactLoopMessages` 按「副本里最后一条摘要」切片，发给模型的仍是旧摘要 + 之后全部消息，上下文不降，下一次请求前再次压缩。
 - 改动：`server/auto-compaction.mjs` 新增 `summaryIndexInMessages()`，`buildAutoCompactLoopMessages` 与 `minimumProviderUsageIndex` 共用，当前摘要只在 state 时忽略副本里的旧摘要；`compactionSnapshotShift()` 在传入数组已含当前摘要时返回 0。`tests/server/auto-compaction-history.test.mjs` 新增 4 例（修复前 2 例失败，另 2 例为防回归）。`docs/wiki/server/README.md` 同步。
-- Evidence（验证）：压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；`npm run test` → 502 files / 5558 passed、2 skipped（含同批 context-usage 新增用例）；`npm run lint` → 0 problems；`npm run build` → 通过。未做真实长会话实机验证。未提交，无 commit/tag。
+- Evidence（验证）：压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；`npm run test` → 502 files / 5558 passed、2 skipped（含同批 context-usage 新增用例）；`npm run lint` → 0 problems；`npm run build` → 通过。未做真实长会话实机验证。已提交 `ae5be252`，无 tag。
 - Notes（同一排查发现、未纳入本次）：压缩后到下一次回复前界面沿用旧百分比；压缩失败后每次请求都重试、无等待间隔；同一 run 第二次压缩会让上一条摘要从 state 消失（只留在 `contextCompaction.history`），可能影响时间线分割线与回撤，尚未验证。
 
 ## context-usage-provider-only-accounting（done，2026-11-09）
@@ -26,7 +26,7 @@
   - 压缩完成到下一次真实回复之间没有新上报值，指示器显示的是上一次的数字（带「该数字来自上一次请求」标注）；新会话首条请求返回前不显示环形指示器。
   - 工具结果膨胀**没有**失去预警：一轮之内工具结果会推高 `trailingTokens`，`inputTokens` 跟着涨，百分比和自动压缩阈值都照常生效。真正没有兜底的只有两个「一个上报值都没有」的时刻——新会话首轮、压缩完成到下次回复之间。
   - 这也解释了用户最初抱怨的「压完又满」的剩余部分：如果系统提示词 + 工具定义本身就占了窗口很大比例，压缩消息部分也降不下来。这种会话不建议再反复压缩。
-- 评审修复（用户要求先删死代码，再按评审结论逐项修；改动仍在同一轮、未提交）：
+- 评审修复（用户要求先删死代码，再按评审结论逐项修；改动仍在同一轮、随后提交为 `ae5be252`）：
   1. 死代码：`context-usage.ts` 删掉 `getMessages` / `getEffectiveMessages` 选项，`ChatPanelHost.tsx` 删掉 `effectiveContextMessages()`；`isCompacted` 改由 `usage.isCompacted` / `getIsCompacted?.()` 判断。三个只为固化这段死逻辑而存在的测试同步删除。
   2. 悬浮说明误标「本地估算」：popover 原来用 `Boolean(serverUsage)` 判断来源，沿用上一次数值时会显示 `contextUsageSourceLocalShort`。改为按 `hasServerUsage` 传 `stale`，meta 行显示「上一次请求（尚未更新）」，并删掉死键 `contextUsageSourceLocalShort`。
   3. 缺字段回落错误：旧负载不带 `inputTokenSource` 时原文回落 `'estimated'`，而标题把非 `provider` 一律当 `unavailable`，于是有数值也被标成「尚未更新」。改为按 `inputTokens > 0` 回落 `'provider'`。

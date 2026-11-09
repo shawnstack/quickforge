@@ -5,7 +5,7 @@
 - Current Objective（当前目标）：修复「任务中途压缩后，新摘要没发给模型，上下文不降并反复压缩」。
 - 结论（一句话）：run 的消息副本里已有旧摘要时，发送逻辑错认旧摘要；现在当前摘要只在 state 时会忽略副本里的旧摘要。下方 `context-usage-provider-only-accounting` 条目里「重发的问题不存在」的结论不完整，以本条为准。
 - 改动文件：`server/auto-compaction.mjs`、`tests/server/auto-compaction-history.test.mjs`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、本文件。
-- Evidence（验证）：压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；`npm run test` → 502 files / 5558 passed、2 skipped、exit 0（含同批 context-usage 新增用例）；`npm run lint` → 0 problems；`npm run build` → 通过。未提交，无 commit/tag；工作区里还有上一轮 `context-usage-provider-only-accounting` 的未提交改动，两批混在同一批文件中。
+- Evidence（验证）：压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；`npm run test` → 502 files / 5558 passed、2 skipped、exit 0（含同批 context-usage 新增用例）；`npm run lint` → 0 problems；`npm run build` → 通过。已提交 `ae5be252`（与上一轮 `context-usage-provider-only-accounting` 的改动合并为同一提交，两批混在同一批文件中）。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：
   1. 实机验收（需重启服务或桌面端以加载新代码）：同一会话压缩过一次后继续长任务，再次中途压缩后，百分比应在下一次回复后明显下降，且不再每步都压缩。

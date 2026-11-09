@@ -2,6 +2,19 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## release-2-4-2（done，2026-11-09）
+
+- 起因：用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 把 `2.4.1` 推到 `2.4.2`。
+- 发布前处理：工作区有一批已验证但未提交的 `context-usage-review-cleanup` 改动（交接文档记录 test/lint/build 三批全过、尚未实机验收），用户拍板「一起发」。于是先提交 `6a811a6d`（代码 + 测试 + wiki）与 `206aeaaa`（状态文件），并把 `feature_list.json` / `session-handoff.md` 里的「未提交」表述改成已提交，保证 tag 的源码与实际打包内容一致。
+- 发布内容：`v2.4.1..HEAD` 只有两个代码提交——`ae5be252`（上下文占用只认服务端上报；任务中途第二次压缩按当前摘要切片，修「压完不降、每步都压」）与 `6a811a6d`（服务端 contextUsage 字段瘦身、来源判定收敛、百分比改由前端按当前模型窗口换算、删死 i18n 键）。
+- 步骤：`npm version patch --no-git-tag-version`（→ 2.4.2）→ `CHANGELOG.md` 新增 `## [2.4.2] - 2026-11-09`（Fixed / Changed / Removed / Released）→ `README.md`「当前版本」2.4.1 → 2.4.2 → 三件套 → runtime 包 + 离线包 + `npm pack` → release commit + tag + push。
+- Evidence（验证）：`npm run test` → 502 files / 5559 passed、2 skipped、exit 0；`npm run lint` → 0 problems；`npm run build` → 通过（`tsc -b` + `vite build` 4.34s，precompress 225 files 12.67MB → 6.49MB，仅既有大 chunk warning）；`prepare-runtime-package.cjs` + `prepare-offline-package.cjs` → 产物版本 2.4.2；`npm pack` → `package-offline/shawnstack-quickforge-2.4.2.tgz`（14.5 MB / 1036 files）。release commit `bdb39c87`，tag `v2.4.2`，已推送 `origin dev`（`f0391199..bdb39c87`）与 tag。
+- Notes：
+  - `npm whoami` 仍是 401（未登录），所以没有 `npm publish`，只留命令。
+  - test 日志里的 `Failed to load plugin lifecycle-test: RolldownError: Parse failure` 与若干 SQLite / MCP ERROR 日志是既有测试噪声（502 files 全过），未处理。
+  - 生成产物（`dist/` / `package-dist/` / `package-offline/`）未入库，未手工修改。
+- Next Session（下一步）：见 `session-handoff.md` 顶部条目。
+
 ## context-usage-review-cleanup（done，2026-11-09）
 
 - 起因：用户看完成 `ae5be252` 的评审结论后说「好的清理死代码」，要求先把评审里列的低风险项一次性清完再统一验证。

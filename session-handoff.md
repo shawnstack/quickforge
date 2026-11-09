@@ -1,6 +1,18 @@
 # Current Session Handoff
 
-## 当前交接：context-usage-review-cleanup（未提交，2026-11-09）
+## 当前交接：release-2-4-2（done，2026-11-09）
+
+- Current Objective（当前目标）：用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 把 `2.4.1` 推到 `2.4.2`；并确认把工作区里那批未提交的 context-usage 清理一起发（先提交，再发版）。
+- 结论（一句话）：版本号、CHANGELOG、README、三件套验证、runtime/offline 包、commit/tag/push 全部完成；npm 未登录，所以没发布，只留命令。
+- 改动文件：`package.json` / `package-lock.json`（2.4.1 → 2.4.2）；`CHANGELOG.md`（新增 `[2.4.2] - 2026-11-09`）；`README.md`（当前版本 2.4.2）；`feature_list.json`；`progress.md`；本文件。
+- Evidence（验证）：`npm run test` → 502 files / 5559 passed、2 skipped、exit 0；`npm run lint` → 0 problems；`npm run build` → 通过（precompress 225 files 12.67MB → 6.49MB，仅既有大 chunk warning）；runtime / offline 产物与 `package-offline/shawnstack-quickforge-2.4.2.tgz`（14.5 MB / 1036 files）均为 2.4.2；release commit `bdb39c87`、tag `v2.4.2`、已推送 `origin dev` 与 tag。
+- Blockers（阻塞）：npm 未登录（`npm whoami` 401），所以没有 `npm publish`。
+- Next Session（下一步）：
+  1. 想真正发到 npm：`npm login` 后执行 `cd package-offline && npm publish --access public`，再用 `npm view @shawnstack/quickforge version` 验证。
+  2. 实机验收本版两项：长会话触发压缩后百分比应在下一次回复后下降且不再每步都压；切模型后圆环百分比按新窗口变化，hover 明细「提供商基线 + 基线后新增」两行相加应等于头部数字。
+  3. 桌面端安装版和已运行的旧进程仍是旧产物，复验前重启或 `npm run desktop:dev`；`dist/` / `package-dist/` / `package-offline/` 不要手工改。
+
+## 当前交接：context-usage-review-cleanup（done，2026-11-09）
 
 - Current Objective（当前目标）：按评审结论清理 `ae5be252` 留下的死代码与冗余（4 项低风险），并在确认无消费者后删掉服务端只写不读的冗余字段，改完统一验证。
 - 结论（一句话）：指示器现在只认提供商上报值，百分比和颜色由前端按当前模型窗口算，来源判定只有一处；切换模型后沿用值不再按旧窗口算比例；服务端返回值也瘦到只留真实在用的字段，顺带删掉 3 个已无引用的 i18n 键和一批死字段。

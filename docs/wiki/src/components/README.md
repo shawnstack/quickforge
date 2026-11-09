@@ -92,7 +92,7 @@ components/
 │   ├── capability-icons.ts         # @ 文件引用与非 Slash 插件菜单/chip 的中立图标表
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
 │   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
-│   ├── context-usage.ts            # 上下文用量环状指示器 (78 行)
+│   ├── context-usage.ts            # 上下文用量环状指示器：只认 provider 上报值，百分比按当前模型窗口前端换算 (631 行)
 │   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (380 行)
 │   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条视图投影（方案 A 目标卡）：13 个服务器状态收敛为 5 个用户可见状态词 + 阶段说明 + 唯一主操作（暂停/继续/去处理/追加预算）+ 验收计数/轮次/累计用时；纯投影，无 DOM
@@ -358,8 +358,9 @@ components/
 
 **context-usage.ts**
 - 上下文用量环状指示器，只展示后端 session state 返回的 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`）；前端不再做本地 token 估算，`inputTokenSource` 只有 `provider` / `unavailable` 两态，后端返回 `unavailable` 时沿用本次会话上一次上报的数值，并在悬浮说明里标注「该数字来自上一次请求」（`contextUsageStaleNote` + meta 行的「上一次请求（尚未更新）」），从未上报过则整个指示器不渲染
+- 百分比与颜色由前端按「当前模型 `contextWindow`」换算（`inputTokens / contextWindow`），不采用负载里的 `percent`/`color`：切模型后上报负载仍带着旧模型的窗口，沿用旧窗口会把上一次请求的 token 数算成错的百分比；沿用的旧数值也按新窗口重新换算
 - 悬浮明细分两段，避免两套口径被读成同一份数字：① 提供商上报基线（`breakdown.providerUsageTokens` + 基线后新增消息估算 `breakdown.trailingTokens`），二者之和等于头部那一行总量；②「本地估算明细（仅供参考）」下的系统提示词 / 工具定义 / 消息 / Skills / MCP 行，来自本地估算，不参与 `inputTokens` 与百分比
-- Tooltip 的构成区：先是「输入 / 上下文」总量行；接着是提供商上报基线两行（`providerUsageTokens` + `trailingMessages`，两者之和等于总量行）；然后是「本地估算明细（仅供参考）」小标题下的系统提示词、工具定义、消息、`Skills`、`MCP` 行（后两项有值才显示，且是跨前三类的来源归因，不参与输入总量二次相加）；底部 meta 行显示来源（服务端计算 / 上一次请求尚未更新）与统计范围
+- Tooltip 的构成区：先是「输入 / 上下文」总量行（来源固定标注为「提供商上下文」，没有上报就不渲染指示器）；接着是提供商上报基线两行（`providerUsageTokens` + `trailingMessages`，两者之和等于总量行）；然后是「本地估算明细（仅供参考）」小标题下的系统提示词、工具定义、消息、`Skills`、`MCP` 行（后两项有值才显示，且是跨前三类的来源归因，不参与输入总量二次相加）；底部 meta 行只显示统计范围，数值非本轮上报时前置「上一次请求（尚未更新）」
 - 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 通用”中开启，默认关闭
 
 **panel-decoration.ts** (310 行)

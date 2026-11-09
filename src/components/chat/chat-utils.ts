@@ -211,11 +211,7 @@ export function formatMessageTime(timestamp: number) {
 
 export type ContextUsageInfo = {
   contextWindow: number
-  usedTokens: number
-  totalTokens: number
   inputTokens: number
-  estimatedInputTokens: number
-  knownInputTokens?: number
   inputTokenSource: 'provider' | 'unavailable'
   percent: number
   color: string
@@ -231,8 +227,6 @@ export type ContextUsageInfo = {
     mcpTokens?: number
     providerUsageTokens?: number
     trailingTokens?: number
-    lastUsageIndex?: number | null
-    localEstimatedContextTokens?: number
   }
 }
 

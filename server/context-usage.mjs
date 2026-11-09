@@ -177,7 +177,6 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
       isCanonicalMcpToolName,
       (message) => isStructuredMcpResultDetails(message?.details),
     )
-  const estimatedInputTokens = systemPromptTokens + messagesTokens + toolsTokens
   const normalizedMinimumProviderUsageIndex = Math.max(0, Number(minimumProviderUsageIndex) || 0)
   const providerUsageIndex = Number.isInteger(coreEstimate.lastUsageIndex) ? coreEstimate.lastUsageIndex : -1
   const providerUsageTokens = providerUsageIndex >= normalizedMinimumProviderUsageIndex
@@ -192,18 +191,12 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
   // 数值来源：pi-agent-core 的 estimateContextTokens() = 最近一次上报的 usage 总量 + 其后新增消息的估算，
   // 其中 usage 总量按 calculateContextTokens() 取 `totalTokens`（缺失时退化为 input + output + cacheRead + cacheWrite），
   // 因此包含上一条回复的输出与缓存 token，并不是「纯输入」。percent 用这个总量除以 contextWindow。
-  // totalTokens 仅为兼容保留，恒等于 inputTokens。
-  const totalTokens = inputTokens
   const percent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : 0
   const inputTokenSource = providerBasedContextTokens > 0 ? 'provider' : 'unavailable'
 
   return {
     inputTokens,
-    estimatedInputTokens,
-    knownInputTokens: providerBasedContextTokens,
-    providerContextTokens: providerBasedContextTokens,
     inputTokenSource,
-    totalTokens,
     contextWindow,
     percent,
     breakdown: {
@@ -216,8 +209,6 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
       trailingTokens: providerUsageTokens > 0
         ? Math.max(0, Number(coreEstimate.trailingTokens) || 0)
         : messagesTokens,
-      lastUsageIndex: coreEstimate.lastUsageIndex,
-      localEstimatedContextTokens: estimatedInputTokens,
     },
   }
 }

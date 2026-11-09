@@ -46,12 +46,13 @@ function estimate(input) {
 }
 
 function expectExistingTotalsUnchanged(usage) {
-  expect(usage.estimatedInputTokens).toBe(
-    usage.breakdown.systemPromptTokens + usage.breakdown.toolsTokens + usage.breakdown.messagesTokens,
-  )
-  expect(usage.totalTokens).toBe(usage.inputTokens)
-  // 占用只认服务端（提供商）上报的用量：本地估算仅供参考，不再顶替 inputTokens。
-  expect(usage.inputTokens).toBe(usage.knownInputTokens)
+  // 只有一个占用口径：inputTokens 就是提供商上报值，不再有 totalTokens / knownInputTokens 别名。
+  expect('totalTokens' in usage).toBe(false)
+  expect('knownInputTokens' in usage).toBe(false)
+  expect('providerContextTokens' in usage).toBe(false)
+  expect('estimatedInputTokens' in usage).toBe(false)
+  // 本地估算只在拆分项里，没有合计字段（前端明细按三项逐行渲染）。
+  expect('localEstimatedContextTokens' in usage.breakdown).toBe(false)
 }
 
 describe('context usage Skills/MCP breakdown', () => {
@@ -304,10 +305,8 @@ describe('context usage provider-only accounting', () => {
       messages: [textMessage('user', 'hello '.repeat(500))],
     })
 
-    expect(usage.estimatedInputTokens).toBeGreaterThan(0)
-    expect(usage.knownInputTokens).toBe(0)
+    expect(usage.breakdown.messagesTokens).toBeGreaterThan(0)
     expect(usage.inputTokens).toBe(0)
-    expect(usage.totalTokens).toBe(0)
     expect(usage.percent).toBe(0)
     expect(usage.inputTokenSource).toBe('unavailable')
   })
@@ -325,9 +324,7 @@ describe('context usage provider-only accounting', () => {
       ],
     })
 
-    expect(usage.knownInputTokens).toBeGreaterThanOrEqual(40_000)
-    expect(usage.inputTokens).toBe(usage.knownInputTokens)
-    expect(usage.totalTokens).toBe(usage.inputTokens)
+    expect(usage.inputTokens).toBeGreaterThanOrEqual(40_000)
     expect(usage.percent).toBeGreaterThanOrEqual(40)
     expect(usage.inputTokenSource).toBe('provider')
   })

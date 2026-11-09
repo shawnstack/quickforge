@@ -20,21 +20,12 @@ type ServerContextUsageBreakdown = {
   mcpTokens?: number
   providerUsageTokens?: number
   trailingTokens?: number
-  lastUsageIndex?: number | null
-  localEstimatedContextTokens?: number
 }
 
 type ServerContextUsageInfo = {
   contextWindow?: number
-  usedTokens?: number
-  totalTokens?: number
   inputTokens?: number
-  estimatedInputTokens?: number
-  knownInputTokens?: number
-  providerContextTokens?: number
   inputTokenSource?: 'provider' | 'unavailable'
-  percent?: number
-  color?: string
   isCompacted?: boolean
   compactedUpToIndex?: number
   originalMessageCount?: number
@@ -88,25 +79,21 @@ function usageColor(percent: number) {
 }
 
 function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindow: number): ContextUsageInfo {
-  const inputTokens = Number(usage.inputTokens) || 0
-  const knownInputTokens = Math.max(0, Number(usage.knownInputTokens ?? usage.providerContextTokens) || 0)
-  const estimatedInputTokens = Math.max(0, Number(usage.estimatedInputTokens) || 0)
-  // totalTokens 仅为兼容保留，恒等于 inputTokens。
-  const totalTokens = inputTokens
-  const percent = Number.isFinite(Number(usage.percent)) ? Number(usage.percent) : 0
-  // 旧服务端负载可能不带来源字段：有数值就按提供商上报处理，否则视为未知。
-  const inputTokenSource: 'provider' | 'unavailable' = usage.inputTokenSource
-    ?? (inputTokens > 0 ? 'provider' : 'unavailable')
+  const inputTokens = Math.max(0, Number(usage.inputTokens) || 0)
+  // 当前模型窗口优先：切换模型后上报负载里还带着旧模型的窗口，直接用它会把
+  // 上一次请求的 token 数按旧窗口算成比例。
+  const displayWindow = Math.max(0, Number(contextWindow) || Number(usage.contextWindow) || 0)
+  const percent = displayWindow > 0 ? Math.round((inputTokens / displayWindow) * 1000) / 10 : 0
+  // 唯一判定口径：有数值且没有被明确标成未知，才算「有上报值」。旧负载缺来源
+  // 字段时按数值判断，避免把 0 当成一次有效上报。
+  const inputTokenSource: ContextUsageInfo['inputTokenSource'] =
+    usage.inputTokenSource === 'unavailable' || inputTokens <= 0 ? 'unavailable' : 'provider'
   return {
-    contextWindow: Math.max(0, Number(usage.contextWindow) || contextWindow),
-    usedTokens: Math.max(0, Number(usage.usedTokens) || inputTokens),
-    totalTokens,
+    contextWindow: displayWindow,
     inputTokens,
-    estimatedInputTokens,
-    knownInputTokens,
     inputTokenSource,
     percent,
-    color: usage.color || usageColor(percent),
+    color: usageColor(percent),
     isCompacted: usage.isCompacted,
     compactedUpToIndex: usage.compactedUpToIndex,
     originalMessageCount: usage.originalMessageCount,
@@ -139,23 +126,20 @@ export function contextUsageBreakdownRows(breakdown?: ServerContextUsageBreakdow
   ].filter((row): row is [string, string] => Boolean(row[1]))
 }
 
-function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compacted, stale = false }: {
+function buildContextUsageTitle({ usage, compacted, stale = false }: {
   usage: ContextUsageInfo
-  contextWindow: number
-  serverCalculated: boolean
   compacted: boolean
   stale?: boolean
 }) {
-  const inputLabel = usage.inputTokenSource === 'provider'
-    ? t('contextUsageSourceProvider')
-    : t('contextUsageSourceUnavailable')
+  const contextWindow = usage.contextWindow
   const lines = [
     t('contextUsageUsed', {
       percent: usage.percent,
       used: formatTokens(usage.inputTokens),
       limit: formatTokens(contextWindow),
     }),
-    t('contextUsageInput', { tokens: formatTokens(usage.inputTokens), source: inputLabel }),
+    // 显示的数值一定来自提供商上报（没有上报就不渲染指示器），所以来源固定。
+    t('contextUsageInput', { tokens: formatTokens(usage.inputTokens), source: t('contextUsageSourceProvider') }),
   ]
   if (stale) lines.push(t('contextUsageStaleNote'))
   const breakdown = usage.breakdown
@@ -174,7 +158,6 @@ function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compac
       t('contextUsageMessages', { tokens: formatOptionalTokens(breakdown.messagesTokens) ?? '0' }),
     )
   }
-  if (serverCalculated) lines.push(t('contextUsageServerCalculated'))
   lines.push(compacted ? t('contextUsageScopeCompacted') : t('contextUsageScopeFull'))
   if (compacted && usage.originalMessageCount !== undefined && usage.effectiveMessageCount !== undefined) {
     lines.push(t('contextUsageEffectiveMessages', {
@@ -286,7 +269,7 @@ function createContextUsageTipController() {
     percent.textContent = `${usage.percent}%`
     header.append(heading, percent)
 
-    // totalTokens 恒等于 inputTokens，只展示一行占用，避免重复。
+    // 只展示一行占用：数值与百分比同源，不再重复一行「总量」。
     const coreRows = document.createElement('div')
     coreRows.className = 'quickforge-context-usage-tip-section'
     addRow(coreRows, t('contextUsageInputLabel'), `${formatTokens(usage.inputTokens)} / ${formatTokens(contextWindow)}`)
@@ -317,7 +300,9 @@ function createContextUsageTipController() {
 
     const meta = document.createElement('div')
     meta.className = 'quickforge-context-usage-tip-meta'
-    meta.textContent = `${stale ? t('contextUsageSourceUnavailable') : t('contextUsageSourceServerShort')} · ${compacted ? t('contextUsageScopeCompactedShort') : t('contextUsageScopeFullShort')}`
+    // 来源只有 provider 一种（没有上报就不渲染），meta 行不必再重复来源，只报时效与统计范围。
+    const scope = compacted ? t('contextUsageScopeCompactedShort') : t('contextUsageScopeFullShort')
+    meta.textContent = stale ? `${t('contextUsageStaleShort')} · ${scope}` : scope
     popover.append(meta)
 
     document.body.append(popover)
@@ -530,10 +515,16 @@ export function createContextUsageIndicator({ panel, getContextWindow, getServer
       return displayInfo
     }
 
-    const hasServerUsage = Boolean(serverUsage) && serverUsage?.inputTokenSource !== 'unavailable'
+    // 只认 provider 上报值：一次都没上报过就不渲染；本轮没有新上报时沿用上一条
+    // 负载（按当前模型窗口重新换算比例），并标注数值来自上一次请求。
+    const freshUsage = serverUsage ? normalizeServerContextUsage(serverUsage, contextWindow) : null
+    const hasServerUsage = freshUsage?.inputTokenSource === 'provider'
     if (hasServerUsage) lastKnownServerUsage = serverUsage ?? null
-    const shownUsage = hasServerUsage ? serverUsage : lastKnownServerUsage
-    const usage = shownUsage ? normalizeServerContextUsage(shownUsage, contextWindow) : null
+    const usage = hasServerUsage
+      ? freshUsage
+      : lastKnownServerUsage
+        ? normalizeServerContextUsage(lastKnownServerUsage, contextWindow)
+        : null
 
     if (!usage) {
       tipController.close()
@@ -543,12 +534,10 @@ export function createContextUsageIndicator({ panel, getContextWindow, getServer
       return displayInfo
     }
 
-    const displayContextWindow = usage.contextWindow || contextWindow
+    const displayContextWindow = usage.contextWindow
     const isCompacted = Boolean(usage.isCompacted) || Boolean(getIsCompacted?.())
     const title = buildContextUsageTitle({
       usage,
-      contextWindow: displayContextWindow,
-      serverCalculated: Boolean(shownUsage),
       compacted: isCompacted,
       stale: !hasServerUsage,
     })

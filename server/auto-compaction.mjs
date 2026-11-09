@@ -421,10 +421,7 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
   if (sourceMessages.length === 0) {
     return {
       inputTokens: 0,
-      estimatedInputTokens: 0,
-      knownInputTokens: 0,
       inputTokenSource: 'unavailable',
-      totalTokens: 0,
       contextWindow,
       percent: 0,
       isCompacted: false,

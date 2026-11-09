@@ -70,8 +70,6 @@ describe('context usage indicator', () => {
       serverUsage: () => ({
         contextWindow: 100_000,
         inputTokens: 20_000,
-        estimatedInputTokens: 20_000,
-        percent: 20,
       }),
       isCompacted: () => true,
       onDisplayChange,
@@ -89,8 +87,6 @@ describe('context usage indicator', () => {
       serverUsage: () => ({
         contextWindow: 100_000,
         inputTokens: 20_000,
-        estimatedInputTokens: 20_000,
-        percent: 20,
       }),
       onDisplayChange,
     })
@@ -147,7 +143,6 @@ describe('context usage indicator without local estimation', () => {
     let current: Record<string, unknown> | null = {
       contextWindow: 100_000,
       inputTokens: 30_000,
-      percent: 30,
       inputTokenSource: 'provider',
     }
     const indicator = createIndicator({
@@ -159,7 +154,6 @@ describe('context usage indicator without local estimation', () => {
     current = {
       contextWindow: 100_000,
       inputTokens: 0,
-      percent: 0,
       inputTokenSource: 'unavailable',
     }
     indicator.update()
@@ -180,7 +174,6 @@ describe('context usage indicator without local estimation', () => {
       serverUsage: () => ({
         contextWindow: 100_000,
         inputTokens: 0,
-        percent: 0,
         inputTokenSource: 'unavailable',
       }),
       onDisplayChange,
@@ -195,7 +188,7 @@ describe('context usage indicator without local estimation', () => {
   it('treats a legacy payload without inputTokenSource as provider-reported usage', () => {
     const onDisplayChange = vi.fn()
     const indicator = createIndicator({
-      serverUsage: () => ({ contextWindow: 100_000, inputTokens: 42_000, percent: 42 }),
+      serverUsage: () => ({ contextWindow: 100_000, inputTokens: 42_000 }),
       onDisplayChange,
     })
 
@@ -204,7 +197,33 @@ describe('context usage indicator without local estimation', () => {
     const display = onDisplayChange.mock.calls.at(-1)?.[0] as ContextUsageDisplayInfo
     expect(display.context?.percent).toBe(42)
     // 缺 source 字段时按提供商上报处理，不能显示成「上一次请求（尚未更新）」
-    expect(display.context?.title).not.toContain('contextUsageSourceUnavailable')
+    expect(display.context?.title).not.toContain('contextUsageStaleNote')
+  })
+
+  it('recomputes the stale percentage against the current model window', () => {
+    // 切换模型后窗口变了，但上一次上报的 token 数还是旧模型下的，必须按新窗口重算，
+    // 否则会把 4 万 token 显示成旧窗口的 40%。
+    const onDisplayChange = vi.fn()
+    let windowSize = 100_000
+    let current: Record<string, unknown> | null = { contextWindow: 100_000, inputTokens: 40_000, inputTokenSource: 'provider' }
+    const indicator = createContextUsageIndicator({
+      panel: createPanel(),
+      getContextWindow: () => windowSize,
+      getServerContextUsage: () => current,
+      renderInline: false,
+      renderModelRing: false,
+      onDisplayChange,
+    })
+
+    indicator.update()
+    expect(onDisplayChange.mock.calls.at(-1)?.[0]?.context?.percent).toBe(40)
+
+    windowSize = 200_000
+    current = { contextWindow: 100_000, inputTokens: 0, inputTokenSource: 'unavailable' }
+    indicator.update()
+
+    const display = onDisplayChange.mock.calls.at(-1)?.[0] as ContextUsageDisplayInfo
+    expect(display.context?.percent).toBe(20)
   })
 
   it('lists the provider baseline before the local estimate breakdown in the tooltip title', () => {
@@ -213,7 +232,6 @@ describe('context usage indicator without local estimation', () => {
       serverUsage: () => ({
         contextWindow: 100_000,
         inputTokens: 30_000,
-        percent: 30,
         inputTokenSource: 'provider',
         breakdown: {
           providerUsageTokens: 25_000,
@@ -243,5 +261,9 @@ describe('context usage indicator without local estimation', () => {
     expect(i18nSource).not.toContain('contextUsageSourceLocalShort')
     expect(i18nSource).not.toContain('contextUsageSourceMixed')
     expect(i18nSource).not.toContain('contextUsageSourceEstimated')
+    // 来源固定为提供商上报后，“服务端计算”分支与“未知来源”旧键都不再有引用
+    expect(i18nSource).not.toContain('contextUsageServerCalculated')
+    expect(i18nSource).not.toContain('contextUsageSourceServerShort')
+    expect(i18nSource).not.toContain('contextUsageSourceUnavailable')
   })
 })

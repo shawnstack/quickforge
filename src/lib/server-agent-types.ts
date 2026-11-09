@@ -78,18 +78,12 @@ export type ServerAgentContextUsageBreakdown = {
   mcpTokens?: number
   providerUsageTokens?: number
   trailingTokens?: number
-  lastUsageIndex?: number | null
-  localEstimatedContextTokens?: number
 }
 
 export type ServerAgentContextUsage = {
   contextWindow: number
   inputTokens: number
-  estimatedInputTokens: number
-  knownInputTokens?: number
-  providerContextTokens?: number
   inputTokenSource?: 'provider' | 'unavailable'
-  totalTokens: number
   percent: number
   isCompacted?: boolean
   compactedUpToIndex?: number

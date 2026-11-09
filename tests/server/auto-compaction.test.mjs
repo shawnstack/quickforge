@@ -156,7 +156,6 @@ describe('context usage after compaction', () => {
     const usage = estimateSessionContextUsage(session, messages)
 
     expect(usage.inputTokenSource).toBe('unavailable')
-    expect(usage.knownInputTokens).toBe(0)
     expect(usage.breakdown.providerUsageTokens).toBe(0)
     expect(usage.inputTokens).toBe(0)
     expect(usage.percent).toBe(0)
@@ -193,7 +192,7 @@ describe('context usage after compaction', () => {
     const usage = estimateSessionContextUsage(session, messages)
 
     expect(usage.inputTokenSource).toBe('provider')
-    expect(usage.knownInputTokens).toBe(8_500)
+    expect(usage.inputTokens).toBe(8_500)
     expect(usage.breakdown.providerUsageTokens).toBe(8_500)
     expect(usage.percent).toBe(8.5)
   })
@@ -232,7 +231,6 @@ describe('context usage after compaction', () => {
 
     expect(usage.isCompacted).toBe(true)
     expect(usage.inputTokenSource).toBe('unavailable')
-    expect(usage.knownInputTokens).toBe(0)
     expect(usage.breakdown.providerUsageTokens).toBe(0)
     expect(usage.inputTokens).toBe(0)
     expect(usage.percent).toBe(0)
@@ -275,7 +273,7 @@ describe('context usage after compaction', () => {
     const usage = estimateSessionContextUsage(session, messages)
 
     expect(usage.inputTokenSource).toBe('provider')
-    expect(usage.knownInputTokens).toBe(8_500)
+    expect(usage.inputTokens).toBe(8_500)
   })
 
   it('restores provider usage from a replayed assistant after rollback', () => {
@@ -312,13 +310,12 @@ describe('context usage after compaction', () => {
     const usage = estimateSessionContextUsage(session, messages)
 
     expect(usage.inputTokenSource).toBe('provider')
-    expect(usage.knownInputTokens).toBe(9_500)
+    expect(usage.inputTokens).toBe(9_500)
   })
 
   it('computes percent from input tokens only when model maxTokens exceeds the context window', () => {
     // 退化场景：maxTokens(120_000) ≥ contextWindow(100_000)。纯输入口径下占用只看
-    // inputTokens（provider usage 的 totalTokens 口径，31_000），
-    // 不再叠加预留输出 token；totalTokens 恒等于 inputTokens。
+    // inputTokens（provider usage 的 totalTokens 口径，31_000），不叠加预留输出 token。
     const messages = [
       textMessage('user', 'question'),
       {
@@ -335,7 +332,6 @@ describe('context usage after compaction', () => {
     const usage = estimateSessionContextUsage(session, messages)
 
     expect(usage.inputTokens).toBe(31_000)
-    expect(usage.totalTokens).toBe(31_000)
     expect(usage.percent).toBe(31)
     expect('reservedOutputTokens' in usage).toBe(false)
     expect('reservedOutputTokens' in usage.breakdown).toBe(false)

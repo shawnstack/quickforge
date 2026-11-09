@@ -75,6 +75,23 @@ describe('ACP event conversion', () => {
     ])
   })
 
+  it('reports context usage with ACP used/size fields', () => {
+    expect(convertEventToUpdates({
+      type: 'message_end',
+      contextUsage: { inputTokens: 24_000, contextWindow: 100_000, inputTokenSource: 'provider', percent: 24 },
+    })).toEqual([{
+      sessionUpdate: 'usage_update',
+      used: 24_000,
+      size: 100_000,
+    }])
+
+    // 没有上报值时不推送：used=0 会被客户端读成「上下文是空的」。
+    expect(convertEventToUpdates({
+      type: 'message_end',
+      contextUsage: { inputTokens: 0, contextWindow: 100_000, inputTokenSource: 'unavailable', percent: 0 },
+    })).toEqual([])
+  })
+
   it('advertises ACP document and additional directory capabilities', async () => {
     const agent = await createQuickForgeAcpAgent()
     const initialized = await agent.initialize({ protocolVersion: 1 })

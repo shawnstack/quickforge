@@ -11,17 +11,13 @@ import {
 import { isMobileShell, isRemoteQuickForgeClient } from '@/lib/mobile-server'
 
 /**
- * SSE connection notices, previously three imperative DOM controllers:
- * `reconnect-notice.ts`, `model-retry-notice.ts` and `unreachable-strip.ts`.
+ * SSE connection notices: the inline reconnect row, the model-retry row and the
+ * unreachable strip. React owns the nodes, so placement is a JSX position (a
+ * list rebuild cannot drop them) and the countdowns are component state driven
+ * by one interval, not per-notice timers.
  *
- * All three were find-or-create injectors that pinned themselves into the
- * message list (or above the composer) and then kept their own `setInterval`
- * countdowns alive, re-asserting placement on every decoration pass because a
- * list rebuild dropped them. React owns the nodes now, so placement is a JSX
- * position and the countdowns are component state driven by one interval.
- *
- * Timing constants are the decoration's, unchanged — the CSS animations key off
- * the same class names and data attributes.
+ * Timing constants, class names and data attributes are load-bearing: the CSS
+ * animations key off them.
  */
 
 /**

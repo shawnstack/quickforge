@@ -1,5 +1,55 @@
 # Current Session Handoff
 
+## 当前交接：workspace-batch-commit-2026-11-09（done，2026-11-09）
+
+- Current Objective（当前目标）：用户问「检查一下还有什么活没干、当前能不能提交代码」，确认后要求「直接合并成一次提交」。
+- 结论（一句话）：能提交，但暂存区里躺着一份**半旧半新的过期快照**（`docs/wiki/server/README.md` 还是 7 关旧表格，工作区已是 8 关），直接 commit 会把自相矛盾的旧文档写进历史；先 `git reset` 清空暂存区，补录此前没留档的 `doc-reality-sync-2026-11` 批次，再把工作区 4 批改动一次性提交。
+- 改动文件（本次会话只动记录）：`feature_list.json`（新增 `doc-reality-sync-2026-11` done）、`progress.md`（同名条目）、本文件。代码改动属前序三批：僵尸代码清理、`chat/surface` 注释考古压缩、上下文用量评审修复。
+- Evidence（验证）：合并态 `npm run test` → 502 files / **5564 passed、3 failed、1 skipped**（3 个失败为既有基线：`acp/server.workspace-mapping.test.mjs` 2 例 `setActiveProjectPath` 返回 undefined、`sqlite-quick-check-gate.test.mjs` 1 例，前序会话已用 `git worktree` 在干净 HEAD 复现）；`npm run lint` → 0 problems；`npm run build` → 通过（仅既有 chunk 体积警告）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **仍未修的 P1**：`src/components/chat/surface/ChatSurface.tsx` 的 `runSendMessage()` 只 `catch` reject，而 `prompt()` 已改为返回 `Promise<boolean>`、内部吞错，于是 HTTP 失败 / 409 写租约冲突 / 超时时 `restoreEditor` 与 `chatSendFailed` 都不触发，而编辑器已被 `clearEditor()` 清空——用户草稿直接丢。改法：判返回值 `=== false` 后回填 + 报错，`catch` 保留真异常；`tests/frontend/chat-surface-send.test.ts` 里用 `mockRejectedValue` 的用例要改成 `resolve(false)`，另留一条真异常用例。
+  2. 唯一 pending feature 是 `god-module-decomposition`，建议第一项拆 `server/routes/scheduled-tasks.mjs`（1104 行、扇入 1）。
+  3. 待用户拍板三项：无 provider usage 时自动压缩完全不触发要不要兜底；`hasNewMessagesSinceCompaction` 与 `minimumProviderUsageIndex` 口径统一；工作记忆关闭时主/子 Agent 仍能写笔记要不要加门禁。
+  4. 本次只提交、**未推送**（用户未要求）。要推送记得走本机代理：`git -c http.proxy=http://127.0.0.1:7897 push origin dev`。
+
+## 当前交接：dead-code-cleanup-2026-11（done，2026-11-09）
+
+- Current Objective（当前目标）：用户要求「全面查看一下有无僵尸代码和上帝模块」。只读扫描后确认僵尸代码量很小，按用户批准的方案先清掉零风险项，再把上帝模块清单落成 feature 而不是另开文档。
+- 结论（一句话）：僵尸代码这块仓库本来就干净（lint 0 warning、注释掉的死代码 0 处、TODO 0 处），实删 5 项——`server/provider-config.mjs` 整份、`experiences.mjs` 3 个死导出、`ui-schema.mjs` 的 `summarizeUiContribution`、`agent-session-lease.mjs` 的 `sessionLeaseStore`、根目录 0 字节垃圾文件；上帝模块是真问题但本次不动，已排成 7 项待办。
+- 改动文件：`server/provider-config.mjs`（删除）、`!ids.includes(i))`（根目录垃圾文件，删除）、`server/experiences.mjs`（删 3 个死导出 + `createHash` / `copyNoteDir` 两个孤儿 import）、`server/plugins/ui-schema.mjs`、`server/agent-session-lease.mjs`、`docs/wiki/server/README.md`、`feature_list.json`（新增 `dead-code-cleanup-2026-11` done 与 `god-module-decomposition` pending）、`progress.md`、本文件。
+- Evidence（验证）：定向 `npx vitest run` 8 files / 93 passed；`npx eslint . --no-warn-ignored` → 0 problems；全量 `npx vitest run` → 500 files / 5564 passed、3 failed，**这 3 个失败经 `git worktree` 在干净 HEAD 基线（46d1650c）复跑同样失败**，是两个失败测试文件都不引用本次改动模块的既有问题（acp `setActiveProjectPath` 2 例、sqlite quick-check 缓存语义 1 例）。worktree 已 remove + prune。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 改动未提交。要和别人那批未提交改动一起提交时注意分组：本批只碰上面 4 个 server 文件 + 1 个 wiki 页 + 三个状态文件；**不要**把 `server/acp/server.mjs`、`server/session-state-backup.mjs` 和那批 `src/components/chat/surface/*` 混进同一条提交。
+  2. 下一个 feature 建议从 `god-module-decomposition` 里挑**第一项 `server/routes/scheduled-tasks.mjs`**（1104 行，扇入仅 1，拆分不影响其他模块）。别一上来碰 `agent-manager.mjs`（扇入 21 + 导出契约测试锁定）。
+  3. 拆之前先读该 feature 的 `approach` 字段，里面写清了每处越界代码的函数名和行号范围，也写清了 `i18n.ts` / `code-highlight.ts` / `process-folding.ts` / `ChatSidebar.tsx` / `storage.mjs` 这几个「长但健康」的文件不要动。
+  4. `server/agent-goal-runner.mjs`（1599 行）别当死代码删——它在 `resolveGoalEngine()` 里仍是没有 `goalEngine === 'v2'` 标记的旧会话的回退路径。
+
+## 当前交接：surface-comment-archaeology-cleanup（done，2026-11-09）
+
+- Current Objective（当前目标）：用户问「检查一下有没有大段的无用的代码注释」，在只读扫描后选择「压缩 chat/surface 的考古段落」这一档（不是全删、也不是只修悬空引用）。
+- 结论（一句话）：死代码注释、TODO/FIXME、注释掉的 CSS 全是 0；唯一成规模的问题是「把已删除的旧实现怎么写的当正文写」的迁移考古段落（严格口径 37 块 / 603 行，含关键词 218 块 / 2596 行，其中 17 条引用的文件已不存在），已在 `src/components/chat/surface` + 5 个相关测试里压缩成「现在是什么 + 不能改的约束」，注释净减 78 行，零运行时代码变化。
+- 改动文件：`src/components/chat/surface/` 下 20 个文件（`AssistantWaitingBubble` / `ComposerPlusMenu` / `ComposerAccessControls` / `ConnectionNotices` / `ChatSurface` / `ChatTypes` / `MessageList` / `Markdown` / `MessageEditor` / `AssistantMessage` / `ToolMessage` / `ThinkingBlock` / `AttachmentOverlay` / `AttachmentTile` / `UsageBar` / `CodeBlock` / `ApiKeyPromptDialog` / `GoalControlStrip` / `surface-context` / `composer-store` / `attachment-loader` / `rehype-local-file-paths` / `render-key-index` / `index.ts`）、`src/lib/tool-renderers/todo-write-tool-renderer.tsx`、`tests/frontend/` 6 个测试文件、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npx eslint`（改动目录 + 5 个测试文件）→ 0 problems；`npx vitest run` 8 个相关文件 → 8 files / 166 passed；`git diff` 逐行核对，除工作区里他人既有的 `tests/frontend/context-usage.test.ts` 改动外，本次全部落在注释行（166 增 / 244 删）。未跑全量 `npm run test` / `npm run build`（纯注释）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 改动未提交；要和别人那批 context-usage 改动一起提交时，注意按文件分组（本批只碰 `src/components/chat/surface/`、`src/lib/tool-renderers/todo-write-tool-renderer.tsx`、`tests/frontend/` 里 6 个测试文件与三个状态文件）。
+  2. 如果要继续同一口径：`server/` 侧还有同类考古叙述（`src/lib/server-agent.ts` 27 处、`server/storage.mjs` 15 处），`src/styles/` 未动。
+  3. 刻意没删的高价值整块：`SessionViewPool.tsx`（63 行）、`subagent-trace-structure.ts`（45 行）、`MessageList.tsx`（40 行）、`ChatSurface.tsx` 的 React/DOM 所有权边界块——下次别再当「无用注释」清掉。
+
+## 当前交接：v2.4.2 评审修复 P2-2 / P3-1 / P3-3（done，2026-11-09）
+
+- Current Objective（当前目标）：用户要求评审 `v2.4.1..HEAD` 后在评审报告里点名处理三项——`unknown_usage` 语义、前端未知用量自洽、ACP `usage_update` 死代码。
+- 结论（一句话）：三项都已修，且没有引入新的日志洪水（`unknown_usage` 只 warn 一次）；P2-1（provider 不报 usage 时自动压缩静默失效）与 P3-2（`hasNewMessagesSinceCompaction` 口径）按用户选择**未动**。
+- 改动文件：`server/context-usage.mjs`（判定收敛为 `evaluateContextCompactionGate()`，返回 `{ shouldCompact, reason }`，删掉 `shouldCompactContextByPercent`）、`server/auto-compaction.mjs`（第 4–6 关合并为一次调用、只透传 reason）、`server/agent-manager.mjs`（`unknown_usage` 首次 warn + 高频路径静默）、`src/components/chat/context-usage.ts`（`normalizeServerContextUsage` 未知时数值与百分比一起归零、导出供测试）、`server/acp/server.mjs`（`usage_update` 改读 `inputTokens`/`contextWindow`）、四个测试文件、`docs/wiki/server/README.md`（关卡表 7→8 关、第 4–6 关归属、ACP 用量映射）。
+- Evidence（验证）：相关 6 个测试文件 69 例全过；改动文件 `npx eslint` 0 problems；`npx tsc -p tsconfig.app.json --noEmit` 通过；`npm run lint` / `npm run build` 通过；全量 `npm run test` 仅剩既有基线失败。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 改动未提交，需要时按项目习惯归到一条 `fix(context-usage)` 提交。
+  2. 仍待决：P2-1 是否给「长时间无 provider 上报」加界面提示（当前只有一条 warn 日志）；P3-2 统一 `hasNewMessagesSinceCompaction` 与 `minimumProviderUsageIndex` 的定界口径（wiki 已标注）。
+  3. 评审里提到的覆盖缺口：provider 完全不返回 usage 的前端路径目前只测到「不渲染」，未测「曾经有值后长时间无更新」的降级表现。
+
 ## 当前交接：release-2-4-2（done，2026-11-09）
 
 - Current Objective（当前目标）：用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 把 `2.4.1` 推到 `2.4.2`；并确认把工作区里那批未提交的 context-usage 清理一起发（先提交，再发版）。
@@ -49,6 +99,18 @@
   3. 若用户觉得「压缩后到下一次回复之间沿用旧数字」也不想要，可以改成这段时间直接隐藏指示器（改 `src/components/chat/context-usage.ts` 的 `lastKnownServerUsage` 分支即可）。
   4. 待用户拍板的两项：① 连续 N 次没有上报用量且消息数在增长时，是否允许「只用本地估算」作为自动压缩的触发条件（目前完全不触发，唯一风险是代理不返回 usage 的兼容服务）；② 陈旧的百分比要不要在环本身给视觉提示（目前只有 hover 里的文字说明，`aria-label` 也只有百分比）。
   5. 关联但未做的候选（来自同一轮排查，未纳入本次改动）：压缩失败用户不可见（只有 `auto_compact_failed` 事件和一个没人引用的 warn）、备份目录 `cache/conversations/compact-backups` 无上限、`contextCompaction.history` 只写不读、侧聊（`routes/side-chat.mjs`）对摘要做字符级截断、`/summary` 与 `/compact` 语义并存。
+
+## 当前交接：v2.4.1-只读审查 + 自动压缩 wiki 补全（done，2026-11-07）
+
+- Current Objective（当前目标）：对 `v2.4.0..v2.4.1` 做只读代码审查（不改代码），用户接着问「现在压缩会自动压缩么」，同意后把触发关卡补进 wiki。
+- 结论（一句话）：审查发现 1 个确定的回归（发送失败时草稿既不回填也不弹提示），另有 2 个待用户拍板的口径问题；自动压缩默认开启、在**每次模型请求前**过 7 道关，与本次改动无关（本次只改了压缩后的用量口径）。
+- 改动文件：`docs/wiki/server/README.md`（`auto-compaction.mjs` 节新增「自动压缩触发关卡」表格 + 只有主会话自动压缩 + 压缩后不会立刻重压 + 第 6 关已知口径不一致；并修掉原来那句已不准确的「除可压缩消息序列外没有其他保护性门槛」）；`progress.md`；本文件。**未改任何源码。**
+- Evidence（验证）：定向 9 files / 235 passed（`auto-compaction`、`subagents`、`agent-profiles`、`approval-store`、`agent-manager.rollback-compaction`、`message-queue-drainer`、`message-queue`、`message-utils`、`server-agent`）；`npx eslint .` 0 problems；未跑 `npm run build`（审查期不碰 `dist/`）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **待修 P1（确认是回归就直接改）**：`src/components/chat/surface/ChatSurface.tsx:120-140` 的 `try/catch` 已失去作用——`server-agent.ts` 的 `prompt()` 现在内部 catch 后 `return false`，不再 reject，于是 HTTP 失败/写租约冲突/超时时只多一条 error 气泡，`restoreEditor` 与 `chatSendFailed` 提示都不会触发，用户刚打的字被 `clearEditor()` 清掉后丢失。改法：判返回值 `=== false` 后回填 + 报错，`catch` 保留；同时把 `tests/frontend/chat-surface-send.test.ts:192-213` 从 `mockRejectedValue` 改成 `resolve(false)`，并保留一条真异常用例。
+  2. **待用户拍板 P2**：`server/agent-manager.mjs:336-342` 的 `memoryNoteTools` 无条件注册，没有 `isGlobalMemoryEnabled()` 那样的 `isWorkingMemoryEnabled()` 门禁，`server/working-memory.mjs` 的读写层也不看 `enabled`；工作记忆 beta 默认 `false`，但主 Agent 和子 Agent 仍能往 `~/.quickforge/working-memory` 写笔记。若要加门禁，`agent-profile-schema.mjs` 的能力策略与 `approval-store.mjs` 的 `safeReadTools`/`planAllowedTools` 要一起改。
+  3. 其余低优先级：`hasNewMessagesSinceCompaction` 与 `minimumProviderUsageIndex` 口径统一（已写进 wiki）、`syncCompactionIndex` 的 `summaryMessage ??` 兜底、`src/lib/message-utils.ts:3` 的分层倒置、`message-queue.ts:162-164` steer 的 catch 与 `false` 分支处理不一致、`estimateSessionContextUsage` 每帧全量估算、服务端 `generateTitle`/`generateAiTitle` 未跳过压缩摘要（既有问题）。
 
 ## 当前交接：release-2-4-1（done，2026-11-06）
 

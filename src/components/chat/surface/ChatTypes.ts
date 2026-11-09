@@ -76,10 +76,7 @@ declare module '@earendil-works/pi-agent-core' {
   }
 }
 
-/**
- * Imperative handle exposed by `ChatSurface` via `ref`, mirroring the
- * `setInput` / `setAutoScroll` surface of the legacy `AgentInterface`.
- */
+/** Imperative handle exposed by `ChatSurface` via `ref`. */
 export interface ChatSurfaceHandle {
   /** Pre-fill the composer with text (and optionally attachments). */
   setInput(text: string, attachments?: Attachment[]): void
@@ -89,8 +86,7 @@ export interface ChatSurfaceHandle {
 
 /**
  * DOM-level property surface ChatSurface installs on the `.qf-message-editor`
- * root node (self-hosted-chat-ui T5). The panel-decoration layer keeps the
- * duck-typed contract of the legacy `<message-editor>` element
+ * root node. The panel-decoration layer relies on this duck-typed contract
  * (value / attachments / contextReferences / selectedCapabilities /
  * onInput / onSend / onFilesChange / currentModel / thinkingLevel), so
  * editor-bindings, drafts and the suggestion subsystems keep working against
@@ -120,10 +116,7 @@ export type SurfaceEditorBridgeElement = HTMLElement & {
   __quickforgeLargePasteHandler?: (event: ClipboardEvent) => void
 }
 
-/**
- * Props of `ChatSurface` — the merged contract of the legacy `ChatPanel`
- * (`setAgent` config callbacks) and `AgentInterface` (feature toggles).
- */
+/** Props of `ChatSurface`: host callbacks plus feature toggles. */
 export interface ChatSurfaceProps {
   /** Agent session driving the surface. Renders an empty state while unset. */
   agent?: Agent
@@ -132,9 +125,7 @@ export interface ChatSurfaceProps {
   enableThinkingSelector?: boolean
   /**
    * Whether the context-compaction timeline divider renders. The host passes
-   * `capabilities.compaction && !sideChatMode`; the divider used to be gated in
-   * the decoration layer (`syncContextCompactionNotice` was skipped for side
-   * chat and when the session could not compact).
+   * `capabilities.compaction && !sideChatMode`.
    */
   enableCompactionDivider?: boolean
   /** Hide the composer dock entirely (read-only conversation views). */
@@ -144,19 +135,19 @@ export interface ChatSurfaceProps {
    * state changes without an agent event (e.g. switching models rewrites
    * `agent.state.model` in place, see `updateCurrentAgentModel`); the surface
    * re-reads its snapshot so the composer model button and other
-   * state-derived UI update. Replaces the legacy Lit `requestUpdate` re-render.
+   * state-derived UI update.
    */
   chatPanelRevision?: number
   /**
    * Whether command actions ("run in terminal") on code blocks are available.
    * Provided to `CodeBlock` through `CommandActionsEnabledContext`; the host
-   * passes `!sideChatMode && !readOnly` (legacy `enableTerminalCommandActions`).
+   * passes `!sideChatMode && !readOnly`.
    */
   commandActionsEnabled?: boolean
   /**
    * Prompt for a missing provider API key. Return true to continue sending,
-   * false to abort. When omitted, a missing key aborts the send (with a
-   * console error), matching the legacy `AgentInterface` behavior.
+   * false to abort. When omitted, a missing key aborts the send with a console
+   * error.
    */
   onApiKeyRequired?: (provider: string) => Promise<boolean>
   /** Hook invoked after the API-key gate passes and before the editor clears. */

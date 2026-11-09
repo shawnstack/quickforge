@@ -5,15 +5,12 @@ import { createContext, useContext } from 'react'
  * blocks rendered inside this chat surface.
  *
  * `ChatSurface` provides it from its `commandActionsEnabled` prop (the host
- * computes `!sideChatMode && !readOnly`, mirroring the legacy decoration
- * gate `enableTerminalCommandActions`), and `CodeBlock` consumes it through
- * `useCommandActionsEnabled()` instead of probing the composer DOM — a
- * side-chat panel has a composer, so the old DOM probe wrongly enabled the
- * button there.
+ * computes `!sideChatMode && !readOnly`), and `CodeBlock` consumes it through
+ * `useCommandActionsEnabled()`. Never decide this by probing the composer DOM:
+ * a side-chat panel has a composer, so the probe enabled the button there.
  *
  * The default is `false` so blocks rendered outside a surface (standalone
- * previews/tests) stay fail-closed, matching the legacy behavior where no
- * `.qf-chat-panel` ancestor meant no terminal affordance.
+ * previews/tests) stay fail-closed.
  */
 export const CommandActionsEnabledContext = createContext(false)
 
@@ -33,10 +30,10 @@ export function useCommandActionsEnabled(): boolean {
  * consumes it through `useAssistantStreaming()` to keep mermaid/SVG previews
  * (and the terminal-run button) off while text is still arriving.
  *
- * It replaces a `closest('.qf-streaming-message')` DOM probe: the subagent trace
- * has no such ancestor, so every 150ms trace update re-rendered mermaid/SVG
- * previews for in-flight code blocks. The default is `false` so blocks rendered
- * outside a surface (standalone previews/tests) stay fail-closed.
+ * Not a `.qf-streaming-message` ancestor probe any more: the subagent trace has
+ * no such ancestor, so every 150ms trace update re-rendered mermaid/SVG previews
+ * for in-flight code blocks. The default is `false` so blocks rendered outside a
+ * surface (standalone previews/tests) stay fail-closed.
  */
 export const AssistantStreamingContext = createContext(false)
 

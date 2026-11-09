@@ -4,21 +4,15 @@ import { t } from '@/lib/i18n'
 import type { CapabilitySuggestion } from '../capability-suggestions'
 
 /**
- * Composer "+" menu, previously injected by
- * `panel-decoration/composer-plus-menu.ts`.
+ * Composer "+" menu: a trigger in the editor's left control row and a popover in
+ * flow, right before the editor card.
  *
- * The decoration prepended its trigger into the composer's left control row and
- * inserted the popover as a sibling **before** the editor card, then rebuilt the
- * popover's `innerHTML` per view (main / plugins) and dismissed itself from a
- * document-level capture pointerdown.
- *
- * The trigger and the popover therefore live in two different DOM positions, so
- * this module exposes them as two components sharing one controller hook:
- * - `ComposerPlusTrigger` goes into `MessageEditor`'s `leadingControls`
- *   (the left control row, where the decoration prepended it);
- * - `ComposerPlusPopover` renders next to the editor card, in flow, where the
- *   decoration inserted it — the CSS (`.quickforge-plus-popover`) is written for
- *   that position.
+ * The two halves sit at two different DOM positions, so this module exposes them
+ * as two components sharing one controller hook:
+ * - `ComposerPlusTrigger` goes into `MessageEditor`'s `leadingControls`;
+ * - `ComposerPlusPopover` renders next to the editor card — the CSS
+ *   (`.quickforge-plus-popover`) is written for that position, so relocating it
+ *   breaks the popover layout.
  */
 
 const PlusIcon = (

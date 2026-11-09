@@ -9,22 +9,21 @@ import { loadModelCatalog } from '@/lib/model-reference'
 import { getAppStorage } from '@/storage'
 
 /**
- * React replacement for the legacy `<api-key-prompt-dialog>`.
+ * API-key prompt dialog.
  *
- * API semantics match `ApiKeyPromptDialog.prompt(provider) => Promise<boolean>`:
- * - The promise resolves `true` once a key for the provider appears in the
- *   local provider-keys store (the dialog polls the store, so external saves
- *   also resolve it).
- * - Closing/cancelling the dialog resolves `false`.
- * The legacy implementation polls `getAppStorage().providerKeys` every 500ms; the
- * polling core is extracted as `startApiKeyPolling` so the semantics stay
+ * `prompt(provider) => Promise<boolean>`:
+ * - resolves `true` once a key for the provider appears in the local
+ *   provider-keys store (the dialog polls the store, so external saves also
+ *   resolve it);
+ * - resolves `false` when the dialog is closed or cancelled.
+ * The polling core is `startApiKeyPolling`, extracted so the semantics stay
  * unit-testable without a DOM.
  */
 
 const DEFAULT_POLL_INTERVAL_MS = 500
 
-// Legacy `provider-key-input` cleared its "✗ Invalid" badge 5s after a failed
-// test; keep the same dwell time so a rejected key does not look permanent.
+// A failed test result clears the "✗ Invalid" badge after 5s; that dwell time
+// keeps a rejected key from looking permanently broken.
 const INVALID_STATE_RESET_MS = 5000
 
 export interface ApiKeyPollOptions {
@@ -119,20 +118,17 @@ async function readLocalProviderModels(): Promise<Model<Api>[]> {
 }
 
 /**
- * Legacy parity for `provider-key-input.saveKey()`: the legacy dialog probed the
- * provider (`testApiKey`, a minimal "Reply with: ok" request) before writing the
- * key to the store, so an invalid key was never persisted. QuickForge keeps
- * provider models on the server, so the probe is delegated to
- * `POST /api/models/test-connection`, which answers HTTP 200 with `{ ok, error }`
- * for both outcomes.
+ * Probe a provider before storing its key (`testApiKey`, a minimal
+ * "Reply with: ok" request) so an invalid key is never persisted. QuickForge
+ * keeps provider models on the server, so the probe is delegated to
+ * `POST /api/models/test-connection`, which answers HTTP 200 with
+ * `{ ok, error }` for both outcomes.
  *
  * Returns true when the key may be stored: the probe passed, or no model is
- * known for the provider (see `resolveProbeModel`). Cloud provider presets were
- * removed from this build (only custom providers remain), so a provider without
- * any configured model cannot be probed — the key is then stored directly to
- * keep the prompt usable, matching the legacy `testApiKey`, which also returned
- * true when it knew no model for the provider. Thrown errors count as a failed
- * test, like the legacy catch block.
+ * known for the provider (see `resolveProbeModel`). Only custom providers exist
+ * in this build, so a provider without any configured model cannot be probed —
+ * the key is then stored directly to keep the prompt usable. A thrown error
+ * counts as a failed test.
  */
 export async function verifyApiKeyBeforeSave(provider: string, apiKey: string): Promise<boolean> {
   try {

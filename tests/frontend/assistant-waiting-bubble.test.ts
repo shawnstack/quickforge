@@ -14,17 +14,9 @@ import type { AgentMessage } from '../../src/components/chat/surface/ChatTypes'
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
 /**
- * The waiting bubble used to be injected by
- * `panel-decoration/assistant-waiting-bubble.ts`: it located the last user row
- * with a full-table scan, decided "has output started" by probing the rendered
- * assistant rows for `.qf-thinking-block` / `.qf-tool-message` /
- * `.qf-markdown-block` outside process groups (rebuilding a clone with the
- * action rows stripped), then re-anchored itself after that user row on every
- * decorate pass.
- *
- * React renders it inside the message list now. These cases pin the two halves:
- * the pure row-resolution predicate (same decisions as the DOM probe) and the
- * rendered position.
+ * These cases pin the two halves of the waiting bubble: the pure
+ * row-resolution predicate (does the assistant have visible output yet?) and the
+ * rendered position inside the message list.
  */
 function userMessage(content = 'hi'): AgentMessage {
   return { role: 'user', content, timestamp: 1 }

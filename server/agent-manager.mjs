@@ -522,12 +522,25 @@ async function transformSessionContext(session, messages, signal) {
     persistSession,
     logger,
   })
-  if (!autoCompactResult.compacted && autoCompactResult.usage && autoCompactResult.reason && autoCompactResult.reason !== 'below_threshold') {
-    logger.info(`Auto compact skipped for session ${session.sessionId}: ${autoCompactResult.reason}`, {
-      sessionId: session.sessionId,
-      reason: autoCompactResult.reason,
-      usage: autoCompactResult.usage,
-    })
+  if (!autoCompactResult.compacted && autoCompactResult.usage && autoCompactResult.reason) {
+    const reason = autoCompactResult.reason
+    if (reason === 'unknown_usage') {
+      // 每次模型请求前都会命中这里（没有可用用量时自动压缩不会发生），
+      // 只提示一次，否则一轮对话里每次工具调用都会刷一条。
+      if (!session._unknownUsageWarningLogged) {
+        session._unknownUsageWarningLogged = true
+        logger.warn(`Auto compact cannot measure context: no usable provider usage for session ${session.sessionId}; auto compaction stays off until usage arrives`, {
+          sessionId: session.sessionId,
+          reason,
+        })
+      }
+    } else if (reason !== 'below_threshold') {
+      logger.info(`Auto compact skipped for session ${session.sessionId}: ${reason}`, {
+        sessionId: session.sessionId,
+        reason,
+        usage: autoCompactResult.usage,
+      })
+    }
   }
   const transformedMessages = buildAutoCompactLoopMessages(session, messages)
   session.lastTransformedContextMessages = transformedMessages

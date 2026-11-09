@@ -3,10 +3,8 @@ import { memo } from 'react'
 import type { AgentMessage, Usage } from './ChatTypes'
 
 /**
- * Aggregated usage bar (bottom-of-composer stats row), React counterpart of
- * `AgentInterface.renderStats` from the legacy panel. Formatting helpers mirror the
- * package's `utils/format.ts` so numbers keep the same `↑12 ↓3k R8k $0.0123`
- * shape.
+ * Aggregated usage bar (bottom-of-composer stats row). Formatting helpers keep
+ * the `↑12 ↓3k R8k $0.0123` shape users already see in transcripts.
  */
 
 export function formatCost(cost: number): string {

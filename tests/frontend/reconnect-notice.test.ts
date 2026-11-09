@@ -9,12 +9,9 @@ import type { SseConnectionStatus } from '../../src/lib/server-agent'
 import { appCss } from '../helpers/app-css'
 
 /**
- * The inline reconnect row used to be a find-or-create controller
- * (`panel-decoration/reconnect-notice.ts`): it appended itself to the end of
- * `.qf-message-list`, kept its own interval for the countdown and had to
- * re-append after every list rebuild. React renders it inside the surface now,
- * so these cases drive the component with connection statuses and assert the
- * rendered row, exactly like the controller tests asserted the injected DOM.
+ * The inline reconnect row renders inside the surface. These cases drive the
+ * component with connection statuses and assert the rendered row (countdown,
+ * dismissal timing, and ownership of the unreachable strip above it).
  */
 
 type MockStatus = SseConnectionStatus

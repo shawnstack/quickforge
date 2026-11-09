@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { contextUsageBreakdownRows, createContextUsageIndicator, isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
+import { contextUsageBreakdownRows, createContextUsageIndicator, isSameContextUsageDisplayInfo, normalizeServerContextUsage, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
 
 vi.mock('@/lib/i18n', () => ({
   t: (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key),
@@ -198,6 +198,21 @@ describe('context usage indicator without local estimation', () => {
     expect(display.context?.percent).toBe(42)
     // 缺 source 字段时按提供商上报处理，不能显示成「上一次请求（尚未更新）」
     expect(display.context?.title).not.toContain('contextUsageStaleNote')
+  })
+
+  it('zeroes tokens and percentage when the payload is marked unavailable', () => {
+    // 「来源未知」和「有数值」不能同时成立：否则环上是 0%，tooltip 里却挂着正数。
+    // 服务端目前不会给出这种组合，这条守的是将来某次改动别把判定条件拆成两半。
+    const usage = normalizeServerContextUsage({
+      contextWindow: 100_000,
+      inputTokens: 42_000,
+      inputTokenSource: 'unavailable',
+      percent: 42,
+    }, 100_000)
+
+    expect(usage.inputTokenSource).toBe('unavailable')
+    expect(usage.inputTokens).toBe(0)
+    expect(usage.percent).toBe(0)
   })
 
   it('recomputes the stale percentage against the current model window', () => {

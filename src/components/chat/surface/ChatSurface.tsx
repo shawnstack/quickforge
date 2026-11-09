@@ -50,10 +50,8 @@ import {
 } from '../panel-decoration/todo-write-summary'
 
 /**
- * React replacement for the legacy `ChatPanel` + `AgentInterface` pair
- * (self-hosted-chat-ui T3). Renders the message list, streaming container,
- * composer and usage bar for an `Agent` session and exposes
- * `setInput` / `setAutoScroll` through its ref.
+ * Chat surface for one `Agent` session: message list, streaming container,
+ * composer and usage bar. Exposes `setInput` / `setAutoScroll` through its ref.
  */
 
 export interface SendMessageContext {
@@ -74,7 +72,7 @@ export interface SendMessageContext {
 }
 
 /**
- * Send-message flow aligned with the legacy `AgentInterface.sendMessage`:
+ * Send-message flow (one send = one user message):
  * - Abort on empty input (no attachments) or while streaming.
  * - Read the provider key from local storage; when missing, ask
  *   `onApiKeyRequired` and abort when it resolves false.

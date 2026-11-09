@@ -23,28 +23,21 @@ import {
  *
  * `icon · state word · objective · 2/3 · [primary icon] · ⋯`
  *
- * The row used to be a three-tier card (identity line + two-line objective +
- * progress line, ≈76px). It is now 32px: the objective truncates to one line,
- * the acceptance progress moves onto the same row, and the expandable panel is
- * gone. Everything the panel used to hold is one click away in the inspector, so
- * the composer regains a tier of vertical space.
+ * The row is deliberately 32px and never re-wraps; keeping the composer stack at
+ * this height is the whole point of the strip:
+ * - the objective is one truncated line — `title` keeps the full text and the
+ *   objective itself is a button into the inspector;
+ * - acceptance progress is `2/3` on the same row; the list is in the inspector;
+ * - the phase line (round / paused-at / waiting-for-approval) is the read-only
+ *   meta line in the 「⋯」 menu and part of the tooltips.
  *
- * Icon / text / color still have one job each:
+ * Icon / text / color have one job each:
  * the glyph answers "what is this" and is always the product's goal identity icon
  * (`GoalIcon`, neutral gray), the word answers "what is happening now", and color
  * answers "does it need me" through `view.stateTone`.
  *
- * What the single row does NOT show, and where it went:
- * - the objective's second line → `title` keeps the full text, and the objective
- *   itself is a button into the inspector;
- * - the phase line (round / paused-at / waiting-for-approval) → it became the
- *   read-only meta line in the 「⋯」 menu and part of the tooltips;
- * - the inline acceptance list → `2/3` already answers "how many are left"; the
- *   list itself is in the inspector;
- * - the expand chevron → removed; the label and the objective open the inspector.
- *
  * The primary action is icon-only (the label lives in `aria-label` + `title`), so
- * the row keeps its height and never re-wraps on a long localized verb.
+ * a long localized verb cannot grow the row.
  *
  * The strip owns no goal state: actions post to the server and the streamed goal
  * re-renders it. `src/lib/goal-ui.ts` keeps the pending lock and dirty guard, and

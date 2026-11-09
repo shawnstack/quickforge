@@ -11,9 +11,7 @@ import { resolveAttachmentPayload } from './attachment-client'
 import { DocxAttachmentPreview, ExcelAttachmentPreview, PdfAttachmentPreview } from './AttachmentPreview'
 
 /**
- * React replacement for the legacy `<attachment-overlay>` dialog.
- *
- * Full-screen viewer for a chat attachment: images render inline, PDF pages /
+ * Full-screen viewer dialog for a chat attachment: images render inline, PDF pages /
  * DOCX layout / Excel sheets are rendered by the local preview components,
  * PPTX and text-like documents show their extracted text, and the download /
  * close actions match the package component.
@@ -226,10 +224,9 @@ export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProp
 }
 
 /**
- * Imperatively open the attachment overlay on a detached root, mirroring
- * `AttachmentOverlay.open(attachment)` on the legacy overlay. A minimal
- * error boundary keeps a crashing preview from tearing down the root;
- * a synchronous render failure still unmounts and cleans the container.
+ * Imperatively open the attachment overlay on a detached root. A minimal error
+ * boundary keeps a crashing preview from tearing down the root; a synchronous
+ * render failure still unmounts and cleans the container.
  */
 export function openAttachmentOverlay(attachment: Attachment, onClose?: () => void): void {
   const container = document.createElement('div')

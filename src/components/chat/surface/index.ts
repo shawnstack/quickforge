@@ -1,7 +1,6 @@
 /**
  * Self-hosted React chat surface (self-hosted-chat-ui T3).
  *
- * React replacement for the legacy ChatPanel/AgentInterface component tree.
  * Mounted by ChatPanelHost (the host owns wiring; this module only exposes the surface API).
  */
 export { ChatSurface, readAgentSnapshot, runSendMessage, type AgentSurfaceSnapshot, type SendMessageContext } from './ChatSurface'

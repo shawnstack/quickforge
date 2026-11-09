@@ -78,16 +78,19 @@ function usageColor(percent: number) {
   return `hsl(${hue} 72% 45%)`
 }
 
-function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindow: number): ContextUsageInfo {
-  const inputTokens = Math.max(0, Number(usage.inputTokens) || 0)
+export function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindow: number): ContextUsageInfo {
+  const reportedInputTokens = Math.max(0, Number(usage.inputTokens) || 0)
   // 当前模型窗口优先：切换模型后上报负载里还带着旧模型的窗口，直接用它会把
   // 上一次请求的 token 数按旧窗口算成比例。
   const displayWindow = Math.max(0, Number(contextWindow) || Number(usage.contextWindow) || 0)
-  const percent = displayWindow > 0 ? Math.round((inputTokens / displayWindow) * 1000) / 10 : 0
   // 唯一判定口径：有数值且没有被明确标成未知，才算「有上报值」。旧负载缺来源
   // 字段时按数值判断，避免把 0 当成一次有效上报。
-  const inputTokenSource: ContextUsageInfo['inputTokenSource'] =
-    usage.inputTokenSource === 'unavailable' || inputTokens <= 0 ? 'unavailable' : 'provider'
+  const isUnknown = usage.inputTokenSource === 'unavailable' || reportedInputTokens <= 0
+  // 未知时数值与百分比一起归零：不能出现「来源标未知、百分比却照算」的组合，
+  // 否则界面显示 0% 而 tooltip 里还挂着一个正数 token。
+  const inputTokens = isUnknown ? 0 : reportedInputTokens
+  const percent = !isUnknown && displayWindow > 0 ? Math.round((inputTokens / displayWindow) * 1000) / 10 : 0
+  const inputTokenSource: ContextUsageInfo['inputTokenSource'] = isUnknown ? 'unavailable' : 'provider'
   return {
     contextWindow: displayWindow,
     inputTokens,

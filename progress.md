@@ -2,6 +2,19 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## doc-reality-sync-2026-11（done，2026-11-09）
+
+- 起因：工作区里留着一批没有留档的文档/注释改动，内容是「文档和注释追认代码现状」，无对应 feature 记录。提交前补记，避免历史里出现来历不明的改动。
+- 改动（零运行时代码）：
+  1. `docs/architecture/plugin-ui-extension.zh-CN.md`：状态头「设计中 → 实施中」改为「已实施（V1.5）」；`PluginAuditList.tsx` 从「（新增，可选）」改为「（**未实现**）」并注明服务端 `GET /api/plugins/audit` 已有、前端展示组件未落地，避免读者以为组件存在。
+  2. `docs/architecture/session-index-foundation.zh-CN.md`：加历史归档横幅——`session_index` 派生索引已整体退役，`server/sqlite/session-index-repository.mjs` 改为对权威 `sessions` 表的只读 LIMIT/OFFSET 直查，同事务 upsert 与重建链路已删除；并补现状表清单（baseline v19）与指向 `session-storage-v2.zh-CN.md` 的链接。
+  3. `docs/architecture/session-open-fast-path.zh-CN.md`：「问题二」原描述的是当时的修法（`messageWindowOffset` / `mergeIncrementalMessages` / `mergeWindowedMessages`），这几个符号与对应测试文件已删除；改为「旧实现怎么处理 + 现状」：合并已收敛到 `src/lib/message-log.ts` 的 `applyLog`（按 `baseSeq` 对齐），不变量现由 `tests/frontend/message-log.test.ts` 覆盖。
+  4. 三处过时标识符注释：`src/components/chat/panel-decoration/message-rows.ts`（`cachedMessageRows` → `createMessageRowSnapshot`，并说明 `rows()` / `invalidate()` 语义）、`src/lib/subagent-run-detail.ts`（`SubagentRunDetailBody` → `SubagentRunDetailContent`）、`server/session-state-backup.mjs`（`session_states` / `session_index` / mirror 表 → `sessions` / `session_messages` / `session_tombstones`）。
+- Evidence（验证）：改后引用的标识符逐个 grep 核对真实存在（`createMessageRowSnapshot` 定义在 `message-rows.ts:61` 且被 `ChatPanelHost.tsx:1192` 使用；`SubagentRunDetailContent` 在 `src/components/workspace/` 下并被 `WorkspaceInspector.tsx` 引用；`session_index` 只出现在 `legacy-migrations.mjs` 等历史文件里）。纯文档与注释，无运行时改动；提交前随工作区合并态跑过 `npm run test`（502 files / 5564 passed、3 failed 既有基线、1 skipped）、`npm run lint`（0 problems）、`npm run build`（通过，仅既有 chunk 体积警告）。
+- Notes：
+  - 这批改动不是本轮会话做的，来源会话未留档；本次只补记录、不改其内容。
+  - 3 个既有测试失败与本次及这批改动无关：`tests/server/acp/server.workspace-mapping.test.mjs` 2 例（`setActiveProjectPath` 返回 undefined）、`tests/server/sqlite-quick-check-gate.test.mjs` 1 例，已由前序会话用 `git worktree` 在干净 HEAD 复现。
+
 ## release-2-4-2（done，2026-11-09）
 
 - 起因：用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 把 `2.4.1` 推到 `2.4.2`。
@@ -1992,4 +2005,83 @@
     - 只保留 `docs/design/per-compaction-records.zh-CN.md`（文字契约，与实现一致：history 不设上限、UI 不动、details 只有 `{version,kind}`）。
     - 同步清理 5 处指向已删文件的引用，避免死链：`docs/wiki/src/components/README.md`（goal 图标评审那句改成「评审结论已并入本节」）、`docs/architecture/conversation-trace.zh-CN.md`（删掉「交互原型」表格行）、`src/components/chat/panel-decoration/icons.ts` 与 `src/components/chat/surface/GoalControlStrip.tsx`（注释去掉文件名，说明本身保留）、`docs/design/per-compaction-records.zh-CN.md`（关联链接改为只指向 wiki）。
     - 历史日志（`progress.md` / `session-handoff.md` / `feature_list.json` 的旧 feature）里仍会出现这些路径——那是「当时改过什么」的时间线，不改写。
+  - 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## v2.4.1-只读审查 + 自动压缩 wiki 补全（done，2026-11-07）
+
+- Goal：对 `v2.4.0..v2.4.1` 做只读代码审查（用户明确不改代码）；随后问「现在压缩会自动压缩么」，同意后把触发关卡补进 wiki。
+- 结论（一句话）：自动压缩默认开启（`enabled: true` / `thresholdPercent: 80`，clamp 50–95），触发点在**每次模型请求前**（pi-agent-core `streamAssistantResponse` → `transformContext` → `maybeAutoCompactSession`），过 7 道短路关卡才压；与 v2.4.1 的改动无关，本次只改压缩后的用量口径。
+- 改动：
+  1. `docs/wiki/server/README.md` — `auto-compaction.mjs` 节新增「自动压缩触发关卡（每次模型请求前）」7 行表格（含每关的 `reason`）、「只有主会话 Agent 会自动压缩」（子 Agent / workflow / 后台 agent 无此 hook）、「压缩后不会立刻重压」（`sourceMessageCount` + `compactedAt` 让第 6 关必然拦下）、「已知口径不一致（第 6 关）」；并修正原文「除可压缩消息序列外没有其他保护性门槛」这句已不准确的表述。
+  2. `progress.md` / `session-handoff.md` 记录审查结论与待办。
+- 验证：定向 9 files / 235 passed；`npx eslint .` → 0 problems。未跑 `npm run build`（审查期不碰 `dist/`）。未改任何源码。
+- Notes / 待办（按严重程度）：
+  - **P1（较确定，回归）** `src/components/chat/surface/ChatSurface.tsx:120-140`：`prompt()` 改成内部 catch 后 `return false`，不再 reject，因此 HTTP 失败 / 409 写租约冲突 / 超时时 `catch` 不可达 → `restoreEditor` 不执行、`chatSendFailed` 不弹，`clearEditor()` 已清空输入框，用户草稿丢失（改动前两件事都会发生）。`tests/frontend/chat-surface-send.test.ts:192-213` 仍用 `mockRejectedValue` 断言回填，守的是一条生产中不可达的分支，所以绿灯是假安全。修法：判 `=== false` 回填 + 报错，`catch` 保留真异常，测试同步改。
+  - **P2（待用户拍板）** `server/agent-manager.mjs:336-342` `memoryNoteTools` 无条件注册（对照 L332 `globalMemoryTool` 有 `isGlobalMemoryEnabled()`）；`server/working-memory.mjs:132-179` 的 list/read/write/move 都不看 `enabled`（默认 `false`）。即工作记忆关着，主 Agent 与子 Agent 仍可写 `~/.quickforge/working-memory`。加门禁需同时改 `agent-profile-schema.mjs` 能力策略与 `approval-store.mjs` 的 `safeReadTools`/`planAllowedTools`。
+  - **P3（既有，已在 wiki 标注）** `server/auto-compaction.mjs:289-297` `hasNewMessagesSinceCompaction` 仍只认元数据，对 `/summary` 新建会话与 fork 压缩会话恒返回 `true`；`minimumProviderUsageIndex` 已改成按消息定界。两处应以 `lastCompactionMessageIndex(source)` 统一。
+  - 低优先级：`syncCompactionIndex` 的 `summaryMessage ?? compaction.summaryMessage` 兜底（两个调用点都有 `compactionIndex >= 0` 守卫，暂无触发路径）；`src/lib/message-utils.ts:3` 反向 import 组件层（分层倒置）；`src/components/chat/panel-wiring/message-queue.ts:162-164` steer 的 `catch` 只打日志，与 `false` 分支的「暂停 + 持久化」不一致；`server/agent-session-events.mjs:121-132` 四个事件每帧全量 `estimateSessionContextUsage`；`server/session-utils.mjs` 的 `generateTitle`/`generateAiTitle` 未跳过压缩摘要消息（前端 `message-utils.ts` 已过滤，服务端未同步，属既有问题）。
+  - 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## v2.4.2 评审修复：unknown_usage / 未知用量归零 / ACP usage_update（done，2026-11-09）
+
+- Goal：用户对 `v2.4.1..HEAD` 做只读评审后，点名处理三条：P2-2（用量未知被记成 `below_threshold`）、P3-1（`unavailable` 与百分比不自洽）、P3-3（ACP `usage_update` 从未推送）。
+- 改动：
+  1. `server/auto-compaction.mjs` — `maybeAutoCompactSession()` 在阈值判定失败时区分 `inputTokens <= 0`：返回 `unknown_usage`，其余仍是 `below_threshold`。判定口径与 `shouldCompactContextByPercent` 内部一致。
+  2. `server/agent-manager.mjs` — `unknown_usage` 不按请求打 info（每次模型请求前都会命中，会刷屏），改为**首次**打一条 warn 并记 `session._unknownUsageWarningLogged`，直接点明「provider 没报 usage，自动压缩停用」。
+  3. `src/components/chat/context-usage.ts` — `normalizeServerContextUsage()` 统一按 `isUnknown` 判定，未知时 `inputTokens` 与 `percent` 一起归零，消除「来源标未知、tooltip 里却挂着正数」的组合；同时导出该函数供测试直接调用。
+  4. `server/acp/server.mjs` — `usage_update` 改读 `contextUsage.inputTokens` / `contextWindow`（ACP 要求 `used`/`size`，两个必填非负整数），并在无上报值时不推送；修复这条自 ACP 初始提交起就因字段名不存在而从未推送的死代码。
+  5. 测试：`tests/server/auto-compaction-notice.test.mjs` 的「below the threshold」用例补上真实 usage（原用例其实构造的是无用量的未知态），新增 `unknown_usage` 用例；`tests/server/acp/server.test.mjs` 新增 `usage_update` 映射（含有值与无值两条）；`tests/frontend/context-usage.test.ts` 新增 unavailable 归零断言。
+- 验证：`npx vitest run` 上述 6 个相关文件 → 6 files / 66 passed；`npx eslint` 改动文件 → 0 problems；`npx tsc -p tsconfig.app.json --noEmit` → 通过。
+- 文档：`docs/wiki/server/README.md` 关卡表由 7 关改为 8 关（新增 `unknown_usage`，后续编号与正文引用同步调整），并在 ACP 章节补「上下文用量映射」一条。
+- 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+
+## surface-comment-archaeology-cleanup（done，2026-11-09）
+
+- 起因：用户问「检查一下有没有大段的无用的代码注释」。只读扫描 `server/` `src/` `desktop/` `scripts/` `tests/` `plugins/` `bin/`（1185 个 `.mjs/.js/.cjs/.ts/.tsx/.jsx/.css`，约 2 万注释行）后，用户选择「压缩 chat/surface 的考古段落」。
+- 扫描结论：被注释掉的死代码 **0** 处；`TODO/FIXME/HACK/XXX` **0** 处；注释掉的 CSS 规则 **0** 处（正则命中的 2 处经核验是解释层叠优先级 `@layer` 的有效注释）；≥40 行的超长注释块只有 4 个（`SessionViewPool.tsx` 63 行、`subagent-trace-structure.ts` 45 行、`MessageList.tsx` 40 行、`code-highlight.ts` 40 行），都在解释「为什么必须这么写」并带实测数据，属健康注释。
+- 真正的问题只有一类：**迁移考古段落**——把已删除的旧实现（`panel-decoration/*` 的注入器、mini-lit `copy-button`、`<markdown-block>` / `<assistant-message>` 等自定义元素）怎么实现写成正文。严格口径（连续 ≥6 行且 ≥2 处历史表述）37 块 / 603 行；含关键词（`previously` / `legacy` / `removed` / `旧实现` / `已删除` 等）的注释块 218 块 / 2596 行；其中 17 条直接引用了**已不存在的文件**（`panel-decoration/reconnect-notice.ts`、`model-retry-notice.ts`、`unreachable-strip.ts`、`assistant-waiting-bubble.ts`、`composer-plus-menu.ts`、`code-blocks.ts`、`utils/format.ts`、`legacy utils/attachment-utils.ts`、`src/lib/todo-status.tsx`、`SKIP_LOCAL_PATH_SELECTOR`）。
+- 改动（32 个文件，注释 166 增 / 244 删，净减 78 行；无一行运行时代码变化）：
+  1. `src/components/chat/surface/`：`AssistantWaitingBubble` / `ComposerPlusMenu` / `ComposerAccessControls` / `ConnectionNotices` 文件头由「旧注入器怎么 prepend、怎么重建 innerHTML、怎么 setInterval」压缩成「现在是什么 + 不能改的约束」。
+  2. 同类处理：`ChatSurface`（文件头 + send 流程）、`ChatTypes`（handle / props / 各 prop 注释里的 `legacy` 指向）、`MessageList` / `Markdown` / `MessageEditor` / `AssistantMessage` / `ToolMessage` / `ThinkingBlock` / `AttachmentOverlay` / `AttachmentTile` / `UsageBar` / `CodeBlock` / `ApiKeyPromptDialog` / `GoalControlStrip` / `surface-context` / `composer-store` / `attachment-loader` / `rehype-local-file-paths` / `render-key-index` / `index.ts`。
+  3. `CodeBlock.tsx` 里引用已删除函数的段落（`closeSvgCodeBlockMenus(...)`、`showCopiedFeedback`、`code-blocks.ts semantics`）改为描述现在的事件互斥路径；`rehype-local-file-paths.ts` 删掉指向已不存在的 `SKIP_LOCAL_PATH_SELECTOR` 的说法。
+  4. 5 个测试文件（`assistant-waiting-bubble` / `model-retry-notice` / `reconnect-notice` / `unreachable-strip` / `composer-plus-menu`）头部由旧控制器考古段改为「这些用例守的是什么」。
+  5. `todo-write-tool-renderer.tsx` 与 `todo-write-renderer.test.ts` 里写成 `src/lib/todo-status.tsx` 的悬空路径改为真实存在的 `todo-status.ts` / `todo-status-icon.tsx`。
+- 刻意保留（不删）：`SessionViewPool.tsx` 63 行、`subagent-trace-structure.ts` 45 行、`MessageList.tsx` 40 行、`ChatSurface.tsx` 的 React/DOM 所有权边界块，以及 bridge 元素属性（`message` / `isStreaming` / `tool` / `toolCall` / `result` / `pending` / `aborted`）、CSS 类名与 data 属性、`<details>` toggle 参与互斥这类**仍然有效的约束**——它们解释的是现在为什么不能那样改。
+- Evidence（验证）：`npx eslint src/components/chat/surface src/lib/tool-renderers` + 5 个改动测试文件 → 0 problems；`npx vitest run` 8 个相关文件（assistant-waiting-bubble 18、model-retry-notice 12、reconnect-notice 20、unreachable-strip 14、composer-plus-menu 9、todo-write-renderer 11、chat-code-block 45、chat-surface-css-contract 37）→ **8 files / 166 passed**；`git diff` 逐行核对，除工作区里他人既有的 `tests/frontend/context-usage.test.ts` 改动外，本次全部落在注释行。未跑全量 `npm run test` / `npm run build`（纯注释改动）。
+- Notes：
+  - 剩余 4 条「注释引用的文件找不到」是**有意保留**的：`katex/dist/katex.min.css` 与 `highlight.js` 是 npm 包（在 `node_modules` 里），`package-dist/dist/assets/index-B1G0LqYR.css` 是 CSS 契约测试的「旧产物基线」，两处注释在解释白名单来源，删了反而看不懂。
+  - 未触碰 `src/styles/`、`server/`、`desktop/` 的考古段落（本次范围限定在 `chat/surface` 及其测试）；`server/` 侧同样存在「旧实现」叙述（`src/lib/server-agent.ts` 27 处、`server/storage.mjs` 15 处），如果后续要统一，可照同样的口径再做一轮。
+  - 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+  - wiki 无需更新：本次只改注释文字，未改模块职责、公共入口或发布流程。
+
+## v2.4.2 评审修复（续）：判定收敛为 evaluateContextCompactionGate（done，2026-11-09）
+
+- 起因：自查上一批改动时发现，「窗口是否可用 / 用量是否可用 / 是否过阈值」三个同属上下文口径的判断被拆在两个文件里——`context-usage.mjs` 内部本来就有 `if (!contextWindow)` 和 `if (inputTokens <= 0)`，`auto-compaction.mjs` 又按 token 数重推了一遍。boolean 返回值把「为什么」丢了，才逼调用方二次推断；而这正是 `below_threshold` 盖住 `unknown_usage` 的根因。
+- 结论：按「架构最优」做了小重构，不是打补丁。`shouldCompactContextByPercent()` → `evaluateContextCompactionGate(usage, thresholdPercent)`，返回 `{ shouldCompact, reason }`，reason 取 `missing_context_window` / `unknown_usage` / `below_threshold` / `null`。`maybeAutoCompactSession()` 只透传 reason，第 4–6 关合并为一次调用。
+- 刻意没做的事：没有把关卡表驱动化。8 关的 `if` 链可读性很好，抽成数组反而难读——该收敛的是「判定与原因」，不是「流程编排」。
+- 波及面（改名前已核实）：生产仅 1 个调用点（`auto-compaction.mjs`），测试仅 1 处直接断言，未在 `server/public-api.mjs` 导出；旧函数已删除，全仓 grep 无残留。
+- 测试：`tests/server/context-usage.test.mjs` 改为断言结构化结果，并新增 below_threshold / 跨过阈值 / missing_context_window 三条用例；相关 6 个文件 69 例全过；改动文件 `npx eslint` 0 problems、`npx tsc -p tsconfig.app.json --noEmit` 通过。
+- 文档：`docs/wiki/server/README.md` 第 4–6 关的归属、函数名与「不再二次推断」的原因同步更新。
+- 已知未覆盖：「只 warn 一次」的防刷屏逻辑没有单测——把它抽成导出函数只为测试会破坏设计，取舍是记录在案、改该分支时手工确认为一次性。
+- 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## dead-code-cleanup-2026-11（done，2026-11-09）
+
+- 起因：用户要求「全面查看一下有无僵尸代码和上帝模块」。只读扫描 `server/` `src/` `desktop/` `bin/` `scripts/` `plugins/`（672 个源文件、约 14.4 万行），分文件级引用、符号级引用、上帝模块三条线推进。
+- 扫描结论（僵尸代码侧）：**非常干净**。`npx eslint .` 全仓 0 warnings（`noUnusedLocals` / `noUnusedParameters` 已开，局部死变量藏不住）；注释掉的死代码块 0 处；`TODO/FIXME/HACK` 0 处；挂着的依赖全部有实际 import（`@vscode/os-proxy-resolver` 是 `network-proxy.mjs:129` 的动态 `import()`）。所以残留的只有「导出但没人 import」这一层 lint 检查不到的东西。
+- 真正删掉的 5 项：
+  1. `server/provider-config.mjs` — 整份 78 行全仓零引用，源码/测试/文档/脚本都没提过。是上一轮清理（见 `docs/archive/feature-list-archive.json`）漏网的一个。
+  2. `server/experiences.mjs` 的 `archiveExperience` / `getExperiencesRevision` / `snapshotExperiences` — 三个零调用导出。动手前核实过真实路径：归档走 `move_memory_note` → `moveNoteFile`（`archiveExperience` 只是 `moveExperience` 到 `_archive/` 的包装）；快照走 `server/dreaming/snapshot.mjs` 里自己的 `copyNoteDir` 调用，完全绕过 `snapshotExperiences`。
+  3. `server/plugins/ui-schema.mjs` 的 `summarizeUiContribution` — 注释写「used by the plugins page and the audit log」，全仓 grep 零调用，注释本身就是过时的。
+  4. `server/agent-session-lease.mjs` 的 `sessionLeaseStore` — 注释写「测试/诊断用」，但测试也没用。
+  5. 根目录 `!ids.includes(i))` — 0 字节，11月4日就在了，是某次 shell 重定向写错的残留（文件名本身就是一个 JS 表达式碎片）。
+- 级联清理：删 `getExperiencesRevision` 让 `createHash` 变成孤儿 import，删 `snapshotExperiences` 让 `copyNoteDir` 变成孤儿 import，两个一并移除；`fs` / `path` 仍在用，保留。
+- 文档同步：`docs/wiki/server/README.md` 里「`getExperiencesRevision()` 供将来的热更新比较用」这半句删除——正是「为将来预留」但从未实现的典型。
+- 确认保留的「假孤儿」（扫描会误报，下次别再删）：`restart-supervisor.mjs` / `update-supervisor.mjs`（`index.mjs` 用文件路径字符串 spawn）、`agent-workflow-worker.mjs` / `sqlite/session-state-worker.mjs`（`new Worker(new URL(...))`）、`server/maintenance/export-*-v1.mjs` 与 `downgrade-session-state-v1.mjs`（文档写明的应急逃生通道）、`plugins/*/plugin.json`（动态加载）、`public/sw.js`（`main.tsx:58` 注册）、`scripts/*`（package.json 调用）。
+- Evidence（验证）：定向 `npx vitest run` 8 files / **93 passed**（`plugins/ui-schema`、`plugins/hello-ui-example`、`session-lease`、`memory-notes`、`dreaming`、`dreaming-snapshot`、`dreaming-runner`、`dreaming-curator-agent`）；`npx eslint . --no-warn-ignored` → **0 problems**；全量 `npx vitest run` → 500 files / 5564 passed、**3 failed**。这 3 个失败用 `git worktree add /tmp/qf-baseline HEAD --detach` 在干净基线（46d1650c）复跑，**同样失败**，证实是既有问题（`acp/server.mjs` 的 `setActiveProjectPath` 返回 undefined 2 例、`sqlite-quick-check-gate` 缓存语义 1 例），且两个失败测试文件都不引用本次改动的模块。worktree 用后已 `remove` + `prune`，主工作区 `node_modules` 完好。
+- 上帝模块清单已落为 feature `god-module-decomposition`（pending），不另开文档：真上帝模块 7 处 + 中等 3 处，首要目标是 `server/routes/scheduled-tasks.mjs`（扇入仅 1）。同时明确记录**不要动**的长文件：`i18n.ts` / `code-highlight.ts`（数据表）、`process-folding.ts` / `ChatSidebar.tsx` / `storage.mjs`（职责单一）。
+- Notes：
+  - `server/agent-goal-runner.mjs`（1599 行）经确认 **不是死代码**：`resolveGoalEngine()` 对没有 `goalEngine === 'v2'` 标记的会话仍回退到 legacy 引擎，属技术债而非僵尸；真要处理应是「退役 legacy 引擎」而不是「删除死代码」。
+  - 顺手观察到但不属于本 feature 的问题：`server/acp/server.mjs`、`server/session-state-backup.mjs` 等工作区里他人未提交的改动，正是上面 3 个既有失败的来源，未介入。
   - 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。

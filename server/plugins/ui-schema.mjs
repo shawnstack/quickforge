@@ -372,13 +372,3 @@ export function normalizeUiContribution(raw, options = {}) {
   if (slotNames.length === 0 && actions.length === 0 && panels.length === 0) return null
   return { slots, actions, panels, warnings }
 }
-
-/** Short human-readable summary used by the plugins page and the audit log. */
-export function summarizeUiContribution(ui) {
-  if (!ui) return { slots: [], actions: [], panels: 0 }
-  return {
-    slots: Object.keys(ui.slots || {}),
-    actions: Array.isArray(ui.actions) ? ui.actions.slice() : [],
-    panels: Array.isArray(ui.panels) ? ui.panels.length : 0,
-  }
-}

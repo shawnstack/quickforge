@@ -20,8 +20,8 @@ import {
  * （compact 模式即有内容，修复展开为空）；detailed 模式列表在上、原始
  * input/details JSON 在下；默认折叠。
  *
- * 状态图标与文案统一来自 `src/lib/todo-status.tsx`（与 Composer 胶囊、置顶摘要
- * 共用），此处不再维护第三套图标与 label 映射。
+ * 状态图标与文案统一来自 `src/lib/todo-status.ts` / `todo-status-icon.tsx`
+ * （与 Composer 胶囊、置顶摘要共用），此处不再维护第三套图标与 label 映射。
  */
 export class TodoWriteToolRenderer {
   render(

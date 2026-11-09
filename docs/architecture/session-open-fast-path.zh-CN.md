@@ -290,13 +290,17 @@
 只能看到 200 条——**这是真实的可见回归**。修复：`hydrateFullHistory()` 在首屏后
 显式做一次全量替换并把窗口偏移归零。
 
-**问题二：增量对账的索引基准。** `mergeIncrementalMessages` 与所有
-`summary.count === localCount` 比较都隐含「本地索引 == 服务端索引」。窗口场景下
-本地只有 200 条而服务端有 361 条，这些比较会误判为「服务端截断」并触发无意义全量
-重拉。修复：新增 `messageWindowOffset` 记录窗口起点，所有比较改用 `localEnd`，
-合并改走 `mergeWindowedMessages`（丢弃落在被省略前缀里的尾部条目）。
-`tests/frontend/server-agent-message-window.test.ts` 的 8 个用例锁定这些换算，
-偏差一格就会让整段对话渲染错位。
+**问题二：增量对账的索引基准。** 旧实现把「本地索引 == 服务端索引」当作隐含前提：
+窗口场景下本地只有 200 条而服务端有 361 条，这些比较会误判为「服务端截断」并触发
+无意义全量重拉。当时的修法是引入 `messageWindowOffset` 记录窗口起点，所有比较改用
+`localEnd`，并让合并走单一通道（丢弃落在被省略前缀里的尾部条目）。
+
+**现状（2026-10-30 起）**：合并已收敛到 `src/lib/message-log.ts` 的 `applyLog`——按
+服务端 `baseSeq` 对齐的日志模型，窗口偏移与空洞在同一处处理；
+`mergeIncrementalMessages` / `mergeWindowedMessages` / `messageWindowOffset` 均已删除，
+当时锁定换算的 `tests/frontend/server-agent-message-window.test.ts` 也一并删除，
+对应不变量现由 `tests/frontend/message-log.test.ts`（窗口坐标换算、尾部落在被省略
+前缀里、出现空洞拒绝追加）覆盖。
 
 **问题三：补齐把用户的阅读位置推走。** `hydrateFullHistory` 是在头部插入 100~200 行，
 `scrollTop` 不变而上方变高，视口内容整体下跳——用户在补齐窗口期内向上滚动时必然踩中。

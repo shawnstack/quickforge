@@ -5,19 +5,12 @@ import { isCompactionMessage } from './compaction-message'
 import { assistantText } from '@/lib/message-utils'
 
 /**
- * "Assistant is working" bubble, previously injected by
- * `panel-decoration/assistant-waiting-bubble.ts`.
+ * "Assistant is working" bubble, rendered as a row inside the message list.
  *
- * The decoration decided visibility from the DOM: it found the last user row,
- * then asked whether any *rendered* assistant row after it had visible content
- * (querying `.qf-thinking-block` / `.qf-tool-message` / `.qf-markdown-block`,
- * rebuilding a clone with action rows stripped), and re-anchored the bubble
- * after that user row on every pass.
- *
- * React renders the bubble inside the message list now, at the row index
- * `resolveAssistantWaitingRow` returns, and the predicate works on the message
- * array instead of the DOM: the React rows render exactly the content the DOM
- * probe was looking for.
+ * Visibility is decided on the message array, not on the DOM: the bubble sits at
+ * the row index `resolveAssistantWaitingRow` returns. Do not reintroduce a DOM
+ * probe — asking rendered rows whether they have content is what made the old
+ * bubble disagree with the view while streaming.
  *
  * `waiting` stays host-owned: it clears on the assistant's `message_start`,
  * which is *earlier* than the first content arriving (see the host comment).

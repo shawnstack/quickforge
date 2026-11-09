@@ -213,22 +213,34 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
   }
 }
 
-export function shouldCompactContextByPercent(usage, thresholdPercent) {
+/**
+ * 自动压缩的用量判定。
+ *
+ * 「窗口是否可用」「用量是否可用」「是否超过阈值」这三个判断都属于上下文口径，
+ * 因此统一收在这里、返回结构化结果，而不是各自散落成 boolean 再让调用方用
+ * token 数二次推断原因——`below_threshold` 曾经就是这样把「用量未知」盖住的。
+ *
+ * 返回 `{ shouldCompact, reason }`，reason 取值：
+ * - `missing_context_window`：当前模型没有 contextWindow，无法换算比例
+ * - `unknown_usage`：没有可用的上报用量，阈值根本不判定
+ * - `below_threshold`：有数值，但没到阈值
+ * - `null`：应当压缩
+ */
+export function evaluateContextCompactionGate(usage, thresholdPercent) {
   const contextWindow = Number(usage?.contextWindow) || 0
-  // 阈值按上报用量换算：inputTokens / contextWindow ≥ thresholdPercent 即触发。
-  // inputTokens 已含上一条回复的输出/缓存 token，这里不再额外预留未来输出
-  // （真实请求的 max_tokens 由 pi-ai 按窗口收缩）。
-  const inputTokens = Math.max(0, Number(usage?.inputTokens) || 0)
-  const threshold = Math.min(100, Math.max(0, Number(thresholdPercent) || 0))
-  if (!contextWindow) return false
-  // 没有服务端上报的用量就不判定、不触发：数值未知时压缩只会盲目重复消耗一次模型调用。
-  if (inputTokens <= 0) return false
+  if (!contextWindow) return { shouldCompact: false, reason: 'missing_context_window' }
 
+  const inputTokens = Math.max(0, Number(usage?.inputTokens) || 0)
+  // 没有可用的上报用量就不判定、不触发：数值未知时压缩只会盲目重复消耗一次模型调用。
+  if (inputTokens <= 0) return { shouldCompact: false, reason: 'unknown_usage' }
+
+  const threshold = Math.min(100, Math.max(0, Number(thresholdPercent) || 0))
   const thresholdTokens = Math.ceil(contextWindow * threshold / 100)
   const reserveTokens = Math.min(contextWindow, Math.max(0, contextWindow - thresholdTokens + 1))
-  return shouldCompact(inputTokens, contextWindow, {
+  const compactNow = shouldCompact(inputTokens, contextWindow, {
     enabled: true,
     reserveTokens,
     keepRecentTokens: 0,
   })
+  return { shouldCompact: compactNow, reason: compactNow ? null : 'below_threshold' }
 }

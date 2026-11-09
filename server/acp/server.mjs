@@ -398,11 +398,18 @@ export function convertEventToUpdates(event, state = {}) {
     })
   }
 
-  if (event.contextUsage?.used && event.contextUsage?.size) {
+  // ACP 的 `UsageUpdate` 要 `used`（当前上下文 token）与 `size`（窗口大小），两个
+  // 都必填且为非负整数。QuickForge 的 contextUsage 用 `inputTokens` /
+  // `contextWindow` 表达同一件事；没有上报值时不推送，否则等于告诉客户端
+  // 「上下文是空的」。
+  const usageForAcp = event.contextUsage
+  const usedTokens = Math.max(0, Math.round(Number(usageForAcp?.inputTokens) || 0))
+  const windowSize = Math.max(0, Math.round(Number(usageForAcp?.contextWindow) || 0))
+  if (usedTokens > 0 && windowSize > 0) {
     updates.push({
       sessionUpdate: 'usage_update',
-      used: event.contextUsage.used,
-      size: event.contextUsage.size,
+      used: usedTokens,
+      size: windowSize,
     })
   }
 

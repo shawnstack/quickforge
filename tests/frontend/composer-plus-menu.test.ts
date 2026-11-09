@@ -13,14 +13,8 @@ import type { CapabilitySuggestion } from '../../src/components/chat/capability-
 vi.mock('@/lib/i18n', () => ({ t: (key: string) => key }))
 
 /**
- * The composer "+" menu used to be injected by
- * `panel-decoration/composer-plus-menu.ts` in two places: the trigger was
- * prepended into the left control row, the popover inserted before the editor
- * card. It rebuilt the popover's `innerHTML` per view and dismissed itself from
- * a document-level capture pointerdown.
- *
- * React renders both halves from one controller now. These cases pin the
- * behaviour: the main view offers attach/plugins per capability, the plugins
+ * Both halves of the composer "+" menu are rendered from one controller. These
+ * cases pin the behaviour: the main view offers attach/plugins per capability, the plugins
  * view lists capability rows and goes back, selecting dispatches and closes, and
  * dismissal follows the same outside-press rule.
  */

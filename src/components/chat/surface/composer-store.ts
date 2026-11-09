@@ -5,14 +5,13 @@ import type { Attachment } from './ChatTypes'
 /**
  * Composer hot-path state, kept OUTSIDE React's render tree.
  *
- * Why an external store: the composer text used to live in `ChatSurface`'s
- * top-level `useState`, so every keystroke re-rendered the whole surface. The
- * message list was fenced off with `memo` (`MessageArea`), but everything that
- * neighbours the editor still re-ran per keystroke — `UsageBar`'s
- * `aggregateUsage` (a full `filter`/`reduce` over every assistant message) and
- * `TodoWriteSummary`'s backwards scan being the O(messages) ones. Cost grew
- * with the conversation, which is exactly the "typing gets slower the longer
- * the chat is" report.
+ * Why an external store: composer text in a top-level `useState` re-renders the
+ * whole surface on every keystroke. The message list is fenced off with `memo`
+ * (`MessageArea`), but everything that neighbours the editor still re-ran per
+ * keystroke — `UsageBar`'s `aggregateUsage` (a full `filter`/`reduce` over every
+ * assistant message) and `TodoWriteSummary`'s backwards scan being the
+ * O(messages) ones. Cost grew with the conversation, which is exactly the
+ * "typing gets slower the longer the chat is" report.
  *
  * The split follows the render cost of each slice, and each slice notifies
  * independently so a keystroke cannot wake an attachments subscriber:

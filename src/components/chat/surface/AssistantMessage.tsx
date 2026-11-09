@@ -14,15 +14,15 @@ import { assistantContentParts } from './content-parts'
 import { AssistantStreamingContext, useAssistantStreaming } from './surface-context'
 
 /**
- * React replacement for the legacy `<assistant-message>` custom element.
+ * Assistant message row.
  *
  * Renders the assistant message content chunks strictly in source order
  * (text → markdown, thinking → collapsible block, toolCall → tool message)
  * followed by the usage footer and error/aborted hints.
  *
- * The root node mirrors the legacy element's data properties (`message`,
- * `isStreaming`) so the DOM-level panel-decoration layer (process folding,
- * turn error rows) keeps reading them off the element.
+ * The root node carries `message` / `isStreaming` as element properties: the
+ * DOM-level panel-decoration layer (process folding, turn error rows) reads them
+ * off the element. Dropping them silently breaks folding.
  */
 
 type AssistantMessageBridgeElement = HTMLElement & {

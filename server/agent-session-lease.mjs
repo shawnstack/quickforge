@@ -48,8 +48,3 @@ export function canWriteSession(sessionId, clientId) {
 export function clearSessionLease(sessionId, options) {
   return store.clear(sessionId, options)
 }
-
-/** 测试/诊断用。 */
-export function sessionLeaseStore() {
-  return store
-}

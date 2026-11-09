@@ -1,6 +1,6 @@
 import { estimateTokens } from '@earendil-works/pi-agent-core'
 import { describe, expect, it } from 'vitest'
-import { estimateContextUsage, shouldCompactContextByPercent } from '../../server/context-usage.mjs'
+import { estimateContextUsage, evaluateContextCompactionGate } from '../../server/context-usage.mjs'
 import { createMcpToolName } from '../../server/mcp/tool-name.mjs'
 
 function textMessage(role, text) {
@@ -332,6 +332,41 @@ describe('context usage provider-only accounting', () => {
   it('never triggers automatic compaction while the usage is unknown', () => {
     const usage = estimate({ systemPrompt: '', tools: [], messages: [textMessage('user', 'hello')] })
 
-    expect(shouldCompactContextByPercent(usage, 80)).toBe(false)
+    expect(evaluateContextCompactionGate(usage, 80)).toEqual({ shouldCompact: false, reason: 'unknown_usage' })
+  })
+
+  it('reports below-threshold separately from unknown usage', () => {
+    const usage = estimate({
+      systemPrompt: '',
+      tools: [],
+      messages: [
+        textMessage('user', 'hello'),
+        { ...textMessage('assistant', 'answer'), usage: { input: 100, output: 0, totalTokens: 100 } },
+      ],
+    })
+
+    // 有数值但远低于 80%：这是「还早」，不能和「未知」混成同一个说法。
+    expect(usage.inputTokenSource).toBe('provider')
+    expect(evaluateContextCompactionGate(usage, 80)).toEqual({ shouldCompact: false, reason: 'below_threshold' })
+  })
+
+  it('asks for compaction once the reported usage crosses the threshold', () => {
+    const usage = estimate({
+      systemPrompt: '',
+      tools: [],
+      model: { contextWindow: 50_000 },
+      messages: [
+        textMessage('user', 'hello'),
+        { ...textMessage('assistant', 'answer'), usage: { input: 40_000, output: 0, totalTokens: 40_000 } },
+      ],
+    })
+
+    expect(evaluateContextCompactionGate(usage, 80)).toEqual({ shouldCompact: true, reason: null })
+  })
+
+  it('reports a missing context window before judging the usage', () => {
+    const usage = estimate({ systemPrompt: '', tools: [], model: {}, messages: [textMessage('user', 'hello')] })
+
+    expect(evaluateContextCompactionGate(usage, 80)).toEqual({ shouldCompact: false, reason: 'missing_context_window' })
   })
 })

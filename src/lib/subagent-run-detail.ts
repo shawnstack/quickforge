@@ -441,7 +441,7 @@ export function subagentRunFingerprint(payload: Omit<SubagentRunPayload, 'finger
 }
 
 /**
- * 运行详情侧栏（SubagentRunDetailBody）内部块的展示顺序，单一事实来源。
+ * 运行详情侧栏（SubagentRunDetailContent）内部块的展示顺序，单一事实来源。
  * 顺序与 Git 历史最终态（32be493 的聊天内 details）保持一致：
  * task/context/expectedOutput → 运行信息 → 详细摘要 → trace → 错误正文 → 非重复 output → input → details。
  * 渲染器按此顺序输出；单元测试直接断言该顺序。

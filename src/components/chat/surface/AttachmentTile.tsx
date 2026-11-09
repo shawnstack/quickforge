@@ -6,7 +6,6 @@ import { openAttachmentOverlay } from './AttachmentOverlay'
 import { getAttachmentThumbnail } from './attachment-client'
 
 /**
- * React replacement for the legacy `<attachment-tile>` custom element.
  * Compact attachment preview (image thumbnail or document icon) with an
  * optional delete button; clicking opens the full-screen attachment overlay.
  */
@@ -31,7 +30,7 @@ export function AttachmentTile({ attachment, showDelete = false, onDelete }: Att
   const [loadedThumbnail, setLoadedThumbnail] = useState<{ key: string; url: string } | null>(null)
 
   useEffect(() => {
-    // Legacy image messages arrive without an inline thumbnail; render one from
+    // Older image messages arrive without an inline thumbnail; render one from
     // the stored bytes instead of keeping the multi-MB base64 in message state.
     if (inlinePreview || !isImage || !attachment.assetUrl) return
     const key = attachment.assetUrl

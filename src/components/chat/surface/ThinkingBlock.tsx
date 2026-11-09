@@ -6,7 +6,6 @@ import { MarkdownBlock } from './Markdown'
 import { emitReadingIntent } from '../scroll-sync'
 
 /**
- * React replacement for the legacy `<thinking-block>` custom element.
  * Collapsible reasoning block; streams with a shimmer "Thinking..." label.
  * Collapsed by default — the header click remains the opt-in to reveal the
  * reasoning markdown (the process groups themselves default to expanded).

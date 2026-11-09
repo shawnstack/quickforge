@@ -1,5 +1,9 @@
 # Session Index Foundation（F6）
 
+> **历史文档（archived）**：本文记录 F6「`session_index` 派生索引」的设计。该索引表已退役——`server/sqlite/session-index-repository.mjs` 改为对权威 `sessions` 表的只读 LIMIT/OFFSET 直查层，「启动与重建」「增量同步」「影子校验 / dirty / degraded」等段落描述的同事务 upsert 与重建链路已整体删除，只作历史记录，不代表当前行为。
+>
+> **现状**：会话域是单路径 SQLite 权威（baseline v19），表为 `sessions` / `session_messages` / `session_tombstones` / `session_state_maintenance_lock`，`session_index` 不在当前 schema 里；列表查询直接走 `sessions`（`idx_sessions_list` + `json_extract(meta_json,'$.lastModified')` 排序）。见 [`session-storage-v2.zh-CN.md`](./session-storage-v2.zh-CN.md)。
+
 ## 目标与边界
 
 F6 为会话列表元数据建立可重建的 SQLite 索引，但不切换任何业务权威或查询入口：

@@ -15,9 +15,9 @@ import { useComposerAttachments, useComposerText, type ComposerStore } from './c
 export { loadSurfaceAttachment }
 
 /**
- * React replacement for the legacy `<message-editor>` custom element.
+ * Message composer.
  *
- * Composer contract (aligned with the package component):
+ * Composer contract:
  * - the text and attachment list live in a `ComposerStore` (see
  *   `composer-store.ts`), NOT in a parent component's state. The parent
  *   (`ChatSurface`) therefore does not re-render per keystroke; only the three

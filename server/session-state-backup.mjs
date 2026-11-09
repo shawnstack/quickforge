@@ -205,7 +205,8 @@ function isPlainPlanValue(value) {
  * Restore the authoritative session state from a backup snapshot. Always runs
  * under the session state maintenance lock, persists a crash-recoverable plan
  * file, and compensates back to the exact before-state if the apply or its
- * verification fails. Only touches session_states/session_index/mirror tables;
+ * verification fails. Only touches the session state tables (`sessions`,
+ * `session_messages`, `session_tombstones`) through the repository;
  * scheduled_task_runs and JSON config stores are never modified here.
  */
 export async function restoreSessionStateSnapshot(values, options = {}) {

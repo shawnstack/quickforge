@@ -1,10 +1,8 @@
-import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { dataDir } from './storage.mjs'
 import {
   ARCHIVE_DIR_NAME,
-  copyNoteDir,
   listArchivedNoteFiles,
   listNoteFiles,
   moveNoteFile,
@@ -163,10 +161,6 @@ export async function writeExperience(options = {}, name, content) {
   return written
 }
 
-export async function archiveExperience(options = {}, name) {
-  return moveExperience(options, name, `${ARCHIVE_DIR_NAME}/${name}`)
-}
-
 /** Rename an experience, or move it to `_archive/`. Refreshes the index either way. */
 export async function moveExperience(options = {}, from, to) {
   const moved = await moveNoteFile(experiencesDir(options), from, to)
@@ -208,17 +202,4 @@ export function stripIndexChrome(markdown) {
     .filter((line) => !/^#\s/.test(line.trim()))
     .join('\n')
     .trim()
-}
-
-export async function getExperiencesRevision(options = {}) {
-  const entries = await listExperiences(options).catch(() => [])
-  const signature = entries
-    .map((entry) => `${entry.name}:${entry.updatedAt}:${entry.candidateSkill ? 1 : 0}`)
-    .join('|')
-  return createHash('sha256').update(signature).digest('hex')
-}
-
-/** Snapshot helper: the Dreaming runner copies the folder before it lets an agent edit it. */
-export async function snapshotExperiences(options = {}, target) {
-  return copyNoteDir(experiencesDir(options), target)
 }

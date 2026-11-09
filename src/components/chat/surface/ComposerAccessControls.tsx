@@ -4,21 +4,16 @@ import { t } from '@/lib/i18n'
 import type { AgentAccessMode } from '@/lib/types'
 
 /**
- * Composer plan-mode and agent-access controls, previously rendered by
- * `panel-decoration/plan-mode-controls.ts` (`syncPlanModeButton`) and
- * `panel-decoration/agent-access-menu.ts` (`setupAgentAccessMenu`).
+ * Composer plan-mode and agent-access controls: the two triggers in the editor's
+ * left control row, plus the agent-access menu as a fixed-position layer
+ * measured from its trigger — the same shape as the thinking selector and the
+ * "+" menu. Do not move the menu to `document.body` behind rect math again; it
+ * then has to re-measure and re-dismiss itself by hand.
  *
- * Both were injected into the composer's **left control row** on every decorate
- * pass: the access trigger was appended, the plan trigger inserted right after
- * it, and the agent-access menu was appended to `document.body` with
- * `getBoundingClientRect`/`offsetHeight` positioning plus four capture-phase
- * dismissal listeners. React renders the two triggers now, and the menu is a
- * fixed-position layer measured from the trigger — the same shape as the
- * thinking selector and the "+" menu.
- *
- * Class names, `aria-pressed` / `aria-expanded` mirrors, the full-access
- * warning tone and the menu/trigger label copy are unchanged: `src/styles/chat/composer-controls.css`
- * styles them and the compact-layout rules key off these classes.
+ * Class names, `aria-pressed` / `aria-expanded` mirrors, the full-access warning
+ * tone and the menu/trigger label copy are load-bearing:
+ * `src/styles/chat/composer-controls.css` styles them and the compact-layout
+ * rules key off these classes.
  */
 
 export function agentAccessLabel(mode: AgentAccessMode): string {

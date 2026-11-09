@@ -7,15 +7,15 @@ import { parseMcpToolName, McpToolRenderer } from '@/lib/tool-renderers/mcp-tool
 import { isRecord, renderToolChevron, ToolDetails } from '@/lib/tool-renderers/shared'
 import type { AgentTool, ToolCall, ToolResultMessage } from './ChatTypes'
 /**
- * React replacement for the legacy `<tool-message>` custom element.
+ * Tool call card row.
  *
  * Resolves renderers through the local tool renderer registry
  * (`@/lib/tool-renderer-registry`). Missing renderers use the default React
  * tool card; registered renderers return React content directly.
  *
- * The root node mirrors the legacy element's data properties (`tool`, `toolCall`,
- * `result`, `pending`, `aborted`) so the DOM-level panel-decoration layer
- * (process folding summaries) keeps reading them off the element.
+ * The root node carries `tool` / `toolCall` / `result` / `pending` / `aborted` as
+ * element properties: the DOM-level panel-decoration layer (process folding
+ * summaries) reads them off the element. Dropping them silently breaks folding.
  */
 
 type ToolMessageBridgeElement = HTMLElement & {

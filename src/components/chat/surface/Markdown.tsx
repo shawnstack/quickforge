@@ -12,16 +12,15 @@ import { splitStableMarkdown } from './markdown-stream-chunks'
 import { rehypeQfLocalFilePaths } from './rehype-local-file-paths'
 
 /**
- * React replacement for the legacy `<markdown-block>` custom element.
+ * Markdown renderer for chat messages.
  *
  * Rendering chain follows the project's existing Markdown pipeline
  * (`react-markdown` + `remark-gfm`, see `MarkdownReader.tsx`). Fenced code
- * blocks are delegated to `CodeBlock`, which carries the legacy
- * `code-block` capabilities (copy button, language title bar, mermaid/svg
- * previews, run-in-terminal). Math (`$...$`, `$$...$$`, `\(...\)`,
- * `\[...\]`) goes through the chat-math pipeline (`src/lib/chat-math.ts`)
- * and is rendered as KaTeX by `KatexMath`, matching the legacy renderer. A
- * `qf-markdown-block` hook class is added for surface-scoped styling.
+ * blocks are delegated to `CodeBlock` (copy button, language title bar,
+ * mermaid/svg previews, run-in-terminal). Math (`$...$`, `$$...$$`, `\(...\)`,
+ * `\[...\]`) goes through the chat-math pipeline (`src/lib/chat-math.ts`) and is
+ * rendered as KaTeX by `KatexMath`. A `qf-markdown-block` hook class is added
+ * for surface-scoped styling.
  */
 
 type MarkdownBlockProps = {

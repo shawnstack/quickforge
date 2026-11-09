@@ -6,7 +6,7 @@ import {
   isCompactSummaryMessage,
   saveCompactBackup,
 } from './conversation-compaction.mjs'
-import { estimateContextUsage, shouldCompactContextByPercent } from './context-usage.mjs'
+import { estimateContextUsage, evaluateContextCompactionGate } from './context-usage.mjs'
 
 export const AUTO_COMPACT_SETTINGS_KEY = 'auto-compact-settings'
 
@@ -500,8 +500,8 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     model: session.model,
     minimumProviderUsageIndex: minimumProviderUsageIndex(session, messages),
   })
-  if (!usage.contextWindow) return { compacted: false, usage, reason: 'missing_context_window' }
-  if (!shouldCompactContextByPercent(usage, settings.thresholdPercent)) return { compacted: false, usage, reason: 'below_threshold' }
+  const gate = evaluateContextCompactionGate(usage, settings.thresholdPercent)
+  if (!gate.shouldCompact) return { compacted: false, usage, reason: gate.reason }
 
   if (!hasNewMessagesSinceCompaction(session, messages)) {
     return { compacted: false, usage, reason: 'not_enough_new_messages' }

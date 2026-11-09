@@ -1,15 +1,16 @@
 /**
  * 消息行枚举（单一实现）。
  *
- * 装饰层有 4 个模块需要「本列表直接拥有的消息行」：消息动作、过程折叠、
+ * 装饰层有 5 个模块需要「本列表直接拥有的消息行」：消息动作、过程折叠、
  * 上下文压缩横线、审批卡插入点、等待气泡。此前每个模块各写一份
  * `querySelectorAll('.qf-user-message, .qf-assistant-message')` + `closest` 过滤，
  * 于是一次装饰 pass 会对同一张列表重复做多遍全表扫描。
  *
  * 这里提供两件事：
  * - `readMessageRows`：唯一的枚举实现；
- * - `cachedMessageRows`：一次装饰 pass 内复用同一结果——调用方在 pass 开始时读
- *   一次，之后把数组传下去。
+ * - `createMessageRowSnapshot`：一次装饰 pass 内复用同一结果——调用方在 pass
+ *   开始时建一次快照，之后通过 `rows()` 拿同一数组（行结构被改动后调
+ *   `invalidate()` 再重新枚举）。
  *
  * 语义与原实现完全一致（只保留 `closest` 命中本列表的行，跳过流式尾行）。
  */

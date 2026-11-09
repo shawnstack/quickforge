@@ -9,9 +9,8 @@ import { cn } from '@/lib/utils'
 import { useAssistantStreaming, useCommandActionsEnabled } from './surface-context'
 
 /**
- * React code block for chat messages. The code-block capabilities that the
- * removed `panel-decoration` decorators used to inject are now rendered here
- * directly by React, per fenced code block:
+ * React code block for chat messages. Every code-block capability is rendered
+ * here directly by React, per fenced code block:
  *  - a title bar with the fenced language + a copy button,
  *  - the source rendered with the self-hosted lightweight highlighter
  *    (`src/lib/code-highlight.ts`, no dependency): known languages get
@@ -38,17 +37,13 @@ const DANGEROUS_COMMAND_PATTERN = /\b(rm\s+-rf|sudo|chmod\b|chown\b|npm\s+publis
 /** Active/external SVG content is never inlined into the preview image. */
 const SVG_PREVIEW_UNSAFE_PATTERN = /<\s*(script|foreignObject)\b|\son[a-z]+\s*=|javascript\s*:/i
 
-/** Legacy hardcoded aria-label for the SVG preview (no i18n key existed). */
+/** Hardcoded aria-label for the SVG preview (no i18n key exists for it). */
 const SVG_PREVIEW_LABEL = 'SVG preview'
-/**
- * Title-bar copy button, which replaced mini-lit's `copy-button` (that
- * component reset its "copied" state after 2000ms).
- */
+/** How long the title-bar copy button keeps its "copied" state. */
 const COPY_BUTTON_FEEDBACK_MS = 2000
 /**
- * ⋯ menu copy-source actions, which replaced the decoration layer's
- * `showCopiedFeedback` (1200ms, `panel-decoration/code-blocks.ts` at the
- * removal baseline).
+ * How long ⋯ menu copy-source actions keep their "copied" state — shorter than
+ * the title bar's, since the menu stays open.
  */
 const MENU_COPY_FEEDBACK_MS = 1200
 
@@ -56,10 +51,8 @@ const MENU_COPY_FEEDBACK_MS = 1200
  * Broadcast fired when a code-block menu opens; every other open menu in the
  * same markdown block (`details` scoped to `.qf-markdown-block`, falling back
  * to `document` when rendered outside one) listens and closes itself.
- * Replaces the legacy decoration pass's
- * `closeSvgCodeBlockMenus(block.closest('markdown-block') ?? document, menu)`
- * mutual exclusion and, firing from the native `<details>` `toggle` →
- * `onToggle` → effect path, covers keyboard opens too.
+ * Firing from the native `<details>` `toggle` → `onToggle` → effect path is
+ * what makes keyboard opens participate in that mutual exclusion.
  */
 const CODE_BLOCK_MENU_OPEN_EVENT = 'quickforge:code-block-menu-open'
 
@@ -69,10 +62,9 @@ export function codeBlockLanguage(className: string | undefined) {
 }
 
 /**
- * Title-bar label, mirroring the legacy `<code-block>` (`language ||
- * 'plaintext'`, rendered verbatim — no case folding). Markdown fences without
- * an info string pass `text` (see `Markdown.tsx`), which is what the legacy
- * markdown layer rendered for them.
+ * Title-bar label: `language || 'plaintext'`, rendered verbatim — no case
+ * folding. Markdown fences without an info string pass `text` (see
+ * `Markdown.tsx`).
  */
 export function codeBlockLanguageLabel(language: string | undefined) {
   return (language ?? '').trim() || 'plaintext'
@@ -150,9 +142,8 @@ type CodeBlockMenuAction = {
   label: string
   icon: ReactNode
   /**
-   * Copy-source actions keep the menu open so the item's 1200ms "copied"
-   * feedback (legacy `showCopiedFeedback`) stays visible; download and
-   * preview/source mode toggles close it (legacy `code-blocks.ts` semantics).
+   * Copy-source actions keep the menu open so the item's "copied" feedback stays
+   * visible; download and preview/source mode toggles close it.
    */
   keepsMenuOpen?: boolean
   onSelect: () => void
@@ -160,17 +151,14 @@ type CodeBlockMenuAction = {
 
 /**
  * Whether running a menu action closes the menu. Copy-source actions keep it
- * open so their 1200ms "copied" feedback stays visible; download and
- * preview/source mode toggles close it (legacy `code-blocks.ts` semantics).
+ * open so their "copied" feedback stays visible; download and preview/source
+ * mode toggles close it.
  */
 export function closesCodeBlockMenu(action: Pick<CodeBlockMenuAction, 'keepsMenuOpen'>) {
   return !action.keepsMenuOpen
 }
 
-/**
- * The legacy `⋯` toolbar was a native `<details>` menu closed by a global
- * outside-pointerdown / Escape handler. Reproduced here per instance.
- */
+/** The `⋯` toolbar: a native `<details>` menu closed by outside pointerdown / Escape. */
 function CodeBlockMenu({ actions, copiedAction }: { actions: CodeBlockMenuAction[]; copiedAction: string | null }) {
   const detailsRef = useRef<HTMLDetailsElement | null>(null)
   const [open, setOpen] = useState(false)
@@ -189,7 +177,7 @@ function CodeBlockMenu({ actions, copiedAction }: { actions: CodeBlockMenuAction
       if (detailsRef.current?.open) detailsRef.current.open = false
     }
     // Mutual exclusion: announce this menu inside the owning markdown block
-    // (legacy `block.closest('markdown-block') ?? document` scope), then listen
+    // (`.qf-markdown-block`, falling back to `document`), then listen
     // for later opens. The dispatch below happens before the listener is
     // attached, so a menu never closes itself; the already-open instances hear
     // it synchronously. Outside pointerdown / Escape stay document-wide.

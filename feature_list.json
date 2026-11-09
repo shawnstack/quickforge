@@ -1,6 +1,42 @@
 {
   "features": [
     {
+      "id": "doc-reality-sync-2026-11",
+      "title": "文档与注释追认代码现状：3 篇架构文档的过期状态标注 + 3 处已改名标识符的注释",
+      "status": "done",
+      "summary": "工作区里留着一批没有留档的文档/注释改动，本次提交前补记。三篇 docs/architecture 的状态与代码脱节：① plugin-ui-extension 状态头仍写「设计中 → 实施中」（实际已实施 V1.5），同时把从未落地的 PluginAuditList.tsx 标注为「未实现」并注明服务端 GET /api/plugins/audit 已有、前端展示组件缺失；② session-index-foundation 描述的 session_index 派生索引已整体退役（session-index-repository.mjs 改为对权威 sessions 表只读 LIMIT/OFFSET 直查，同事务 upsert 与重建链路删除），加历史归档横幅并把现状指向 session-storage-v2.zh-CN.md；③ session-open-fast-path 的「问题二」还在讲 messageWindowOffset / mergeIncrementalMessages / mergeWindowedMessages 的旧修法，这三个符号与对应测试文件均已删除，改为「旧实现怎么处理 + 现状」：合并收敛到 src/lib/message-log.ts 的 applyLog（按服务端 baseSeq 对齐），不变量现由 tests/frontend/message-log.test.ts 覆盖。另有三处注释改到真实标识符：message-rows.ts 的 cachedMessageRows → createMessageRowSnapshot（并说明 rows() / invalidate() 语义）、subagent-run-detail.ts 的 SubagentRunDetailBody → SubagentRunDetailContent、session-state-backup.mjs 的 session_states / session_index / mirror 表 → sessions / session_messages / session_tombstones。零运行时代码变化。",
+      "files": [
+        "docs/architecture/plugin-ui-extension.zh-CN.md（状态头改为已实施；PluginAuditList 标注未实现）",
+        "docs/architecture/session-index-foundation.zh-CN.md（历史归档横幅 + 现状表清单与跳转）",
+        "docs/architecture/session-open-fast-path.zh-CN.md（问题二改为旧实现说明 + 现状 applyLog / message-log.test.ts）",
+        "src/components/chat/panel-decoration/message-rows.ts（注释：createMessageRowSnapshot / rows() / invalidate()）",
+        "src/lib/subagent-run-detail.ts（注释：SubagentRunDetailContent）",
+        "server/session-state-backup.mjs（注释：当前三张会话状态表名）",
+        "feature_list.json",
+        "progress.md"
+      ],
+      "verification": "改后引用的标识符逐个 grep 核对：createMessageRowSnapshot 定义在 message-rows.ts:61 且被 ChatPanelHost.tsx:1192 使用；SubagentRunDetailContent 在 src/components/workspace/ 下并被 WorkspaceInspector.tsx 引用；session_index 只出现在 server/sqlite/legacy-migrations.mjs 等历史文件。纯文档与注释、无运行时改动；提交前随工作区合并态跑过 npm run test（502 files / 5564 passed、3 failed 既有基线、1 skipped）、npm run lint（0 problems）、npm run build（通过，仅既有 chunk 体积警告）。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "只改文档描述与注释，未改任何代码行为；未触碰 dist/、package-dist/、package-offline/。这批改动不是本轮会话产生的，来源会话未留档，本次只补记录。"
+    },
+    {
+      "id": "surface-comment-archaeology-cleanup",
+      "title": "清理 chat/surface 与相关测试里的“考古式”注释（旧实现描述与悬空文件引用）",
+      "status": "done",
+      "summary": "用户问「检查一下有没有大段的无用的代码注释」，只读扫描 server/ src/ desktop/ scripts/ tests/ plugins/ bin/（1185 个 mjs/ts/tsx/css 文件、约 2 万注释行）后选了「压缩 chat/surface 的考古段落」这一档。扫描结论：被注释掉的死代码 0 处、TODO/FIXME/HACK 0 处、注释掉的 CSS 规则 0 处；唯一成规模的问题是「把旧实现怎么写的当正文写」的迁移考古段落（严格口径 37 块 / 603 行，全库含关键词的块 218 块 / 2596 行），其中 17 条注释引用的文件已删除（`panel-decoration/reconnect-notice.ts`、`code-blocks.ts`、`assistant-waiting-bubble.ts`、`composer-plus-menu.ts`、`utils/format.ts`、`legacy utils/attachment-utils.ts`、`src/lib/todo-status.tsx` 等）。清理口径：删掉「以前那个注入器怎么 prepend / 怎么 innerHTML 重建 / 怎么 setInterval」这类已无从核对的历史细节，保留现状职责、仍然有效的约束（CSS 类名、data 属性、bridge 元素属性、`<details>` toggle 路径、契约字段）与『为什么这么做』的性能理由；高价值的整块设计说明（`SessionViewPool.tsx` 63 行、`subagent-trace-structure.ts` 45 行、`MessageList.tsx` 40 行、`ChatSurface.tsx` 的 React/DOM 所有权边界块）一字未删。",
+      "files": [
+        "src/components/chat/surface/AssistantWaitingBubble.tsx / ComposerPlusMenu.tsx / ComposerAccessControls.tsx / ConnectionNotices.tsx（文件头考古段 → 现状 + 约束）",
+        "src/components/chat/surface/ChatSurface.tsx / ChatTypes.ts / MessageList.tsx / Markdown.tsx / MessageEditor.tsx / AssistantMessage.tsx / ToolMessage.tsx / ThinkingBlock.tsx / AttachmentOverlay.tsx / AttachmentTile.tsx / UsageBar.tsx / CodeBlock.tsx / ApiKeyPromptDialog.tsx / GoalControlStrip.tsx / surface-context.ts / composer-store.ts / attachment-loader.ts / rehype-local-file-paths.ts / render-key-index.ts / index.ts",
+        "tests/frontend/assistant-waiting-bubble.test.ts / model-retry-notice.test.ts / reconnect-notice.test.ts / unreachable-strip.test.ts / composer-plus-menu.test.ts（头部旧控制器描述 → 测什么）",
+        "src/lib/tool-renderers/todo-write-tool-renderer.tsx 与 tests/frontend/todo-write-renderer.test.ts（`src/lib/todo-status.tsx` 悬空路径改为真实存在的 `todo-status.ts` / `todo-status-icon.tsx`）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx eslint src/components/chat/surface src/lib/tool-renderers 及 5 个改动测试文件 → 0 problems；npx vitest run 8 个相关测试文件（assistant-waiting-bubble 18、model-retry-notice 12、reconnect-notice 20、unreachable-strip 14、composer-plus-menu 9、todo-write-renderer 11、chat-code-block 45、chat-surface-css-contract 37）→ 8 files / 166 passed；git diff 逐行核对，除他人已存在的 `tests/frontend/context-usage.test.ts` 改动外，本次改动全部落在注释行（166 增 / 244 删，净减 78 行）。未跑全量 npm run test / npm run build（纯注释改动，无运行时代码变化）；未触碰 dist/、package-dist/、package-offline/。",
+      "updatedAt": "2026-11-09T16:14:45.000Z"
+    },
+    {
       "id": "release-2-4-2",
       "title": "发布 patch 小版本 v2.4.2（上下文占用只认上报值 + 指示器字段瘦身）",
       "status": "done",
@@ -2479,6 +2515,49 @@
       "verification": "定向 vitest 4 files / 50 passed（server/context-usage 19、server/auto-compaction 14、frontend/context-usage 11、frontend/chat-surface-usage 6，其中 frontend/context-usage 为新增「tooltip 基线两行在本地估算小标题之前」与「死 i18n 键已删除」两例后的结果）；同批压缩回归 tests/server/auto-compaction-history.test.mjs 8 passed，合并跑为 5 files / 58 passed；npx tsc -b 通过；npm run lint → 0 problems；npm run test → 502 files / 5558 passed、2 skipped、exit 0；npm run build → 通过（tsc -b + vite build，precompress 225 files 12.67MB → 6.49MB，仅既有大 chunk warning）。评审后删掉 3 个固化死逻辑的测试、新增 2 例，全量用例数从 5557 变为 5558。未做真实长会话实机验证；未提交，无 commit/tag。",
       "updatedAt": "2026-11-09",
       "boundaries": "只改统计口径与指示器展示，未改压缩算法本身（切片、摘要生成、contextCompaction.history 记录均未动）；未回填任何旧数据；未触碰 dist / package-dist / package-offline 等生成产物（dist 由 npm run build 重新生成）。"
+    },
+    {
+      "id": "dead-code-cleanup-2026-11",
+      "title": "清理僵尸代码：孤儿文件、零引用导出与根目录垃圾文件",
+      "status": "done",
+      "summary": "用户要求全面查看有无僵尸代码和上帝模块。只读扫描 672 个源文件（约 14.4 万行）后确认僵尸代码量很小：lint 因 noUnusedLocals / noUnusedParameters 已零警告，注释掉的死代码块 0 处，TODO/FIXME/HACK 0 处。实删 5 项：① server/provider-config.mjs 整份 78 行全仓零引用（源码、测试、文档、脚本均无提及，上一轮清理时漏网）；② server/experiences.mjs 的 archiveExperience / getExperiencesRevision / snapshotExperiences（归档实际走 move_memory_note → moveNoteFile，快照实际走 dreaming/snapshot.mjs 自己的 copyNoteDir 调用，三个都是重复实现或纯预留的死包装）；③ server/plugins/ui-schema.mjs 的 summarizeUiContribution（注释声称 plugins 页与审计日志在用，实际零调用）；④ server/agent-session-lease.mjs 的 sessionLeaseStore（注释写测试/诊断用，测试也没用）；⑤ 根目录 0 字节垃圾文件 !ids.includes(i))（shell 重定向误创）。级联删掉 experiences.mjs 里因此变成孤儿的 createHash 与 copyNoteDir 两个 import。确认保留（扫描时看似孤儿、实为动态引用）：restart/update-supervisor、agent-workflow-worker、session-state-worker、maintenance/export-*-v1、plugins/*/plugin.json、public/sw.js、scripts/*。",
+      "files": [
+        "server/provider-config.mjs（整份删除）",
+        "!ids.includes(i))（根目录 0 字节垃圾文件，删除）",
+        "server/experiences.mjs（删 3 个死导出 + 2 个孤儿 import）",
+        "server/plugins/ui-schema.mjs（删 summarizeUiContribution）",
+        "server/agent-session-lease.mjs（删 sessionLeaseStore）",
+        "docs/wiki/server/README.md（删掉 getExperiencesRevision 的过时提及）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 8 files / 93 passed（plugins/ui-schema、plugins/hello-ui-example、session-lease、memory-notes、dreaming、dreaming-snapshot、dreaming-runner、dreaming-curator-agent）；npx eslint . --no-warn-ignored → 0 problems；全量 npx vitest run → 500 files / 5564 passed、3 failed。这 3 个失败经 git worktree 在干净 HEAD 基线（46d1650c，不含任何未提交改动）复跑证实是既有失败（tests/server/acp/server.workspace-mapping.test.mjs 2 例因 server/acp/server.mjs 未提交改动导致 setActiveProjectPath 返回 undefined；tests/server/sqlite-quick-check-gate.test.mjs 1 例缓存语义），与本改动无关——两个测试文件均不引用本次改动的模块。未创建 Git commit；未触碰 dist / package-dist / package-offline。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "只删零引用代码，未改任何仍在使用的逻辑；agent-goal-runner.mjs（1599 行 legacy goal 引擎）经确认仍会被无 goalEngine 标记的旧会话走到，属技术债而非死代码，本次未动。"
+    },
+    {
+      "id": "god-module-decomposition",
+      "title": "上帝模块治理：按影响面从小到大拆分职责混杂的超大模块",
+      "status": "pending",
+      "summary": "同一次代码健康扫描确认真正的上帝模块（一个文件承担 2 类以上没有共同主题的职责）共 7 处，按建议动手顺序排列。判定标准是职责混杂，不是行数：i18n.ts（4471 行，98% 是双语词条表）、code-highlight.ts（2654 行，语法规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs 都属于长但职责单一，不在治理范围内。",
+      "dependencies": [
+        "dead-code-cleanup-2026-11"
+      ],
+      "approach": "① server/routes/scheduled-tasks.mjs（1104 行，扇入仅 1 个 server/index.mjs，性价比最高，建议首个动手）：同时是 HTTP 路由、常驻调度守护循环、Agent 会话编排（executeTask 单函数 530-863 共 333 行）和调大模型把自然语言转任务 JSON 的 LLM 功能，四件事无共同主题。② src/components/skills-dialog.tsx（1241 行）：SkillsManagerPanel 单组件 1045 行、20 个 useState，组件内自带完整数据层——loadSkills 直接 fetch /api/skills、queueSave 直接 PUT /api/skills/project 并手写乐观更新 + 回滚（saveGenerationRef / saveSequenceRef 双版本号）。src/lib 与 src/stores 里没有任何 skills 模块，这个数据层不被别处共用，是边界越得最典型的一例。③ 双重权威（非文件级问题，但同源）：ChatPanelHost 用 pendingApprovalRef / pendingAskRef 重建待审批与待回答状态，而 ServerAgent.state 里本来就有 pendingToolApproval / pendingAsk；App.tsx 的 sidebarWidth 与 workspaceInspectorOpenScopeId 又与 ui-store 重复。修这类不会立刻见效，但最容易产生偶发不一致的 bug。④ server/tools/index.mjs（1369 行）：六个互不相关的工具实现（读/搜/写改/技能资源/展示/命令/记忆/todo）加一整套子进程管理器；grepFilesWithRipgrep 段 335 行、toolRunCommand 单函数 361 行、killProcessTree 含 Windows taskkill 分支。tools/ 目录已存在，拆分落点现成。⑤ server/agent-manager.mjs（2197 行，扇入 21）：8 类职责（门面转发、工具装配、上下文压缩接线、空闲会话回收、事件扇出 + 落库、消息回滚下标算术、runPrompt/abort 编排、十几个 setter），createAgent 单函数 667-1176 共 509 行。风险最高：导出名被 tests/server/agent-manager-exports-contract.test.mjs 锁定，且历史上已拆过一轮又长回来了。⑥ src/lib/server-agent.ts（2807 行）：SSE 传输、27 字段状态机、26 种事件分发、工具审批、Goal、写租约、历史补齐、HTTP、快照持久化、压缩通知共 10 类；handleSseEvent 单函数 1448-2027 共 580 行 switch 26 种事件。⑦ src/App.tsx（1992 行）：MainApp 单函数 169-1977 共 1808 行，53 个 useCallback / 26 个 useEffect；越界证据是业务规则写在视图层——openLocalFilePathFromChat 自己拼路径并 fetch、getDeletedProjectRecoveryDecision 的恢复策略、artifact 预览挂起规则。另有 3 处中等可顺手治：server/index.mjs 的自更新/重启监督与 40 分支路由表、server/routes/agent.mjs 的 SSE 传输层（可并入已存在的 utils/sse-wire.mjs）、ChatSurface.tsx（第 1 行的 eslint-disable only-export-components 本身就是自白书）。",
+      "files": [
+        "server/routes/scheduled-tasks.mjs（首要目标，扇入 1）",
+        "src/components/skills-dialog.tsx",
+        "server/tools/index.mjs",
+        "server/agent-manager.mjs",
+        "src/lib/server-agent.ts",
+        "src/App.tsx",
+        "src/components/chat/ChatPanelHost.tsx",
+        "server/index.mjs / server/routes/agent.mjs / src/components/chat/surface/ChatSurface.tsx（中等优先级）"
+      ],
+      "verification": "每个子项独立验证：拆分前先跑该模块相关测试建立基线，拆分后要求相关测试全绿 + npx eslint 0 problems + npm run build 通过；涉及前端组件再跑 npx tsc -b。不得一次提交多个模块的拆分。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "明确不要动：i18n.ts、code-highlight.ts（纯数据表/规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs（职责单一，只是长）。不要为了拆而拆——先确认文件里存在两类以上无共同主题的职责再动手。"
     }
   ]
 }

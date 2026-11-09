@@ -1,6 +1,6 @@
 # 插件 UI 扩展设计（V1.5）
 
-> 状态：设计中 → 实施中
+> 状态：已实施（V1.5）
 > 范围：在既有插件系统（`server/plugins/`）之上增加 UI 扩展能力，不推翻 V1。
 > 前置事实源：`docs/architecture/plugin-system.zh-CN.md`（V1 现状）、`docs/architecture/agent-plugin-system.zh-CN.md`（目标架构）。
 
@@ -289,7 +289,7 @@ export function createPlugin(ctx) {
 | `src/lib/plugin-ui-client.ts`（新增） | `loadPluginUi()` / `dispatchPluginAction()`，带内存缓存 + 事件后局部覆盖 |
 | `src/components/plugins/PluginSlot.tsx`（新增） | 白名单渲染器：type → 宿主组件映射，未知 type 返回 `null`，`try/catch` 兜底 |
 | `src/components/plugins/PluginFrame.tsx`（新增） | iframe + postMessage bridge + `event.source` 校验 |
-| `src/components/plugins/PluginAuditList.tsx`（新增，可选） | Plugin 页面里展示该插件最近调用 |
+| `src/components/plugins/PluginAuditList.tsx`（**未实现**） | Plugin 页面里展示该插件最近调用。服务端 `GET /api/plugins/audit` 已有，前端展示组件未落地 |
 | `src/components/plugins/PluginsPage.tsx` | 展示 `ui` 贡献（slot 列表、actions、panels），加权限授权确认 |
 | 挂载点 | `ConversationHeader.tsx` → `session.header`；`ChatSidebar.tsx` → `sidebar.footer`；composer 操作区 → `composer.actions`（实施时 grep 定位精确组件） |
 

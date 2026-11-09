@@ -14,9 +14,9 @@ import { t } from '@/lib/i18n'
 import type { ServerAgentCompactionNotice } from '@/lib/server-agent'
 
 /**
- * React replacement for the legacy `<message-list>` component.
+ * Renders the chat message rows for one session.
  *
- * Build rules (aligned with the legacy `<message-list>` implementation):
+ * Build rules:
  * - `artifact` messages are skipped (session persistence only, no UI).
  * - `toolResult` message bodies are not rendered standalone; they are
  *   collected into a `toolCallId → result` map and inlined into the assistant
@@ -33,8 +33,7 @@ import type { ServerAgentCompactionNotice } from '@/lib/server-agent'
  *   of migrating the message between two React subtrees — the old unmount/
  *   remount dropped the thinking-block disclosure state, restarted code
  *   highlights and moved every folded process node twice. Pending tool calls
- *   stay hidden on the streaming row (the committed rows own them), matching
- *   the previous split.
+ *   stay hidden on the streaming row (the committed rows own them).
  *   Two structural rules make that hand-off a true fiber reuse:
  *   1. committed rows and the streaming tail row live in ONE keyed `rows`
  *      array — React matches keyed siblings within a single array, while a

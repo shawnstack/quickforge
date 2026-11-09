@@ -6,14 +6,13 @@ import { splitLocalFilePaths } from '../panel-decoration/local-file-path-links'
  * `<qf-file-path data-path="…">` elements.
  *
  * This runs during Markdown parsing, so the paths become React nodes with the
- * rest of the content. The decoration layer used to do the same thing after
- * render, with a TreeWalker that replaced text nodes with buttons and a
- * per-message signature to avoid re-walking.
+ * rest of the content — no post-render pass over the DOM, no per-message
+ * re-walk signature.
  *
  * Subtrees whose text must stay literal are skipped: code (fenced and inline),
- * links, and anything that already renders its own affordance. Those are the
- * same exclusions the TreeWalker used (`SKIP_LOCAL_PATH_SELECTOR`), expressed in
- * hast terms instead of CSS selectors.
+ * links, and anything that already renders its own affordance. The non-Markdown
+ * path lives in `panel-decoration/local-file-path-links.ts` and keeps the same
+ * exclusions, expressed there as CSS selectors instead of hast tags.
  */
 const SKIP_TAGS = new Set(['code', 'pre', 'a', 'button', 'textarea', 'input', 'select'])
 

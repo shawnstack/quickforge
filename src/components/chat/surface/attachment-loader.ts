@@ -1,8 +1,7 @@
 /**
  * Local attachment loader for the self-hosted React chat surface.
  *
- * Restores the document pipeline of the legacy `utils/attachment-utils.ts`
- * (self-hosted-chat-ui regression fix):
+ * Document pipeline for composer attachments:
  * - PDF page text + first-page thumbnail,
  * - DOCX structure text (paragraphs, tables),
  * - PPTX slides plus speaker notes,

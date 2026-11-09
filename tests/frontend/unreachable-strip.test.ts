@@ -13,11 +13,9 @@ import type { SseConnectionStatus } from '../../src/lib/server-agent'
 import { appCss } from '../helpers/app-css'
 
 /**
- * The Tier-2 unreachable strip used to be a controller
- * (`panel-decoration/unreachable-strip.ts`) that built the row by hand, pinned
- * it before the composer dock and re-inserted it whenever a decoration pass
- * found it missing. React renders it now, so these cases drive the component
- * with connection statuses and assert the rendered strip.
+ * The Tier-2 unreachable strip renders inside the surface. These cases drive the
+ * component with connection statuses and assert the rendered strip (help rows,
+ * duration formatting, dismissal).
  */
 
 const connectionState = vi.hoisted(() => ({ retryNowCalls: 0 }))

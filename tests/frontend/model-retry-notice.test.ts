@@ -8,12 +8,10 @@ import { ModelRetryNotice } from '../../src/components/chat/surface/ConnectionNo
 import { appCss } from '../helpers/app-css'
 
 /**
- * The model stream retry row used to be a find-or-create controller
- * (`panel-decoration/model-retry-notice.ts`) that pinned itself to the end of
- * `.qf-message-list` and re-appended after every list rebuild. React renders it
- * inside the surface now, so the DOM cases below assert the rendered contract
- * and the source cases assert that the host owns the visibility state instead
- * of a controller.
+ * The model stream retry row renders inside the surface and the host owns its
+ * visibility state. The DOM cases assert the rendered contract; the source cases
+ * assert the host drives it instead of a controller re-appending the row after
+ * every list rebuild.
  */
 
 vi.mock('@/lib/i18n', () => ({

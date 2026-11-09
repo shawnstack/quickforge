@@ -69,7 +69,7 @@ describe('TodoWrite history renderer', () => {
     expect(block).toContain('quickforge-todo-history-list')
     expect(block).toContain('quickforge-todo-history-item--${todo.status}')
     expect(block).toContain('{todo.content}')
-    // 状态文案与图标统一来自 `src/lib/todo-status.tsx`：渲染器只消费共享映射，
+    // 状态文案与图标统一来自 `src/lib/todo-status.ts`：渲染器只消费共享映射，
     // 不再自带一份 label/图标实现（避免第三套状态词汇漂移）。
     expect(file).toContain('<TodoStatusIcon status={todo.status} />')
     expect(file).toContain('t(TODO_STATUS_LABEL_KEY[todo.status])')

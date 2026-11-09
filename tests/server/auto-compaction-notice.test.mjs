@@ -130,12 +130,52 @@ describe('maybeAutoCompactSession notice projection', () => {
 
     const result = await maybeAutoCompactSession({
       session,
-      messages: [textMessage('user', 4), textMessage('assistant', 4)],
+      // 判断阈值必须先有上报值：这里 totalTokens 占 1000 窗口的 10%，远低于 50%。
+      messages: [
+        textMessage('user', 4),
+        {
+          ...textMessage('assistant', 4),
+          usage: { input: 100, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 100 },
+        },
+      ],
       emitSessionEvent,
       persistSession: vi.fn(async () => {}),
     })
 
     expect(result).toMatchObject({ compacted: false, reason: 'below_threshold' })
+    expect(noticeEvents(emitSessionEvent)).toEqual([])
+  })
+
+  it('reports a missing context window instead of silently skipping', async () => {
+    const emitSessionEvent = vi.fn()
+    // 模型没有 contextWindow：第 4 关直接返回，不该走到用量判定，也不该静默。
+    const session = makeSession({ model: {} })
+
+    const result = await maybeAutoCompactSession({
+      session,
+      messages: [textMessage('user', 4), textMessage('assistant', 4)],
+      emitSessionEvent,
+      persistSession: vi.fn(async () => {}),
+    })
+
+    expect(result).toMatchObject({ compacted: false, reason: 'missing_context_window' })
+    expect(noticeEvents(emitSessionEvent)).toEqual([])
+  })
+
+  it('reports unknown usage separately from below the threshold', async () => {
+    const emitSessionEvent = vi.fn()
+    const session = makeSession()
+
+    // 没有任何 assistant usage 上报：数值未知，阈值根本没被判断。这条不能报成
+    // below_threshold，否则排查时会读成「还早」，实际是自动压缩已经不会发生。
+    const result = await maybeAutoCompactSession({
+      session,
+      messages: [textMessage('user', 4), textMessage('assistant', 4)],
+      emitSessionEvent,
+      persistSession: vi.fn(async () => {}),
+    })
+
+    expect(result).toMatchObject({ compacted: false, reason: 'unknown_usage' })
     expect(noticeEvents(emitSessionEvent)).toEqual([])
   })
 

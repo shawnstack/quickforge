@@ -114,6 +114,9 @@ function userTextMessage(text, details) {
  * 数组多一条、且摘要正好落在 `compactedUpToIndex - 1` —— 返回 1，调用方
  * 把派生下标平移回传入数组的坐标空间。其余情况（下一次 run 的快照已包含
  * 摘要、旧会话迁移前的 state、无压缩）返回 0。
+ *
+ * 返回 1 也意味着传入数组里即使有摘要，也只可能是更早的旧摘要（run 启动前
+ * 就在快照里），见 `summaryIndexInMessages`。
  */
 function compactionSnapshotShift(session, messages) {
   const compaction = session?.contextCompaction
@@ -121,6 +124,7 @@ function compactionSnapshotShift(session, messages) {
   if (!compaction?.summaryMessage || !Array.isArray(stateMessages)) return 0
   const messagesLength = Array.isArray(messages) ? messages.length : 0
   if (stateMessages.length !== messagesLength + 1) return 0
+  if (messages?.includes(compaction.summaryMessage)) return 0
   const summaryIndex = Math.max(0, Number(compaction.compactedUpToIndex) || 0) - 1
   return stateMessages[summaryIndex] === compaction.summaryMessage ? 1 : 0
 }
@@ -168,6 +172,17 @@ export function lastCompactionMessageIndex(messages) {
 }
 
 /**
+ * 当前压缩点在传入数组里的下标；当前摘要不在这个数组里时返回 -1。
+ *
+ * run 内再次压缩时，快照里还留着 run 启动前的旧摘要，新摘要只在 state 里。
+ * 这时不能按「最后一条摘要」切片，否则模型收到的仍是旧摘要加全部后续消息，
+ * 上下文不会变小，下一次请求前又会触发压缩。
+ */
+function summaryIndexInMessages(session, messages) {
+  return compactionSnapshotShift(session, messages) ? -1 : lastCompactionMessageIndex(messages)
+}
+
+/**
  * 截断/重试之后把压缩下标对齐到当前数组（tail 起点 = 压缩消息下标 + 1）。
  * 位置语义由消息表达，这里只维护派生索引，供用量估算与诊断使用。
  *
@@ -196,7 +211,7 @@ export function syncCompactionIndex(session, compactionIndex, messageCount, summ
  */
 export function buildAutoCompactLoopMessages(session, messages) {
   const source = Array.isArray(messages) ? messages : []
-  const compactionIndex = lastCompactionMessageIndex(source)
+  const compactionIndex = summaryIndexInMessages(session, source)
   if (compactionIndex >= 0) return source.slice(compactionIndex)
 
   const summaryMessage = session?.contextCompaction?.summaryMessage
@@ -262,7 +277,7 @@ function minimumProviderUsageIndex(session, messages) {
   // 只认元数据会返回 0，让压缩前那次请求上报的 provider usage 被当成「当前
   // 上下文」——界面显示已压缩，占用却不下降。所以先按消息定界，与
   // `buildAutoCompactLoopMessages` 同源。
-  const compactionIndex = lastCompactionMessageIndex(source)
+  const compactionIndex = summaryIndexInMessages(session, source)
   const summaryMessage = compactionIndex >= 0
     ? source[compactionIndex]
     : session?.contextCompaction?.summaryMessage
@@ -408,7 +423,7 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
       inputTokens: 0,
       estimatedInputTokens: 0,
       knownInputTokens: 0,
-      inputTokenSource: 'estimated',
+      inputTokenSource: 'unavailable',
       totalTokens: 0,
       contextWindow,
       percent: 0,

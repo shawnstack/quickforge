@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { contextUsageBreakdownRows, createContextUsageIndicator, isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '../../src/components/chat/context-usage'
-import { getContextUsage, type MessageWithUsage } from '../../src/components/chat/chat-utils'
 
 vi.mock('@/lib/i18n', () => ({
-  t: (key: string) => key,
+  t: (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key),
 }), { virtual: true })
 
 const contextUsageSource = readFileSync(new URL('../../src/components/chat/context-usage.ts', import.meta.url), 'utf8')
+const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 
 const originalDocument = globalThis.document
 const originalWindow = globalThis.window
@@ -35,23 +35,16 @@ function createPanel() {
 }
 
 function createIndicator({
-  messages = [],
-  effectiveMessages,
   serverUsage,
   isCompacted,
   onDisplayChange,
 }: {
-  messages?: MessageWithUsage[]
-  effectiveMessages?: () => MessageWithUsage[]
   serverUsage?: () => Record<string, unknown> | null
   isCompacted?: () => boolean
   onDisplayChange?: (info: ContextUsageDisplayInfo) => void
 }) {
   return createContextUsageIndicator({
     panel: createPanel(),
-    getSystemPrompt: () => '',
-    getMessages: () => messages,
-    getEffectiveMessages: effectiveMessages,
     getContextWindow: () => 100_000,
     getServerContextUsage: serverUsage,
     getIsCompacted: isCompacted,
@@ -71,53 +64,9 @@ describe('context usage indicator', () => {
     expect(contextUsageSource).toContain("'height: 14px'")
   })
 
-  it('skips effective message construction when server usage is available', () => {
-    const getEffectiveMessages = vi.fn(() => {
-      throw new Error('effective messages should not be constructed')
-    })
-    const onDisplayChange = vi.fn()
-    const indicator = createIndicator({
-      effectiveMessages: getEffectiveMessages,
-      serverUsage: () => ({
-        contextWindow: 100_000,
-        inputTokens: 20_000,
-        estimatedInputTokens: 20_000,
-        percent: 20,
-        color: 'hsl(100 72% 45%)',
-      }),
-      onDisplayChange,
-    })
-
-    indicator.update()
-
-    expect(getEffectiveMessages).not.toHaveBeenCalled()
-    expect(onDisplayChange).toHaveBeenCalledWith(expect.objectContaining({
-      context: expect.objectContaining({ percent: 20 }),
-    }))
-  })
-
-  it('keeps using effective messages for the local fallback', () => {
-    const effectiveMessages: MessageWithUsage[] = []
-    const getEffectiveMessages = vi.fn(() => effectiveMessages)
-    const getIsCompacted = vi.fn(() => true)
-    const indicator = createIndicator({
-      effectiveMessages: getEffectiveMessages,
-      serverUsage: () => null,
-      isCompacted: getIsCompacted,
-    })
-
-    indicator.update()
-
-    expect(getEffectiveMessages).toHaveBeenCalledTimes(1)
-    expect(getIsCompacted).not.toHaveBeenCalled()
-  })
-
   it('preserves the compacted tooltip when older server usage omits isCompacted', () => {
     const onDisplayChange = vi.fn()
     const indicator = createIndicator({
-      effectiveMessages: vi.fn(() => {
-        throw new Error('effective messages should not be constructed')
-      }),
       serverUsage: () => ({
         contextWindow: 100_000,
         inputTokens: 20_000,
@@ -192,47 +141,107 @@ describe('context usage indicator', () => {
   })
 })
 
-describe('getContextUsage pure input metrics', () => {
-  function assistantMessageWithUsage(usage: { input?: number; output?: number; totalTokens?: number }): MessageWithUsage {
-    return { role: 'assistant', content: [{ type: 'text', text: 'answer' }], usage }
-  }
+describe('context usage indicator without local estimation', () => {
+  it('keeps showing the last server-reported usage when the latest report is unavailable', () => {
+    const onDisplayChange = vi.fn()
+    let current: Record<string, unknown> | null = {
+      contextWindow: 100_000,
+      inputTokens: 30_000,
+      percent: 30,
+      inputTokenSource: 'provider',
+    }
+    const indicator = createIndicator({
+      serverUsage: () => current,
+      onDisplayChange,
+    })
 
-  it('computes percent from provider input tokens only and aligns totalTokens with inputTokens', () => {
-    // 纯输入口径：占用 = inputTokens / contextWindow，不再叠加预留输出 token。
-    const messages: MessageWithUsage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'question' }] },
-      assistantMessageWithUsage({ input: 30_000, output: 1_000, totalTokens: 31_000 }),
-    ]
+    indicator.update()
+    current = {
+      contextWindow: 100_000,
+      inputTokens: 0,
+      percent: 0,
+      inputTokenSource: 'unavailable',
+    }
+    indicator.update()
 
-    const usage = getContextUsage('', messages, 100_000, [])
-
-    expect(usage.inputTokens).toBe(30_000)
-    expect(usage.totalTokens).toBe(30_000)
-    expect(usage.percent).toBe(30)
-    expect('reservedOutputTokens' in usage).toBe(false)
+    expect(onDisplayChange).toHaveBeenCalledTimes(2)
+    expect(onDisplayChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      context: expect.objectContaining({ percent: 30 }),
+    }))
+    const title = onDisplayChange.mock.calls.at(-1)?.[0]?.context?.title as string
+    expect(title).toContain('contextUsageStaleNote')
+    // 沿用的数值来自提供商上报，只能标注时效，不能改口叫本地估算
+    expect(title).toContain('contextUsageSourceProvider')
   })
 
-  it('keeps percent below 100 when the input nearly fills the context window', () => {
-    const messages: MessageWithUsage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'question' }] },
-      assistantMessageWithUsage({ input: 97_000, output: 500, totalTokens: 97_500 }),
-    ]
+  it('does not invent a percentage when the server never reported usage', () => {
+    const onDisplayChange = vi.fn()
+    const indicator = createIndicator({
+      serverUsage: () => ({
+        contextWindow: 100_000,
+        inputTokens: 0,
+        percent: 0,
+        inputTokenSource: 'unavailable',
+      }),
+      onDisplayChange,
+    })
 
-    const usage = getContextUsage('', messages, 100_000, [])
+    indicator.update()
 
-    expect(usage.percent).toBe(97)
+    const info = onDisplayChange.mock.calls.at(-1)?.[0]
+    expect(info?.context).toBeUndefined()
   })
 
-  it('falls back to the local estimate and returns zero percent without a positive window', () => {
-    const messages: MessageWithUsage[] = [
-      { role: 'user', content: [{ type: 'text', text: 'question '.repeat(2000) }] },
-    ]
+  it('treats a legacy payload without inputTokenSource as provider-reported usage', () => {
+    const onDisplayChange = vi.fn()
+    const indicator = createIndicator({
+      serverUsage: () => ({ contextWindow: 100_000, inputTokens: 42_000, percent: 42 }),
+      onDisplayChange,
+    })
 
-    const estimated = getContextUsage('system prompt', messages, 100_000, [])
-    expect(estimated.inputTokenSource).toBe('estimated')
-    expect(estimated.percent).toBeGreaterThan(0)
-    expect(estimated.totalTokens).toBe(estimated.inputTokens)
+    indicator.update()
 
-    expect(getContextUsage('', messages, 0, []).percent).toBe(0)
+    const display = onDisplayChange.mock.calls.at(-1)?.[0] as ContextUsageDisplayInfo
+    expect(display.context?.percent).toBe(42)
+    // 缺 source 字段时按提供商上报处理，不能显示成「上一次请求（尚未更新）」
+    expect(display.context?.title).not.toContain('contextUsageSourceUnavailable')
+  })
+
+  it('lists the provider baseline before the local estimate breakdown in the tooltip title', () => {
+    const onDisplayChange = vi.fn()
+    const indicator = createIndicator({
+      serverUsage: () => ({
+        contextWindow: 100_000,
+        inputTokens: 30_000,
+        percent: 30,
+        inputTokenSource: 'provider',
+        breakdown: {
+          providerUsageTokens: 25_000,
+          trailingTokens: 5_000,
+          systemPromptTokens: 100,
+          toolsTokens: 200,
+          messagesTokens: 300,
+        },
+      }),
+      onDisplayChange,
+    })
+
+    indicator.update()
+
+    const title = onDisplayChange.mock.calls.at(-1)?.[0]?.context?.title as string
+    const lines = title.split('\n')
+    const lineOf = (key: string) => lines.findIndex((line) => line.startsWith(key))
+    expect(lineOf('contextUsageProviderBaseline')).toBeGreaterThan(-1)
+    expect(lineOf('contextUsageProviderBaseline')).toBeLessThan(lineOf('contextUsageLocalBreakdownTitle'))
+    expect(lineOf('contextUsageTrailingMessages')).toBeLessThan(lineOf('contextUsageLocalBreakdownTitle'))
+    expect(lineOf('contextUsageLocalBreakdownTitle')).toBeLessThan(lineOf('contextUsageSystemPrompt'))
+    expect(lineOf('contextUsageSystemPrompt')).toBeLessThan(lineOf('contextUsageToolsSchema'))
+    expect(lineOf('contextUsageToolsSchema')).toBeLessThan(lineOf('contextUsageMessages'))
+  })
+
+  it('drops the dead local-estimate i18n keys', () => {
+    expect(i18nSource).not.toContain('contextUsageSourceLocalShort')
+    expect(i18nSource).not.toContain('contextUsageSourceMixed')
+    expect(i18nSource).not.toContain('contextUsageSourceEstimated')
   })
 })

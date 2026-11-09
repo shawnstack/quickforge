@@ -2,6 +2,40 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## compaction-midrun-stale-summary（done，2026-11-09）
+
+- 起因：用户反馈「压缩后马上又满，任务做到一半又压缩」。上一条 `context-usage-provider-only-accounting` 记录的「压缩内容没有重发」不完整，漏了本条场景。
+- 根因：pi-agent-core 每次 run 用启动时的消息副本。副本里已有旧摘要时，run 内新摘要只写入 state；`buildAutoCompactLoopMessages` 按「副本里最后一条摘要」切片，发给模型的仍是旧摘要 + 之后全部消息，上下文不降，下一次请求前再次压缩。
+- 改动：`server/auto-compaction.mjs` 新增 `summaryIndexInMessages()`，`buildAutoCompactLoopMessages` 与 `minimumProviderUsageIndex` 共用，当前摘要只在 state 时忽略副本里的旧摘要；`compactionSnapshotShift()` 在传入数组已含当前摘要时返回 0。`tests/server/auto-compaction-history.test.mjs` 新增 4 例（修复前 2 例失败，另 2 例为防回归）。`docs/wiki/server/README.md` 同步。
+- Evidence（验证）：压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；`npm run test` → 502 files / 5558 passed、2 skipped（含同批 context-usage 新增用例）；`npm run lint` → 0 problems；`npm run build` → 通过。未做真实长会话实机验证。未提交，无 commit/tag。
+- Notes（同一排查发现、未纳入本次）：压缩后到下一次回复前界面沿用旧百分比；压缩失败后每次请求都重试、无等待间隔；同一 run 第二次压缩会让上一条摘要从 state 消失（只留在 `contextCompaction.history`），可能影响时间线分割线与回撤，尚未验证。
+
+## context-usage-provider-only-accounting（done，2026-11-09）
+
+- 起因：用户看到「压缩完立刻又满、又压」，怀疑压缩把压缩前内容又发了一遍。核查结论是没发：`buildAutoCompactLoopMessages`（`server/auto-compaction.mjs:212`）从最后一条摘要消息处切片，`transformSessionContext`（`server/agent-manager.mjs:516`）再切一次，压缩请求自身（`buildCompactionSourceMessages`，`server/auto-compaction.mjs:144`）只带「上一版摘要 + 上次切点之后的增量」。真因之一是统计口径——`inputTokens = max(本地全量估算, provider 口径)`（`server/context-usage.mjs`），压缩后已并入摘要的历史仍被本地估算算一遍，于是「压完还显示 85%」。用户拍板「不要本地的，就看服务器返回的」。
+- 改动：
+  1. `server/context-usage.mjs`：`inputTokens` 只取 `providerBasedContextTokens`；`inputTokenSource` 收敛成 `provider` / `unavailable`；`shouldCompactContextByPercent` 在 `inputTokens <= 0` 时直接返回 false。`estimatedInputTokens` / `breakdown.localEstimatedContextTokens` 保留，作为悬浮说明里的本地估算明细（仅供参考）。
+  2. `server/auto-compaction.mjs`：空消息分支的 `inputTokenSource` 改 `unavailable`。
+  3. `src/components/chat/context-usage.ts`：删掉本地估算与其按签名缓存，删掉随之失效的 `getSystemPrompt` / `getTools` 选项；新增 `lastKnownServerUsage`——`unavailable` 时沿用上一次上报值并在悬浮说明追加 `contextUsageStaleNote`，一次都没上报过就整个指示器不渲染。
+  4. `src/components/chat/chat-utils.ts`：删掉 `getContextUsage` 与 `estimateTokens` 两个前端本地估算入口（`src/` 里已无引用）。
+  5. `src/lib/i18n.ts`（新增 `contextUsageSourceUnavailable` / `contextUsageStaleNote` / `contextUsageLocalBreakdownTitle`，中英各三条；删掉 5 个死键）、`src/lib/server-agent-types.ts` / `chat-utils.ts` / `context-usage.ts` 的 `inputTokenSource` 联合类型收成 `provider | unavailable`；`src/styles/chat/composer-controls.css` 新增明细小标题样式。
+  6. 测试按新契约改写：`tests/server/context-usage.test.mjs`（新增 provider-only 三条）、`tests/server/auto-compaction.test.mjs`（压缩后旧 provider usage 被忽略时降到 0 而不是回落估算）、`tests/frontend/context-usage.test.ts`（把 `getContextUsage` 用例换成「沿用上一次上报值」「从未上报不渲染」「不重算本地」）。
+  7. 文档：`docs/wiki/server/README.md` 统计口径段、`docs/wiki/src/components/README.md` 指示器与 chat-utils 条目。
+- Evidence（验证）：定向 vitest 4 files / 50 passed（server/context-usage 19、server/auto-compaction 14、frontend/context-usage 11、frontend/chat-surface-usage 6）；同批压缩回归 `tests/server/auto-compaction-history.test.mjs` 8 passed（合并跑 5 files / 58 passed）；`npx tsc -b` 通过；`npm run lint` → 0 problems；`npm run test` → 502 files / 5558 passed、2 skipped、exit 0；`npm run build` → 通过（tsc -b + vite build，precompress 225 files 12.67MB → 6.49MB，仅既有大 chunk warning）。评审后删掉 3 个固化死逻辑的测试、新增 2 例，全量用例数从 5557 变为 5558。
+- Notes（已知代价，用户已确认接受）：
+  - 压缩完成到下一次真实回复之间没有新上报值，指示器显示的是上一次的数字（带「该数字来自上一次请求」标注）；新会话首条请求返回前不显示环形指示器。
+  - 工具结果膨胀**没有**失去预警：一轮之内工具结果会推高 `trailingTokens`，`inputTokens` 跟着涨，百分比和自动压缩阈值都照常生效。真正没有兜底的只有两个「一个上报值都没有」的时刻——新会话首轮、压缩完成到下次回复之间。
+  - 这也解释了用户最初抱怨的「压完又满」的剩余部分：如果系统提示词 + 工具定义本身就占了窗口很大比例，压缩消息部分也降不下来。这种会话不建议再反复压缩。
+- 评审修复（用户要求先删死代码，再按评审结论逐项修；改动仍在同一轮、未提交）：
+  1. 死代码：`context-usage.ts` 删掉 `getMessages` / `getEffectiveMessages` 选项，`ChatPanelHost.tsx` 删掉 `effectiveContextMessages()`；`isCompacted` 改由 `usage.isCompacted` / `getIsCompacted?.()` 判断。三个只为固化这段死逻辑而存在的测试同步删除。
+  2. 悬浮说明误标「本地估算」：popover 原来用 `Boolean(serverUsage)` 判断来源，沿用上一次数值时会显示 `contextUsageSourceLocalShort`。改为按 `hasServerUsage` 传 `stale`，meta 行显示「上一次请求（尚未更新）」，并删掉死键 `contextUsageSourceLocalShort`。
+  3. 缺字段回落错误：旧负载不带 `inputTokenSource` 时原文回落 `'estimated'`，而标题把非 `provider` 一律当 `unavailable`，于是有数值也被标成「尚未更新」。改为按 `inputTokens > 0` 回落 `'provider'`。
+  4. 类型收口：`chat-utils.ts` / `context-usage.ts` / `server-agent-types.ts` 三处的 `inputTokenSource` 收成 `'provider' | 'unavailable'`，删掉不可达的 `mixed` 分支和死键 `contextUsageSourceMixed` / `contextUsageSourceEstimated` / `contextUsageLocalEstimate` / `contextUsageProviderTokens`。
+  5. 口径表述纠正：`inputTokens` 来自 `pi-agent-core.calculateContextTokens()`（优先 `totalTokens`，缺失时 input+output+cacheRead+cacheWrite）再加尾随消息，含上一条回复的输出与缓存 token，不是「纯输入」。`server/context-usage.mjs` 两处注释、`docs/wiki/server/README.md` 统计口径与自动压缩两段都已改，并同步了「压缩后百分比马上下降」这个过时说法。
+  6. 悬浮明细与头部总量对不上：明细拆成两段——「提供商上报基线」（`providerUsageTokens` + 基线后新增消息，二者之和等于头部分总量）与「本地估算明细（仅供参考）」下的系统提示词 / 工具 / 消息 / Skills / MCP 行。新增 i18n 键 `contextUsageLocalBreakdownTitle` 与 `.quickforge-context-usage-tip-section-title` 样式；`docs/wiki/src/components/README.md` 同步。
+  7. 测试：`tests/frontend/context-usage.test.ts` 新增「旧负载不带 source 仍按提供商处理」「沿用数值不得叫本地估算」两条。
+- Next Session（下一步）：见 `session-handoff.md` 顶部条目。
+
 ## release-2-4-1（done，2026-11-06）
 
 - 起因：用户说「发布一个小版本」。按 `docs/architecture/patch-release-runbook.zh-CN.md` 走手动流程（不跑 `npm run release:patch:prepare`，runbook 3.2 已记录它在 Windows 上 `spawnSync npm.cmd EINVAL` 失败），把 `2.4.0` 推到 `2.4.1`。

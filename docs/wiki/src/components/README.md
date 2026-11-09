@@ -329,7 +329,6 @@ components/
 **chat-utils.ts** (340 行)
 - 共享类型定义（MessageEditorElement, CommandSuggestionElement 等）；`FileContextReference`（`{type:'file',projectId,path}`）与内部 `ComposerCapabilitySelection` 为 @ 文件引用 / 插件 chip 的结构化草稿类型，`MessageEditorElement` 相应扩展 `contextReferences` / `selectedCapabilities` / `requestUpdate` 字段
 - DOM 工具函数（`replaceSvg`, `patchContent`, `ensureComposerContextChips`, `syncComposerContextChipsAriaLabel` 等）；`ensureComposerContextChips` 以 textarea 的父元素定位 `message-editor` 真正输入卡片，把共享 `.quickforge-context-chips` 移入卡片并保证位于 textarea 前，DOM 尚未渲染或测试 mock 能力不足时安全返回 `null`；两个控制器完成各自 chip 增删后统一调用 aria-label helper，按仅插件、仅文件、插件+文件混合三态同步可访问名称，空容器沿用既有语义移除
-- Token 估算和上下文用量计算（`getContextUsage`, `estimateTokens`）；前端仅作为后端 `contextUsage` 缺失时的回退估算
 - 草稿运行时管理（`hasDraft` 等）；`ComposerDraft` 携带 `contextReferences` / 内部 `selectedCapabilities`，`hasDraft` 口径为正文、附件、文件引用、插件 chip 任一非空；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
 
 **command-suggestions.ts** (495 行)
@@ -358,8 +357,9 @@ components/
 - 覆盖层几何：textarea 与 shell 的 `getBoundingClientRect()` 差值定位，宽高取 `clientWidth/clientHeight`；`ResizeObserver` 同时观察 textarea 与 `.quickforge-composer-shell`，因此 Composer Dock 内任务摘要插入、展开或收起引发 shell 布局变化时也会重算几何；editor/shell 自愈重建时重新绑定，两路 observer 在重建与卸载路径成对 disconnect/cleanup。幽灵层从 `getComputedStyle` 同步字体/行高/内边距/tabSize，scroll 事件同步 scrollTop；度量经 env 注入（canvas.measureText / offsetWidth），node 环境可单测
 
 **context-usage.ts**
-- 上下文用量环状指示器，优先展示后端 session state 返回的权威 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`），缺失时回退到前端本地估算
-- Tooltip 的构成区保持系统提示词、工具定义、消息三类总量，并在其后按有值才显示 `Skills` / `MCP` 两行；两项是跨前三类的来源归因，不参与输入总量二次相加
+- 上下文用量环状指示器，只展示后端 session state 返回的 `contextUsage`（后端统计复用 `pi-agent-core` / `pi-ai`）；前端不再做本地 token 估算，`inputTokenSource` 只有 `provider` / `unavailable` 两态，后端返回 `unavailable` 时沿用本次会话上一次上报的数值，并在悬浮说明里标注「该数字来自上一次请求」（`contextUsageStaleNote` + meta 行的「上一次请求（尚未更新）」），从未上报过则整个指示器不渲染
+- 悬浮明细分两段，避免两套口径被读成同一份数字：① 提供商上报基线（`breakdown.providerUsageTokens` + 基线后新增消息估算 `breakdown.trailingTokens`），二者之和等于头部那一行总量；②「本地估算明细（仅供参考）」下的系统提示词 / 工具定义 / 消息 / Skills / MCP 行，来自本地估算，不参与 `inputTokens` 与百分比
+- Tooltip 的构成区：先是「输入 / 上下文」总量行；接着是提供商上报基线两行（`providerUsageTokens` + `trailingMessages`，两者之和等于总量行）；然后是「本地估算明细（仅供参考）」小标题下的系统提示词、工具定义、消息、`Skills`、`MCP` 行（后两项有值才显示，且是跨前三类的来源归因，不参与输入总量二次相加）；底部 meta 行显示来源（服务端计算 / 上一次请求尚未更新）与统计范围
 - 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 通用”中开启，默认关闭
 
 **panel-decoration.ts** (310 行)

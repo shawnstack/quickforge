@@ -126,15 +126,6 @@ type AgentWithGoal = AgentLike & {
 const CHAT_COMPACT_WIDTH_THRESHOLD = 640
 const CHAT_COMPACT_WIDTH_RELEASE = 672
 
-function effectiveContextMessages(agent: AgentLike): MessageWithUsage[] {
-  const state = (agent as AgentWithContextCompaction).state
-  const compaction = state.contextCompaction
-  if (!compaction?.summaryMessage) return agent.state.messages as MessageWithUsage[]
-  const messages = agent.state.messages as MessageWithUsage[]
-  const compactedUpToIndex = Math.min(messages.length, Math.max(0, Number(compaction.compactedUpToIndex) || 0))
-  return [compaction.summaryMessage as MessageWithUsage, ...messages.slice(compactedUpToIndex)]
-}
-
 /**
  * Lightweight fingerprint of the messages that contribute session artifacts.
  *
@@ -1141,11 +1132,7 @@ export function ChatPanelHost({
     // --- Context usage subsystem ---
     const contextUsage = createContextUsageIndicator({
       panel,
-      getSystemPrompt: () => agent.state.systemPrompt,
-      getMessages: () => agent.state.messages as MessageWithUsage[],
-      getEffectiveMessages: () => effectiveContextMessages(agent),
       getContextWindow: () => agent.state.model?.contextWindow ?? 0,
-      getTools: () => agent.state.tools,
       getServerContextUsage: () => (agent as AgentWithContextCompaction).state.contextUsage ?? null,
       getIsCompacted: () => Boolean((agent as AgentWithContextCompaction).state.contextCompaction?.summaryMessage),
       getGitBranch: () => propsRef.current.gitBranch,

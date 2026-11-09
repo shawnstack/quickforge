@@ -11,7 +11,11 @@ vi.mock('../../server/conversation-compaction.mjs', async (importOriginal) => {
   }
 })
 
-const { compactSessionInPlace } = await import('../../server/auto-compaction.mjs')
+const {
+  buildAutoCompactLoopMessages,
+  compactSessionInPlace,
+  estimateSessionContextUsage,
+} = await import('../../server/auto-compaction.mjs')
 
 function textMessage(role, text, timestamp) {
   return { role, content: [{ type: 'text', text }], timestamp }
@@ -36,6 +40,102 @@ function createSession(messages) {
     agent: { state: { systemPrompt: 'system prompt', messages, tools: [] } },
   }
 }
+
+/**
+ * pi-agent-core runs on a copy of the messages taken when the run starts. When
+ * that copy already holds a summary from an earlier run, a compaction during
+ * this run lands only in state, so the copy's last summary is the stale one.
+ */
+describe('compaction during a run whose snapshot already holds an older summary', () => {
+  function startRun() {
+    const oldSummary = summaryStub('old summary')
+    const stateMessages = [
+      textMessage('user', 'early request', 1),
+      oldSummary,
+      textMessage('user', 'current request', 2),
+      textMessage('assistant', 'x'.repeat(4000), 3),
+    ]
+    const session = createSession(stateMessages)
+    session.contextCompaction = {
+      summaryMessage: oldSummary,
+      compactedUpToIndex: 2,
+      sourceMessageCount: 2,
+      compactedAt: new Date(1).toISOString(),
+    }
+    return { session, oldSummary, snapshot: stateMessages.slice() }
+  }
+
+  // The loop appends each new message to its copy and to state.
+  function appendToRun(session, snapshot, ...messages) {
+    snapshot.push(...messages)
+    session.agent.state.messages.push(...messages)
+  }
+
+  function assistantWithUsage(text, totalTokens) {
+    return {
+      ...textMessage('assistant', text, Date.now() + 1000),
+      stopReason: 'stop',
+      usage: { input: totalTokens, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens },
+    }
+  }
+
+  it('sends the new summary instead of the stale one from the snapshot', async () => {
+    const { session, oldSummary, snapshot } = startRun()
+
+    await compactSessionInPlace({ session, messages: snapshot, reason: 'auto_compact' })
+    const newSummary = session.contextCompaction.summaryMessage
+    expect(newSummary).not.toBe(oldSummary)
+    expect(buildAutoCompactLoopMessages(session, snapshot)).toEqual([newSummary])
+
+    const next = assistantWithUsage('continued work', 1234)
+    appendToRun(session, snapshot, next)
+    const loop = buildAutoCompactLoopMessages(session, snapshot)
+    expect(loop).toEqual([newSummary, next])
+    expect(loop).not.toContain(oldSummary)
+  })
+
+  it('counts the provider usage reported after the compaction', async () => {
+    const { session, snapshot } = startRun()
+
+    await compactSessionInPlace({ session, messages: snapshot, reason: 'auto_compact' })
+    appendToRun(session, snapshot, assistantWithUsage('continued work', 1234))
+
+    // Same accounting the threshold check uses on the loop's copy. Getting the
+    // compaction point wrong here reads as "unknown" and stops compaction.
+    const usage = estimateSessionContextUsage(session, snapshot)
+    expect(usage.inputTokenSource).toBe('provider')
+    expect(usage.inputTokens).toBe(1234)
+  })
+
+  it('keeps only the latest summary after a second compaction in the same run', async () => {
+    const { session, oldSummary, snapshot } = startRun()
+
+    await compactSessionInPlace({ session, messages: snapshot, reason: 'auto_compact' })
+    const firstInRunSummary = session.contextCompaction.summaryMessage
+    appendToRun(session, snapshot, assistantWithUsage('more work', 1234))
+
+    await compactSessionInPlace({ session, messages: snapshot, reason: 'auto_compact' })
+    const latestSummary = session.contextCompaction.summaryMessage
+    expect(latestSummary).not.toBe(firstInRunSummary)
+
+    const next = assistantWithUsage('after second compaction', 2000)
+    appendToRun(session, snapshot, next)
+    const loop = buildAutoCompactLoopMessages(session, snapshot)
+    expect(loop).toEqual([latestSummary, next])
+    expect(loop).not.toContain(oldSummary)
+    expect(loop).not.toContain(firstInRunSummary)
+  })
+
+  it('still reads from the summary once the next run snapshot includes it', async () => {
+    const { session, snapshot } = startRun()
+
+    await compactSessionInPlace({ session, messages: snapshot, reason: 'auto_compact' })
+    const newSummary = session.contextCompaction.summaryMessage
+    const nextRunSnapshot = session.agent.state.messages.slice()
+
+    expect(buildAutoCompactLoopMessages(session, nextRunSnapshot)).toEqual([newSummary])
+  })
+})
 
 /**
  * Rolling compaction appends one record per pass instead of overwriting the

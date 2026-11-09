@@ -186,17 +186,16 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
   const providerBasedContextTokens = providerUsageTokens > 0
     ? Math.max(0, Number(coreEstimate.tokens) || 0)
     : 0
-  const inputTokens = providerBasedContextTokens > 0
-    ? Math.max(estimatedInputTokens, providerBasedContextTokens)
-    : estimatedInputTokens
-  // 上下文占用按纯输入口径统计：percent = inputTokens / contextWindow。
-  // 真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，
-  // 统计侧不再预留输出 token；totalTokens 字段仅为兼容保留，恒等于 inputTokens。
+  // 占用只认服务端上报的用量；没有上报值时留空，不拿本地估算顶替（本地估算会把
+  // 已并入摘要的历史再算一遍，压缩后仍显示接近压缩前的百分比）。
+  const inputTokens = providerBasedContextTokens
+  // 数值来源：pi-agent-core 的 estimateContextTokens() = 最近一次上报的 usage 总量 + 其后新增消息的估算，
+  // 其中 usage 总量按 calculateContextTokens() 取 `totalTokens`（缺失时退化为 input + output + cacheRead + cacheWrite），
+  // 因此包含上一条回复的输出与缓存 token，并不是「纯输入」。percent 用这个总量除以 contextWindow。
+  // totalTokens 仅为兼容保留，恒等于 inputTokens。
   const totalTokens = inputTokens
   const percent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : 0
-  const inputTokenSource = providerBasedContextTokens > 0
-    ? providerBasedContextTokens >= estimatedInputTokens ? 'provider' : 'mixed'
-    : 'estimated'
+  const inputTokenSource = providerBasedContextTokens > 0 ? 'provider' : 'unavailable'
 
   return {
     inputTokens,
@@ -225,11 +224,14 @@ export function estimateContextUsage({ systemPrompt, messages, tools, model, min
 
 export function shouldCompactContextByPercent(usage, thresholdPercent) {
   const contextWindow = Number(usage?.contextWindow) || 0
-  // 阈值按纯输入占用判断：inputTokens / contextWindow ≥ thresholdPercent 即触发，
-  // 不包含预留输出 token（真实请求的 max_tokens 由 pi-ai 按窗口收缩）。
+  // 阈值按上报用量换算：inputTokens / contextWindow ≥ thresholdPercent 即触发。
+  // inputTokens 已含上一条回复的输出/缓存 token，这里不再额外预留未来输出
+  // （真实请求的 max_tokens 由 pi-ai 按窗口收缩）。
   const inputTokens = Math.max(0, Number(usage?.inputTokens) || 0)
   const threshold = Math.min(100, Math.max(0, Number(thresholdPercent) || 0))
   if (!contextWindow) return false
+  // 没有服务端上报的用量就不判定、不触发：数值未知时压缩只会盲目重复消耗一次模型调用。
+  if (inputTokens <= 0) return false
 
   const thresholdTokens = Math.ceil(contextWindow * threshold / 100)
   const reserveTokens = Math.min(contextWindow, Math.max(0, contextWindow - thresholdTokens + 1))

@@ -1,5 +1,31 @@
 # Current Session Handoff
 
+## 当前交接：compaction-midrun-stale-summary（done，2026-11-09）
+
+- Current Objective（当前目标）：修复「任务中途压缩后，新摘要没发给模型，上下文不降并反复压缩」。
+- 结论（一句话）：run 的消息副本里已有旧摘要时，发送逻辑错认旧摘要；现在当前摘要只在 state 时会忽略副本里的旧摘要。下方 `context-usage-provider-only-accounting` 条目里「重发的问题不存在」的结论不完整，以本条为准。
+- 改动文件：`server/auto-compaction.mjs`、`tests/server/auto-compaction-history.test.mjs`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；`npm run test` → 502 files / 5558 passed、2 skipped、exit 0（含同批 context-usage 新增用例）；`npm run lint` → 0 problems；`npm run build` → 通过。未提交，无 commit/tag；工作区里还有上一轮 `context-usage-provider-only-accounting` 的未提交改动，两批混在同一批文件中。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 实机验收（需重启服务或桌面端以加载新代码）：同一会话压缩过一次后继续长任务，再次中途压缩后，百分比应在下一次回复后明显下降，且不再每步都压缩。
+  2. 待用户决定：压缩后百分比滞后、压缩失败无等待间隔；同一 run 第二次压缩后上一条摘要从 state 消失对分割线与回撤的影响需先验证。
+
+## 当前交接：context-usage-provider-only-accounting（done，2026-11-09）
+
+- Current Objective（当前目标）：用户看到「压缩完立刻又满、又压」，怀疑压缩前内容被重新发送。先查证压缩链路，再按用户选择「不要本地的，就看服务器返回的」把上下文占用改成只认服务端上报用量。
+- 结论（一句话）：重发的问题不存在（模型上下文和压缩请求都从最后一条摘要消息处切片）；真正的「假高」来自 `inputTokens = max(本地全量估算, provider 口径)`，压缩后旧历史仍被本地估算算一遍。现在占用只认 provider 上报值，没有上报值时给 `unavailable`、不猜、不触发压缩。
+- 改动文件：`server/context-usage.mjs`、`server/auto-compaction.mjs`、`src/components/chat/context-usage.ts`、`src/components/chat/chat-utils.ts`、`src/components/chat/ChatPanelHost.tsx`、`src/lib/i18n.ts`、`src/lib/server-agent-types.ts`、`tests/server/context-usage.test.mjs`、`tests/server/auto-compaction.test.mjs`、`tests/frontend/context-usage.test.ts`、`docs/wiki/server/README.md`、`docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：定向 vitest 4 files / 50 passed（server/context-usage 19、server/auto-compaction 14、frontend/context-usage 11、frontend/chat-surface-usage 6）；同批压缩回归 `tests/server/auto-compaction-history.test.mjs` 8 passed（合并跑 5 files / 58 passed）；`npx tsc -b` 通过；`npm run lint` → 0 problems；`npm run test` → 502 files / 5558 passed、2 skipped、exit 0；`npm run build` → 通过（tsc -b + vite build，precompress 225 files 12.67MB → 6.49MB，仅既有大 chunk warning）。评审后删掉 3 个固化死逻辑的测试、新增 2 例，全量用例数从 5557 变为 5558。未提交，无 commit/tag。
+- Blockers（阻塞）：无。
+- 本轮追加（评审后修复，同一未提交批次）：按评审结论修了 7 项——删 `getEffectiveMessages` 死代码与三个固化死逻辑的测试；popover 来源标注改用 `stale`（不再误标「本地估算」）；缺 `inputTokenSource` 的旧负载按 `inputTokens > 0` 回落 `provider`；`inputTokenSource` 三处收成 `provider | unavailable` 并删 5 个死 i18n 键；`inputTokens` 口径表述从「纯输入」改为「含上一条回复输出/缓存」；悬浮明细拆成「提供商上报基线」与「本地估算明细（仅供参考）」两段。详见 `progress.md` 同名条目。
+- Next Session（下一步）：
+  1. 实机验收：跑一段长会话触发自动压缩，确认压缩后百分比来自下一次真实请求而不是本地估算；新会话在首条回复前不显示环形指示器是预期行为。
+  2. 验收悬浮说明：hover 模型旁圆环，应看到「提供商上报基线 + 基线后新增消息」两行（相加等于头部总量）和下方「本地估算明细（仅供参考）」，不再是三行明细直接对不上头部数字；沿用上一次数值时应显示「上一次请求（尚未更新）」而不是「本地估算」。
+  3. 若用户觉得「压缩后到下一次回复之间沿用旧数字」也不想要，可以改成这段时间直接隐藏指示器（改 `src/components/chat/context-usage.ts` 的 `lastKnownServerUsage` 分支即可）。
+  4. 待用户拍板的两项：① 连续 N 次没有上报用量且消息数在增长时，是否允许「只用本地估算」作为自动压缩的触发条件（目前完全不触发，唯一风险是代理不返回 usage 的兼容服务）；② 陈旧的百分比要不要在环本身给视觉提示（目前只有 hover 里的文字说明，`aria-label` 也只有百分比）。
+  5. 关联但未做的候选（来自同一轮排查，未纳入本次改动）：压缩失败用户不可见（只有 `auto_compact_failed` 事件和一个没人引用的 warn）、备份目录 `cache/conversations/compact-backups` 无上限、`contextCompaction.history` 只写不读、侧聊（`routes/side-chat.mjs`）对摘要做字符级截断、`/summary` 与 `/compact` 语义并存。
+
 ## 当前交接：release-2-4-1（done，2026-11-06）
 
 - Current Objective（当前目标）：用户说「发布一个小版本」，按 `docs/architecture/patch-release-runbook.zh-CN.md` 把 `2.4.0` 推到 `2.4.1`，范围是 `v2.4.0..HEAD` 的三个功能提交。

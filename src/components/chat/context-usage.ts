@@ -9,11 +9,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { GitBranch } from 'lucide-react'
 import { t } from '@/lib/i18n'
-import type { ContextUsageInfo, MessageWithUsage } from './chat-utils'
-import {
-  getContextUsage,
-  formatTokens,
-} from './chat-utils'
+import type { ContextUsageInfo } from './chat-utils'
+import { formatTokens } from './chat-utils'
 
 type ServerContextUsageBreakdown = {
   systemPromptTokens?: number
@@ -35,7 +32,7 @@ type ServerContextUsageInfo = {
   estimatedInputTokens?: number
   knownInputTokens?: number
   providerContextTokens?: number
-  inputTokenSource?: 'provider' | 'estimated' | 'mixed'
+  inputTokenSource?: 'provider' | 'unavailable'
   percent?: number
   color?: string
   isCompacted?: boolean
@@ -48,17 +45,13 @@ type ServerContextUsageInfo = {
 type ContextUsageTipData = {
   usage: ContextUsageInfo
   contextWindow: number
-  serverCalculated: boolean
+  stale: boolean
   compacted: boolean
 }
 
 type ContextUsageOptions = {
   panel: HTMLElement
-  getSystemPrompt: () => string
-  getMessages: () => MessageWithUsage[]
   getContextWindow: () => number
-  getTools?: () => unknown
-  getEffectiveMessages?: () => MessageWithUsage[]
   getServerContextUsage?: () => ServerContextUsageInfo | null | undefined
   getIsCompacted?: () => boolean
   getGitBranch?: () => string | undefined
@@ -98,10 +91,12 @@ function normalizeServerContextUsage(usage: ServerContextUsageInfo, contextWindo
   const inputTokens = Number(usage.inputTokens) || 0
   const knownInputTokens = Math.max(0, Number(usage.knownInputTokens ?? usage.providerContextTokens) || 0)
   const estimatedInputTokens = Math.max(0, Number(usage.estimatedInputTokens) || 0)
-  // 纯输入口径：totalTokens 恒等于 inputTokens（字段仅为兼容保留）。
+  // totalTokens 仅为兼容保留，恒等于 inputTokens。
   const totalTokens = inputTokens
   const percent = Number.isFinite(Number(usage.percent)) ? Number(usage.percent) : 0
-  const inputTokenSource = usage.inputTokenSource ?? (knownInputTokens > 0 ? 'provider' : 'estimated')
+  // 旧服务端负载可能不带来源字段：有数值就按提供商上报处理，否则视为未知。
+  const inputTokenSource: 'provider' | 'unavailable' = usage.inputTokenSource
+    ?? (inputTokens > 0 ? 'provider' : 'unavailable')
   return {
     contextWindow: Math.max(0, Number(usage.contextWindow) || contextWindow),
     usedTokens: Math.max(0, Number(usage.usedTokens) || inputTokens),
@@ -144,17 +139,16 @@ export function contextUsageBreakdownRows(breakdown?: ServerContextUsageBreakdow
   ].filter((row): row is [string, string] => Boolean(row[1]))
 }
 
-function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compacted }: {
+function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compacted, stale = false }: {
   usage: ContextUsageInfo
   contextWindow: number
   serverCalculated: boolean
   compacted: boolean
+  stale?: boolean
 }) {
   const inputLabel = usage.inputTokenSource === 'provider'
     ? t('contextUsageSourceProvider')
-    : usage.inputTokenSource === 'mixed'
-      ? t('contextUsageSourceMixed')
-      : t('contextUsageSourceEstimated')
+    : t('contextUsageSourceUnavailable')
   const lines = [
     t('contextUsageUsed', {
       percent: usage.percent,
@@ -162,21 +156,23 @@ function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compac
       limit: formatTokens(contextWindow),
     }),
     t('contextUsageInput', { tokens: formatTokens(usage.inputTokens), source: inputLabel }),
-    t('contextUsageLocalEstimate', { tokens: formatTokens(usage.estimatedInputTokens) }),
   ]
+  if (stale) lines.push(t('contextUsageStaleNote'))
   const breakdown = usage.breakdown
   if (breakdown) {
-    lines.push(
-      t('contextUsageSystemPrompt', { tokens: formatOptionalTokens(breakdown.systemPromptTokens) ?? '0' }),
-      t('contextUsageToolsSchema', { tokens: formatOptionalTokens(breakdown.toolsTokens) ?? '0' }),
-      t('contextUsageMessages', { tokens: formatOptionalTokens(breakdown.messagesTokens) ?? '0' }),
-    )
     if (breakdown.providerUsageTokens || breakdown.trailingTokens) {
       lines.push(
         t('contextUsageProviderBaseline', { tokens: formatOptionalTokens(breakdown.providerUsageTokens) ?? '0' }),
         t('contextUsageTrailingMessages', { tokens: formatOptionalTokens(breakdown.trailingTokens) ?? '0' }),
       )
     }
+    // 下面几行是本地估算的拆分，和上面的提供商口径总量不是同一套数字，单独标出来。
+    lines.push(
+      t('contextUsageLocalBreakdownTitle'),
+      t('contextUsageSystemPrompt', { tokens: formatOptionalTokens(breakdown.systemPromptTokens) ?? '0' }),
+      t('contextUsageToolsSchema', { tokens: formatOptionalTokens(breakdown.toolsTokens) ?? '0' }),
+      t('contextUsageMessages', { tokens: formatOptionalTokens(breakdown.messagesTokens) ?? '0' }),
+    )
   }
   if (serverCalculated) lines.push(t('contextUsageServerCalculated'))
   lines.push(compacted ? t('contextUsageScopeCompacted') : t('contextUsageScopeFull'))
@@ -185,9 +181,6 @@ function buildContextUsageTitle({ usage, contextWindow, serverCalculated, compac
       effective: usage.effectiveMessageCount,
       visible: usage.originalMessageCount,
     }))
-  }
-  if (usage.knownInputTokens && usage.knownInputTokens > 0) {
-    lines.push(t('contextUsageProviderTokens', { tokens: formatTokens(usage.knownInputTokens) }))
   }
   return lines.join('\n')
 }
@@ -277,7 +270,7 @@ function createContextUsageTipController() {
   const renderTip = () => {
     removeTip()
     if (!trigger || !data) return
-    const { usage, contextWindow, serverCalculated, compacted } = data
+    const { usage, contextWindow, stale, compacted } = data
     const popover = document.createElement('div')
     popover.className = 'quickforge-context-usage-tip'
     popover.id = 'quickforge-context-usage-tip'
@@ -293,8 +286,7 @@ function createContextUsageTipController() {
     percent.textContent = `${usage.percent}%`
     header.append(heading, percent)
 
-    // 纯输入口径：占用 = inputTokens / contextWindow，不再展示预留输出，
-    // 也不再单独展示与输入数值重复的“总量”行。
+    // totalTokens 恒等于 inputTokens，只展示一行占用，避免重复。
     const coreRows = document.createElement('div')
     coreRows.className = 'quickforge-context-usage-tip-section'
     addRow(coreRows, t('contextUsageInputLabel'), `${formatTokens(usage.inputTokens)} / ${formatTokens(contextWindow)}`)
@@ -302,17 +294,30 @@ function createContextUsageTipController() {
     popover.append(header, coreRows)
 
     const breakdown = usage.breakdown
+    // 提供商上报的用量基线 + 基线之后新增消息的估算，两者相加就是上面那一行总量。
+    if (breakdown?.providerUsageTokens || breakdown?.trailingTokens) {
+      const baseline = document.createElement('div')
+      baseline.className = 'quickforge-context-usage-tip-section quickforge-context-usage-tip-details'
+      addRow(baseline, t('contextUsageProviderBaseline'), formatOptionalTokens(breakdown.providerUsageTokens) ?? '0', true)
+      addRow(baseline, t('contextUsageTrailingMessages'), formatOptionalTokens(breakdown.trailingTokens) ?? '0', true)
+      popover.append(baseline)
+    }
+
     const breakdownRows = contextUsageBreakdownRows(breakdown)
     if (breakdownRows.length > 0) {
       const details = document.createElement('div')
       details.className = 'quickforge-context-usage-tip-section quickforge-context-usage-tip-details'
+      const detailsTitle = document.createElement('div')
+      detailsTitle.className = 'quickforge-context-usage-tip-section-title'
+      detailsTitle.textContent = t('contextUsageLocalBreakdownTitle')
+      details.append(detailsTitle)
       for (const [label, value] of breakdownRows) addRow(details, label, value, true)
       popover.append(details)
     }
 
     const meta = document.createElement('div')
     meta.className = 'quickforge-context-usage-tip-meta'
-    meta.textContent = `${serverCalculated ? t('contextUsageSourceServerShort') : t('contextUsageSourceLocalShort')} · ${compacted ? t('contextUsageScopeCompactedShort') : t('contextUsageScopeFullShort')}`
+    meta.textContent = `${stale ? t('contextUsageSourceUnavailable') : t('contextUsageSourceServerShort')} · ${compacted ? t('contextUsageScopeCompactedShort') : t('contextUsageScopeFullShort')}`
     popover.append(meta)
 
     document.body.append(popover)
@@ -444,38 +449,12 @@ const gitBranchIcon = renderToStaticMarkup(createElement(GitBranch, {
   style: { flex: '0 0 auto' },
 }))
 
-export function createContextUsageIndicator({ panel, getSystemPrompt, getMessages, getContextWindow, getTools, getEffectiveMessages, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
+export function createContextUsageIndicator({ panel, getContextWindow, getServerContextUsage, getIsCompacted, getGitBranch, onGitBranchClick, renderInline = true, renderModelRing = false, onDisplayChange }: ContextUsageOptions) {
   const tipController = createContextUsageTipController()
   let previousDisplayInfo: ContextUsageDisplayInfo | undefined
 
-  // --- Local estimate caching -------------------------------------------------
-  // The token estimate walks every message (regex over full text), which is
-  // expensive for very long conversations. `decorate()` calls `update()` on
-  // every animation frame, so without a cache a huge session would be
-  // re-estimated 60×/s. The signature only changes when the estimate would
-  // materially change: new/changed messages (length + toolResult fingerprint)
-  // or a new context window / system prompt. Streaming growth of the trailing
-  // assistant message does not change it, so the ring keeps the last estimate
-  // until the turn completes — exactly like the artifacts input key pattern.
-  let cachedEstimateSignature = ''
-  let cachedEstimateUsage: ContextUsageInfo | null = null
-  const estimateSignature = (messages: MessageWithUsage[], contextWindow: number) => {
-    let key = `${contextWindow}|${getSystemPrompt().length}|${messages.length}`
-    for (const message of messages) {
-      if (message.role !== 'toolResult') continue
-      key += `|${message.toolCallId ?? ''}:${message.toolName ?? ''}`
-    }
-    return key
-  }
-  const getCachedContextUsage = (effectiveMessages: MessageWithUsage[], contextWindow: number): ContextUsageInfo => {
-    const signature = estimateSignature(effectiveMessages, contextWindow)
-    if (signature === cachedEstimateSignature && cachedEstimateUsage) {
-      return cachedEstimateUsage
-    }
-    cachedEstimateSignature = signature
-    cachedEstimateUsage = getContextUsage(getSystemPrompt(), effectiveMessages, contextWindow, getTools?.() ?? [])
-    return cachedEstimateUsage
-  }
+  // 只认服务端上报的用量：没有新数字时沿用上一次（并标注时效），一次都没有过就不显示。
+  let lastKnownServerUsage: ServerContextUsageInfo | null = null
 
   const notifyDisplayChange = (displayInfo: ContextUsageDisplayInfo) => {
     if (isSameContextUsageDisplayInfo(previousDisplayInfo, displayInfo)) return
@@ -485,11 +464,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
 
   const update = () => {
     const contextWindow = getContextWindow()
-    const visibleMessages = getMessages()
     const serverUsage = getServerContextUsage?.()
-    const effectiveMessages = serverUsage
-      ? visibleMessages
-      : getEffectiveMessages?.() ?? visibleMessages
     const existing = panel.querySelector<HTMLElement>('.quickforge-context-usage')
     const existingSlot = panel.querySelector<HTMLElement>('.quickforge-context-usage-slot')
     const existingLabel = panel.querySelector<HTMLElement>('.quickforge-context-usage-label')
@@ -555,30 +530,27 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       return displayInfo
     }
 
-    const hasEffectiveMessages = effectiveMessages.length > 0
-    const usage = serverUsage
-      ? normalizeServerContextUsage(serverUsage, contextWindow)
-      : hasEffectiveMessages
-        ? getCachedContextUsage(effectiveMessages, contextWindow)
-        : {
-          contextWindow,
-          usedTokens: 0,
-          totalTokens: 0,
-          inputTokens: 0,
-          estimatedInputTokens: 0,
-          inputTokenSource: 'estimated' as const,
-          percent: 0,
-          color: 'hsl(142 72% 45%)',
-        }
+    const hasServerUsage = Boolean(serverUsage) && serverUsage?.inputTokenSource !== 'unavailable'
+    if (hasServerUsage) lastKnownServerUsage = serverUsage ?? null
+    const shownUsage = hasServerUsage ? serverUsage : lastKnownServerUsage
+    const usage = shownUsage ? normalizeServerContextUsage(shownUsage, contextWindow) : null
+
+    if (!usage) {
+      tipController.close()
+      removeContextUsageVisual()
+      existingLabel?.remove()
+      notifyDisplayChange(displayInfo)
+      return displayInfo
+    }
 
     const displayContextWindow = usage.contextWindow || contextWindow
-    const isCompacted = Boolean(usage.isCompacted)
-      || (serverUsage ? Boolean(getIsCompacted?.()) : effectiveMessages !== visibleMessages)
+    const isCompacted = Boolean(usage.isCompacted) || Boolean(getIsCompacted?.())
     const title = buildContextUsageTitle({
       usage,
       contextWindow: displayContextWindow,
-      serverCalculated: Boolean(serverUsage),
+      serverCalculated: Boolean(shownUsage),
       compacted: isCompacted,
+      stale: !hasServerUsage,
     })
     displayInfo.context = {
       percent: usage.percent,
@@ -638,7 +610,7 @@ export function createContextUsageIndicator({ panel, getSystemPrompt, getMessage
       tipController.bind(icon, {
         usage,
         contextWindow: displayContextWindow,
-        serverCalculated: Boolean(serverUsage),
+        stale: !hasServerUsage,
         compacted: isCompacted,
       })
       return displayInfo

@@ -155,10 +155,11 @@ describe('context usage after compaction', () => {
 
     const usage = estimateSessionContextUsage(session, messages)
 
-    expect(usage.inputTokenSource).toBe('estimated')
+    expect(usage.inputTokenSource).toBe('unavailable')
     expect(usage.knownInputTokens).toBe(0)
     expect(usage.breakdown.providerUsageTokens).toBe(0)
-    expect(usage.percent).toBeLessThan(10)
+    expect(usage.inputTokens).toBe(0)
+    expect(usage.percent).toBe(0)
   })
 
   it('uses provider usage again after a new assistant response on the compacted context', () => {
@@ -230,10 +231,11 @@ describe('context usage after compaction', () => {
     const usage = estimateSessionContextUsage(session, messages)
 
     expect(usage.isCompacted).toBe(true)
-    expect(usage.inputTokenSource).toBe('estimated')
+    expect(usage.inputTokenSource).toBe('unavailable')
     expect(usage.knownInputTokens).toBe(0)
     expect(usage.breakdown.providerUsageTokens).toBe(0)
-    expect(usage.percent).toBeLessThan(10)
+    expect(usage.inputTokens).toBe(0)
+    expect(usage.percent).toBe(0)
   })
 
   it('uses provider usage again once a response lands after a message-only compaction point', () => {

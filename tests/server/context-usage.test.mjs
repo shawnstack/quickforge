@@ -1,6 +1,6 @@
 import { estimateTokens } from '@earendil-works/pi-agent-core'
 import { describe, expect, it } from 'vitest'
-import { estimateContextUsage } from '../../server/context-usage.mjs'
+import { estimateContextUsage, shouldCompactContextByPercent } from '../../server/context-usage.mjs'
 import { createMcpToolName } from '../../server/mcp/tool-name.mjs'
 
 function textMessage(role, text) {
@@ -50,7 +50,8 @@ function expectExistingTotalsUnchanged(usage) {
     usage.breakdown.systemPromptTokens + usage.breakdown.toolsTokens + usage.breakdown.messagesTokens,
   )
   expect(usage.totalTokens).toBe(usage.inputTokens)
-  expect(usage.inputTokens).toBe(usage.estimatedInputTokens)
+  // 占用只认服务端（提供商）上报的用量：本地估算仅供参考，不再顶替 inputTokens。
+  expect(usage.inputTokens).toBe(usage.knownInputTokens)
 }
 
 describe('context usage Skills/MCP breakdown', () => {
@@ -292,5 +293,48 @@ describe('context usage Skills/MCP breakdown', () => {
     expect(usage.breakdown.mcpTokens).toBe(estimateTokens(fallbackResult))
     expect(usage.breakdown.skillsTokens).toBe(0)
     expectExistingTotalsUnchanged(usage)
+  })
+})
+
+describe('context usage provider-only accounting', () => {
+  it('leaves the occupancy unavailable instead of falling back to the local estimate', () => {
+    const usage = estimate({
+      systemPrompt: 'base prompt',
+      tools: [],
+      messages: [textMessage('user', 'hello '.repeat(500))],
+    })
+
+    expect(usage.estimatedInputTokens).toBeGreaterThan(0)
+    expect(usage.knownInputTokens).toBe(0)
+    expect(usage.inputTokens).toBe(0)
+    expect(usage.totalTokens).toBe(0)
+    expect(usage.percent).toBe(0)
+    expect(usage.inputTokenSource).toBe('unavailable')
+  })
+
+  it('reports the provider usage as the occupancy once a response carries usage', () => {
+    const usage = estimate({
+      systemPrompt: 'base prompt',
+      tools: [],
+      messages: [
+        textMessage('user', 'hello'),
+        {
+          ...textMessage('assistant', 'answer'),
+          usage: { input: 40_000, output: 1_000, totalTokens: 41_000 },
+        },
+      ],
+    })
+
+    expect(usage.knownInputTokens).toBeGreaterThanOrEqual(40_000)
+    expect(usage.inputTokens).toBe(usage.knownInputTokens)
+    expect(usage.totalTokens).toBe(usage.inputTokens)
+    expect(usage.percent).toBeGreaterThanOrEqual(40)
+    expect(usage.inputTokenSource).toBe('provider')
+  })
+
+  it('never triggers automatic compaction while the usage is unknown', () => {
+    const usage = estimate({ systemPrompt: '', tools: [], messages: [textMessage('user', 'hello')] })
+
+    expect(shouldCompactContextByPercent(usage, 80)).toBe(false)
   })
 })

@@ -1,6 +1,21 @@
 {
   "features": [
     {
+      "id": "compaction-midrun-stale-summary",
+      "title": "任务中途再次压缩时新摘要不生效：消息副本里的旧摘要被当成当前压缩点",
+      "status": "done",
+      "summary": "用户反馈压缩后马上又满、任务做到一半又压缩。pi-agent-core 每次 run 使用启动时的消息副本；副本已含旧摘要时，run 内新摘要只写入 state，buildAutoCompactLoopMessages 仍从副本最后一条（旧）摘要切片，模型收到旧摘要 + 后续全部消息，上下文不降并在下一次请求前重复压缩。新增 summaryIndexInMessages()，发送内容与用量基线共用：当前摘要只在 state 时忽略副本里的旧摘要；compactionSnapshotShift() 在传入数组已含当前摘要时返回 0。",
+      "files": [
+        "server/auto-compaction.mjs（新增 summaryIndexInMessages；buildAutoCompactLoopMessages 与 minimumProviderUsageIndex 改用它；compactionSnapshotShift 增加已含当前摘要的判断）",
+        "tests/server/auto-compaction-history.test.mjs（新增 4 例：新摘要生效、用量口径、同 run 两次压缩、下一次 run）",
+        "docs/wiki/server/README.md",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "压缩相关 8 files / 80 passed（改动后同批复跑仍全过）；npm run test → 502 files / 5558 passed、2 skipped（含同批 context-usage 新增用例）；npm run lint → 0 problems；npm run build → 通过。未做真实长会话实机验证。未创建 Git commit，未手工修改生成产物。",
+      "updatedAt": "2026-11-09"
+    },
+    {
       "id": "release-2-4-1",
       "title": "发布 patch 小版本 v2.4.1（排队消息不丢 / 压缩用量口径 / 子 Agent 读笔记）",
       "status": "done",
@@ -2393,6 +2408,37 @@
       "verification": "定向 vitest 40 passed（working-memory 10 / routes 4 / system-prompt 11 / settings-workspace-react 15）；npm run lint 通过（0 problems）；npm run build 通过（1.73s，precompress 225 files 12.68MB → 6.49MB）；node 渲染 composeSystemPrompt 确认 <working_memory> 段落顺序为 路径与摘要约定 → run_command 绝对路径 → How to write a note → 做完回顾 → 禁敏感，关闭时整段不出现；另备份并删除 ~/.quickforge/config/settings.json 里残留的 286 字旧中文 prompt，readWorkingMemorySettings() 实测回落到新英文默认值。",
       "updatedAt": "2026-11-04",
       "boundaries": "只改提示词内容与示例文案，不动开关、目录、接口字段、审批语义与 workspace 沙箱，不改全局记忆 MEMORY.md 与实际笔记文件。无依赖变更；未触碰 dist/package-dist/package-offline；未提交 Git。"
+    },
+    {
+      "id": "context-usage-provider-only-accounting",
+      "name": "上下文占用只认服务端上报用量，删除本地 token 估算",
+      "description": "上下文占用改为只使用提供商（服务端）上报的 usage：provider 基线 + 其后新增消息增量；本地估算不再参与 inputTokens / percent。没有上报值时 inputTokenSource 返回 unavailable 且 percent 为 0，自动压缩在用量未知时不触发；前端删除本地估算逻辑，unavailable 时沿用上一次上报值并在 tooltip 标注时效，从未上报过则不渲染指示器。",
+      "status": "done",
+      "dependencies": [
+        "compaction-usage-stale-provider-usage"
+      ],
+      "approach": "server/context-usage.mjs：inputTokens 只取 providerBasedContextTokens（provider 基线 + trailing 增量），不再与本地全量估算取 max；inputTokenSource 收成 provider / unavailable 两态，estimatedInputTokens 与 breakdown.localEstimatedContextTokens 仅作本地估算明细（悬浮说明里标注「仅供参考」，不参与 inputTokens 与 percent）；shouldCompactContextByPercent 在 inputTokens 小于等于 0 时直接返回 false，用量未知不触发压缩。server/auto-compaction.mjs：空消息分支 inputTokenSource 改为 unavailable。src/components/chat/context-usage.ts：删除本地估算与按签名缓存（getCachedContextUsage、estimateSignature），删除随之失效的 getSystemPrompt / getTools / getMessages / getEffectiveMessages 选项，ChatPanelHost.tsx 里的 effectiveContextMessages() 一并删除，isCompacted 改由 usage.isCompacted / getIsCompacted?.() 判断；新增 lastKnownServerUsage，unavailable 时沿用上一次上报值并在悬浮说明追加 contextUsageStaleNote，从未上报过则整个指示器不渲染（不猜）；悬浮明细拆成「提供商用量基线 + 基线后消息」（两者之和等于头部总量）与「本地估算明细（仅供参考）」两段，来源标注改用 stale 布尔值，缺 inputTokenSource 的旧负载按 inputTokens > 0 回落 provider。src/components/chat/chat-utils.ts：删除 getContextUsage、estimateTokens 等前端本地估算入口，inputTokenSource 类型收成 provider | unavailable。src/lib/i18n.ts：新增 contextUsageSourceUnavailable / contextUsageStaleNote / contextUsageLocalBreakdownTitle，删除死键 contextUsageSourceLocalShort、contextUsageSourceMixed、contextUsageSourceEstimated、contextUsageLocalEstimate、contextUsageProviderTokens，中英各一套；src/styles/chat/composer-controls.css 新增明细小标题样式。测试按新契约改写：server/context-usage 覆盖无上报时为 0 不回落本地估算、有上报时取 provider、未知用量不触发压缩；auto-compaction 覆盖压缩后旧 provider usage 被忽略时不再回落本地估算；frontend 覆盖可用/不可用两态、沿用旧值不误标本地估算、旧负载缺字段按 provider 处理。",
+      "files": [
+        "server/context-usage.mjs",
+        "server/auto-compaction.mjs",
+        "src/components/chat/context-usage.ts",
+        "src/components/chat/chat-utils.ts",
+        "src/components/chat/ChatPanelHost.tsx",
+        "src/lib/i18n.ts",
+        "src/lib/server-agent-types.ts",
+        "src/styles/chat/composer-controls.css",
+        "tests/server/context-usage.test.mjs",
+        "tests/server/auto-compaction.test.mjs",
+        "tests/frontend/context-usage.test.ts",
+        "docs/wiki/server/README.md",
+        "docs/wiki/src/components/README.md",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向 vitest 4 files / 50 passed（server/context-usage 19、server/auto-compaction 14、frontend/context-usage 11、frontend/chat-surface-usage 6，其中 frontend/context-usage 为新增「tooltip 基线两行在本地估算小标题之前」与「死 i18n 键已删除」两例后的结果）；同批压缩回归 tests/server/auto-compaction-history.test.mjs 8 passed，合并跑为 5 files / 58 passed；npx tsc -b 通过；npm run lint → 0 problems；npm run test → 502 files / 5558 passed、2 skipped、exit 0；npm run build → 通过（tsc -b + vite build，precompress 225 files 12.67MB → 6.49MB，仅既有大 chunk warning）。评审后删掉 3 个固化死逻辑的测试、新增 2 例，全量用例数从 5557 变为 5558。未做真实长会话实机验证；未提交，无 commit/tag。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "只改统计口径与指示器展示，未改压缩算法本身（切片、摘要生成、contextCompaction.history 记录均未动）；未回填任何旧数据；未触碰 dist / package-dist / package-offline 等生成产物（dist 由 npm run build 重新生成）。"
     }
   ]
 }

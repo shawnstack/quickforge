@@ -88,7 +88,7 @@ export type ServerAgentContextUsage = {
   estimatedInputTokens: number
   knownInputTokens?: number
   providerContextTokens?: number
-  inputTokenSource?: 'provider' | 'estimated' | 'mixed'
+  inputTokenSource?: 'provider' | 'unavailable'
   totalTokens: number
   percent: number
   isCompacted?: boolean

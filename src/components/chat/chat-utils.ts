@@ -186,10 +186,6 @@ export const hasDraft = (draft: ComposerDraft) => draft.text.length > 0
   || (draft.contextReferences?.length ?? 0) > 0
   || (draft.selectedCapabilities?.length ?? 0) > 0
 
-// ---------------------------------------------------------------------------
-// Token estimation (approximate)
-// ---------------------------------------------------------------------------
-
 export function safeJson(value: unknown): string {
   try {
     return JSON.stringify(value)
@@ -197,50 +193,6 @@ export function safeJson(value: unknown): string {
     return ''
   }
 }
-
-function estimateTextTokens(text: string) {
-  const value = String(text || '')
-  if (!value) return 0
-  const cjkChars = value.match(/[\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0
-  const otherChars = Math.max(0, value.length - cjkChars)
-  return Math.ceil(cjkChars + otherChars / 3.5)
-}
-
-function textFromUnknown(value: unknown): string {
-  if (!value) return ''
-  if (typeof value === 'string') return value
-  if (Array.isArray(value)) {
-    return value.map((item) => {
-      if (!item || typeof item !== 'object') return textFromUnknown(item)
-      const record = item as Record<string, unknown>
-      if (record.type === 'text') return typeof record.text === 'string' ? record.text : ''
-      if (record.type === 'thinking') return typeof record.thinking === 'string' ? record.thinking : ''
-      if (record.type === 'image') return `[image:${typeof record.mimeType === 'string' ? record.mimeType : 'unknown'}]`
-      if (record.type === 'toolCall') return `[toolCall:${typeof record.name === 'string' ? record.name : 'unknown'}] ${safeJson(record.arguments)}`
-      return safeJson(record)
-    }).filter(Boolean).join('\n')
-  }
-  if (typeof value === 'object') return safeJson(value)
-  return String(value)
-}
-
-function estimateMessageTokens(message: MessageWithUsage) {
-  const parts = [message.role ?? '', textFromUnknown(message.content)]
-  if (message.toolName) parts.push(message.toolName)
-  if (message.toolCallId) parts.push(message.toolCallId)
-  if (message.attachments !== undefined) parts.push(safeJson(message.attachments))
-  return estimateTextTokens(parts.filter(Boolean).join('\n'))
-}
-
-function estimateHistoryTokens(systemPrompt: string, messages: MessageWithUsage[], tools: unknown = []) {
-  return estimateTextTokens(systemPrompt)
-    + messages.reduce((total, message) => total + estimateMessageTokens(message), 0)
-    + estimateTextTokens(safeJson(tools))
-}
-
-// ---------------------------------------------------------------------------
-// Context usage calculation
-// ---------------------------------------------------------------------------
 
 export function messageTimestamp(message: MessageWithUsage) {
   if (typeof message.timestamp === 'number') return message.timestamp
@@ -257,18 +209,6 @@ export function formatMessageTime(timestamp: number) {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-function hasCompactSummary(message: MessageWithUsage) {
-  return message.role === 'user' && textFromUnknown(message.content).includes('<compact_summary>')
-}
-
-function latestCompactTimestamp(messages: MessageWithUsage[]) {
-  let timestamp = 0
-  for (const message of messages) {
-    if (hasCompactSummary(message)) timestamp = Math.max(timestamp, messageTimestamp(message))
-  }
-  return timestamp
-}
-
 export type ContextUsageInfo = {
   contextWindow: number
   usedTokens: number
@@ -276,7 +216,7 @@ export type ContextUsageInfo = {
   inputTokens: number
   estimatedInputTokens: number
   knownInputTokens?: number
-  inputTokenSource: 'provider' | 'estimated' | 'mixed'
+  inputTokenSource: 'provider' | 'unavailable'
   percent: number
   color: string
   isCompacted?: boolean
@@ -294,35 +234,6 @@ export type ContextUsageInfo = {
     lastUsageIndex?: number | null
     localEstimatedContextTokens?: number
   }
-}
-
-export function getContextUsage(
-  systemPrompt: string,
-  messages: MessageWithUsage[],
-  contextWindow: number,
-  tools: unknown = [],
-): ContextUsageInfo {
-  const compactedAt = latestCompactTimestamp(messages)
-  const usage = messages.reduce((latestUsage, message) => {
-    const currentUsage = message.usage
-    if (message.role !== 'assistant' || !currentUsage) return latestUsage
-    if (compactedAt > 0 && messageTimestamp(message) <= compactedAt) return latestUsage
-    return currentUsage
-  }, undefined as MessageUsage | undefined)
-  const providerInputTokens = usage?.input ?? usage?.totalTokens ?? 0
-  const estimatedInputTokens = estimateHistoryTokens(systemPrompt, messages, tools)
-  const hasProviderInputTokens = Number.isFinite(Number(providerInputTokens)) && Number(providerInputTokens) > 0
-  const inputTokens = hasProviderInputTokens ? Number(providerInputTokens) : estimatedInputTokens
-  const usedTokens = inputTokens
-  const inputTokenSource = hasProviderInputTokens ? 'provider' : 'estimated'
-  // 上下文占用按纯输入口径统计：percent = inputTokens / contextWindow。
-  // 真实请求的 max_tokens 由 pi-ai `clampMaxTokensToContext` 按窗口收缩，
-  // 统计侧不再预留输出 token；totalTokens 字段仅为兼容保留，恒等于 inputTokens。
-  const totalTokens = inputTokens
-  const percent = contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : 0
-  const colorPercent = Math.min(100, Math.max(0, percent))
-  const hue = Math.round(142 - (142 * colorPercent / 100))
-  return { contextWindow, usedTokens, totalTokens, inputTokens, estimatedInputTokens, knownInputTokens: hasProviderInputTokens ? Number(providerInputTokens) : 0, inputTokenSource, percent, color: `hsl(${hue} 72% 45%)` }
 }
 
 export function formatTokens(value: number) {

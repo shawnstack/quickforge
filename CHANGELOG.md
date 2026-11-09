@@ -4,6 +4,36 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-11-09
+
+### Fixed
+
+- Context usage no longer reads as "already full" right after compaction. The indicator only values provider-reported usage, so history that was folded into a summary is not measured a second time by a local estimate. Without a reported number the state is `unavailable`: the UI keeps showing the last reported value marked as stale instead of guessing, and auto-compaction never triggers from a local estimate alone.
+
+- A second compaction in the middle of a run now actually reaches the model. `summaryIndexInMessages()` is shared by `buildAutoCompactLoopMessages()` and `minimumProviderUsageIndex()`, so when the current summary lives only in the session state the stale summary inside the run's message copy is ignored; `compactionSnapshotShift()` returns 0 for arrays that already contain the current summary. Previously the model kept receiving the old summary, the context never shrank, and the session compacted again on every request.
+
+### Changed
+
+- The context-usage ring now computes percentage and colour in the frontend against the current model's context window (`inputTokens / contextWindow`) instead of trusting `percent` / `color` in the payload. A value carried over after a model switch is scaled to the new window instead of keeping the old window's ratio, and the source is decided in one place: `provider` only when a number was actually reported, `unavailable` otherwise.
+
+- The context-usage hover detail is split into "provider-reported baseline" plus trailing messages (their sum equals the headline number) and a separate local-estimate breakdown, so the rows add up; the meta line reports only freshness and counting scope.
+
+### Removed
+
+- The context-usage payload was trimmed to what is actually read. `server/context-usage.mjs` now returns only `inputTokens`, `inputTokenSource`, `contextWindow`, `percent` and a `breakdown` of `systemPromptTokens` / `messagesTokens` / `toolsTokens` / `skillsTokens` / `mcpTokens` / `providerUsageTokens` / `trailingTokens`. The write-only `totalTokens`, `estimatedInputTokens`, `knownInputTokens`, `providerContextTokens`, `breakdown.lastUsageIndex` and `breakdown.localEstimatedContextTokens` are gone, along with the matching fields in `src/lib/server-agent-types.ts`, `chat-utils.ts` and `context-usage.ts` types.
+
+- Two dead i18n keys (`contextUsageServerCalculated`, `contextUsageSourceServerShort`) were deleted, and `contextUsageSourceUnavailable` was renamed to `contextUsageStaleShort` now that the meta line only reports staleness.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.4.2` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.4.2.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.4.2.tgz
+  ```
+
 ## [2.4.1] - 2026-11-06
 
 ### Added

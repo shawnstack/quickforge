@@ -1,5 +1,17 @@
 # Current Session Handoff
 
+## 当前交接：context-usage-review-cleanup（未提交，2026-11-09）
+
+- Current Objective（当前目标）：按评审结论清理 `ae5be252` 留下的死代码与冗余（4 项低风险），并在确认无消费者后删掉服务端只写不读的冗余字段，改完统一验证。
+- 结论（一句话）：指示器现在只认提供商上报值，百分比和颜色由前端按当前模型窗口算，来源判定只有一处；切换模型后沿用值不再按旧窗口算比例；服务端返回值也瘦到只留真实在用的字段，顺带删掉 3 个已无引用的 i18n 键和一批死字段。
+- 改动文件：`src/components/chat/context-usage.ts`、`src/components/chat/chat-utils.ts`、`src/lib/server-agent-types.ts`、`src/lib/i18n.ts`、`server/context-usage.mjs`、`server/auto-compaction.mjs`、`tests/frontend/context-usage.test.ts`、`tests/server/context-usage.test.mjs`、`tests/server/auto-compaction.test.mjs`、`docs/wiki/src/components/README.md`、`docs/wiki/server/README.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：第一批 `npx tsc -b` exit 0、`npm run lint` 0 problems、定向 3 files / 45 passed；第二批（删服务端冗余字段与 `breakdown.lastUsageIndex`）`npx tsc -b` exit 0、定向 4 files / 49 passed、`npm run lint` 0 problems、`npm run test` → 502 files / 5559 passed、2 skipped、exit 0、`npm run build` 通过（仅既有大 chunk warning）；第三批（删 `breakdown.localEstimatedContextTokens`）`npx tsc -b` exit 0、定向 6 files / 62 passed、`npm run lint` 0 problems、`npm run test` → 502 files / 5559 passed、2 skipped、exit 0、`npm run build` 通过，并用 `node --input-type=module` 打印真实返回结构确认字段确已消失。已提交 `6a811a6d`，无 tag。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 实机验收（需重启服务或桌面端）：长会话触发压缩后百分比应在下一次回复后下降；hover 应看到「提供商基线两行 + 本地估算明细」；沿用旧值时 meta 行出现「上一次请求（尚未更新）」；切模型后百分比应按新窗口变化而不是沿用旧窗口比例。
+  2. 待用户拍板：代理/兼容服务不返回 usage 时自动压缩完全不触发（`inputTokens <= 0` 直接不压），要不要加兜底开关。
+  3. 已知边界（本轮已处理完，留档）：服务端 `totalTokens` / `estimatedInputTokens` / `knownInputTokens` / `providerContextTokens` / `breakdown.lastUsageIndex` / `breakdown.localEstimatedContextTokens` 全部已删除（逐项确认仓库内无消费者；`breakdown` 现只剩悬浮明细真正逐行读取的拆分项与 `providerUsageTokens` / `trailingTokens`）。仓库外是否有 API 消费者依赖被删字段仍未确认。仅「新服务端 + v2.4.1 旧前端产物」混用时，悬浮说明里提供商基线两行会退化为 0/不显示，圆环百分比与颜色不受影响；正常升级不出现该组合。生成产物里仍是旧实现，重新打包前不影响。
+
 ## 当前交接：compaction-midrun-stale-summary（done，2026-11-09）
 
 - Current Objective（当前目标）：修复「任务中途压缩后，新摘要没发给模型，上下文不降并反复压缩」。

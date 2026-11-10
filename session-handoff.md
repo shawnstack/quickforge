@@ -1,5 +1,70 @@
 # Current Session Handoff
 
+## 本轮：积压改动分组提交（2026-11-10）
+
+- Current Objective（当前目标）：用户说「把自己的代码先提交了」——工作区里积压了两条已 done 的 feature（`self-evolution-loop-architecture-doc` + `self-scheduled-shift-continuity`），交接里一直记着「未提交，提交前先分组」。
+- 做法：按主题分三条，不混提交。
+  1. `06ac9df6` `docs(architecture)`：`docs/architecture/self-evolution-loop.zh-CN.md`（新增）+ `docs/wiki/README.md`（导航一行），2 files / +225。
+  2. `b4fefe6d` `feat(scheduled-tasks,prompt)`：`server/routes/scheduled-tasks.mjs`、`server/system-prompt.mjs`、`skills/quickforge-api/*`、`tests/server/*`，8 files / +271 −19。
+  3. 本条所在的状态文件（`feature_list.json`、`progress.md`、`session-handoff.md`）单独一条 `chore(meta)`，避免元数据和代码混在一起。
+- Evidence（验证）：提交前跑定向测试 `npx vitest run tests/server/system-prompt.test.mjs tests/server/scheduled-tasks.execution.test.mjs tests/server/runtime-info.test.mjs` → 3 files / 70 passed。每次提交触发 husky 的 `npm run lint`，两次均 0 problems。Vite/vitest 未跑全量（本批改动与上次交接记录的全量结果一致，未新增改动）。
+- 未做：未 push、未打 tag、未发布；`dist/`、`package-dist/`、`package-offline/` 未触碰。
+- 已派班次：`[自约] 核实三处系统自我描述与实际行为不一致`（id `mwb165z6-89ea3lvw`，`once` 2026-11-11 09:00，`createdBy: agent`，模型/思考档继承本会话 → `deepseek-v4-flash` / `xhigh`）。内容是 **R0 只读**核实 + 出报告，明确禁止改那三处（属 R2 内核，需人审）、禁止 commit。派之前已核实三条缺陷里两条仍成立：`server/system-prompt.mjs` 174-185 与 193-204 双重注入 `<working_memory>`；`qf-api.mjs:32` 派生会话默认 `full-access`。
+- **验收看三件事**（这条班次同时是 `<continuity>` 的首次实机验证）：① 9 点后 `task-runs --taskId mwb165z6-89ea3lvw` 有记录且不是空跑；② 报告文件 `docs/architecture/self-evolution-cleanup-audit.zh-CN.md` 生成，第三条 Goal v2 的结论有行号证据；③ 任务被它自己 `task-delete` 掉了、且工作记忆留了一条。三件缺任何一件，说明提示词的「认领自己 / 收尾自删」环节没生效，要回去改 `<continuity>` 措辞。
+- 下一步：实机验收仍然是最紧要的一件。单测只能证明注入条件和格式，证明不了模型真的会照做。
+
+## 当前交接：self-scheduled-shift-continuity（done，2026-11-10）
+
+- Current Objective（当前目标）：用户说「希望在系统提示词里面注入灵魂，告诉他自己可以这样子活下来」，并明确「直接按 v2 实现」——即允许 AI 自己建定时任务、自己删除自己建的，形成「排班 → 干活 → 留结论 → 删掉自己」的自清理闭环。
+- 结论（一句话）：四处落地完成——任务加 `createdBy` 字段、`task-delete` 只管自己 `--self-scheduled` 建的那条、`task-add --self-scheduled` 自动补 `[自约]` 前缀、系统提示词新增 `<continuity>` 块（仅当 `quickforge-api` skill 可用时注入）。
+- **最需要记住的取舍**：删除边界最初写成「只要不是 agent 建的就 403」，随后发现前端 `ScheduledTasksPage.tsx:414` 走同一个 DELETE 端点，而 `requestJson` 不带 `x-quickforge-client-id`（前端根本没有这个头），服务端区分不了调用方——无条件 403 会把用户从界面删自己日程也拦掉。最终改成 `?selfScheduledOnly=1`：UI 不带参数行为不变，agent 走脚本必带参数、服务端硬校验。
+- 提示词设计要点：`<continuity>` 按「立场 / 三问判据 / 沉默授权 / 操作步骤 / 硬限制」编排。核心是 `Choosing to do nothing is a correct answer, not a failure. Silence beats noise.`——**主动性的提示词必须同时给「不主动」的授权**，否则必然退化成噪音生成器。另外要求 `instruction` 写成「给下一个自己的信」：定时任务开的是新会话，它不记得上一班，只看得见那几行字。
+- 改动文件：
+  1. `server/routes/scheduled-tasks.mjs`：`normalizeCreatedBy()`、创建时落 `createdBy`、DELETE 支持 `selfScheduledOnly=1`。
+  2. `server/system-prompt.mjs`：`skills` 变量前移，新增 `<continuity>` 条件注入块。
+  3. `skills/quickforge-api/scripts/qf-api.mjs`：`client.delete`、`SELF_SCHEDULED_TITLE_PREFIX`、`task-delete`、`task-add --self-scheduled`、`summarizeTask.createdBy`、HELP。
+  4. `skills/quickforge-api/SKILL.md`：命令表加 `task-delete`、标题改「能建、能停，也能收掉自己的那条」、新增「给自己排一个班（自约）」小节（六条规矩）、红线第 3 条改写。
+  5. `skills/quickforge-api/references/endpoints.md`：DELETE 进白名单并标注参数、task-add 补 `createdBy`、禁止清单改条件式。
+  6. 测试三个：`scheduled-tasks.execution.test.mjs`（+7 例）、`system-prompt.test.mjs`（+1 例）、`runtime-info.test.mjs`（守门测试改写）。
+  7. `docs/architecture/self-evolution-loop.zh-CN.md`（新增 §10）、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：定向 2 files / 60 passed；server 全量 212 files / 2273 passed、1 skipped、0 failed；全量 `npm run test` → 505 files / 5608 passed、0 failed；`npm run lint` → 0 problems；`npm run build` → 通过（仅既有 chunk 体积警告）；`node --check` + `--help` 正常。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **要重启运行中的 QuickForge 才生效**（改了 `server/` 与系统提示词）。重启后开一个新会话，确认提示词里出现 `<continuity>`（可用 `qf-api.mjs instructions --system-prompt` 自查）。
+  2. **实机验收**：手动建一条 `[自约]` 任务（`task-add --title "…" --self-scheduled --schedule once --at …`），到点看它醒来会不会 `tasks` 认领自己、会不会照 instruction 干、干完会不会自己 `task-delete`。这是唯一能验证「灵魂注入有没有起作用」的方式，单测只能保证注入条件与格式。
+  3. 观察一周，看两个数：它主动提的提议有没有具体对象；有没有出现「每次都提」的唠叨。前者说明判据有效，后者说明沉默授权没压住。
+  4. 本批改动已提交（`b4fefe6d`），架构文档那条为 `06ac9df6`，状态文件见本轮 `chore(meta)` 提交。
+  5. 已知未做：前端不显示 `createdBy`；`pause`/`resume` 未加同样范围限制；`selfScheduledOnly=1` 是声明式校验（绕过脚本 curl 仍能删，与现有安全模型一致，非新增口子）。
+
+## 当前交接：self-evolution-loop-architecture-doc（done，2026-11-10）
+
+- Current Objective（当前目标）：用户先问「这个项目有没有自进化的空间、能做哪些事」，第一轮按功能罗列作答后，用户指出「都陷入了具体的代码位置和功能，有没有系统性的架构」，要求给系统性架构而非部件清单。
+- 结论（一句话）：新增 `docs/architecture/self-evolution-loop.zh-CN.md`——把自进化当作**控制回路**而非功能集合，给出六环（目标→感知→诊断→生成→验证→准入 + 回滚/预算横切）、三条架构约束、R0/R1/R2 三档影响半径与闸门，以及「先看半径再看环」的判定读法。
+- 一句话判据（本文最需要被记住的一条）：**自治程度的上限由影响半径决定，不由判断力决定——用半径换自治。** 记忆体系敢无人值守，不是因为它更聪明，而是路径锁死 + 无删除 + 每轮先快照，最坏后果等于恢复一份快照。
+- 现状判定：感知与生成很强，**闭环断在第 ⑤ 环验证**（没有程序化的 pass/fail 消费者，exit code 交给人眼看日志）。仓库里唯一八项齐全的回路是记忆那条线，因为它是 R0。
+- 改动文件：`docs/architecture/self-evolution-loop.zh-CN.md`（新增 190 行）、`docs/wiki/README.md`（架构文档表格加一行导航，标注「设计文档未落地」）、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：纯文档，无运行时代码变化，未跑 test/lint/build（eslint 不覆盖 markdown，三件套对本改动无信息量）。匹配检查：正文三处相对链接目标文件均存在，锚点 `memory-system.zh-CN.md#2-三层结构` 与其第 15 行标题对应；`feature_list.json` 编辑后 `json.load` 通过、120 条、新条目在首位。未触碰 `dist/`、`package-dist/`、`package-offline/`，未创建 commit。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 本批改动已提交（`06ac9df6`）；同批的自约班次改动另成一条 `b4fefe6d`，状态文件见本轮 `chore(meta)` 提交。
+  2. 文档 §7 的落地路线明确「从后往前」：第 1 步是清洁（让系统对自己的描述与实际行为一致），第 2 步才是闭 ⑤ 环。**不建议跳档**直接做自动改代码。
+  3. 待修的 ⑤ 环前置清洁项（§8.3 列出，此前 `red-test-baseline` 交接里也记过）：`spawn` 默认 `full-access`（P1 安全）、`<working_memory>` 在 `server/system-prompt.mjs` 169-186 与 188-205 注入两遍且两段用法互相矛盾（一段要求用记忆工具、一段要求用 `run_command` 绝对路径）、Goal v2 默认引擎无证据门禁而 `docs/wiki/README.md:83` 仍描述为「经证据检查完成」。
+  4. 若要继续推进，最省的第一步是套用文档 §6 的判定用例：「每晚只读审查落报告」属 R0，可放行；「定时任务自动修 failing test 并提交」属 R1 且缺独立裁决者，应驳回。
+
+### 本轮追加：quickforge-api skill 白名单文档补齐（同日，done）
+
+- 用户结论：「先不要自加权限，先把 skill 补齐」——不新增 `createdBy` 字段、不给 `task-delete` 出口，只把文档和脚本对齐。
+- 起因：核查「让 AI 用定时任务给自己排班」时发现 `skills/quickforge-api/references/endpoints.md` 自称「这张表同时也是安全边界」，却**完全没有定时任务那一块**（`grep scheduled-tasks` 命中 0），而脚本已有 7 个 task 子命令。
+- 做法：不只补定时任务，做完整对账——把 `qf-api.mjs` 里 22 个 `/api/...` 字面量提取出来与表比对，补上全部差额。
+- 改动（只动 `references/endpoints.md`，58 行 → 85 行）：
+  1. 新增「## 定时任务」整节（5 个端点 + `task-run` 同步阻塞、`task-add` 的 `modelRef` 必填、`task-parse` 不落库）。
+  2. 只读表补 `GET /api/agents/:id/state`（`spawn` 继承思考档、`task-add` 绑模型都靠它）与 `GET /api/models/catalog`。
+  3. 禁止清单补 `DELETE /api/scheduled-tasks/:id`（先删全部运行历史，不可逆）与 `PUT`/`PATCH`（覆盖用户日程）。
+  4. 文件头加反向约束：脚本新增调用也要同步进表；表和脚本不一致就不再是安全边界，「说明里没写」最容易被当成漏了顺手补上。
+  5. 记下此前没写的事实：**任务会话权限不来自任务本身，而是读全局 `yolo-mode`**——开着就完全访问，没开就每步等审批而无人值守时没人点。
+- Evidence：两级 python 对账，命令级 22 子命令无遗漏、路径级 22 端点全覆盖。纯文档，未跑三件套。
+- Note：**删任务仍不给出口**，红线第 3 条一字未改。所以「自己排班 → 干完 → 删掉自己」这条自清理闭环还没通，缺的正是用户暂缓的删除能力；`SKILL.md` 本身是齐的（22 个命令全覆盖）。
+
 ## 当前交接：scheduled-task-skill-commands（done，2026-11-10）
 
 - Current Objective（当前目标）：用户先问「QF 的技能包含创建定时任务吗」，确认没有之后选「给 quickforge-api 补一节定时任务接口」。

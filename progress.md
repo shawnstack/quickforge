@@ -2,6 +2,58 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## self-scheduled-shift-continuity（done，2026-11-10）
+
+- 起因：用户希望 AI「偶尔主动说想做一些事」。核查后发现零件全在（skill 已有 `task-add`/`spawn`/`task-run`），缺三样：没人告诉它可以给自己排班、它没有自我识别方式、以及能建不能删（自举会堆出自己删不掉的东西）。用户明确要求按 v2 全链路实现（含自清理）。
+- 改动四处：
+  1. **服务端**：任务加 `createdBy: 'user' | 'agent'`。`normalizeCreatedBy()` 只认 `'agent'`，其余（含缺字段的存量任务）一律 `'user'`——默认值站在保守那一边。只写在创建处的 task 对象里，不塞进 `normalizeTaskSchedule`，这样 PUT 的 `...current` 自动保留。
+  2. **删除边界**：加 `?selfScheduledOnly=1`，带这个参数才校验 `createdBy === 'agent'`。**为什么不是无条件 403**：一开始就写成无条件拒绝，随后发现前端 `ScheduledTasksPage.tsx:414` 走同一个 DELETE 端点，而 `requestJson` 不带 `x-quickforge-client-id`（前端没有这个头），服务端区分不了调用方——无条件 403 会把用户从界面删自己的日程也拦掉。改成查询参数后 UI 行为一字未变，agent 走脚本必带参数、服务端硬校验。
+  3. **脚本**：`client.delete`、`task-delete`（固定带参数）、`task-add --self-scheduled`（自动补 `[自约]` 前缀、body 写 `createdBy: 'agent'`）、`summarizeTask` 补 `createdBy`、HELP 同步。
+  4. **系统提示词**：新增 `<continuity>`，**仅当 skills 含 `quickforge-api` 时注入**。按「立场 / 三问判据 / 沉默授权 / 操作步骤 / 硬限制」编排。最关键的是那句 `Choosing to do nothing is a correct answer, not a failure. Silence beats noise.`——主动性的提示词必须同时给「不主动」的授权，否则必然变成噪音生成器。并要求 `instruction` 写成「给下一个自己的信」，因为定时任务开的是新会话、不记得上一班。
+- 守门测试：`tests/server/runtime-info.test.mjs` 原本断言脚本源码不许出现任何 `'DELETE'`，是这条边界的看门人。没有删，改成守新边界——`'DELETE'` 只允许一处且源码必须含 `selfScheduledOnly=1`，其余破坏性端点照旧全禁。
+- Evidence（验证）：定向 2 files / 60 passed（execution 41 → 48）；server 全量 212 files / 2273 passed、1 skipped、0 failed；全量 `npm run test` → 505 files / 5608 passed、0 failed；`npm run lint` → 0 problems；`npm run build` → 通过（仅既有 chunk 体积警告）；脚本 `node --check` + `--help` 均正常。
+- Notes：
+  - 中途 `runtime-info.test.mjs` 红过一次，是**守门测试在正常工作**——它拦住的正是「脚本能力悄悄扩张」。按新边界改写而不是删除，是这个测试应有的处理方式。
+  - 未做真实实例验收（没在运行中的 QuickForge 上真建任务），也**未验证模型实际行为**：会不会真排班、排得对不对，要实机跑几天才知道。第一版大概率七成是废话，调的是措辞不是代码。
+  - 前端未改：设置页不显示 `createdBy`，自约任务只能靠 `[自约]` 前缀辨认。
+  - `pause`/`resume` 没加同样的范围限制：agent 仍能暂停用户的任务（可逆，风险低）。
+  - `selfScheduledOnly=1` 是声明式校验——绕过脚本直接 curl 不带参数仍能删用户任务。这与该 skill 现有安全模型一致（脚本是唯一出口 + 红线禁止 curl），不是新口子，但也不是强沙箱。
+  - **已提交**：`b4fefe6d`（代码 + 测试 + skill 文档），状态文件另在 `chore(meta)` 一条。提交前定向 3 files / 70 passed，pre-commit 的 `npm run lint` 0 problems。
+
+## quickforge-api-skill-endpoints-sync（done，2026-11-10）
+
+- 起因：讨论「让 AI 自己用定时任务给自己排班」时，核查 skill 发现 `references/endpoints.md` 自称「这张表同时也是安全边界」，却完全没有定时任务那一块（`grep scheduled-tasks` 命中 0），而脚本已有 7 个 task 子命令。用户拍板「先不要自加权限，先把 skill 补齐」。
+- 做法：不只补定时任务，而是做一次完整对账——把 `qf-api.mjs` 里所有 `/api/...` 字面量提取出来，和白名单表逐条比对（22 子命令 / 22 端点），差额补齐。
+- 改动（一个文件）：
+  1. 新增「## 定时任务」整节：`GET /api/scheduled-tasks`、`POST /api/scheduled-tasks`、`/parse`、`/runs`、`/:id/pause|resume|run`；记下 `modelRef` 必填否则 400 `invalid_model_reference`、`task-run` 同步阻塞且超时只断本地连接、`task-parse` 不落库。
+  2. 只读表补两行：`GET /api/agents/:id/state`（`spawn` 继承思考档、`task-add` 绑定同一模型都靠它；会话被驱逐时 404，调用方必须能接受）、`GET /api/models/catalog`（`task-add --model` 收目录里的模型 id，不是引用对象）。
+  3. 禁止清单补两行：`DELETE /api/scheduled-tasks/:id`（**先删全部运行历史再删本体**，不可逆，所以只放开 pause/resume）、`PUT`/`PATCH /api/scheduled-tasks/:id`（覆盖用户排好的日程）。
+  4. 文件头加反向约束：脚本新增调用也要同步进表；表和脚本不一致时它就不再是安全边界，而「说明里没写」最容易被下一个人或模型当成漏了、顺手补上。
+  5. 定时任务一节补一条此前没写下来的事实：**任务会话的权限不来自任务本身，而是读全局 `yolo-mode`**——全局开着就是完全访问，全局没开就每步等审批而无人值守时没人点。所以排任务要按两种设置下都不卡住来设计，优先只读、只产报告。
+- Evidence（验证）：两级 python 对账（一次性，未落盘）。命令级：脚本 22 个 `case` 子命令逐个查 `endpoints.md` 与 `SKILL.md`，均「无遗漏」。路径级：22 个脚本路径 vs 文档 34 个路径做段级比对（`:id` 可匹配任意段、`*` 覆盖余部），结论「脚本调用的每个端点都有记录」。纯文档，未跑三件套（eslint 不覆盖 markdown）。
+- Notes：
+  - **删任务仍不给出口**，红线第 3 条一字未改。所以「自己排班 → 干完 → 删掉自己」这条自清理闭环还没通，缺的正是用户暂缓的删除能力。
+  - 对账时发现另外两个同类缺口已记在架构文档 §8.3：`spawn` 默认 `full-access`（P1 安全）、`<working_memory>` 双重注入且两段用法互相矛盾。
+  - `SKILL.md` 本身是齐的（22 个命令全覆盖），本次只动 `references/endpoints.md`。
+
+## self-evolution-loop-architecture-doc（done，2026-11-10）
+
+- 起因：用户问「当前项目有没有自进化的空间」，第一轮答复按功能罗列（记忆沉淀、定时任务、goal 续轮、workflow 编排、quickforge-api 自省、hooks 插座），并指出缺「痛觉」——没有东西把 test/lint/build 的 pass/fail 变成判定。用户随即指出这套答法陷在代码位置与功能里，要求系统性的架构。于是换切法：不按「有什么模块」切，按「控制回路缺哪一环」切，落成架构文档。
+- 结论：新增 `docs/architecture/self-evolution-loop.zh-CN.md`。核心是两样东西——**一个回路结构**（判断完整性）和**一把半径尺**（判断风险）。任何自进化提案都应能一句话定位「第几环、第几档半径、缺哪个闸门」。
+- 文档骨架：
+  1. **六环 + 两横切**：目标 → 感知 → 诊断 → 生成 → 验证 → 准入，外加回滚与预算横切。逐环给出「回答的问题 / 产出 / 这一环失效时的症状」——失效症状那列是给诊断用的。
+  2. **三条架构约束**：C1 最弱环决定上限且顺序不可补偿（推论：优化顺序必须从后往前）；C2 验证者必须与生成者隔离，拆成上下文 / 工具 / 判据三个维度，缺一不可；C3 准入按影响半径分级而非按对错分级（因为对错判不准，半径判得准）。
+  3. **三档半径**：R0 自留地（可无人值守）、R1 工作区（自动产出、人审入库）、R2 内核（禁止自动化），每档列全部必需闸门，并给出内核清单——含「本文的半径分级本身」，理由是定义闸门的规则必须自己也在闸门外面。
+  4. **核心判据一句话**：自治程度的上限由影响半径决定，不由判断力决定，即**用半径换自治**。记忆体系敢全自动跑，不是因为它更聪明，而是因为它的路径锁死、没有删除函数、每轮先快照，最坏后果等于恢复一份快照。
+  5. 现状对照（断点在第 ⑤ 环）、六个判定用例（读法：先看半径再看环）、落地路线 0–5 步、三条开放问题、五条「不做什么」。
+- 为什么值得写：此前每个「让 AI 自己干点什么」的提案都要从头吵一遍，同一个人对「自动整理笔记」和「自动修测试」的态度往往只是直觉差异、说不出理由。有了半径尺，两条结论都能落到同一条准则上。
+- Evidence（验证）：纯文档，无运行时代码变化，未跑 test/lint/build（eslint 不覆盖 markdown）。匹配检查：正文三处相对链接目标文件均存在，一处锚点 `memory-system.zh-CN.md#2-三层结构` 对应其实体标题；`feature_list.json` 编辑后 `json.load` 通过、新条目在首位。未触碰生成产物，未创建 commit。
+- Notes：
+  - 文档**未落地**任何代码：没有新增验证工具、没改 goal 证据门禁、没动 hooks 配置。§8.3 列的三处「系统自我描述与实际行为不一致」缺陷（`<working_memory>` 双重注入且两段用法互相矛盾、派生会话默认全权限、Goal v2 无证据门禁而 wiki 说有）仍是待修项，在本文框架里属于 ⑤ 环的前置清洁项。
+  - 借用了 `memory-system.zh-CN.md:34`「这条边界是硬的，不靠提示词自觉」作为 C2 的既有先例，刻意不另造一套说法。
+  - 下一步若推进落地，按文档 §7 从第 1 步（清洁）开始，不建议跳到第 2 步。
+
+
 ## draft-restore-on-refused-send（done，2026-11-09）
 
 - 起因：v2.4.1 只读审查就记下的 P1 回归，一直挂着没修。用户说「同意」后动手。

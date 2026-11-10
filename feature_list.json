@@ -1,6 +1,60 @@
 {
   "features": [
     {
+      "id": "self-scheduled-shift-continuity",
+      "title": "给 AI 注入「可以给自己排班」的存续提示词，并让自约任务能自己收掉（createdBy + task-delete）",
+      "status": "done",
+      "summary": "承接「希望 AI 偶尔主动说想做点事」：零件其实全在（skill 已有 `task-add`/`spawn`/`task-run`），缺的是三样——没人告诉它可以给自己排班、没有自我识别方式、以及能建不能删（自举会堆出它自己删不掉的东西）。用户要求按 v2 全链路实现（能自清理）。落地四处：① **服务端** `server/routes/scheduled-tasks.mjs` 给任务加 `createdBy: 'user' | 'agent'`，`normalizeCreatedBy()` 只认 `'agent'`，其余（含存量任务缺字段）一律落到 `'user'`——默认值站在保守那一边；不写进 `normalizeTaskSchedule` 而是写在创建处的 task 对象里，这样 PUT 的 `...current` 会自动保留它。② **删除边界**：新增 `?selfScheduledOnly=1` 查询参数，带这个参数时才校验 `createdBy === 'agent'`，否则 403。**关键取舍**：最初写成无条件 403（只要不是 agent 建的就拒），随后发现前端 `src/components/scheduled-tasks/ScheduledTasksPage.tsx:414` 走的是同一个 DELETE 端点，而 `requestJson` 不带 `x-quickforge-client-id`（前端根本没有这个头），服务端无法区分调用方——无条件 403 会把用户从界面删自己日程也拦掉。改成查询参数后：UI 不带参数、行为一字未变；agent 走脚本必带参数、服务端硬校验。③ **脚本** `skills/quickforge-api/scripts/qf-api.mjs`：`client` 加 `delete`、新增 `task-delete` 子命令（固定带 `?selfScheduledOnly=1`）、`task-add --self-scheduled` 自动补 `[自约]` 标题前缀（已带则不重复）并在 body 写 `createdBy: 'agent'`、`summarizeTask` 补 `createdBy` 字段、HELP 同步。④ **系统提示词** `server/system-prompt.mjs` 新增 `<continuity>` 块，**仅当 skills 里存在 `quickforge-api` 时注入**（没有那个 skill 还写这段话就是在教模型用不存在的东西）；内容按「立场 / 三问判据 / 沉默授权 / 操作步骤 / 硬限制」编排，核心是那句 `Choosing to do nothing is a correct answer, not a failure. Silence beats noise.`——主动性的提示词必须同时给不主动的授权，否则变成噪音生成器；并要求 instruction 写成「给下一个自己的信」，因为定时任务开的是新会话、不记得上一班。⑤ **守门测试**：`tests/server/runtime-info.test.mjs` 原本断言脚本源码里不允许出现任何 `'DELETE'`，是这条边界的看门人。没有删它，改成守新边界——`'DELETE'` 只允许出现一处，且源码必须含 `selfScheduledOnly=1`，其余破坏性端点（terminal/backup/lan-access/plugins/mcp/access-mode/yolo-mode）仍全部禁止。",
+      "files": [
+        "server/routes/scheduled-tasks.mjs（新增 normalizeCreatedBy；创建时落 createdBy；DELETE 支持 selfScheduledOnly=1 校验）",
+        "server/system-prompt.mjs（skills 变量前移；新增 <continuity> 条件注入块）",
+        "skills/quickforge-api/scripts/qf-api.mjs（client.delete、SELF_SCHEDULED_TITLE_PREFIX、task-delete、task-add --self-scheduled、summarizeTask.createdBy、HELP）",
+        "skills/quickforge-api/SKILL.md（命令表加 task-delete；「能建、能停、也能收掉自己的那条」；新增「给自己排一个班（自约）」小节含六条规矩；红线第 3 条改写）",
+        "skills/quickforge-api/references/endpoints.md（DELETE 进白名单并标注参数、task-add 请求体补 createdBy、禁止清单改为条件式）",
+        "tests/server/scheduled-tasks.execution.test.mjs（新增 7 例：createdBy 默认 user / 显式 agent / 非法值回落 / agent 删用户任务 403 / UI 不带参数仍可删 / 存量任务 403 / 自约任务连运行历史一起删）",
+        "tests/server/system-prompt.test.mjs（新增 1 例：无 skill、其它 skill 不注入，有 quickforge-api 才注入且含关键约束）",
+        "tests/server/runtime-info.test.mjs（守门测试改为钉死 DELETE 唯一出口与新参数）",
+        "docs/architecture/self-evolution-loop.zh-CN.md（新增 §10 落地进展与取舍记录）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "定向：`npx vitest run tests/server/system-prompt.test.mjs tests/server/scheduled-tasks.execution.test.mjs` → 2 files / 60 passed（execution 由 41 增至 48）。server 全量：`npx vitest run tests/server` → 212 files / 2273 passed、1 skipped、0 failed。全量：`npm run test` → 505 files / 5608 passed、1 skipped、0 failed。`npm run lint` → 0 problems。`npm run build` → 通过（tsc -b + vite build 1.69s，precompress 225 files 12.67MB → 6.49MB，仅既有 chunk 体积警告）。脚本 `node --check` 通过、`--help` 输出含 task-delete 与 --self-scheduled。中途失败过一次 `runtime-info.test.mjs`（它断言脚本无 DELETE），已按新边界改写而非删除。未做真实实例验收（未在运行中的 QuickForge 上真建任务），未触碰 dist/、package-dist/、package-offline/，未创建 commit。",
+      "updatedAt": "2026-11-10",
+      "boundaries": "① 前端未改：设置页「定时任务」列表不显示 `createdBy`，自约任务只能靠 `[自约]` 标题前缀辨认；② `pause`/`resume` 未加同样的范围限制，agent 仍可暂停用户的任务（可逆，风险低）；③ 服务端的 `selfScheduledOnly=1` 是**声明式**校验——模型若绕过脚本直接 curl 不带参数，仍能删用户任务，这与该 skill 现有安全模型一致（脚本是唯一出口 + 红线禁止 curl），不是新开的口子但也不是强沙箱；④ `<continuity>` 属内核级改动，改它需要人审，本次未加设置开关——只要 `quickforge-api` skill 启用即注入；⑤ 未验证模型实际行为（会不会真的排班、排得对不对），那需要实机跑几天。"
+    },
+    {
+      "id": "quickforge-api-skill-endpoints-sync",
+      "title": "补齐 quickforge-api 白名单文档：补上整块定时任务端点 + 脚本读自身状态/模型目录的两处漏记",
+      "status": "done",
+      "summary": "用户结论是「先不要自加权限，先把 skill 补齐」——即不新增 `createdBy` 字段、不给 `task-delete` 出口，只把文档与脚本对齐。起因是核查「让 AI 自己用定时任务给自己排班」时发现 `references/endpoints.md` 自称「这张表同时也是安全边界」，却完全没有定时任务这一块（`grep scheduled-tasks` 命中 0），而脚本已有 7 个 task 子命令、5 个端点。做了一次完整对账而不是只补定时任务：把 `qf-api.mjs` 里所有 API 字符串字面量提取出来和白名单表逐条比对，共 22 个子命令 / 22 个端点。补齐三类：① 新增「## 定时任务」整节（`GET /api/scheduled-tasks`、`POST /api/scheduled-tasks`、`/parse`、`/runs`、`/:id/pause|resume|run`），并记下 `modelRef` 必填否则 400、`task-run` 同步阻塞且超时只断本地连接；② 只读表补 `GET /api/agents/:id/state`（`spawn` 继承思考档、`task-add` 绑定同一模型都依赖它，会话被驱逐时 404）与 `GET /api/models/catalog`（`task-add --model` 收目录里的模型 id）；③ 禁止清单补 `DELETE /api/scheduled-tasks/:id`（会先删掉全部运行历史再删本体，不可逆）与 `PUT/PATCH /api/scheduled-tasks/:id`（覆盖用户排好的日程）。另外补了两条此前没写下来的事实：文件头加反向约束「脚本新增调用也要同步进表，表和脚本不一致时它就不再是安全边界，而『说明里没写』最容易被下一个人或模型当成漏了顺手补上」；定时任务一节写明**任务会话的权限不来自任务本身，而是读全局 `yolo-mode`**——全局开着就是完全访问，全局没开就每步等审批而无人值守时没人点，所以排任务要按两种设置下都不卡住来设计，优先只读只产报告。",
+      "files": [
+        "skills/quickforge-api/references/endpoints.md（58 行 → 85 行：只读表 +2、新增定时任务整节 +19、禁止清单 +2、文件头 +3）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "两级自动对账（python 脚本，一次性，未落盘）：① 命令级——从 `qf-api.mjs` 的 `case '<name>':` 提取 22 个子命令，逐个检查是否在 `endpoints.md` 与 `SKILL.md` 里出现，结果均为「无遗漏」（`task-pause`/`task-resume` 在 SKILL.md 合并为一行，已按该写法计入）；② 路径级——提取脚本里 22 个 `/api/...` 字面量路径，与文档记录的 34 个路径做段级比对（`:id` 段可匹配任意段，`*` 通配可覆盖余部），结果「脚本调用的每个端点，白名单文档都有记录」。纯文档改动，无运行时代码变化，未跑 test/lint/build（eslint 不覆盖 markdown）。未触碰 dist/、package-dist/、package-offline/，未创建 commit。",
+      "updatedAt": "2026-11-10",
+      "boundaries": "只补文档：**没有**新增 `task-delete` 子命令、**没有**给任务加 `createdBy` 字段、**没有**改服务端 DELETE 校验、**没有**改 `qf-api.mjs` 一行。删除定时任务仍明确不给出口（红线第 3 条保持原样）。因此「AI 自己排班 + 自清理」这条链路仍未打通，缺的正是被用户暂缓的删除能力。"
+    },
+    {
+      "id": "self-evolution-loop-architecture-doc",
+      "title": "新增架构文档：自进化回路的六环契约与三档影响半径（纯文档，未落地）",
+      "status": "done",
+      "summary": "用户问「这个项目有没有自进化的空间」，先答了具体可做项，用户指出答复陷入了代码位置与功能罗列、要求系统性的架构。于是改成按控制回路切分，落地为 `docs/architecture/self-evolution-loop.zh-CN.md`：① 把自进化拆成六环（目标 / 感知 / 诊断 / 生成 / 验证 / 准入）+ 两横切（回滚 / 预算），逐环给出「回答的问题 / 产出 / 失效症状」；② 三条架构约束——C1 最弱环决定上限且顺序不可补偿（推论：优化顺序必须从后往前）、C2 验证者必须与生成者隔离（上下文 / 工具 / 判据三个维度，引用 `memory-system` 已有的「边界是硬的，不靠提示词自觉」作先例）、C3 准入按影响半径而非对错分级；③ 三档半径与闸门：R0 自留地（路径锁死 + 整轮快照 + 无删除 → 可无人值守）、R1 工作区（独立验证者 + 待审 diff + 可整批丢弃 + 构建产物驳回 → 自动产出人审入库）、R2 内核（系统提示词 / 记忆格式 / 工具集与白名单 / 权限默认值 / 本文半径分级本身 → 禁止自动化），核心判据是「自治程度上限由影响半径决定，不由判断力决定，即用半径换自治」；④ 现状对照表（唯一的断点在第 ⑤ 环验证：没有程序化的判定消费者，exit code 交给人眼看日志）；⑤ 六个判定用例，给出「先看半径再看环」的读法；⑥ 落地路线 0–5 步，明确第 2 步的价值是拿到诊断命中率数字而非自动改代码；⑦ 开放问题三条（意志不可执行、判据隔离依赖目标可执行、系统自我描述与实际行为不一致 = 验证者脏输入，附三处已知同类缺陷）与「不做什么」五条。",
+      "files": [
+        "docs/architecture/self-evolution-loop.zh-CN.md（新增，190 行）",
+        "docs/wiki/README.md（架构与设计文档表格新增一行导航，标注设计文档未落地）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "纯文档改动，无运行时代码变化，未跑 test/lint/build（eslint 不覆盖 markdown，三件套对本改动无信息量）。匹配的检查：正文三处相对链接 `memory-system.zh-CN.md` / `workflow-orchestration.zh-CN.md` / `custom-agents-design.zh-CN.md` 逐个确认目标文件存在，另有一处锚点 `memory-system.zh-CN.md#2-三层结构` 对应其第 15 行 `## 2. 三层结构`。未触碰 dist/、package-dist/、package-offline/，未创建 commit。",
+      "updatedAt": "2026-11-10",
+      "boundaries": "只写判据与边界，不落地任何代码：没有新增验证工具、没有改 goal 证据门禁、没有动 hooks 配置、没有修 §8.3 列出的三处「自我描述与实际行为不一致」缺陷。文档里对现状的描述基于同一次会话的只读调研（explore subagent 报告 + 亲自复核 `<working_memory>` 双重注入在 `server/system-prompt.mjs` 169-186 与 188-205 两段），未逐条复跑全部现状断言。"
+    },
+    {
       "id": "draft-restore-on-refused-send",
       "title": "服务端拒绝发送时草稿丢失：prompt 已改为返回 boolean，发送流程仍在等它抛异常",
       "status": "done",

@@ -139,6 +139,10 @@ describe('system prompt', () => {
     expect(prompt).toContain('When you feel a task is finished')
     expect(prompt).toContain('an empty folder is perfectly fine')
     expect(prompt).toContain('Never store passwords, keys, tokens, credentials, or sensitive file contents')
+    // Exactly one block: the prompt used to carry a second, older copy that told the
+    // model to reach the folder through run_command instead of the memory tools.
+    expect(prompt.match(/<working_memory>/g)).toHaveLength(1)
+    expect(prompt).not.toContain('list the folder with run_command')
     // The note rules are embedded verbatim (escaped for the XML-ish block).
     expect(prompt).toContain('One note per topic &lt;the name is the summary&gt;')
     expect(prompt).not.toContain('<the name is the summary>')

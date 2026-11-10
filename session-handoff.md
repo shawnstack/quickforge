@@ -9,9 +9,14 @@
   3. 本条所在的状态文件（`feature_list.json`、`progress.md`、`session-handoff.md`）单独一条 `chore(meta)`，避免元数据和代码混在一起。
 - Evidence（验证）：提交前跑定向测试 `npx vitest run tests/server/system-prompt.test.mjs tests/server/scheduled-tasks.execution.test.mjs tests/server/runtime-info.test.mjs` → 3 files / 70 passed。每次提交触发 husky 的 `npm run lint`，两次均 0 problems。Vite/vitest 未跑全量（本批改动与上次交接记录的全量结果一致，未新增改动）。
 - 未做：未 push、未打 tag、未发布；`dist/`、`package-dist/`、`package-offline/` 未触碰。
-- 已派班次：`[自约] 核实三处系统自我描述与实际行为不一致`（id `mwb165z6-89ea3lvw`，`once` 2026-11-11 09:00，`createdBy: agent`，模型/思考档继承本会话 → `deepseek-v4-flash` / `xhigh`）。内容是 **R0 只读**核实 + 出报告，明确禁止改那三处（属 R2 内核，需人审）、禁止 commit。派之前已核实三条缺陷里两条仍成立：`server/system-prompt.mjs` 174-185 与 193-204 双重注入 `<working_memory>`；`qf-api.mjs:32` 派生会话默认 `full-access`。
-- **验收看三件事**（这条班次同时是 `<continuity>` 的首次实机验证）：① 9 点后 `task-runs --taskId mwb165z6-89ea3lvw` 有记录且不是空跑；② 报告文件 `docs/architecture/self-evolution-cleanup-audit.zh-CN.md` 生成，第三条 Goal v2 的结论有行号证据；③ 任务被它自己 `task-delete` 掉了、且工作记忆留了一条。三件缺任何一件，说明提示词的「认领自己 / 收尾自删」环节没生效，要回去改 `<continuity>` 措辞。
-- 下一步：实机验收仍然是最紧要的一件。单测只能证明注入条件和格式，证明不了模型真的会照做。
+- 已派班次 → 已撤回：原本建了一条 `[自约]` 班次（09:00，R0 只读核实），随后用户指出「排太晚了，你能做的很快，马上就能做」，于是 `task-delete` 掉、当场干完。这是个判断失误：**能立刻做完的事不该外包给未来的自己**，排班只该留给「本次做不完」的活。
+- 三处「系统自我描述与行为不一致」的结论（2026-11-11，全部收敛）：
+  1. `<working_memory>` 双重注入 → **成立，已修**：删掉第二份（走 `run_command` 的旧实现），保留走记忆工具的那份；补回一条仍适用的文件名规则（避开 `/ \ : * ? " < > |`）；`tests/server/system-prompt.test.mjs` 加断言钉死「只出现一次」且不许再出现 `list the folder with run_command`。
+  2. `spawn` 默认 `full-access` → **成立但不是 bug**：用户明确要最大权限，`--access-mode default` 可覆盖；从缺陷清单降级为**已知取舍**。
+  3. Goal v2「经证据检查」→ **描述错了，不是行为错了**：v2 没有规划轮、没有证据门禁（`server/goal/runner.mjs:125`、`engine.mjs:69` 注释直说），改 `docs/wiki/README.md` 对齐代码，代码不动。
+- Evidence（验证）：`npx vitest run tests/server` → 212 files / 2273 passed、1 skipped、0 failed；`tests/server/system-prompt.test.mjs` 12 passed（含新断言）；`npm run lint` → 0 problems（中途一次 `no-useless-escape` 警告已修）。
+- 未做：**未重启 QuickForge**，所以新提示词还没真正进到运行中的会话——本轮会话自己仍带着旧的双份 `<working_memory>`，看下一段会话是否只剩一份即可验证；未跑前端测试（未触碰前端）。
+- 下一步：`<continuity>` 的实机验收仍未做（这条班次被撤了）。要验就再建一条，但**只该给本次做不完的活排班**。
 
 ## 当前交接：self-scheduled-shift-continuity（done，2026-11-10）
 

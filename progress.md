@@ -2,6 +2,20 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## self-description-drift-cleanup（done，2026-11-11）
+
+- 起因：架构文档 §8.3 记了三处「系统说自己是 A，实际干的是 B」，并判定它们是 ⑤ 环验证的前置清洁项——裁决者读到的状态是脏的，任何验证结论都不可信。原本打算排个 09:00 的班次让未来的我去做，用户看到后说「你做得很快，马上就能做」，于是撤掉班次当场做完。
+- 结论（三条，逐条核实）：
+  1. **`<working_memory>` 双重注入 → 成立，已修。** `server/system-prompt.mjs` 里注入了两遍：第一份（169-186）要求走 `list_memory_notes` / `read_memory_note` 等记忆工具；第二份（188-205）是旧实现的残留，要求用 `run_command` 加绝对路径、甚至用 `mv` + `cat <<EOF` 拼写入。两套并排等于让模型自己挑一套，而工具路径才是真正能用的那个（记忆目录在工作区之外，`write_file` 到不了）。删第二份，保留第一份；第二份独有的「文件名避开 `/ \ : * ? " < > |`」仍适用，补回第一份。
+  2. **`spawn` 默认 `full-access` → 成立，但不是 bug。** 用户明确要最大权限，脚本早就有 `--access-mode default` 可覆盖。从缺陷清单降级为已知取舍——**把「用户已授权的取舍」写成「缺陷」，本身也是一种自我描述不准**。
+  3. **Goal v2「complete 经证据检查」→ 描述错了，不是行为错了。** `server/goal/runner.mjs:125` 写着「DSH has no planning phase; every round is an execution round」，`engine.mjs:69` 写着「v2 has no planning phase and no evidence gate」；v2 的 `update_goal complete` 是模型自声明路径，`goal_report` 那套 plan + criteria + evidence 强校验只属于 legacy 引擎。所以改的是 `docs/wiki/README.md`，代码一行没动。
+- 防回归：`tests/server/system-prompt.test.mjs` 加两条断言——`<working_memory>` 只出现一次、且不许再出现 `list the folder with run_command`。原用例只断言「存在」，所以重复注入能活这么久。
+- Evidence（验证）：`npx vitest run tests/server` → 212 files / 2273 passed、1 skipped、0 failed；`system-prompt.test.mjs` 12 passed；`npm run lint` → 0 problems（首次有个 `no-useless-escape`，是我写的反斜杠没转义，改成 `\\` 清零）。
+- Notes：
+  - **判断失误记一笔**：这件事一次会话就能做完，我却先排了个班。`<continuity>` 里「本次做不完才排」这条判据是对的，是我没照它执行。
+  - **未重启服务**：新提示词还没进到运行中的 QuickForge，本会话仍加载旧的双份块。下一段新会话里只看到一份才是实机确认。
+  - Goal v2 只改了描述、没加门禁。真要加是新增闸门（属 R2 内核），得单独决策，别顺手补。
+
 ## self-scheduled-shift-continuity（done，2026-11-10）
 
 - 起因：用户希望 AI「偶尔主动说想做一些事」。核查后发现零件全在（skill 已有 `task-add`/`spawn`/`task-run`），缺三样：没人告诉它可以给自己排班、它没有自我识别方式、以及能建不能删（自举会堆出自己删不掉的东西）。用户明确要求按 v2 全链路实现（含自清理）。

@@ -173,7 +173,7 @@ ${escapeXml(instructions.experiences.index)}
     parts.push(`
 <working_memory>
 Working memory is a shared folder of short notes outside this workspace: ${escapeXml(instructions.workingMemory.displayPath || instructions.workingMemory.path)}
-Each file is one note, and its file name is the note's summary in one sentence, so listing the folder is the cheapest way to see what is already known. Open only the notes whose names look relevant.
+Each file is one note, and its file name is the note's summary in one sentence, so listing the folder is the cheapest way to see what is already known. Open only the notes whose names look relevant. Keep the file name free of / \\ : * ? " < > | so the note stays openable everywhere.
 
 Reach it with the memory tools, not the workspace ones: list_memory_notes, read_memory_note, write_memory_note, move_memory_note, all with scope "working". read_file / write_file / edit_file cannot reach this folder because it is outside the workspace.
 
@@ -185,24 +185,6 @@ Never store passwords, keys, tokens, credentials, or sensitive file contents her
 </working_memory>`)
   }
 
-  if (instructions.workingMemory?.enabled) {
-    const noteRules = instructions.workingMemory.prompt
-      ? `\n\nNote style and format:\n${escapeXml(instructions.workingMemory.prompt)}`
-      : ''
-    parts.push(`
-<working_memory>
-Working memory is a shared folder of short notes outside this workspace: ${escapeXml(instructions.workingMemory.path)}
-Each file is one note, and its file name is the note's one-sentence summary, so listing the file names is the cheapest way to see what is already known.
-
-How to use it:
-- Before starting non-trivial work, list the folder with run_command and read only the notes whose titles look relevant. Do not read every file.
-- read_file / write_file / edit_file cannot reach this folder because it is outside the workspace. Use run_command with absolute paths instead: ls / cat / mkdir -p / mv on macOS and Linux, dir / type / move on Windows. Creating or renaming files may require approval; keep it to one command when possible.
-- When the work produced something worth reusing (a decision, a conclusion, a pitfall, a next step), write or update one note. Prefer updating an existing note over creating a near-duplicate.
-- Keep the file name equal to the note's one-sentence summary, and rename the file when that summary changes. Avoid / \\ : * ? " < > | in file names, and quote paths in shell commands.
-- Combine writing and renaming into one shell command when possible (for example mv then cat > ... <<'EOF'), so the change needs a single approval.
-- Never store passwords, keys, tokens, credentials, or sensitive file contents in working memory.${noteRules}
-</working_memory>`)
-  }
 
   const skills = Array.isArray(instructions.skills)
     ? instructions.skills

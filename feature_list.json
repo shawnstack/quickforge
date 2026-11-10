@@ -1,6 +1,24 @@
 {
   "features": [
     {
+      "id": "self-description-drift-cleanup",
+      "title": "收敛三处「系统自我描述与实际行为不一致」：工作记忆重复注入、派生会话默认权限、Goal v2 证据门禁",
+      "status": "done",
+      "summary": "架构文档 §8.3 把这类缺陷定义为「⑤ 环的前置清洁项，放大任何半径之前必须清零」——系统声称的行为和它实际的行为不同，任何裁决者读到的状态都是脏的。三处逐条核实并收敛：① `<working_memory>` 在 `server/system-prompt.mjs` 注入了两遍（169-186 与 188-205），两段用法互相矛盾——一段要求走 `list_memory_notes` 等记忆工具，另一段是旧实现，要求用 `run_command` 绝对路径 + shell 拼 `mv`/`cat`。后一份是残留，删掉；它独有的「文件名避开 `/ \\ : * ? \" < > |`」这条在工具路径下仍适用，补回第一份。`tests/server/system-prompt.test.mjs` 加断言 `<working_memory>` 只出现一次、且不再出现 `list the folder with run_command`，防止再长出来。② `spawn` 默认 `full-access`：核实成立，但**不是 bug 是取舍**——用户明确要求给最大权限，且脚本已提供 `--access-mode default` 覆盖；从缺陷清单降级为已知取舍。③ Goal v2「complete 经证据检查」：读 `server/goal/runner.mjs:125`「DSH has no planning phase; every round is an execution round」与 `server/goal/engine.mjs:69`「v2 has no planning phase and no evidence gate」确认**是描述错了，不是行为错了**；v2 的 `update_goal complete` 是模型自声明路径（`goal_report` 的 plan+criteria+evidence 强校验只属 legacy），改 `docs/wiki/README.md` 对齐代码，代码一行不动。",
+      "files": [
+        "server/system-prompt.mjs（删除第二份 <working_memory> 注入块共 18 行；第一份补回文件名非法字符规则）",
+        "tests/server/system-prompt.test.mjs（新增 2 条断言：只注入一次、旧 run_command 指引不得复现）",
+        "docs/wiki/README.md（Goal v2 描述改为：无规划轮、无证据门禁、update_goal complete 为模型自声明）",
+        "docs/architecture/self-evolution-loop.zh-CN.md（§8.3 三条缺陷改为带结论与处理的表格）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "`npx vitest run tests/server` → 212 files / 2273 passed、1 skipped、0 failed。`tests/server/system-prompt.test.mjs` → 12 passed（新断言并入现有用例）。`npm run lint` → 0 problems（首次出现 1 个 `no-useless-escape` 警告：新增文件名规则里的反斜杠未转义，改成 `\\\\` 后清零）。改动集中在 composeSystemPrompt，未触碰前端与生成产物，未创建 commit/tag/push。",
+      "updatedAt": "2026-11-11",
+      "boundaries": "① 未重启运行中的 QuickForge，所以新提示词尚未进入正在运行的服务，本轮会话本身仍加载着旧的双份块——下一段新会话里只看到一份才算实机确认；② Goal v2 只改描述没有加门禁：如果希望 v2 也强制证据，那是新增闸门（R2 内核改动），需要单独决策；③ `spawn` 的 `full-access` 默认值按用户授权保留，未改代码；④ 未新增或升级任何依赖。"
+    },
+    {
       "id": "self-scheduled-shift-continuity",
       "title": "给 AI 注入「可以给自己排班」的存续提示词，并让自约任务能自己收掉（createdBy + task-delete）",
       "status": "done",

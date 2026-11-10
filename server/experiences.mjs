@@ -25,9 +25,10 @@ import { openPathInFileManager } from './utils/platform.mjs'
  * into this folder, where it stops being project chatter and becomes a procedure.
  *
  * The folder is global (shared by every project) and lives next to MEMORY.md.
- * `index.md` is generated from the files, never hand-written: every entry carries
- * a `- 何时用：` line, and the index is that line plus the file name. Because both
- * come from the same file there is nothing to keep in sync.
+ * `index.md` is generated from the files, never hand-written: one bullet per note,
+ * and that bullet is the file name. The name already is the conclusion in one
+ * sentence, so the index repeats nothing, and because it is read from the file there
+ * is nothing to keep in sync.
  */
 
 export const EXPERIENCES_DIR_NAME = 'experiences'

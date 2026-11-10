@@ -272,8 +272,13 @@ export async function writeNoteFile(dir, name, content) {
 }
 
 /**
- * The content a note should have after being renamed, or `null` when nothing needs
- * to change (no front matter title, or it already matches the new name).
+ * What a note's content should become after being renamed.
+ *
+ * Three outcomes, because two of them used to look identical from the outside:
+ * `skip` = nothing to rewrite (no front matter title, or it already matches);
+ * `unsafe` = the title needs to change but `setFrontmatterScalar` refused to touch
+ * it (a block scalar keeps its value on the following lines, so editing the key
+ * line would leave the old title behind); `ok` = the rewritten content.
  *
  * The file name is the one title that always exists; the front matter `title` is its
  * copy, which is why `writeNoteFile` refuses a mismatch. Moving the file alone would
@@ -286,11 +291,15 @@ async function retitledNoteContent(file, toName) {
   try {
     content = await fs.readFile(file, 'utf8')
   } catch {
-    return null
+    // Unreadable means "cannot tell", and the note was reachable a moment ago;
+    // treating it as `skip` keeps the old behaviour instead of guessing.
+    return { status: 'skip' }
   }
   const declaredTitle = noteFrontmatterTitleOf(content)
-  if (!declaredTitle || declaredTitle === targetTitle) return null
-  return setFrontmatterScalar(content, ['title', '标题'], targetTitle)
+  if (!declaredTitle || declaredTitle === targetTitle) return { status: 'skip' }
+  const updated = setFrontmatterScalar(content, ['title', '标题'], targetTitle)
+  if (updated === null) return { status: 'unsafe' }
+  return { status: 'ok', content: updated }
 }
 
 /** Atomically replace an existing note's content, preserving its trailing newline. */
@@ -313,8 +322,9 @@ async function replaceNoteFileContent(file, text) {
  *
  * `titleSynced` reports whether the front matter `title` had to be rewritten to
  * follow the file name: `null` = nothing to do, `false` = the rename happened but
- * the copy could not be updated (the note is left exactly as it was before this fix,
- * so callers can surface it instead of pretending the note is still writable).
+ * the copy could not be updated (a block scalar title, or a failed write), so the
+ * note is left exactly as it was before this fix — callers have to surface it,
+ * because the note cannot be written again until that header is fixed.
  */
 export async function moveNoteFile(dir, from, to) {
   const fromName = normalizeNoteName(from)
@@ -348,10 +358,11 @@ export async function moveNoteFile(dir, from, to) {
   }
   const retitled = await retitledNoteContent(sourceFile, toName)
   await fs.rename(sourceFile, targetFile)
-  if (retitled === null) return { changed: true, name: toName, archived, titleSynced: null }
+  if (retitled.status === 'skip') return { changed: true, name: toName, archived, titleSynced: null }
   // The rename already succeeded, so a failure here must not be reported as "the move
   // failed" — the note is in the right place and readable, only the title is stale.
-  const titleSynced = await replaceNoteFileContent(targetFile, retitled).then(() => true).catch(() => false)
+  if (retitled.status === 'unsafe') return { changed: true, name: toName, archived, titleSynced: false }
+  const titleSynced = await replaceNoteFileContent(targetFile, retitled.content).then(() => true).catch(() => false)
   return { changed: true, name: toName, archived, titleSynced }
 }
 

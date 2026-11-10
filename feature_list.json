@@ -2634,30 +2634,30 @@
       "boundaries": "不改梦境定时机制、不改快照/回滚、不改四个记忆工具的参数契约；索引上限仍是 200 行 / 20000 字符。未给经验加「项目 id」字段——「（特殊）」只是提示，特殊条目仍会出现在别的项目的索引里，按项目过滤是另一件事。迁移只做格式搬运，未改写任何一条经验的办法内容；三篇原本没有「何时用」bullet 的经验，`description` 取自它们自己的「症状」段。"
     },
     {
-    "id": "quickforge-api-skill",
-    "title": "内置 skill `quickforge-api`：让 Agent 用本机 HTTP API 自省并操作自己",
-    "status": "done",
-    "summary": "用户要一个内置 skill 驱动 QuickForge 本地 API，让 Agent「自己操作自己」。先做的只读调研定了两件事实：① 本地 API 已闭环（`POST /api/agents/:id` 建会话 → `/prompt` → `/messages` → `/abort`），sessionId 由调用方生成；② 但 Agent 不知道自己是谁——系统提示词只给项目名/路径/项目 id，拿不到自己的 sessionId，也不知道 API 端口，而且没有任何内置工具能发 HTTP（`run_command` + curl 要走审批）。另有一条硬约束：给自己发 prompt 必然 409 `GENERATION_ALREADY_RUNNING`，所以「自己操作自己」不是自我对话循环，真实价值是自省、改自己的标题/模型/思考档/goal、派生子会话干活、回看自己实际收到的提示词。落地成三块：① `server/runtime-info.mjs` 在进程内记 `{host,port,baseUrl}`（**不落盘**——dev 32176 与正式 5176 同时运行、自定义端口不可预期，共用文件只会互相覆盖），`server/index.mjs` 在 listen 回调 `setRuntimeInfo()`，`toolRunCommand` 的 spawn 传 `env: buildChildProcessEnv(context)` 注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`；② 内置 skill `skills/quickforge-api/`：`SKILL.md`（何时用、命令表、红线、报错对照、配方）+ 零依赖 `scripts/qf-api.mjs`（15 个子命令，每个映射一个写死的端点，**不接受任意 method/path**）+ `references/endpoints.md`（白名单速查 + 明确不给出口的端点）；③ `defaultGlobalSkillNames` 加 `quickforge-api` 并把迁移标记升到 `.default-skills-v2`，否则 v1 marker 已存在、存量安装永远看不到它。安全边界画在脚本层：不给 `DELETE /api/agents/*`、`access-mode`/`yolo-mode`、`lan-access`、`terminal`、`backup`、`plugins`、`mcp`、会话级 SSE（单连接，抢了会踢掉用户页面，改用轮询 `status`）。理由是 `server/access-policy.mjs` 里本机回环即认证、没有 token，通用 HTTP 出口等于把破坏性端点一起交出去。",
-    "files": [
-      "server/runtime-info.mjs（新增：setRuntimeInfo / getRuntimeInfo / clearRuntimeInfo / buildChildProcessEnv；wildcard host 归一化成 127.0.0.1，非法端口返回 null）",
-      "server/index.mjs（listen 回调里 setRuntimeInfo({ host, port: boundPort })）",
-      "server/tools/index.mjs（toolRunCommand 的 spawn 传 env: buildChildProcessEnv(context)）",
-      "server/skills.mjs（defaultGlobalSkillNames 加 quickforge-api；marker `.default-skills-v1` → `.default-skills-v2`）",
-      "skills/quickforge-api/SKILL.md（新增）",
-      "skills/quickforge-api/scripts/qf-api.mjs（新增，零依赖）",
-      "skills/quickforge-api/references/endpoints.md（新增）",
-      "tests/server/runtime-info.test.mjs（新增，10 例）",
-      "tests/server/skills.test.mjs（默认启用列表断言改为三项）",
-      "docs/architecture/quickforge-api-skill.zh-CN.md（新增）",
-      "docs/wiki/README.md（架构文档表加一行）",
-      "docs/wiki/server/README.md（内置 skill 清单、marker v2、quickforge-api 说明）",
-      "feature_list.json",
-      "progress.md",
-      "session-handoff.md"
-    ],
-    "verification": "npx vitest run tests/server → 212 files / 2259 tests：2255 passed、3 failed、1 skipped。3 个失败（`acp/server.workspace-mapping.test.mjs` 2 例 `setActiveProjectPath` 返回 undefined、`sqlite-quick-check-gate.test.mjs` 1 例缓存语义）与前序会话记录的既有基线一致，单独复跑 `sqlite-quick-check-gate` 仍是 1 failed，且两者都不引用本次改动的模块。定向 `npx vitest run tests/server/runtime-info.test.mjs tests/server/skills.test.mjs` → 14 passed，包含真的 spawn 子进程读 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` 的端到端断言。`npx eslint`（7 个改动文件）→ 0 problems。`npm run build` → 通过（仅既有 chunk 体积警告）。手工冒烟（本机运行实例 5176）：`whoami` / `agents` / `sessions` / `skills` / `instructions` 全部返回预期结构。未创建 Git commit、未推送、未触碰 `dist/`（gitignored）/ `package-dist` / `package-offline`。**自评审（只读）后又修了 1 个 P1**：`ensureDefaultGlobalSkills` 升 marker 到 v2 时重放了整份默认名单，会把用户手动取消过的旧默认（如 `plugin-creator`）重新打开——本机实测 `globalSkills` 只有 `['skill-creator']`，重启后必然被改成三项。修法：新增 `defaultSkillsIntroducedInV2`，v1 marker 存在时只补 `quickforge-api`。补了一条回归测试，`tests/server/skills.test.mjs` → 5 passed；server 全量 → 212 files / 2260 tests，2256 passed、3 failed（同一基线）、1 skipped。",
-    "updatedAt": "2026-11-10",
-    "boundaries": "**用户对三个设计选项没有回答（等待超时），按推荐项落地：方案 B（skill + 脚本 + 身份注入）、能力档位 3（自省 + 改自己设置 + 派生子会话并驱动）、升级默认 marker 让存量安装也自动启用。**若要改成只读或不让老用户自动获得，回退点很小：删 `defaultGlobalSkillNames` 里的 `quickforge-api`、把 marker 退回 v1；能力面收窄就删 `qf-api.mjs` 对应子命令。不给脚本加任意 path/method 参数是故意的，扩能力必须同时更新 `references/endpoints.md` 与黑名单测试。运行时信息只存进程内存、不落盘，外部程序读不到——这是为多实例正确性做的取舍。新增子命令时要留意 `/api/agents` 列表项比 `/api/agents/:id/status` 窄，两者形状不能混用。改完需要重启运行中的实例才生效（注入与默认启用都在服务端）。**自评审留下未修的项**：P2-1 ACP/stdio 入口不起 HTTP，那条链上 `setRuntimeInfo` 永远为空，身份注入缺失（降级不崩，但 SKILL.md 没写明这一点）；P2-2 `qf-api.mjs:308/328` 只看 `typeof content === 'string'`，多模态消息的 block 数组会被静默丢成 `preview: null`；P2-3 `wait` 轮询 `/api/agents/:id/status` 会经 `restoreAgent` 唤醒冷会话（`show` 不会），两个命令语义不一致；P3 四条（`<skill-dir>` 占位符来源未解释、description 触发词过宽易误激活、pid warning 措辞诱导模型猜端口、测试里两条脆弱断言）。待确认：Windows 上 `{...process.env}` 展开的 PATH 大小写问题（需真机实测）。"
+      "id": "quickforge-api-skill",
+      "title": "内置 skill `quickforge-api`：让 Agent 用本机 HTTP API 自省并操作自己",
+      "status": "done",
+      "summary": "用户要一个内置 skill 驱动 QuickForge 本地 API，让 Agent「自己操作自己」。先做的只读调研定了两件事实：① 本地 API 已闭环（`POST /api/agents/:id` 建会话 → `/prompt` → `/messages` → `/abort`），sessionId 由调用方生成；② 但 Agent 不知道自己是谁——系统提示词只给项目名/路径/项目 id，拿不到自己的 sessionId，也不知道 API 端口，而且没有任何内置工具能发 HTTP（`run_command` + curl 要走审批）。另有一条硬约束：给自己发 prompt 必然 409 `GENERATION_ALREADY_RUNNING`，所以「自己操作自己」不是自我对话循环，真实价值是自省、改自己的标题/模型/思考档/goal、派生子会话干活、回看自己实际收到的提示词。落地成三块：① `server/runtime-info.mjs` 在进程内记 `{host,port,baseUrl}`（**不落盘**——dev 32176 与正式 5176 同时运行、自定义端口不可预期，共用文件只会互相覆盖），`server/index.mjs` 在 listen 回调 `setRuntimeInfo()`，`toolRunCommand` 的 spawn 传 `env: buildChildProcessEnv(context)` 注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`；② 内置 skill `skills/quickforge-api/`：`SKILL.md`（何时用、命令表、红线、报错对照、配方）+ 零依赖 `scripts/qf-api.mjs`（15 个子命令，每个映射一个写死的端点，**不接受任意 method/path**）+ `references/endpoints.md`（白名单速查 + 明确不给出口的端点）；③ `defaultGlobalSkillNames` 加 `quickforge-api` 并把迁移标记升到 `.default-skills-v2`，否则 v1 marker 已存在、存量安装永远看不到它。安全边界画在脚本层：不给 `DELETE /api/agents/*`、`access-mode`/`yolo-mode`、`lan-access`、`terminal`、`backup`、`plugins`、`mcp`、会话级 SSE（单连接，抢了会踢掉用户页面，改用轮询 `status`）。理由是 `server/access-policy.mjs` 里本机回环即认证、没有 token，通用 HTTP 出口等于把破坏性端点一起交出去。",
+      "files": [
+        "server/runtime-info.mjs（新增：setRuntimeInfo / getRuntimeInfo / clearRuntimeInfo / buildChildProcessEnv；wildcard host 归一化成 127.0.0.1，非法端口返回 null）",
+        "server/index.mjs（listen 回调里 setRuntimeInfo({ host, port: boundPort })）",
+        "server/tools/index.mjs（toolRunCommand 的 spawn 传 env: buildChildProcessEnv(context)）",
+        "server/skills.mjs（defaultGlobalSkillNames 加 quickforge-api；marker `.default-skills-v1` → `.default-skills-v2`）",
+        "skills/quickforge-api/SKILL.md（新增）",
+        "skills/quickforge-api/scripts/qf-api.mjs（新增，零依赖）",
+        "skills/quickforge-api/references/endpoints.md（新增）",
+        "tests/server/runtime-info.test.mjs（新增，10 例）",
+        "tests/server/skills.test.mjs（默认启用列表断言改为三项）",
+        "docs/architecture/quickforge-api-skill.zh-CN.md（新增）",
+        "docs/wiki/README.md（架构文档表加一行）",
+        "docs/wiki/server/README.md（内置 skill 清单、marker v2、quickforge-api 说明）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npx vitest run tests/server → 212 files / 2259 tests：2255 passed、3 failed、1 skipped。3 个失败（`acp/server.workspace-mapping.test.mjs` 2 例 `setActiveProjectPath` 返回 undefined、`sqlite-quick-check-gate.test.mjs` 1 例缓存语义）与前序会话记录的既有基线一致，单独复跑 `sqlite-quick-check-gate` 仍是 1 failed，且两者都不引用本次改动的模块。定向 `npx vitest run tests/server/runtime-info.test.mjs tests/server/skills.test.mjs` → 14 passed，包含真的 spawn 子进程读 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` 的端到端断言。`npx eslint`（7 个改动文件）→ 0 problems。`npm run build` → 通过（仅既有 chunk 体积警告）。手工冒烟（本机运行实例 5176）：`whoami` / `agents` / `sessions` / `skills` / `instructions` 全部返回预期结构。未创建 Git commit、未推送、未触碰 `dist/`（gitignored）/ `package-dist` / `package-offline`。**自评审（只读）后又修了 1 个 P1**：`ensureDefaultGlobalSkills` 升 marker 到 v2 时重放了整份默认名单，会把用户手动取消过的旧默认（如 `plugin-creator`）重新打开——本机实测 `globalSkills` 只有 `['skill-creator']`，重启后必然被改成三项。修法：新增 `defaultSkillsIntroducedInV2`，v1 marker 存在时只补 `quickforge-api`。补了一条回归测试，`tests/server/skills.test.mjs` → 5 passed；server 全量 → 212 files / 2260 tests，2256 passed、3 failed（同一基线）、1 skipped。",
+      "updatedAt": "2026-11-10",
+      "boundaries": "**用户对三个设计选项没有回答（等待超时），按推荐项落地：方案 B（skill + 脚本 + 身份注入）、能力档位 3（自省 + 改自己设置 + 派生子会话并驱动）、升级默认 marker 让存量安装也自动启用。**若要改成只读或不让老用户自动获得，回退点很小：删 `defaultGlobalSkillNames` 里的 `quickforge-api`、把 marker 退回 v1；能力面收窄就删 `qf-api.mjs` 对应子命令。不给脚本加任意 path/method 参数是故意的，扩能力必须同时更新 `references/endpoints.md` 与黑名单测试。运行时信息只存进程内存、不落盘，外部程序读不到——这是为多实例正确性做的取舍。新增子命令时要留意 `/api/agents` 列表项比 `/api/agents/:id/status` 窄，两者形状不能混用。改完需要重启运行中的实例才生效（注入与默认启用都在服务端）。**自评审留下未修的项**：P2-1 ACP/stdio 入口不起 HTTP，那条链上 `setRuntimeInfo` 永远为空，身份注入缺失（降级不崩，但 SKILL.md 没写明这一点）；P2-2 `qf-api.mjs:308/328` 只看 `typeof content === 'string'`，多模态消息的 block 数组会被静默丢成 `preview: null`；P2-3 `wait` 轮询 `/api/agents/:id/status` 会经 `restoreAgent` 唤醒冷会话（`show` 不会），两个命令语义不一致；P3 四条（`<skill-dir>` 占位符来源未解释、description 触发词过宽易误激活、pid warning 措辞诱导模型猜端口、测试里两条脆弱断言）。待确认：Windows 上 `{...process.env}` 展开的 PATH 大小写问题（需真机实测）。"
     },
     {
       "id": "frontmatter-title-follows-rename",
@@ -2666,16 +2666,17 @@
       "summary": "0a0b0905 给 `writeNoteFile` 加了「front matter `title` 必须与文件名逐字相同」的校验（不一致直接 400），而同一批改动又把经验笔记的标题搬进了 front matter，于是 `move_memory_note` 变成一步死棋：`moveNoteFile` 只做 `fs.rename`，内容一字不改，改名之后 `write_memory_note` 再写这篇必然撞上那条 `title` 校验，错误提示还写着「use move_memory_note to rename instead」——正是刚做过的事。连带影响：`noteHeadingOf` 现在优先读 front matter `title`，所以改名后索引/列表里显示的仍是旧标题，和文件名不一致，索引这条「文件名就是结论」的契约当场破掉。而 `server/dreaming/prompt.mjs` 明确教整理员「结论变了就用 move_memory_note 改名，绝不原地改标题」，这是夜间记忆整理员的主路径；本机 22 篇存量经验全都带 `title:`，属于活数据。修复放在存储层而不是调用层（工作记忆与经验库共用 `moveNoteFile`，两条路一起好）：改名成功后，若源文件带 front matter `title` 且与新文件名不同，就用 `setFrontmatterScalar` 只替换那一行的值并原子替换文件内容，body、`description`、`general` 一字不动；值里含 ` #` 或以 YAML 特殊字符开头时自动加双引号（否则解析回来会被当行内注释截断）。返回值新增 `titleSynced`：`null` = 本来没有或不用改，`true` = 已改写，`false` = 改名成功但标题没同步上（保持修复前的旧行为，不把已成功的命名动作报成失败）。没有 front matter title 的笔记（工作记忆的 `# 标题` 写法）完全不动内容，也不会被塞进一个 front matter 头。",
       "files": [
         "server/frontmatter.mjs（新增 formatYamlScalar / setFrontmatterScalar：按需加引号，只改指定 key 的值行，其余字节原样保留，CRLF 文件保留 CRLF）",
-        "server/note-store.mjs（moveNoteFile 改名后同步 front matter title；新增 retitledNoteContent / replaceNoteFileContent；三个返回点补 titleSynced）",
-        "tests/server/memory-notes.test.mjs（新增 4 例：改名后能继续写入 + 索引跟新名、归档时改名也同步、含 ` #` 的名字会自动加引号、纯 `# 标题` 的笔记内容一字不动）",
+        "server/note-store.mjs（moveNoteFile 改名后同步 front matter title；新增 retitledNoteContent / replaceNoteFileContent；三个返回点补 titleSynced；第二轮把「需要改但改不了」从 null 拆成 false）",
+        "server/tools/memory-notes.mjs（第二轮：抽出 describeMovedNote，titleSynced=false 时在工具回复里明说这篇再写会被拒、要先改 `title:` 行）",
+        "tests/server/memory-notes.test.mjs（新增 6 例：改名后能继续写入 + 索引跟新名、归档时改名也同步、含 ` #` 的名字会自动加引号、纯 `# 标题` 的笔记内容一字不动、块标量标题整份不动且报 false、改名文案在 false 时会提示）",
         "docs/architecture/memory-system.zh-CN.md（在 title 校验那条下面补一句：改名会顺手改写 title，返回值带 titleSynced）",
         "feature_list.json",
         "progress.md",
         "session-handoff.md"
       ],
-      "verification": "复跑修复前的复现脚本：改名后索引从 `- 旧结论（特殊）` 变成 `- 新结论（特殊）`，读回的正文是 `title: 新结论`，再 `writeExperience('新结论', 同一份内容)` 从 400 变为成功。`npx vitest run tests/server/memory-notes.test.mjs tests/server/dreaming-curator-agent.test.mjs tests/frontend/chat-surface-send.test.ts` → 3 files / 48 passed（memory-notes 从 22 例变 26 例）。全量 `npx vitest run` → 505 files / 5598 tests，5593 passed、4 failed、1 skipped；4 个失败与审查时记录的完全一致（`runtime-info.test.mjs` 1 例因在本会话内跑必然失败 + `sqlite-quick-check-gate` 1 例 + `acp/server.workspace-mapping` 2 例，三者均为既有基线），新增用例无一失败。`npx eslint server/frontmatter.mjs server/note-store.mjs tests/server/memory-notes.test.mjs` → 0 problems。未触碰 `dist/`、`package-dist`、`package-offline`。",
+      "verification": "复跑修复前的复现脚本：改名后索引从 `- 旧结论（特殊）` 变成 `- 新结论（特殊）`，读回的正文是 `title: 新结论`，再 `writeExperience('新结论', 同一份内容)` 从 400 变为成功。`npx vitest run tests/server/memory-notes.test.mjs tests/server/dreaming-curator-agent.test.mjs tests/frontend/chat-surface-send.test.ts` → 3 files / 48 passed（memory-notes 从 22 例变 26 例）。全量 `npx vitest run` → 505 files / 5598 tests，5593 passed、4 failed、1 skipped；4 个失败与审查时记录的完全一致（`runtime-info.test.mjs` 1 例因在本会话内跑必然失败 + `sqlite-quick-check-gate` 1 例 + `acp/server.workspace-mapping` 2 例，三者均为既有基线），新增用例无一失败。`npx eslint server/frontmatter.mjs server/note-store.mjs tests/server/memory-notes.test.mjs` → 0 problems。未触碰 `dist/`、`package-dist`、`package-offline`。**第二轮（自评审后修）**：`setFrontmatterScalar` 遇到 `title: |` 块标量时不再硬改键行（那样会在文件里留下孤立的旧标题），改为整份文件不动并报 `titleSynced: false`；`toolMoveMemoryNote` 抽出 `describeMovedNote`，`false` 时工具回复追加「这篇再写会被拒，先读出把 `title:` 行改成新名再存」——在此之前 `false` 只躺在 details 里，设置页不渲染、模型不看 content 就发现不了。`npx vitest run tests/server/memory-notes.test.mjs` → 28 passed（26 → 28）；`tests/server/tools/definitions.test.mjs` + `dreaming-curator` + `dreaming-curator-agent` → 35 passed；`npx eslint` 四个改动文件 → 0 problems。",
       "updatedAt": "2026-11-10",
-      "boundaries": "只修「改名后标题不同步」这一条，审查报告里的其余问题一个没动：`spawn` 默认 full-access（安全，P1）、工作记忆开关不重建已存在会话的工具集（P2）、关闭工作记忆后 `<experiences>` 段仍注入（P2）、`runtime-info` 测试断言外部环境变量（P2）、`--api` 不校验回环（P3）、`ensureDefaultGlobalSkills` 早退不写 v2 marker（P3）。同步只处理 `title` / `标题` 这一对 key，不新增 key、不改 body；值含换行时会放弃同步（文件名本身不允许控制字符，实际触发不了）。`titleSynced: false` 是静默降级路径，没有对应测试（要伪造写盘失败才能覆盖），排查时靠这个字段。"
+      "boundaries": "只修「改名后标题不同步」这一条，审查报告里的其余问题一个没动：`spawn` 默认 full-access（安全，P1）、工作记忆开关不重建已存在会话的工具集（P2）、关闭工作记忆后 `<experiences>` 段仍注入（P2）、`runtime-info` 测试断言外部环境变量（P2）、`--api` 不校验回环（P3）、`ensureDefaultGlobalSkills` 早退不写 v2 marker（P3）。同步只处理 `title` / `标题` 这一对 key，不新增 key、不改 body；值含换行时会放弃同步（文件名本身不允许控制字符，实际触发不了）。`titleSynced: false` 仍有第二条静默路径——写盘本身失败（要伪造写盘失败才能覆盖，没做测试），但块标量那条已经会走到 false 并且工具文案会提示，不再静默。"
     },
     {
       "id": "red-test-baseline-2026-11-10",
@@ -2695,6 +2696,22 @@
       "verification": "全量 `npx vitest run` → 505 files / 5598 tests：**5597 passed、1 skipped、0 failed**（1 skipped 是 `tests/server/terminal-vendor-runtime.test.mjs` 的 `describe.skipIf(!hasVendoredPrebuild)`，环境相关、一直如此）。三个目标文件定向：`sqlite-quick-check-gate` 11 passed、`runtime-info` 10 passed、`acp/*` 4 files / 17 passed。关键验证是「在会话内跑也绿」——此前 `runtime-info` 那条只有在 `env -u QUICKFORGE_*` 下才过，现在直接 `npx vitest run` 就过。`npm run lint`（全仓）→ exit 0、0 problems。未触碰 `dist/`、`package-dist`、`package-offline`。",
       "updatedAt": "2026-11-10",
       "boundaries": "只修这三类根因，没有顺手放宽任何断言、没有 skip 任何用例。`sameProjectPath` 保持同步字符串比较不变（路由/UI 大量调用），符号链接只在 ACP 的两处比较点补；项目注册时写进配置的仍是用户选择的那个写法，不会因为这次改动被改写。quick_check 的 marker 路径字符串因此从 `/var/...` 变为 `/private/var/...`（同一个文件，读写都兼容旧 marker）。ACP 里逐个项目 realpath 是 O(项目数) 次异步 stat，只在 `session/new` 时发生，项目上限 20，不做缓存。未覆盖：Windows 上 `realpathSync` 对短路径（8.3 名）的归一化行为没有实测。"
+    },
+    {
+      "id": "scheduled-task-skill-commands",
+      "title": "quickforge-api 技能补定时任务接口：能建能停能立即跑，不能删不能改",
+      "status": "done",
+      "updatedAt": "2026-11-10",
+      "summary": "用户先问「QF 的技能包含创建定时任务吗」，查完发现 3 个内置技能（plugin-creator / quickforge-api / skill-creator）没有一条提到定时任务，而定时任务本身只是应用功能走 /api/scheduled-tasks，agent 既没有工具也没有子命令，等于模型只能让用户自己去界面点。用户选择「给 quickforge-api 补一节」而不是新造一个技能。落地方式遵守技能自己的红线「脚本是唯一网络出口」：在 scripts/qf-api.mjs 里加 7 个写死端点的子命令——tasks（GET 列表）、task-add（POST 创建）、task-pause / task-resume / task-run（POST 可逆动作）、task-runs（GET 运行历史）、task-parse（POST 自然语言→cron 草稿，不落库）。删除（DELETE）和改写已有任务（PUT）故意不放开：覆盖用户排好的日程属于破坏性操作，跟「删会话」同级。两个真实约束写进了文档：创建必须带 modelRef（否则服务端 400 invalid_model_reference），所以不传 --model 时读我自己 /state 的 modelRef 和思考档（返回里 modelSource 标 self/flag/catalog）；task-run 服务端同步等这次运行结束，默认 300 秒超时，超时只断客户端连接、服务端照跑，必须用 task-runs 复核而不是重建任务。",
+      "files": [
+        "skills/quickforge-api/scripts/qf-api.mjs（request/createClient 支持按调用超时；新增 SCHEDULE_TYPES/INTERVAL_UNITS 常量、optionString/requiredOption、readModelCatalog、modelRefFromCatalogEntry、resolveTaskModelBinding、resolveTaskProject、buildScheduleInput、summarizeTask、summarizeRun，以及 7 个 command* 实现与 help/switch 登记；文件头设计约束 2 补一句说明 taskId 只出现在写死端点尾部）",
+        "skills/quickforge-api/SKILL.md（description 补「创建/暂停/恢复/立即执行定时任务」以便触发；命令表加「定时任务」六行；新增小节「定时任务：能建、能停、不能删」含六种排期写法表与六个坑；典型用法加一条「用户说每天九点帮我汇总日志」；报错表加 task-run 超时一行；红线 3 补「删任务和改已有任务没有子命令」）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "在运行中的本机实例（127.0.0.1:5176）上端到端实跑：task-add --schedule daily 建成落地（status=paused、scheduleRule=每天 23:59、projectId 自动取当前项目、modelId=deepseek-v4-flash、thinkingLevel=xhigh、modelSource=self）；tasks 列出并带回排期；task-resume / task-pause 状态来回切换正确；task-runs 返回 total=0；另建 cron（0 9 * * *，nextRunAt 正确）与 weekly（--days 1,3,5 → 周一、周三、周五 08:30）两条验证分支。错误路径四条：task-run 不存在的 id → 404 Task not found（错误正常透传）；--schedule daily 缺 --time → 本地报 missing；--model no-such-model → 提示去 /api/models/catalog 查；--cron bogus → 服务端 400 cronExpression is invalid。清理：3 条验证任务用 DELETE 全部删掉，remaining=0，与开始一致。node --check 通过；tests/server/skills.test.mjs 5 passed；/api/skills?available=true 能读到新 description。未跑全量 npm run test：改动全在 skills/ 下，不在 eslint 与 build 的覆盖范围内（eslint.config.js 只覆盖 ts/tsx 与 server/desktop 的 mjs）。",
+      "boundaries": "没有为定时任务新增依赖、没有改服务端一行、没有动 dist/package-dist/package-offline。刻意不实现：删除任务、编辑已有任务（PUT）、--model 传对象引用（只收模型 id，避免再一次变成去年那个「传字符串必 400」的死参数）、把 taskId 拼进任意路径。task-run 的真实执行只验证了 404 分支——真跑一次会创建会话并消耗 token，属于用户数据，没有替他造。task-parse 未实测（需要可用 provider key 与模型调用）。若日后要放开「改已有任务」，应做成显式 --yes 的独立子命令，而不是让 task-add 带 id 覆盖。"
     }
   ]
 }

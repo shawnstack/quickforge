@@ -456,7 +456,7 @@ export function DreamingSettingsTab() {
     const query = experienceQuery.trim().toLowerCase()
     if (!query) return experiences
     return experiences.filter((entry) => (
-      entry.title.toLowerCase().includes(query) || entry.description.toLowerCase().includes(query)
+      entry.title.toLowerCase().includes(query) || (entry.description ?? '').toLowerCase().includes(query)
     ))
   }, [experienceQuery, experiences])
 

@@ -155,6 +155,23 @@ export async function toolWriteMemoryNote(params = {}) {
   }
 }
 
+/**
+ * The message a rename hands back to whoever called it.
+ *
+ * `titleSynced: false` means the note is in the right place but its front matter
+ * `title` still carries the old name, so the next `write_memory_note` on it is
+ * rejected. A bare "Renamed." would be a half-truth nothing else can correct: the
+ * file name and the header disagree, and this sentence is the only sight of it the
+ * model gets — the Settings page shows just the tool's parameters.
+ */
+export function describeMovedNote(moved, fromTitle) {
+  const base = moved.archived
+    ? `Retired "${fromTitle}" into _archive/.`
+    : `Renamed to "${noteTitleOfName(moved.name)}".`
+  if (moved.titleSynced !== false) return base
+  return `${base} Its front matter title still carries the old name or spans several lines, so this note cannot be written again until that header is fixed: read it, rewrite the title as a single \`title:\` line equal to "${noteTitleOfName(moved.name)}", and save it with write_memory_note.`
+}
+
 export async function toolMoveMemoryNote(params = {}) {
   const scope = normalizeScope(params.scope)
   const from = String(params.from ?? '').trim()
@@ -163,9 +180,7 @@ export async function toolMoveMemoryNote(params = {}) {
     ? await moveExperience({}, from, to)
     : await moveWorkingMemoryNote({}, from, to)
   return {
-    content: moved.archived
-      ? `Retired "${noteTitleOfName(from)}" into _archive/.`
-      : `Renamed to "${noteTitleOfName(moved.name)}".`,
+    content: describeMovedNote(moved, noteTitleOfName(from)),
     details: { type: 'memory_note_moved', scope, ...moved },
   }
 }

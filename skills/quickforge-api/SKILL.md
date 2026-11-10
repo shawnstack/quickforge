@@ -1,6 +1,6 @@
 ---
 name: quickforge-api
-description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档，以及派生并驱动子会话。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, or prompt), or asks to list/observe running agents, spawn a sub session, rename the current chat, or inspect the prompt you actually received.
+description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档、派生并驱动子会话，以及创建/暂停/恢复/立即执行定时任务。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, prompt, or scheduled tasks), or asks to list/observe running agents, spawn a sub session, rename the current chat, inspect the prompt you actually received, or schedule a recurring task.
 ---
 
 # QuickForge 本地 API
@@ -61,6 +61,17 @@ node <skill-dir>/scripts/qf-api.mjs whoami
 | `prompt <id> <message...>` | 给别的会话发消息 |
 | `abort <id>` | 中止别的会话 |
 
+定时任务：
+
+| 命令 | 作用 |
+|---|---|
+| `tasks [--status enabled\|paused]` | 现有任务：排期、下次运行时间、绑的模型 |
+| `task-add ...` | 建任务（参数见下一节） |
+| `task-pause <id>` / `task-resume <id>` | 暂停 / 恢复 |
+| `task-run <id> [--timeout 300]` | 立刻跑一次，**等它跑完**才返回 |
+| `task-runs [--taskId ID] [--status S]` | 运行历史 |
+| `task-parse --instruction "..."` | 自然语言 → 排期草稿（**不落库**） |
+
 ### `spawn` 的默认值（用户已授权）
 
 | 参数 | 默认 | 说明 |
@@ -73,11 +84,54 @@ node <skill-dir>/scripts/qf-api.mjs whoami
 
 实际权限和思考档以服务端为准，用 `show <id>` 复核（返回里有 `accessMode`、`thinkingLevel`）。
 
+### 定时任务：能建、能停、不能删
+
+定时任务是 QuickForge 自己的功能（界面上那个「定时任务」页），不是 agent 工具：
+到点它开一个新会话执行 `instruction`。所以排期文案要写成**给未来的模型看的指令**，
+而不是写给我现在看的说明。
+
+```bash
+# 每天 09:00 汇总
+node <skill-dir>/scripts/qf-api.mjs task-add \
+  --title "每日站会摘要" \
+  --instruction "汇总昨天的 commit 与未合并 PR，500 字以内" \
+  --schedule daily --time 09:00
+```
+
+排期六种，选一种写：
+
+| `--schedule` | 还要带 |
+|---|---|
+| `daily` | `--time 09:00` |
+| `weekly` | `--time 08:30 --days 1,3,5`（0=周日） |
+| `monthly` | `--time 10:00 --day 1` |
+| `interval` | `--every 30 --unit minute\|hour\|day --at "<首次运行，必须晚于现在>"` |
+| `once` | `--at "2026-11-11T09:00:00+08:00"` |
+| `cron` | `--cron "0 9 * * *"`（5 位，无秒，周日=0） |
+
+几个会踩的点：
+
+| 点 | 说明 |
+|---|---|
+| 模型 | 不传 `--model` 时用**我自己正在用的模型和思考档**，返回里的 `modelSource` 是 `self` / `flag` / `catalog`。`--model` 只收模型 id（`deepseek-v4-flash`），不收引用对象——**和 `spawn --model` 不一样**，那边只认引用对象、字符串会 400 |
+| 项目归属 | 默认落在当前项目（`QUICKFORGE_PROJECT_ID`）；`--project <id>` 换项目；`--project none` 建成全局 |
+| 建完先别开 | 加 `--paused` 建，让用户确认排期再 `task-resume`，别给他一个已经开始跑的日程 |
+| 时间是本机本地时间 | `--at` 早于现在会 400 |
+| `task-run` 会阻塞 | 服务端等这次运行结束才回包，可能几分钟。默认 300 秒，`--timeout` 调大。**超时只断我这边的连接，服务端照跑**：这时用 `task-runs --taskId <id>` 看结果，不要以为失败了就重建一个 |
+| 自然语言排期 | `task-parse --instruction "每天九点汇总日志"` 只回 cron 草稿 + 一句 `next` 提示，确认后再 `task-add --schedule cron` 落库 |
+
+`tasks` / `task-add` / `task-run` 的返回都被削过：`id / title / status / scheduleType /
+scheduleRule / nextRunAt / lastRunAt / projectId / modelId / thinkingLevel`。
+
+**删除任务、改已有任务的文案或时间，都没有子命令。** 让用户自己在「定时任务」页改，
+不要用 `curl` 绕（见红线第 3 条）。
+
 ## 红线（不是建议）
 
 1. **只操作自己，或自己 `spawn` 出来的会话。** 本机回环即认证，脚本能写任何会话——这是权限，不是许可。用户没让你动的会话不要碰。
 2. **不要给自己发 prompt。** 正在跑的时候发必然 409 `GENERATION_ALREADY_RUNNING`，脚本已经直接拒绝。要并行干活就 `spawn`。
 3. **不做破坏性操作。** 删会话、**改已存在会话的** `access-mode` / `yolo-mode`、局域网访问、终端、备份恢复、插件安装、MCP 配置，这些都没有子命令，也**不要**用 `curl` 绕过。
+   定时任务同理：只有建 / 暂停 / 恢复 / 立即执行这些可逆动作，**删任务和改已有任务没有子命令**。
    唯一的例外是 `spawn --access-mode`：它只作用于**新建**会话，取值写死 `default` / `full-access`，由用户显式授权（见上一节的默认值表）。
 4. **不要改写脚本的请求面。** 每个子命令对应一个写死的端点，是有意为之：通用 HTTP 出口等于把整套 API 交给模型。`spawn --access-mode` 是唯一被放开的口子，且只接受白名单里的两个值；不要把它做成「传任意字段进请求体」。
 5. **不要把响应内容原样倒进回答。** 里面有绝对路径、会话 id、可能还有配置；按需摘一句就够。读长会话先用 `--limit`。
@@ -93,6 +147,7 @@ node <skill-dir>/scripts/qf-api.mjs whoami
 | `401` / 解锁页 | 请求不是从本机回环发的 | 用本机地址 `127.0.0.1` |
 | `503` | 服务还在启动初始化 | 等几秒重试 |
 | `Cannot find a running QuickForge local API` | 端口不是默认值，或服务没起 | `--api http://127.0.0.1:<port>` |
+| `task-run gave up waiting after Ns` | 我这边等超时了，服务端那次运行可能还在继续 | `task-runs --taskId <id>` 看结果，**不要**重建任务 |
 
 ## 典型用法
 
@@ -120,6 +175,16 @@ node <skill-dir>/scripts/qf-api.mjs show <id>
 ```bash
 node <skill-dir>/scripts/qf-api.mjs title "存储层迁移复盘"
 ```
+
+**用户说「每天九点帮我汇总一下日志」——建定时任务**
+```bash
+node <skill-dir>/scripts/qf-api.mjs task-add \
+  --title "每日日志汇总" \
+  --instruction "汇总昨天新增的 error 日志，按模块归类，300 字以内" \
+  --schedule daily --time 09:00 --paused
+```
+先把返回的 `scheduleRule` / `nextRunAt` 念给用户确认，确认后再 `task-resume <id>` 打开。
+他没说清时间（「早上」算说清还是没说清）就先问，别替他猜一个钟点。
 
 ## 不要用它来做的事
 

@@ -652,8 +652,10 @@ async function refreshMemoryState(session) {
   await rebuildSessionTools(session)
 }
 
-// Working memory (beta) only adds a section to the managed system prompt, so a
-// settings change just rebuilds the prompt; the tool set is untouched.
+// Working memory (beta) adds a system-prompt section **and** decides whether the note
+// tools are registered at all (`createServerTools`), so a settings change has to
+// rebuild both. Rebuilding only the prompt was what left a live session with the
+// switch off still holding `write_memory_note`.
 async function refreshWorkingMemoryState(session) {
   const workingMemoryEnabled = await isWorkingMemoryEnabled()
   const workingMemoryRevision = workingMemoryEnabled ? await getWorkingMemoryRevision() : null
@@ -663,6 +665,7 @@ async function refreshWorkingMemoryState(session) {
   if (session.managedSystemPrompt !== false) {
     session.agent.state.systemPrompt = await resolvedSessionSystemPrompt(session.projectId, session.agentProfile)
   }
+  await rebuildSessionTools(session)
 }
 
 /**

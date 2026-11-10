@@ -9,6 +9,8 @@
 //    包括删除会话、读别的对话。
 //    例外只有一处，且是白名单：`spawn --access-mode` 在建**新会话**时带权限模式
 //    （default / full-access），由用户显式授权。已存在会话的 access-mode 仍然不可改。
+//    定时任务同理：只有创建/暂停/恢复/立即执行（可逆），删除和改写已有任务没有
+//    子命令，taskId 只出现在写死的端点尾部，不能拼出别的路径。
 // 3. 输出默认是紧凑 JSON：给模型看的，少一层自然语言解释就少一次误读。
 //
 // 用法：node qf-api.mjs <command> [options]
@@ -54,6 +56,23 @@ Other sessions:
         full-access (sub session runs without per-tool approvals)
   prompt <sessionId> <message...>
   abort <sessionId>
+
+Scheduled tasks (create + reversible actions only):
+  tasks [--status enabled|paused]
+  task-add --title T --instruction I --schedule <type> ...
+        daily:    --time 09:00
+        weekly:   --time 09:00 --days 1,3,5      (0 = Sunday)
+        monthly:  --time 09:00 --day 15
+        interval: --every 30 --unit minute|hour|day --at "<first run datetime>"
+        once:     --at "<datetime>"
+        cron:     --cron "0 9 * * *"             (5 fields, no seconds)
+        extras:   [--model ID] [--thinking LEVEL] [--project ID|none] [--paused]
+                  model defaults to the model I am using right now
+  task-pause <taskId> | task-resume <taskId>
+  task-run <taskId> [--timeout S]   fire once now; waits for that run (default 300s)
+  task-runs [--taskId ID] [--status S] [--page N] [--pageSize N]
+  task-parse --instruction "..."    natural language -> cron draft (does not create)
+  Deleting or editing an existing task is NOT exposed; do that in the UI.
 
 Global options:
   --api <baseUrl>   override detected API base (default: $QUICKFORGE_API_BASE or probe)
@@ -123,12 +142,12 @@ function sameDirectory(left, right) {
   try { return path.resolve(left) === path.resolve(right) } catch { return false }
 }
 
-async function request(baseUrl, method, apiPath, body) {
+async function request(baseUrl, method, apiPath, body, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
   const response = await fetch(`${baseUrl}${apiPath}`, {
     method,
     headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   })
   const text = await response.text()
   let parsed
@@ -208,8 +227,8 @@ function requireSelfSessionId(options) {
 
 function createClient(baseUrl) {
   return {
-    get: (apiPath) => request(baseUrl, 'GET', apiPath),
-    post: (apiPath, body) => request(baseUrl, 'POST', apiPath, body ?? {}),
+    get: (apiPath, timeoutMs) => request(baseUrl, 'GET', apiPath, undefined, timeoutMs),
+    post: (apiPath, body, timeoutMs) => request(baseUrl, 'POST', apiPath, body ?? {}, timeoutMs),
   }
 }
 
@@ -489,6 +508,271 @@ async function commandAbort(client, positional) {
   return client.post(`/api/agents/${encodeURIComponent(sessionId)}/abort`, {})
 }
 
+// --- scheduled tasks ----------------------------------------------------
+//
+// 端点都在 /api/scheduled-tasks 下。这里只放开「可逆」的动作：创建、暂停、恢复、
+// 立即执行一次、读列表和运行历史。删除任务（DELETE）和改写已有任务（PUT）
+// 故意没有子命令——覆盖用户排好的日程属于破坏性操作，要改就自己开界面。
+//
+// 两个真实约束（改之前先读）：
+// 1. 创建任务必须带 modelRef，否则服务端 400 invalid_model_reference。不传
+//    --model 时用我自己正在用的模型，这样任务跑起来和我同一个模型。
+// 2. `task-run` 是同步的：服务端等这次运行结束才回包，可能几分钟。所以它用
+//    自己的超时（--timeout 秒），超时只断我这边的 HTTP 连接，服务端照跑。
+
+const SCHEDULE_TYPES = ['once', 'interval', 'daily', 'weekly', 'monthly', 'cron']
+const INTERVAL_UNITS = ['minute', 'hour', 'day']
+const DEFAULT_TASK_RUN_TIMEOUT_SECONDS = 300
+
+function optionString(options, name) {
+  const value = options[name]
+  return typeof value === 'string' && value.trim() ? value.trim() : ''
+}
+
+function requiredOption(options, name, hint) {
+  const value = optionString(options, name)
+  if (!value) throw new Error(`missing ${hint || `--${name}`}`)
+  return value
+}
+
+async function readModelCatalog(client) {
+  const payload = await client.get('/api/models/catalog')
+  if (Array.isArray(payload)) return payload
+  return Array.isArray(payload?.models) ? payload.models : []
+}
+
+function modelRefFromCatalogEntry(entry) {
+  if (entry?.quickforgeModelRef) return entry.quickforgeModelRef
+  // 和前端 modelReferenceFromModel 的兜底形状一致：没有现成引用时按快照拼一个。
+  return {
+    version: 1,
+    source: 'legacy-custom',
+    provider: entry?.provider,
+    modelId: entry?.id,
+    api: entry?.api,
+    baseUrl: entry?.baseUrl,
+  }
+}
+
+async function resolveTaskModelBinding(client, hint) {
+  if (hint) {
+    const catalog = await readModelCatalog(client)
+    const match = catalog.find((entry) => entry?.id === hint
+      || entry?.name === hint
+      || entry?.quickforgeModelRef?.modelId === hint)
+    if (!match) {
+      throw new Error(`--model "${hint}" is not in /api/models/catalog (pass the model id, e.g. deepseek-v4-flash)`)
+    }
+    return { modelRef: modelRefFromCatalogEntry(match), source: 'flag' }
+  }
+
+  const sessionId = process.env.QUICKFORGE_SESSION_ID
+  if (sessionId) {
+    try {
+      const state = await client.get(`/api/agents/${encodeURIComponent(sessionId)}/state`)
+      if (state?.modelRef) {
+        return {
+          modelRef: state.modelRef,
+          thinkingLevel: ALLOWED_THINKING_LEVELS.includes(state.thinkingLevel) ? state.thinkingLevel : null,
+          source: 'self',
+        }
+      }
+    } catch {
+      // 会话被驱逐或还没建好都无所谓，退回目录里的第一个模型。
+    }
+  }
+
+  const catalog = await readModelCatalog(client)
+  const first = catalog.find((entry) => entry?.quickforgeModelRef || entry?.id)
+  if (!first) throw new Error('No model configured in QuickForge; add one in Settings → Models first.')
+  return { modelRef: modelRefFromCatalogEntry(first), source: 'catalog' }
+}
+
+function resolveTaskProject(options) {
+  const raw = options.project
+  if (raw === 'none' || raw === 'global') return null
+  if (typeof raw === 'string' && raw) return { projectId: raw, projectName: optionString(options, 'project-name') || null }
+  const envProjectId = process.env.QUICKFORGE_PROJECT_ID
+  return envProjectId ? { projectId: envProjectId, projectName: null } : null
+}
+
+function buildScheduleInput(options) {
+  const scheduleType = requiredOption(options, 'schedule', '--schedule <once|interval|daily|weekly|monthly|cron>')
+  if (!SCHEDULE_TYPES.includes(scheduleType)) {
+    throw new Error(`--schedule needs one of: ${SCHEDULE_TYPES.join(', ')}`)
+  }
+
+  if (scheduleType === 'cron') {
+    return { scheduleType, cronExpression: requiredOption(options, 'cron', '--cron "0 9 * * *" (5 fields, no seconds)') }
+  }
+  if (scheduleType === 'once') {
+    return { scheduleType, executeAt: requiredOption(options, 'at', '--at "<local datetime, e.g. 2026-11-11T09:00:00+08:00>"') }
+  }
+  if (scheduleType === 'interval') {
+    const intervalValue = positiveInt(options.every, null)
+    if (!intervalValue) throw new Error('--every needs a positive integer, e.g. --every 30 --unit minute')
+    const intervalUnit = optionString(options, 'unit') || 'minute'
+    if (!INTERVAL_UNITS.includes(intervalUnit)) throw new Error(`--unit needs one of: ${INTERVAL_UNITS.join(', ')}`)
+    return {
+      scheduleType,
+      intervalValue,
+      intervalUnit,
+      // 首次执行时间是锚点，必须晚于现在；之后按 interval 递推。
+      executeAt: requiredOption(options, 'at', '--at "<first run datetime, must be in the future>"'),
+    }
+  }
+
+  const executeTime = requiredOption(options, 'time', '--time HH:MM (local)')
+  if (scheduleType === 'daily') return { scheduleType, executeTime }
+
+  if (scheduleType === 'weekly') {
+    const raw = requiredOption(options, 'days', '--days 1,3,5 (0 = Sunday)')
+    const weekDays = raw.split(',').map((part) => Number.parseInt(part.trim(), 10))
+    if (weekDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6)) {
+      throw new Error('--days takes comma-separated numbers 0-6 (0 = Sunday)')
+    }
+    return { scheduleType, executeTime, weekDays: [...new Set(weekDays)] }
+  }
+
+  const monthDay = Number.parseInt(optionString(options, 'day'), 10)
+  if (!Number.isInteger(monthDay) || monthDay < 1 || monthDay > 31) {
+    throw new Error('--day needs a number 1-31 for --schedule monthly')
+  }
+  return { scheduleType, executeTime, monthDay }
+}
+
+function summarizeTask(task) {
+  if (!task || typeof task !== 'object') return null
+  return {
+    id: task.id ?? null,
+    title: task.title ?? null,
+    status: task.status ?? null,
+    scheduleType: task.scheduleType ?? null,
+    scheduleRule: task.scheduleRule ?? null,
+    nextRunAt: task.nextRunAt ?? null,
+    lastRunAt: task.lastRunAt ?? null,
+    executionMode: task.executionMode ?? null,
+    projectId: task.projectId ?? null,
+    modelId: task.modelRef?.modelId ?? task.model?.id ?? null,
+    thinkingLevel: task.thinkingLevel ?? null,
+  }
+}
+
+function summarizeRun(run) {
+  return {
+    id: run?.id ?? null,
+    taskId: run?.taskId ?? null,
+    status: run?.status ?? null,
+    trigger: run?.trigger ?? null,
+    startedAt: run?.startedAt ?? null,
+    finishedAt: run?.finishedAt ?? null,
+    sessionId: run?.sessionId ?? null,
+    error: run?.error ? String(run.error).slice(0, 300) : null,
+  }
+}
+
+async function commandTasks(client, options) {
+  const payload = await client.get('/api/scheduled-tasks')
+  const tasks = Array.isArray(payload.tasks) ? payload.tasks : []
+  const summarized = tasks.map(summarizeTask)
+  const status = optionString(options, 'status')
+  return {
+    count: summarized.length,
+    tasks: status ? summarized.filter((task) => task.status === status) : summarized,
+  }
+}
+
+async function commandTaskAdd(client, options) {
+  const title = requiredOption(options, 'title', '--title "任务名"')
+  const instruction = requiredOption(options, 'instruction', '--instruction "到点后真正要做什么"')
+  const binding = await resolveTaskModelBinding(client, optionString(options, 'model'))
+  const project = resolveTaskProject(options)
+  const thinkingLevel = optionString(options, 'thinking')
+    || binding.thinkingLevel
+    || 'off'
+
+  const body = {
+    // cron 由服务端按表达式算 nextRunAt；其余类型按 scheduleType 各自推导。
+    task: {
+      title,
+      instruction,
+      ...buildScheduleInput(options),
+      enabled: options.paused !== true,
+      executionMode: optionString(options, 'execution-mode') === 'parallel' ? 'parallel' : 'serial',
+    },
+    modelRef: binding.modelRef,
+    thinkingLevel,
+  }
+  if (project) {
+    body.projectId = project.projectId
+    if (project.projectName) body.projectName = project.projectName
+  }
+
+  const created = await client.post('/api/scheduled-tasks', body)
+  return {
+    ...summarizeTask(created.task),
+    modelSource: binding.source,
+  }
+}
+
+async function commandTaskAction(client, positional, options, action) {
+  const taskId = positional[0]
+  if (!taskId) throw new Error(`task-${action} needs a taskId (see "tasks")`)
+
+  if (action === 'run') {
+    const timeoutSeconds = positiveInt(options.timeout, DEFAULT_TASK_RUN_TIMEOUT_SECONDS)
+    try {
+      const result = await client.post(`/api/scheduled-tasks/${encodeURIComponent(taskId)}/run`, {}, timeoutSeconds * 1000)
+      return { ok: true, task: summarizeTask(result.task) }
+    } catch (error) {
+      if (error?.name === 'TimeoutError' || /aborted|timeout/i.test(error?.message || '')) {
+        throw new Error(
+          `task-run gave up waiting after ${timeoutSeconds}s. The run itself may still be going on the server `
+          + '— check "task-runs", and pass --timeout to wait longer next time.',
+        )
+      }
+      throw error
+    }
+  }
+
+  const result = await client.post(`/api/scheduled-tasks/${encodeURIComponent(taskId)}/${action}`, {})
+  return { ok: true, task: summarizeTask(result.task) }
+}
+
+async function commandTaskRuns(client, options) {
+  const params = new URLSearchParams()
+  params.set('page', String(positiveInt(options.page, 1)))
+  params.set('pageSize', String(positiveInt(options.pageSize ?? options['page-size'], 20)))
+  for (const key of ['taskId', 'status', 'trigger']) {
+    const value = optionString(options, key)
+    if (value) params.set(key, value)
+  }
+  const payload = await client.get(`/api/scheduled-tasks/runs?${params.toString()}`)
+  const runs = Array.isArray(payload.runs) ? payload.runs : []
+  return {
+    total: payload.total ?? runs.length,
+    page: payload.page ?? null,
+    pageSize: payload.pageSize ?? null,
+    runs: runs.map(summarizeRun),
+  }
+}
+
+async function commandTaskParse(client, options) {
+  const instruction = requiredOption(options, 'instruction', '--instruction "每天九点把昨天的错误日志汇总一下"')
+  const binding = await resolveTaskModelBinding(client, optionString(options, 'model'))
+  const body = { instruction, modelRef: binding.modelRef }
+  const thinkingLevel = optionString(options, 'thinking') || binding.thinkingLevel
+  if (thinkingLevel) body.thinkingLevel = thinkingLevel
+  const payload = await client.post('/api/scheduled-tasks/parse', body, 120000)
+  // 解析器只回 cron 形状的草稿；用户确认后再用 task-add --cron 落库。
+  return {
+    needMoreInfo: payload.needMoreInfo === true,
+    question: payload.question ?? null,
+    task: payload.task ? summarizeTask(payload.task) : null,
+    next: payload.task ? `task-add --title "${payload.task.title ?? ''}" --instruction "..." --schedule cron --cron "${payload.task.cronExpression ?? ''}"` : null,
+  }
+}
+
 // --- main ---------------------------------------------------------------
 
 async function main() {
@@ -521,6 +805,13 @@ async function main() {
     case 'spawn': result = await commandSpawn(client, options); break
     case 'prompt': result = await commandPrompt(client, positional); break
     case 'abort': result = await commandAbort(client, positional); break
+    case 'tasks': result = await commandTasks(client, options); break
+    case 'task-add': result = await commandTaskAdd(client, options); break
+    case 'task-pause': result = await commandTaskAction(client, positional, options, 'pause'); break
+    case 'task-resume': result = await commandTaskAction(client, positional, options, 'resume'); break
+    case 'task-run': result = await commandTaskAction(client, positional, options, 'run'); break
+    case 'task-runs': result = await commandTaskRuns(client, options); break
+    case 'task-parse': result = await commandTaskParse(client, options); break
     default:
       throw new Error(`Unknown command: ${command}. Run "node qf-api.mjs --help".`)
   }

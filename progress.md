@@ -2177,3 +2177,18 @@
 - 验证：全量 `npx vitest run` → 505 files / 5598 tests，**5597 passed、1 skipped、0 failed**。1 skipped 是 `terminal-vendor-runtime.test.mjs` 的 `describe.skipIf(!hasVendoredPrebuild)`（环境相关、一直如此）。定向：`sqlite-quick-check-gate` 11、`runtime-info` 10、`acp/*` 17，全过；关键是「会话内直接跑也绿」，不再需要 `env -u QUICKFORGE_*`。`npm run lint` → exit 0、0 problems。
 - 文档：`docs/wiki/server/README.md`（ACP 段落补两侧解析符号链接）、`docs/architecture/sqlite-storage-foundation.zh-CN.md`（§6.1 补缓存 key 规范化）。
 - 未做：`sameProjectPath` 仍是同步字符串比较；项目注册时写进配置的路径不改写；Windows 短路径（8.3 名）下 `realpathSync` 的归一化没有实测。
+- 第二轮（用户要求「必要修的修，非实质不动」后自查修的两条，2026-11-10）：
+  - `titleSynced: false` 原本完全静默：工具层 `content` 无条件说 `Renamed to "X".`，设置页只渲染工具参数、不渲染 details，模型不看 details 就无从发现「这篇已经写不进去了」——等于悄悄退回修复前的状态。修法：`toolMoveMemoryNote` 抽出 `describeMovedNote()`，`false` 时回复追加「front matter 标题还是旧名，这篇再写会被拒；读出来把 `title:` 行改成新名再存」。
+  - `title: |` 块标量会被改成残片：`setFrontmatterScalar` 只替换键行，块标量真正的值在下面几行，替换后会留下孤立的旧标题。修法：匹配到 `|` / `>` 值就整份文件不动，并把这种「需要改但改不了」从 `null`（不用改）拆成 `false`，让上一条的提示能覆盖它。实测 `title: |` + 缩进旧标题改名后文件字节完全不变、`titleSynced: false`、随后 `writeExperience` 仍然 400（说明提示不是多余的）。
+  - 验证：`memory-notes` 26 → 28 例全过（新增块标量用例 + 文案用例）；`tools/definitions` + `dreaming-curator` + `dreaming-curator-agent` → 35 passed；`npx eslint` 四个改动文件 → 0 problems。
+  - 明确不动（非实质）：改名后 mtime 刷新导致列表排序前移、tmp+rename 丢掉原权限位、`formatYamlScalar` 只转义双引号不转义反斜杠（文件名正则已禁）、旧行内注释被替换掉、`'标题'` 这个键在 `parseSimpleYamlMap` 里永远命不中。
+
+## scheduled-task-skill-commands（done，2026-11-10）
+
+- 起因：用户问「QF 的技能包含创建定时任务吗」。查完：内置 3 个技能（plugin-creator / quickforge-api / skill-creator）没有一条提到定时任务；定时任务只是应用功能（`/api/scheduled-tasks`），agent 既无工具也无子命令。用户选择「给 quickforge-api 补一节」，而不是新造一个技能。
+- 落地：`scripts/qf-api.mjs` 加 7 个写死端点的子命令 `tasks` / `task-add` / `task-pause` / `task-resume` / `task-run` / `task-runs` / `task-parse`；`SKILL.md` 同步命令表、新小节（六种排期写法 + 六个坑）、典型用法、报错行，description 补触发词（否则「帮我建个每天九点的任务」不会激活这个 skill）。
+- 两条硬约束（都来自读代码，不是猜）：① 创建必须有 `modelRef`，否则 400 `invalid_model_reference`；不传 `--model` 就继承我自己 `/state` 的模型与思考档，返回里 `modelSource` 标 `self`/`flag`/`catalog`。② `task-run` 服务端同步等这次运行结束，默认 300s；超时只断客户端连接、服务端照跑，必须用 `task-runs` 复核，不能以为失败就重建。
+- 刻意不做：删任务（DELETE）、改已有任务（PUT）、`--model` 传引用对象。覆盖用户排好的日程属于破坏性操作，和删会话同级；`--model` 只收模型 id，避免重演「传字符串必 400」的死参数。
+- Evidence：本机 5176 实例端到端——daily / cron / weekly 三种排期建成且 `nextRunAt`、`scheduleRule` 正确，`task-resume`/`task-pause` 往返，`task-runs` 返回正确；4 条错误路径（404 透传、缺 `--time`、坏 `--model`、坏 cron 400）符合预期；验证任务全部 DELETE 清理，`remaining=0`，与开始一致。`node --check` 通过；`tests/server/skills.test.mjs` 5 passed；`/api/skills?available=true` 已能读到新 description。
+- 未跑全量 `npm run test` / `lint` / `build`：改动全在 `skills/`，`eslint.config.js` 只覆盖 ts/tsx 与 `server|desktop/**/*.mjs`，build 只打 `src/`，跑了也验证不到这次改动。
+- Notes：`task-run` 的真实执行（只验了 404 分支）和 `task-parse` 未实测——前者会真造会话烧 token，后者要可用 provider key，都涉及用户数据，没有擅自跑。

@@ -20,6 +20,7 @@ import {
   normalizeNoteName,
   noteTitleOfName,
 } from '../../server/note-store.mjs'
+import { describeMovedNote } from '../../server/tools/memory-notes.mjs'
 import {
   listWorkingMemoryNotes,
   moveWorkingMemoryNote,
@@ -373,9 +374,40 @@ general: false
     await expect(writeExperience(options(), '结论 #1', content.trimEnd())).resolves.toMatchObject({ title: '结论 #1' })
   })
 
+  it('leaves a block scalar title untouched instead of half-rewriting the header', async () => {
+    // `title: |` keeps its value on the lines below the key, so rewriting the key
+    // line would leave the old title behind as an orphaned indented line. Refusing
+    // is the honest outcome: the rename stands, the header is reported as stale.
+    const original = '---\ntitle: |\n  旧结论\ngeneral: true\n---\n\n- 怎么做：x\n'
+    await writeExperience(options(), '旧结论', original)
+    await expect(moveExperience(options(), '旧结论', '新结论')).resolves.toMatchObject({
+      changed: true,
+      titleSynced: false,
+    })
+    const content = await readFile(path.join(experiencesDir(options()), '新结论.md'), 'utf8')
+    expect(content).toBe(original)
+    // Which is exactly why the caller has to be told: the note is unwritable now.
+    await expect(writeExperience(options(), '新结论', content.trimEnd())).rejects.toThrow(/must equal the note name/)
+  })
+
   it('does not list the generated index as an experience', async () => {
     await mkdir(experiencesDir(options()), { recursive: true })
     await writeFile(path.join(experiencesDir(options()), EXPERIENCE_INDEX_FILE_NAME), '# 索引\n', 'utf8')
     expect(await listExperiences(options())).toHaveLength(0)
+  })
+})
+
+describe('rename messages', () => {
+  it('says out loud when the header did not follow the rename', () => {
+    // A silent `titleSynced: false` puts the note back in the state this whole
+    // feature fixed — unwritable — with nothing in the tool reply to show it.
+    expect(describeMovedNote({ archived: false, name: '新结论.md', titleSynced: true }, '旧结论')).toBe('Renamed to "新结论".')
+    expect(describeMovedNote({ archived: false, name: '新结论.md', titleSynced: null }, '旧结论')).toBe('Renamed to "新结论".')
+    expect(describeMovedNote({ archived: true, name: '归档名.md', titleSynced: null }, '旧结论')).toBe('Retired "旧结论" into _archive/.')
+
+    const stale = describeMovedNote({ archived: false, name: '新结论.md', titleSynced: false }, '旧结论')
+    expect(stale).toContain('Renamed to "新结论".')
+    expect(stale).toContain('cannot be written again')
+    expect(stale).toContain('single `title:` line equal to "新结论"')
   })
 })

@@ -19,8 +19,8 @@ vi.mock('../../src/components/settings/tabs/shared', () => ({ SettingsSwitch: ()
 import { DreamingSettingsTab } from '../../src/components/dreaming/DreamingSettingsTab'
 
 const EXPERIENCES = [
-  { name: '构建失败先清 dist.md', title: '构建失败先清 dist', whenToUse: '构建报错时', candidateSkill: true, chars: 90, updatedAt: Date.UTC(2024, 0, 1) },
-  { name: '改配置前先备份.md', title: '改配置前先备份', whenToUse: '', candidateSkill: false, chars: 60, updatedAt: Date.UTC(2024, 0, 2) },
+  { name: '构建失败先清 dist.md', title: '构建失败先清 dist', description: '构建报错时', general: true, candidateSkill: true, chars: 90, updatedAt: Date.UTC(2024, 0, 1) },
+  { name: '改配置前先备份.md', title: '改配置前先备份', description: '', general: false, candidateSkill: false, chars: 60, updatedAt: Date.UTC(2024, 0, 2) },
 ]
 
 const OVERVIEW = {
@@ -114,5 +114,13 @@ describe('Dreaming experience library open actions', () => {
 
     const [, init] = callOf(fetchMock, '/api/dreaming/experiences/open-folder') as [string, RequestInit]
     expect(init.method).toBe('POST')
+  })
+
+  it('badges only the project-specific experiences', async () => {
+    await mount()
+
+    // Two rows, one `general: false`: exactly one 「特殊」 badge, so a reader knows
+    // which entry has to be adapted rather than followed as written.
+    expect(render().filter((node) => text(node) === 'dreamingExperienceSpecific')).toHaveLength(1)
   })
 })

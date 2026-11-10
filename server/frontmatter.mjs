@@ -60,9 +60,10 @@ export function formatYamlScalar(value) {
  * Replace the value of one or more top-level front matter keys, leaving the rest of
  * the file byte for byte as it was.
  *
- * Returns `null` when there is nothing to do — no front matter, none of the keys
- * present, or a value that cannot be written on one line. Callers use that to skip
- * the write instead of inventing a header.
+ * Returns `null` when the edit cannot be made safely — no front matter, none of the
+ * keys present, a value that cannot be written on one line, or a key whose value is
+ * a block scalar that lives on the following lines. Callers read that as "leave the
+ * file alone" rather than guessing a header.
  */
 export function setFrontmatterScalar(text, keys, value) {
   const names = Array.isArray(keys) ? keys : [keys]
@@ -83,6 +84,11 @@ export function setFrontmatterScalar(text, keys, value) {
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index].match(/^([A-Za-z0-9_.-]+):(?:[ \t]*(.*))?$/)
     if (!line || !names.includes(line[1])) continue
+    // A block scalar (`title: |` plus indented lines) keeps its value below the
+    // key, not on it. Rewriting just this line would leave the old value behind as
+    // orphaned indented lines, so refuse the whole edit instead of producing a
+    // header where the text and the value disagree.
+    if (/^[|>][0-9+-]*$/.test(stripInlineComment(line[2] ?? ''))) return null
     const next = `${line[1]}: ${formatted}`
     if (lines[index] !== next) {
       lines[index] = next

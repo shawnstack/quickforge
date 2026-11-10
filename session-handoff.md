@@ -1,5 +1,21 @@
 # Current Session Handoff
 
+## 当前交接：scheduled-task-skill-commands（done，2026-11-10）
+
+- Current Objective（当前目标）：用户先问「QF 的技能包含创建定时任务吗」，确认没有之后选「给 quickforge-api 补一节定时任务接口」。
+- 结论（一句话）：已补——`qf-api.mjs` 新增 7 个写死端点的子命令（列表 / 建 / 暂停 / 恢复 / 立即跑 / 运行历史 / 自然语言解析），`SKILL.md` 同步；删除与改写已有任务仍然不开放。
+- 改动文件：
+  1. `skills/quickforge-api/scripts/qf-api.mjs`：`request`/`createClient` 支持按调用超时；新增排期常量与 7 个 `command*` 实现（`commandTasks` / `commandTaskAdd` / `commandTaskAction` / `commandTaskRuns` / `commandTaskParse` + 模型、项目、排期三个解析函数），help 与 switch 已登记。
+  2. `skills/quickforge-api/SKILL.md`：description 补触发词、命令表加「定时任务」、新增小节「定时任务：能建、能停、不能删」、典型用法加一条、报错表加 `task-run` 超时行、红线 3 补一句。
+  3. `feature_list.json`（条目 `scheduled-task-skill-commands`）、`progress.md`、本文件。
+- Evidence（验证）：本机 5176 实例端到端——`task-add` 的 daily / cron / weekly 三种排期建成且字段正确（`modelSource=self`、项目自动取当前）；`task-resume` / `task-pause` 往返；`task-runs` 正确；错误路径 4 条（404 透传、缺 `--time`、坏 `--model`、坏 cron 400）；验证任务全部 DELETE 清理，`remaining=0`。`node --check` 通过，`tests/server/skills.test.mjs` 5 passed。全量 test/lint/build 未跑：改动只在 `skills/`，不在 eslint 覆盖范围（只含 ts/tsx 与 `server|desktop/**/*.mjs`）也不进 build。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 已提交 `5991f1b7`（按要求合成一个提交：15 个文件 = 本批技能改动 + 改名标题同步 + 工作记忆工具集重建 + 经验库索引口径）。**未 push**，远端还是旧的。
+  2. 想真验 `task-run`：挑一个低风险任务（例如「输出一行文字」）手动触发，看 run 记录、会话创建、超时文案是否都对——本次只验了 404 分支，没替用户造会话。
+  3. `task-parse` 未实测（要可用 provider key）。
+  4. 若日后要放开「改已有任务」，做成显式 `--yes` 的独立子命令，别让 `task-add` 带 id 覆盖。
+
 ## 当前交接：red-test-baseline（done，2026-11-10）
 
 - Current Objective（当前目标）：用户不接受「这 4 个失败是既有基线」，要求把失败用例真正修对。范围只限这 4 例。
@@ -19,14 +35,15 @@
 ## 当前交接：frontmatter-title-follows-rename（done，2026-11-10）
 
 - Current Objective（当前目标）：修审查 `0a0b0905` 时报的 P1——`move_memory_note` 改名后 front matter `title` 停在旧名字，导致这篇笔记此后再也写不进去。用户明确只让修这一条，其余问题不许扩大范围。
-- 结论（一句话）：已修，改在存储层 `moveNoteFile`（工作记忆与经验库共用一条路）：改名成功后把 front matter 的 `title` 只改那一行的值，其余字节不动，返回值新增 `titleSynced`。
+- 结论（一句话）：已修，改在存储层 `moveNoteFile`（工作记忆与经验库共用一条路）：改名成功后把 front matter 的 `title` 只改那一行的值，其余字节不动，返回值新增 `titleSynced`；第二轮把「需要改但改不了」的静默分支补上了提示（块标量标题 + 工具文案）。
 - 改动文件：
-  1. `server/frontmatter.mjs`：新增 `formatYamlScalar`（按需加引号）与 `setFrontmatterScalar`（只改指定 key 的值行，CRLF 保留）。
-  2. `server/note-store.mjs`：`moveNoteFile` 改名后同步 `title`；新增 `retitledNoteContent` / `replaceNoteFileContent`；三个返回点补 `titleSynced`。
-  3. `tests/server/memory-notes.test.mjs`：新增 4 例（改名后能继续写 + 索引跟新名、归档时改名同步、含 ` #` 自动加引号、纯 `# 标题` 笔记内容不动）。
-  4. 文档：`docs/architecture/memory-system.zh-CN.md`、`docs/wiki/server/README.md` 各补一句契约说明。
-  5. 记录：`feature_list.json`（新增条目 `frontmatter-title-follows-rename`）、`progress.md`、本文件。
-- Evidence（验证）：修复前复现脚本（临时目录）→ 改名后索引是旧标题、再写入 400；修复后 → 索引是新标题、再写入成功。`memory-notes` 22 → 26 例全过；`dreaming-curator-agent` + `chat-surface-send` 一起 48 passed；全量 `npx vitest run` → 505 files / 5598 tests，5593 passed、4 failed、1 skipped（4 个失败与审查时同一批基线：runtime-info 1 例在会话内必然假失败 + sqlite quick_check 1 例 + acp workspace-mapping 2 例）；`npx eslint .` → exit 0、无输出。
+  1. `server/frontmatter.mjs`：新增 `formatYamlScalar`（按需加引号）与 `setFrontmatterScalar`（只改指定 key 的值行，CRLF 保留；遇到 `title: |` 块标量整份不动）。
+  2. `server/note-store.mjs`：`moveNoteFile` 改名后同步 `title`；新增 `retitledNoteContent`（`skip` / `unsafe` / `ok` 三态）/ `replaceNoteFileContent`；三个返回点补 `titleSynced`。
+  3. `server/tools/memory-notes.mjs`：抽出 `describeMovedNote()`，`titleSynced: false` 时工具回复明说「这篇再写会被拒，先改 `title:` 行再存」。
+  4. `tests/server/memory-notes.test.mjs`：新增 6 例（改名后能继续写 + 索引跟新名、归档时改名同步、含 ` #` 自动加引号、纯 `# 标题` 笔记内容不动、块标量标题整份不动且报 `false`、`false` 时的提示文案）。
+  5. 文档：`docs/architecture/memory-system.zh-CN.md`、`docs/wiki/server/README.md` 各补一句契约说明（含 `titleSynced` 三态与块标量）。
+  6. 记录：`feature_list.json`（条目 `frontmatter-title-follows-rename`）、`progress.md`、本文件。
+- Evidence（验证）：修复前复现脚本（临时目录）→ 改名后索引是旧标题、再写入 400；修复后 → 索引是新标题、再写入成功。第二轮实测 `title: |` 块标量改名后文件字节完全不变、`titleSynced: false`、随后 `writeExperience` 仍 400。`memory-notes` 22 → 28 例全过；`tools/definitions` + `dreaming-curator` + `dreaming-curator-agent` → 35 passed；`dreaming-curator-agent` + `chat-surface-send` 一起 48 passed；全量 `npx vitest run` → 505 files / 5598 tests，5593 passed、4 failed、1 skipped（4 个失败与审查时同一批基线：runtime-info 1 例在会话内必然假失败 + sqlite quick_check 1 例 + acp workspace-mapping 2 例）；`npx eslint .` → exit 0、无输出。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：
   1. **本批改动未提交**（7 个文件，`git status` 里全是本次的），按项目规矩等用户发话再提交。

@@ -42,12 +42,27 @@ describe('agent manager domain contracts before and after extraction', () => {
   it('returns absent-session query results without creating state', () => {
     expect(manager.getSessionState(id)).toBeNull()
     expect(manager.getSessionStatus(id)).toBeNull()
+    expect(manager.getSessionContextBudget(id)).toBeNull()
     expect(manager.isSessionFileRollbackBusy(id)).toBe(false)
     expect(manager.tryAcquireSse(id)).toBe(false)
     expect(manager.isSseConnected(id)).toBe(false)
     expect(manager.getSessionEventBus(id)).toBeNull()
     expect(manager.releaseSse(id)).toBeUndefined()
     expect(agentSessions.has(id)).toBe(false)
+  })
+
+  it('reports the context budget for a live session', () => {
+    // The "fuel gauge": a model can read its own remaining room instead of
+    // waiting for auto-compaction to surprise it.
+    const value = session()
+    value.model = { id: 'test-model', contextWindow: 1000 }
+    const budget = manager.getSessionContextBudget(id)
+    expect(budget.sessionId).toBe(id)
+    expect(budget.modelId).toBe('test-model')
+    expect(budget.messageCount).toBe(0)
+    expect(budget.usage.contextWindow).toBe(1000)
+    expect(budget.usage.percent).toBe(0)
+    expect(budget.usage.inputTokenSource).toBe('unavailable')
   })
 
   it('shares the existing session SSE slot and event bus, including unset slot', () => {

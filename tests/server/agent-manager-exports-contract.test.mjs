@@ -25,6 +25,7 @@ const EXPECTED_EXPORTS = [
   'getSessionLease',
   'getSessionState',
   'getSessionStatus',
+  'getSessionContextBudget',
   'isSessionFileRollbackBusy', // rollback uses actual runtime state, not UI-masked streaming
   'isSseConnected',
   'listSessions',

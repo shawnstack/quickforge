@@ -21,6 +21,7 @@
 | GET | `/api/instructions?projectId=` | `instructions` | `{ base, systemPrompt, skills, ... }`，`systemPrompt` 体量大 |
 | GET | `/api/skills?available=true&projectId=` | `skills` | 当前会话真正能 `activate_skill` 的列表 |
 | GET | `/api/agents/:id/state` | `whoami` / `spawn` / `task-add` | 读**自己**的 `modelRef` / `thinkingLevel`：`spawn` 靠它继承思考档，`task-add` 靠它把任务绑到同一个模型上。会话被驱逐或未建好时 404，调用方必须能接受 |
+| GET | `/api/agents/:id/context-usage` | `context` | 上下文预算「油表」：`usage.inputTokens` / `contextWindow` / `percent` / `remainingTokens` / `breakdown` / `inputTokenSource`。轻量，不返回消息体；会话被驱逐时先尝试恢复，仍无则 404 |
 | GET | `/api/models/catalog` | `task-add` | 模型目录。只在 `--model` 显式指定、或读不到自己状态时用；`task-add --model` 收的是目录里的模型 id，不是引用对象 |
 
 ## 写（默认只作用于自己）

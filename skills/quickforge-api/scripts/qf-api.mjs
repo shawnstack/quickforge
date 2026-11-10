@@ -35,6 +35,7 @@ const HELP = `QuickForge local API client (built-in skill: quickforge-api)
 
 Read-only:
   whoami                        Where the API is and who am I
+  context [--sessionId ID]      My context budget: used/window/remaining tokens
   agents                        List live (in-memory) sessions
   sessions [--limit N]          List stored sessions, newest first
   show <sessionId> [--tail N]   Read-only session view (does not wake it)
@@ -278,6 +279,31 @@ async function commandWhoami(client, baseUrl, options) {
     session,
     sessionError,
     ...(Array.isArray(options.warnings) && options.warnings.length ? { warnings: options.warnings } : {}),
+  }
+}
+
+async function commandContext(client, options) {
+  const sessionId = optionString(options, 'sessionId') || process.env.QUICKFORGE_SESSION_ID || null
+  if (!sessionId) {
+    throw new Error('context needs a session id: no QUICKFORGE_SESSION_ID in this process, pass --sessionId ID')
+  }
+  const budget = await client.get(`/api/agents/${encodeURIComponent(sessionId)}/context-usage`)
+  const usage = budget?.usage ?? null
+  const contextWindow = Number(usage?.contextWindow) || 0
+  const inputTokens = Number(usage?.inputTokens) || 0
+  return {
+    sessionId: budget?.sessionId ?? sessionId,
+    modelId: budget?.modelId ?? null,
+    contextWindow,
+    inputTokens,
+    // percent 是「已用百分比」。剩余量单独给，避免模型自己算错方向。
+    percent: contextWindow > 0 ? Math.round((inputTokens / contextWindow) * 1000) / 10 : null,
+    remainingTokens: contextWindow > 0 ? Math.max(0, contextWindow - inputTokens) : null,
+    // provider = 供应商上报的真实用量；estimated = 本地估算；unavailable = 还没有真实用量
+    inputTokenSource: usage?.inputTokenSource ?? null,
+    isCompacted: Boolean(usage?.isCompacted),
+    messageCount: budget?.messageCount ?? 0,
+    breakdown: usage?.breakdown ?? null,
   }
 }
 
@@ -817,6 +843,7 @@ async function main() {
   let result
   switch (command) {
     case 'whoami': result = await commandWhoami(client, baseUrl, options); break
+    case 'context': result = await commandContext(client, options); break
     case 'agents': result = await commandAgents(client); break
     case 'sessions': result = await commandSessions(client, options); break
     case 'show': result = await commandShow(client, positional, options); break

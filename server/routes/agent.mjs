@@ -17,6 +17,7 @@ import {
   followUpAgent,
   getSessionState,
   getSessionStatus,
+  getSessionContextBudget,
   getSessionEventBus,
   tryAcquireSse,
   releaseSse,
@@ -381,6 +382,27 @@ export async function handleAgentApi(req, res, url, context = {}) {
       throw error
     }
     sendJson(res, 200, projectStateForClient(stripSplitSessionState(state), sessionAttachmentUrlFor(sessionId)))
+    return
+  }
+
+  // GET /api/agents/:sessionId/context-usage — 上下文预算（"油表"）。
+  //
+  // 存在的理由：模型没法看见自己的上下文窗口还剩多少，只能等压缩悄悄触发，
+  // 或者到上限被截断。有了这个只读端点，它可以自己判断「该收尾交接了」还是
+  // 「还能继续干」。与 /state 分开放，因为 /state 会回整段消息，而这里只要数字。
+  if (req.method === 'GET' && subPath === 'context-usage') {
+    let budget = getSessionContextBudget(sessionId)
+    if (!budget) {
+      // 和 /state 一样：被空闲驱逐的会话先尝试从存储恢复，再决定 404。
+      await restoreAgent(sessionId)
+      budget = getSessionContextBudget(sessionId)
+    }
+    if (!budget) {
+      const error = new Error('Session not found')
+      error.statusCode = 404
+      throw error
+    }
+    sendJson(res, 200, budget)
     return
   }
 

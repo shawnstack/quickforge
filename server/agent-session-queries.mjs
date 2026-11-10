@@ -153,5 +153,27 @@ export function createSessionQueries({ sessionGoal, messagesWithRuntimeToolExecu
     return session?.eventBus ?? null
   }
 
-  return { getSessionState, isSessionFileRollbackBusy, getSessionStatus, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus }
+
+  /**
+   * Context budget for one session — the "fuel gauge" a model uses to decide
+   * whether it still has room to work, or should wrap up and hand off.
+   *
+   * Deliberately NOT folded into `getSessionStatus`: that snapshot is polled by
+   * clients while streaming, and the estimator walks every message. A separate
+   * route keeps the hot path cheap.
+   */
+  function getSessionContextBudget(sessionId) {
+    const session = agentSessions.get(sessionId)
+    if (!session) return null
+    const messages = session.agent?.state?.messages
+    return {
+      sessionId: session.sessionId,
+      modelId: session.model?.id ?? null,
+      modelRef: session.modelRef || undefined,
+      messageCount: Array.isArray(messages) ? messages.length : 0,
+      usage: getSessionContextUsage(session) ?? null,
+    }
+  }
+
+  return { getSessionState, isSessionFileRollbackBusy, getSessionStatus, getSessionContextBudget, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus }
 }

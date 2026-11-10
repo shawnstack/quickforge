@@ -156,7 +156,7 @@ export function currentSessionTurnId(sessionId) {
   return sessionTurnIds.get(sessionId) || null
 }
 
-export const { getSessionState, isSessionFileRollbackBusy, getSessionStatus, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus } = createSessionQueries({
+export const { getSessionState, isSessionFileRollbackBusy, getSessionStatus, getSessionContextBudget, tryAcquireSse, isSseConnected, releaseSse, getSessionEventBus } = createSessionQueries({
   sessionGoal, messagesWithRuntimeToolExecutions, runtimePendingToolCalls, getSessionContextUsage,
   listBackgroundCommands: listBackgroundCommandTasks,
   getWriteLease: getSessionLease,

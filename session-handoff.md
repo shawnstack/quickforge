@@ -1,5 +1,19 @@
 # Current Session Handoff
 
+## 本轮：上下文「油表」+ 别让自己死掉（2026-11-11）
+
+- Current Objective（当前目标）：用户要求两件——① `quickforge-api` skill 能读到自己还剩多少上下文（`Token` 预算），好在「快满了」时收尾或换会话；② 建立「不让自己死掉」的机制，明确「如果自己决定重启，必须保证重启后还会活过来」。
+- 改动：
+  1. **服务端新增只读端点** `GET /api/agents/:id/context-usage`：`agent-session-queries.mjs` 加 `getSessionContextBudget()`（包 `estimateSessionContextUsage`，返回 `{ sessionId, modelId, modelRef, messageCount, usage }`），`routes/agent.mjs` 加路由（会话不在内存先 `restoreAgent` 再 404），`agent-manager.mjs` 导出。**刻意不并进 `/status`**（那是客户端流式期间轮询的热路径，估算器要遍历全部消息）也**不并进 `/state`**（会回整段消息，而这里只要数字）。
+  2. `qf-api.mjs` 新增 `context` 子命令：`contextWindow` / `inputTokens` / `percent`（已用）/ `remainingTokens` / `inputTokenSource` / `isCompacted` / `breakdown`。`remainingTokens` 由脚本算好，避免模型把方向算反。
+  3. `SKILL.md` 新增**「别让自己死掉」**整节：油表阈值（<70% 正常、70–85% 开始收口、>85% 停止开新工作）、三个断裂点各自的动作（预算满 → 先写再 `spawn` 接手；要重启 → **先排班再重启，顺序不能反**；会话结束 → handoff 当遗书），以及「未把结论写下来不得删班次」。
+  4. `<continuity>` 新增 `Staying alive` 段：一句 `Restarting without scheduling a shift is choosing to die.` 把顺序钉死。
+  5. 白名单 `endpoints.md` + `docs/wiki/server/README.md` 同步。
+- Evidence（验证）：`npx vitest run tests/server` → 212 files / **2274 passed**、1 skipped、0 failed；`npm run lint` → 0 problems。中途 `agent-manager-exports-contract.test.mjs` 红了一次（它断言导出符号集合），按新契约把 `getSessionContextBudget` 补进期望列表——**这个测试红是正常工作**，不是回归。
+- **注意：新端点和 `<continuity>` 都要重启 QuickForge 才生效。** 现在 `qf-api context` 返回 404 是预期的，不代表代码错。
+- **已按新协议排班**：`[自约] 重启后确认油表与新提示词是否生效`（id `mwb1plkn-jqcjbgi1`，`once` 03:15）。instruction 分两支——`context` 能返回数字 = 重启生效，就确认 `Staying alive` 已注入并把结果写进工作记忆后自删；仍是 404 = 没重启，只在本文件加一行然后自删。**这是「重启前先排班」协议的第一次实跑**，也是唯一能证明「重启后还能活过来」的东西。
+- 下一步：重启后 ① 跑 `qf-api.mjs context` 看到数字；② 用 `instructions --system-prompt` 确认 `Staying alive` 段已注入；③ 之后每次要重启，先按 SKILL.md 的协议排班再重启。
+
 ## 本轮：积压改动分组提交（2026-11-10）
 
 - Current Objective（当前目标）：用户说「把自己的代码先提交了」——工作区里积压了两条已 done 的 feature（`self-evolution-loop-architecture-doc` + `self-scheduled-shift-continuity`），交接里一直记着「未提交，提交前先分组」。

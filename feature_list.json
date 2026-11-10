@@ -1,6 +1,30 @@
 {
   "features": [
     {
+      "id": "session-context-budget-and-survival",
+      "title": "给 AI 装上下文「油表」并定义「别让自己死掉」的存活协议",
+      "status": "done",
+      "summary": "两个诉求：模型看不见自己的上下文还剩多少，只能等自动压缩悄悄触发或撞上限；以及一旦要重启 QuickForge，正在跑的会话会被杀，没有任何机制保证「重启后还有新的我醒来」。① **油表**：新增只读端点 `GET /api/agents/:id/context-usage`（`agent-session-queries.mjs` 的 `getSessionContextBudget` 包 `estimateSessionContextUsage`），返回 `{ sessionId, modelId, modelRef, messageCount, usage }`。刻意不并进 `/status`——那是客户端流式期间轮询的热路径，而估算器要遍历全部消息；也不并进 `/state`——那条会回整段消息，而调用方只要数字。路由沿用 `/state` 的语义：会话不在内存先 `restoreAgent`，仍无则 404。脚本侧新增 `context` 子命令，把 `remainingTokens` 算好（避免模型把「已用 70%」读成「还剩 70%」）。② **存活协议**：`SKILL.md` 新增「别让自己死掉」整节，给三档油表阈值（<70% 正常 / 70–85% 开始收口 / >85% 停止开新工作）和三个断裂点的动作（预算满先写再 `spawn` 接手；要重启**先排班再重启，顺序不能反**；会话结束把 handoff 当遗书），并写明「结论没写下来不许删班次，因为运行历史会跟着任务一起没」。`<continuity>` 加 `Staying alive` 段，用一句 `Restarting without scheduling a shift is choosing to die.` 把顺序钉死。",
+      "files": [
+        "server/agent-session-queries.mjs（新增 getSessionContextBudget 并加入工厂返回）",
+        "server/routes/agent.mjs（新增 GET /context-usage 路由，含 restoreAgent 兜底）",
+        "server/agent-manager.mjs（工厂解构补 getSessionContextBudget）",
+        "server/system-prompt.mjs（<continuity> 新增 Staying alive 段）",
+        "skills/quickforge-api/scripts/qf-api.mjs（commandContext + HELP + switch + context 子命令）",
+        "skills/quickforge-api/SKILL.md（命令表加 context；新增「别让自己死掉」整节）",
+        "skills/quickforge-api/references/endpoints.md（只读表补 context-usage）",
+        "docs/wiki/server/README.md（记录新端点与「为什么不并进 status/state」）",
+        "tests/server/agent-manager-domains.test.mjs（+1 例：context budget 形状；absent 用例补 null 断言）",
+        "tests/server/agent-manager-exports-contract.test.mjs（导出期望列表补 getSessionContextBudget）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "`npx vitest run tests/server` → 212 files / 2274 passed、1 skipped、0 failed。`npm run lint` → 0 problems。`node --check` 三个改动文件通过。中途 `agent-manager-exports-contract.test.mjs` 报「expected …(51) to deeply equal …(50)」——是守门测试拦住了新增导出，按新契约补入期望列表后转绿，不是回归。新端点未在运行中的实例上验证（未重启，`context` 目前 404 属预期）。",
+      "updatedAt": "2026-11-11",
+      "boundaries": "① **必须重启 QuickForge 才生效**：新路由与 `<continuity>` 都活在进程内，当前实例仍是旧代码；② 没有做「AI 自己重启 QuickForge」的能力，重启仍由用户执行——协议解决的是「重启后能接上」，不是「自动重启」；③ `remainingTokens` 在脚本侧计算，服务端只给 `inputTokens`/`contextWindow`；④ 油表在 `inputTokenSource === 'unavailable'` 时只有本地估算，不是精确值；⑤ 未加任何自动「预算不足就自动 spawn 新会话」的逻辑——那需要判断力，先留给人（或模型自己）决定。"
+    },
+    {
       "id": "self-description-drift-cleanup",
       "title": "收敛三处「系统自我描述与实际行为不一致」：工作记忆重复注入、派生会话默认权限、Goal v2 证据门禁",
       "status": "done",

@@ -43,6 +43,7 @@ quickforge/
 | 文档 | 说明 |
 |------|------|
 | [工作流编排架构](../architecture/workflow-orchestration.zh-CN.md) | `run_workflow` 脚本编排 Agent 与工具（hook 契约、并发与审批、worker 隔离） |
+| [自进化回路](../architecture/self-evolution-loop.zh-CN.md) | 设计文档（**部分落地**）：把「让 AI 自己改进自己」拆成六环回路（目标→感知→诊断→生成→验证→准入 + 回滚/预算横切），给出三条架构约束（最弱环决定上限、验证者必须与生成者隔离、准入按影响半径而非对错分级）与 R0/R1/R2 三档半径闸门；§10 记录 2026-11-10 落地的 `<continuity>` 提示词块与自约任务删除边界，以及「服务端识别不了调用方时改用声明式校验」这条取舍 |
 | [会话消息实时一致性](../architecture/message-log-consistency.zh-CN.md) | 消息日志版本、连接级投递游标、SSE 续传与 `applyLog` 单一投影（双端一致契约） |
 | [会话存储 v2](../architecture/session-storage-v2.zh-CN.md) | 会话域存储的当前事实源（SQLite 单一权威、baseline v19 三表、写入/删除/空间回收、备份恢复入口） |
 | [SQLite 存储基础层](../architecture/sqlite-storage-foundation.zh-CN.md) | `node:sqlite` 连接、PRAGMA、append-only migration 协议与 baseline v19（历史迁移链已折叠） |
@@ -83,6 +84,7 @@ quickforge/
 - **Goal 模式（v2 默认）**: 主聊天与定时任务可用 `/goal <目标>` 设定带可验收标准的目标；ACP 与 shared 请求仍拒绝 Goal。v2 使用 4 个持久 phase（active / paused / blocked / complete）+ 进程本地 armed/disarmed，goal 变更以 `goal/change` 事件日志持久化并支持 `{id, revision}` CAS；规划轮整轮只读，正常轮末持久化后自动执行，模型只能提交绑定真实工具结果的证据，`complete` 经证据检查、正常轮末与持久化屏障后自动完成。重启/fork 后 active 目标保持 active 但 disarmed，必须显式 `/goal resume`；`clear` 写 tombstone。旧会话继续走 legacy 13 状态引擎（设置·通用「Goal 引擎」可切换或 `QUICKFORGE_GOAL_ENGINE=legacy`）。详见 [服务端 Goal v2 契约](server/README.md#goal-v2默认servergoal)
 
 - **多模型供应商**: OpenAI 兼容 `/v1/chat/completions` 和 Anthropic Messages API
+- **存续与自约任务（`<continuity>`）**: 内置 `quickforge-api` skill 可用时，系统提示词注入 `<continuity>`——告诉 AI 它不必只在被叫的时候存在，可以给自己排一个定时任务班次，把「想做但本次做不完的事」交给未来的自己。配套的规矩写在同一块里：三个条件都成立才值得排（本次做不完 / 下一个你能从你写下的字明白为什么 / 值得一次模型调用）、说不出第一步就闭嘴、**什么都不做是正确的选择**、最多存在一条、建前先 `tasks` 查、`instruction` 当成给下一个自己的信来写、醒来先 `tasks` + `task-runs` 认领自己、干完先把结论写进工作记忆或经验库再删掉自己、在 `[自约]` 会话里不许再排班（防指数增长）。落地细节：`task-add --self-scheduled` 会自动把标题加上 `[自约]` 前缀并把 `createdBy` 记成 `'agent'`；只有这种任务允许 `task-delete` 收掉——脚本固定带 `?selfScheduledOnly=1`，服务端据此校验并对其余任务返回 403，而界面删除不带该参数所以行为不变。存量任务没有 `createdBy` 字段，一律按 `'user'` 处理。
 - **工作记忆（Beta）**: 设置页可开启「工作记忆」（与「用户记忆」「梦境记忆」同属设置里的「记忆」分组）。开启后系统提示词注入 `<working_memory>`：共享笔记目录 `~/.quickforge/working-memory/`、几条原则和内部笔记提示词（以压缩摘要提示词为底本改写成大白话，属于内部契约，设置页不暴露也不接受修改）。原则只讲机制和触发点——开工前先列目录挑相关的读，**觉得任务做完时回头看一眼有没有值得留给下次的东西，没有就不写**，不规定固定小节模板。一个 Markdown 文件只记一件事，文件名就是内容的一句话总结；读写走 `list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note` 四个工具（路径锁死在工作记忆与经验库两个目录内，不新增沙箱放宽，也**没有删除**——退休的笔记挪进 `_archive/`）。设置页的笔记区是只读的：按更新时间倒序分页列出标题与时间，每条可「打开」在系统文件管理器里选中该文件，目录行另有「打开文件夹」，不提供正文编辑。详见 [记忆体系：工作记忆 + 经验库](../architecture/memory-system.zh-CN.md)
 - **经验库**: `~/.quickforge/experiences/`，一条经验一个文件（文件名即结论；文件头是 front matter：`title` / `description` / `general` / `candidate_skill`，正文是「怎么做 / 坑 / 来源」）。系统提示词里**只注入扫描生成的 `index.md`**（200 行封顶，一行只有文件名，`（特殊）` 标记只对某个项目成立的条目），正文按需 `read_memory_note` 读——这就是渐进式披露。经验由梦境整理员自动写入、无需人工审核；`candidate_skill: true` 的条目在索引里显示 `★`，升级成 Agent Skill 仍需人点头，且只有 `general: true` 的经验才可能带 ★。设置·梦境记忆页的经验库列表只读，但每条经验可「打开」在系统文件管理器里选中该文件，工具条另有「打开文件夹」（与工作记忆的笔记「打开」同一套服务端动作，`note-store.mjs` 的 `revealNoteFile`）
 

@@ -147,12 +147,6 @@ function buildContextUsageTitle({ usage, compacted, stale = false }: {
   if (stale) lines.push(t('contextUsageStaleNote'))
   const breakdown = usage.breakdown
   if (breakdown) {
-    if (breakdown.providerUsageTokens || breakdown.trailingTokens) {
-      lines.push(
-        t('contextUsageProviderBaseline', { tokens: formatOptionalTokens(breakdown.providerUsageTokens) ?? '0' }),
-        t('contextUsageTrailingMessages', { tokens: formatOptionalTokens(breakdown.trailingTokens) ?? '0' }),
-      )
-    }
     // 下面几行是本地估算的拆分，和上面的提供商口径总量不是同一套数字，单独标出来。
     lines.push(
       t('contextUsageLocalBreakdownTitle'),
@@ -280,15 +274,6 @@ function createContextUsageTipController() {
     popover.append(header, coreRows)
 
     const breakdown = usage.breakdown
-    // 提供商上报的用量基线 + 基线之后新增消息的估算，两者相加就是上面那一行总量。
-    if (breakdown?.providerUsageTokens || breakdown?.trailingTokens) {
-      const baseline = document.createElement('div')
-      baseline.className = 'quickforge-context-usage-tip-section quickforge-context-usage-tip-details'
-      addRow(baseline, t('contextUsageProviderBaseline'), formatOptionalTokens(breakdown.providerUsageTokens) ?? '0', true)
-      addRow(baseline, t('contextUsageTrailingMessages'), formatOptionalTokens(breakdown.trailingTokens) ?? '0', true)
-      popover.append(baseline)
-    }
-
     const breakdownRows = contextUsageBreakdownRows(breakdown)
     if (breakdownRows.length > 0) {
       const details = document.createElement('div')

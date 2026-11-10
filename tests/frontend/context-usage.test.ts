@@ -241,7 +241,7 @@ describe('context usage indicator without local estimation', () => {
     expect(display.context?.percent).toBe(20)
   })
 
-  it('lists the provider baseline before the local estimate breakdown in the tooltip title', () => {
+  it('lists only the local estimate breakdown in the tooltip title', () => {
     const onDisplayChange = vi.fn()
     const indicator = createIndicator({
       serverUsage: () => ({
@@ -264,9 +264,10 @@ describe('context usage indicator without local estimation', () => {
     const title = onDisplayChange.mock.calls.at(-1)?.[0]?.context?.title as string
     const lines = title.split('\n')
     const lineOf = (key: string) => lines.findIndex((line) => line.startsWith(key))
-    expect(lineOf('contextUsageProviderBaseline')).toBeGreaterThan(-1)
-    expect(lineOf('contextUsageProviderBaseline')).toBeLessThan(lineOf('contextUsageLocalBreakdownTitle'))
-    expect(lineOf('contextUsageTrailingMessages')).toBeLessThan(lineOf('contextUsageLocalBreakdownTitle'))
+    // 提供商用量基线、基线后的消息两行已从展示里去掉，title 里也不能再出现。
+    expect(title).not.toContain('contextUsageProviderBaseline')
+    expect(title).not.toContain('contextUsageTrailingMessages')
+    expect(lineOf('contextUsageLocalBreakdownTitle')).toBeGreaterThan(-1)
     expect(lineOf('contextUsageLocalBreakdownTitle')).toBeLessThan(lineOf('contextUsageSystemPrompt'))
     expect(lineOf('contextUsageSystemPrompt')).toBeLessThan(lineOf('contextUsageToolsSchema'))
     expect(lineOf('contextUsageToolsSchema')).toBeLessThan(lineOf('contextUsageMessages'))
@@ -280,5 +281,8 @@ describe('context usage indicator without local estimation', () => {
     expect(i18nSource).not.toContain('contextUsageServerCalculated')
     expect(i18nSource).not.toContain('contextUsageSourceServerShort')
     expect(i18nSource).not.toContain('contextUsageSourceUnavailable')
+    // 展示里不再有「提供商用量基线 / 基线后的消息」两行，对应文案也不该留着。
+    expect(i18nSource).not.toContain('contextUsageProviderBaseline')
+    expect(i18nSource).not.toContain('contextUsageTrailingMessages')
   })
 })

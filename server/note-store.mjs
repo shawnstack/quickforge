@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { firstString, parseFrontmatter } from './frontmatter.mjs'
+import { firstString, parseFrontmatter, setFrontmatterScalar } from './frontmatter.mjs'
 import { openPathInFileManager } from './utils/platform.mjs'
 
 /**
@@ -272,10 +272,49 @@ export async function writeNoteFile(dir, name, content) {
 }
 
 /**
+ * The content a note should have after being renamed, or `null` when nothing needs
+ * to change (no front matter title, or it already matches the new name).
+ *
+ * The file name is the one title that always exists; the front matter `title` is its
+ * copy, which is why `writeNoteFile` refuses a mismatch. Moving the file alone would
+ * leave the copy behind, and the note would be unwritable from then on — and renaming
+ * is normally the first half of "rename it, then update it".
+ */
+async function retitledNoteContent(file, toName) {
+  const targetTitle = noteTitleOfName(toName)
+  let content
+  try {
+    content = await fs.readFile(file, 'utf8')
+  } catch {
+    return null
+  }
+  const declaredTitle = noteFrontmatterTitleOf(content)
+  if (!declaredTitle || declaredTitle === targetTitle) return null
+  return setFrontmatterScalar(content, ['title', '标题'], targetTitle)
+}
+
+/** Atomically replace an existing note's content, preserving its trailing newline. */
+async function replaceNoteFileContent(file, text) {
+  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    await fs.writeFile(temporary, text.endsWith('\n') ? text : `${text}\n`, 'utf8')
+    await fs.rename(temporary, file)
+  } catch (error) {
+    await fs.rm(temporary, { force: true }).catch(() => {})
+    throw error
+  }
+}
+
+/**
  * Rename a note, or retire it by moving it into `_archive/`.
  *
  * This is the only way a note can leave the folder, and it never destroys text:
  * the worst case is a file sitting in `_archive/`, which is still readable.
+ *
+ * `titleSynced` reports whether the front matter `title` had to be rewritten to
+ * follow the file name: `null` = nothing to do, `false` = the rename happened but
+ * the copy could not be updated (the note is left exactly as it was before this fix,
+ * so callers can surface it instead of pretending the note is still writable).
  */
 export async function moveNoteFile(dir, from, to) {
   const fromName = normalizeNoteName(from)
@@ -285,12 +324,12 @@ export async function moveNoteFile(dir, from, to) {
   const toName = archived
     ? normalizeNoteName(toRaw.slice(ARCHIVE_DIR_NAME.length + 1))
     : normalizeNoteName(toRaw)
-  if (fromName === toName && !archived) return { changed: false, name: fromName }
+  if (fromName === toName && !archived) return { changed: false, name: fromName, titleSynced: null }
 
   const sourceFile = path.join(dir, fromName)
   const targetDir = archived ? path.join(dir, ARCHIVE_DIR_NAME) : dir
   const targetFile = path.join(targetDir, toName)
-  if (sourceFile === targetFile) return { changed: false, name: toName }
+  if (sourceFile === targetFile) return { changed: false, name: toName, titleSynced: null }
 
   try {
     await fs.access(sourceFile)
@@ -307,8 +346,13 @@ export async function moveNoteFile(dir, from, to) {
     if (error instanceof NoteStoreError) throw error
     if (error?.code !== 'ENOENT') throw error
   }
+  const retitled = await retitledNoteContent(sourceFile, toName)
   await fs.rename(sourceFile, targetFile)
-  return { changed: true, name: toName, archived }
+  if (retitled === null) return { changed: true, name: toName, archived, titleSynced: null }
+  // The rename already succeeded, so a failure here must not be reported as "the move
+  // failed" — the note is in the right place and readable, only the title is stale.
+  const titleSynced = await replaceNoteFileContent(targetFile, retitled).then(() => true).catch(() => false)
+  return { changed: true, name: toName, archived, titleSynced }
 }
 
 /** Archived notes, newest first. Used by the settings page to show what was retired. */

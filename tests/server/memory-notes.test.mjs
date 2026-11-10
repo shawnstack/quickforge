@@ -102,6 +102,18 @@ describe('working memory notes', () => {
     expect(archived).toContain('旧结论')
   })
 
+  it('leaves a note without front matter byte for byte alone when it is renamed', async () => {
+    // Working-memory notes carry their title as a `# heading`, so there is no copy to
+    // update — the rename must not invent a front matter block either.
+    await writeWorkingMemoryNote(options(), '旧名', '# 旧名\n\n内容')
+    await expect(moveWorkingMemoryNote(options(), '旧名', '新名')).resolves.toMatchObject({
+      changed: true,
+      titleSynced: null,
+    })
+    const content = await readFile(path.join(workingMemoryDir(options()), '新名.md'), 'utf8')
+    expect(content).toBe('# 旧名\n\n内容\n')
+  })
+
   it('renames a note and refuses to overwrite the target', async () => {
     await writeWorkingMemoryNote(options(), '旧名', '# 旧名\n\n内容')
     await writeWorkingMemoryNote(options(), '已存在', '# 已存在\n\n另一个')
@@ -309,6 +321,56 @@ general: no
     expect(await listExperiences(options())).toHaveLength(0)
     const archived = await listArchivedExperiences(options())
     expect(archived.map((note) => note.name)).toEqual(['新结论.md'])
+  })
+
+  it('renames the front matter title together with the file, so the note stays writable', async () => {
+    // The file name is the title; the front matter copy has to follow it, or every
+    // later write of this note is rejected for a mismatch the reader cannot fix.
+    await writeExperience(options(), '旧结论', `---
+title: 旧结论
+description: 某天
+general: false
+---
+
+- 怎么做：x
+`)
+
+    await expect(moveExperience(options(), '旧结论', '新结论')).resolves.toMatchObject({ changed: true, titleSynced: true })
+
+    const content = await readFile(path.join(experiencesDir(options()), '新结论.md'), 'utf8')
+    expect(content).toContain('title: 新结论')
+    expect(content).not.toContain('title: 旧结论')
+    // Only the title line changes: description, general and the body stay as they were.
+    expect(content).toContain('description: 某天')
+    expect(content).toContain('general: false')
+    expect(content).toContain('- 怎么做：x')
+
+    // Renaming is usually the first half of "rename it, then update it".
+    await expect(writeExperience(options(), '新结论', content.trimEnd())).resolves.toMatchObject({ title: '新结论' })
+    const entries = await listExperiences(options())
+    expect(entries.map((entry) => entry.title)).toEqual(['新结论'])
+    expect(buildExperienceIndex(entries)).toContain('- 新结论（特殊）')
+  })
+
+  it('rewrites the title when a note is archived under a different name', async () => {
+    await writeExperience(options(), '旧结论', '---\ntitle: 旧结论\ngeneral: true\n---\n\n- 怎么做：x\n')
+    await expect(moveExperience(options(), '旧结论', '_archive/归档名')).resolves.toMatchObject({
+      changed: true,
+      archived: true,
+      titleSynced: true,
+    })
+    const archived = await readFile(path.join(experiencesDir(options()), '_archive', '归档名.md'), 'utf8')
+    expect(archived).toContain('title: 归档名')
+  })
+
+  it('quotes the rewritten title when it would otherwise be read as a YAML comment', async () => {
+    // ` #` starts a comment, so a name carrying one has to be quoted — the same rule
+    // the curator prompt gives for hand-written headers.
+    await writeExperience(options(), '旧结论', '---\ntitle: 旧结论\n---\n\n- 怎么做：x\n')
+    await moveExperience(options(), '旧结论', '结论 #1')
+    const content = await readFile(path.join(experiencesDir(options()), '结论 #1.md'), 'utf8')
+    expect(content).toContain('title: "结论 #1"')
+    await expect(writeExperience(options(), '结论 #1', content.trimEnd())).resolves.toMatchObject({ title: '结论 #1' })
   })
 
   it('does not list the generated index as an experience', async () => {

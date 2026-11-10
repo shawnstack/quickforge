@@ -32,6 +32,69 @@ export function parseYamlScalar(value, options = {}) {
   return trimmed
 }
 
+/**
+ * The inverse of `parseYamlScalar`: render a value so that reading it back yields the
+ * same string.
+ *
+ * Only the cases this project actually writes get special treatment — a ` #`, which
+ * would otherwise start a YAML comment and silently truncate the value, and the
+ * leading characters YAML refuses to read as a plain scalar. Quotes are added only
+ * when needed, so a title that parses fine unquoted keeps looking like plain text.
+ *
+ * Returns `null` for values that cannot be written on one line; callers treat that as
+ * "leave the file alone" rather than guessing.
+ */
+export function formatYamlScalar(value) {
+  const text = String(value ?? '')
+  if (/[\r\n]/.test(text)) return null
+  const needsQuotes = text === ''
+    || /^\s|\s$/.test(text)
+    || /[ \t]#/.test(text)
+    || /^[-?:,[\]{}#&*!|>'"%@`]/.test(text)
+    || /: /.test(text)
+  if (!needsQuotes) return text
+  return `"${text.replace(/"/g, '\\"')}"`
+}
+
+/**
+ * Replace the value of one or more top-level front matter keys, leaving the rest of
+ * the file byte for byte as it was.
+ *
+ * Returns `null` when there is nothing to do — no front matter, none of the keys
+ * present, or a value that cannot be written on one line. Callers use that to skip
+ * the write instead of inventing a header.
+ */
+export function setFrontmatterScalar(text, keys, value) {
+  const names = Array.isArray(keys) ? keys : [keys]
+  const raw = String(text ?? '')
+  const bom = raw.startsWith('\uFEFF') ? '\uFEFF' : ''
+  const normalized = raw.slice(bom.length)
+  const openToken = /^---[ \t]*\r?\n/.exec(normalized)
+  if (!openToken) return null
+  const match = normalized.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/)
+  if (!match) return null
+  const formatted = formatYamlScalar(value)
+  if (formatted === null) return null
+
+  const block = match[1]
+  const eol = block.includes('\r\n') ? '\r\n' : '\n'
+  const lines = block.split(/\r?\n/)
+  let changed = false
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].match(/^([A-Za-z0-9_.-]+):(?:[ \t]*(.*))?$/)
+    if (!line || !names.includes(line[1])) continue
+    const next = `${line[1]}: ${formatted}`
+    if (lines[index] !== next) {
+      lines[index] = next
+      changed = true
+    }
+  }
+  if (!changed) return null
+  // Everything from the closing `---` onwards is copied verbatim, so the body keeps
+  // its own indentation, blank lines and trailing newline.
+  return `${bom}${openToken[0]}${lines.join(eol)}${normalized.slice(openToken[0].length + block.length)}`
+}
+
 function collectIndentedBlock(lines, startIndex, parentIndent) {
   const block = []
   let index = startIndex

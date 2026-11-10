@@ -46,13 +46,20 @@ describe('runtime-info', () => {
     expect(getRuntimeInfo()).toBeNull()
   })
 
-  it('injects identity variables without mutating process.env', () => {
+  it('injects identity variables without mutating the environment it was handed', () => {
     setRuntimeInfo({ host: '0.0.0.0', port: 5176 })
+    const baseEnv = { PATH: '/usr/bin' }
+    // Snapshot instead of asserting `undefined`: whoever runs the suite may already be
+    // inside a QuickForge shell, where these names are legitimately set for real.
+    const before = {
+      sessionId: process.env.QUICKFORGE_SESSION_ID,
+      projectId: process.env.QUICKFORGE_PROJECT_ID,
+    }
     const env = buildChildProcessEnv({
       sessionId: 'session-1',
       projectId: 'project-1',
       workspaceRoot: '/tmp/workspace',
-    }, { PATH: '/usr/bin' })
+    }, baseEnv)
 
     expect(env).toMatchObject({
       PATH: '/usr/bin',
@@ -61,7 +68,11 @@ describe('runtime-info', () => {
       QUICKFORGE_PROJECT_ID: 'project-1',
       QUICKFORGE_WORKSPACE_ROOT: '/tmp/workspace',
     })
-    expect(process.env.QUICKFORGE_SESSION_ID).toBeUndefined()
+    // The identity belongs to the returned copy: leaking it into the base env or into
+    // process.env would hand a stale session id to every later spawn.
+    expect(baseEnv).toEqual({ PATH: '/usr/bin' })
+    expect(process.env.QUICKFORGE_SESSION_ID).toBe(before.sessionId)
+    expect(process.env.QUICKFORGE_PROJECT_ID).toBe(before.projectId)
   })
 
   it('omits variables it cannot know yet instead of writing empty strings', () => {

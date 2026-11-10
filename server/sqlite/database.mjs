@@ -1,4 +1,4 @@
-import { readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -124,12 +124,32 @@ function quickCheckMarkerPath(databasePath) {
 // DatabaseSync, the controlled handle, or test duck-typed handles). Returns
 // null for in-memory databases, where no marker is possible and every call
 // runs a real scan.
+/**
+ * One database file has one identity.
+ *
+ * `PRAGMA database_list` reports the path SQLite itself resolved, while callers pass
+ * the path they configured. On macOS those two strings differ whenever the path runs
+ * through the `/var` → `/private/var` symlink, and because both the process cache and
+ * the marker file are keyed by this string, the same file would look like two: the
+ * cache would miss and the scan would run again. Resolving symlinks here keeps both
+ * sides on one key. A path that cannot be resolved (not yet on disk) keeps its
+ * `path.resolve` form, which is what the old code used for everything.
+ */
+function quickCheckPathOf(databasePath) {
+  const resolved = path.resolve(databasePath)
+  try {
+    return realpathSync(resolved)
+  } catch {
+    return resolved
+  }
+}
+
 function resolveQuickCheckDatabasePath(database) {
   try {
     const rows = database.prepare('PRAGMA database_list').all()
     const main = Array.isArray(rows) ? rows.find((row) => row && row.name === 'main') : null
     const file = typeof main?.file === 'string' ? main.file.trim() : ''
-    return file ? path.resolve(file) : null
+    return file ? quickCheckPathOf(file) : null
   } catch {
     return null
   }
@@ -189,7 +209,7 @@ export function runSharedSqliteQuickCheck(database, {
   force = false, maxAgeMs = SQLITE_QUICK_CHECK_MAX_AGE_MS, now = Date.now, writeMarker = true, databasePath = null,
 } = {}) {
   const forced = force === true || process.env.QUICKFORGE_SQLITE_QUICK_CHECK === 'force'
-  const resolvedPath = databasePath ? path.resolve(databasePath) : resolveQuickCheckDatabasePath(database)
+  const resolvedPath = databasePath ? quickCheckPathOf(databasePath) : resolveQuickCheckDatabasePath(database)
   if (!forced && resolvedPath) {
     const cached = sharedQuickCheckCache.get(resolvedPath)
     if (cached && now() - cached.okAt < maxAgeMs) {

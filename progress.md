@@ -2157,3 +2157,23 @@
   - `--model` 仍是死参数（服务端 `normalizeModelReference` 要 `{source,providerId,modelId}` 对象，脚本传字符串 → 400），用户决定不修，子会话沿用默认模型。
   - Evidence：实测三例 —— 不传参数 → `accessMode: full-access` / `thinkingLevel: xhigh` / `thinkingSource: inherited`；`--access-mode default --thinking low` → 两者都被覆盖；`--access-mode yolo` → 直接拒绝且不建会话。`show` 复核服务端确认落盘值一致。真派了一个活（跑 `node -v`/`pwd`），2 秒内 idle、5 条消息，没有被审批卡住。
   - 验证坑：`tests/server/runtime-info.test.mjs` 断言 `process.env.QUICKFORGE_SESSION_ID` 是 undefined，在会话里直接跑必然假失败；要 `env -u QUICKFORGE_SESSION_ID -u QUICKFORGE_PROJECT_ID -u QUICKFORGE_API_BASE -u QUICKFORGE_WORKSPACE_ROOT npx vitest run …` → 10 passed。定向 `npx eslint skills/quickforge-api/scripts/qf-api.mjs` → 0 problems。
+
+## frontmatter-title-follows-rename（done，2026-11-10）
+
+- 起因：审查 `0a0b0905` 时报的 P1，用户只挑了这一条要求修。`writeNoteFile` 新增「front matter `title` 必须与文件名逐字相同」的校验，而 `moveNoteFile` 只做 `fs.rename`，正文里的 `title` 停在旧名字 → 改名之后每次写这篇都 400，错误信息还叫人「用 move_memory_note 改名」。`server/dreaming/prompt.mjs` 正是教整理员这么走的主路径，本机 22 篇存量经验全带 `title:`。
+- 复现（临时目录，非仓库数据）：写「旧结论」→ `move` 成「新结论」→ 索引显示 `- 旧结论（特殊）`，再写「新结论」抛 `must equal the note name`。
+- 修法：同步放在存储层 `moveNoteFile`，工作记忆与经验库共用一条路，不各改一遍。`server/frontmatter.mjs` 新增 `formatYamlScalar`（按需加引号：` #`、首尾空白、YAML 特殊首字符、`: `）与 `setFrontmatterScalar`（只替换指定 key 的值行，其余字节原样保留，CRLF 文件仍是 CRLF）；`moveNoteFile` 在 rename 前读出内容并算好新内容，rename 成功后原子替换，返回 `titleSynced`（`null` 不用改 / `true` 已改 / `false` 没写上）。
+- 取舍：宁可「改名成功但标题没同步上」也不把整次改名报成失败——文件已在正确位置且可读；`titleSynced: false` 是静默降级路径，没有测试（要伪造写盘失败才能覆盖）。
+- 验证：`memory-notes` 22 → 26 例全过；`dreaming-curator-agent` + `chat-surface-send` 一起 48 passed；全量 `npx vitest run` → 505 files / 5598 tests，5593 passed、4 failed（与审查时同一批基线：runtime-info 1 例在会话内必然假失败 + sqlite quick_check 1 例 + acp workspace-mapping 2 例）、1 skipped；定向 `npx eslint` → 0 problems。
+- 未做：审查报告里其余 P1/P2/P3 一条没碰——`spawn` 默认 full-access、工作记忆开关不重建已存在会话的工具集、`<experiences>` 段未随开关裁剪、`runtime-info` 测试断言外部环境变量、`--api` 不校验回环、`ensureDefaultGlobalSkills` 早退不写 v2 marker。
+
+## red-test-baseline（done，2026-11-10）
+
+- 起因：用户明确不接受「这 4 个失败是既有基线」——「失败用例要对呀，问题要解决的」。于是把长期红的 4 例逐个查根因、修在根上，没有一处靠放宽断言或 skip 换绿灯。
+- 三个根因（互不相干）：
+  1. `tests/server/runtime-info.test.mjs` 断言 `process.env.QUICKFORGE_SESSION_ID` 为 undefined。在 QuickForge 自己拉起的 `run_command` 子进程里跑测试时它本来就有值 → 必然假失败，而这正是本项目 agent 跑测试的常态。改成对比调用前快照 + 断言传入的 `baseEnv` 没被写入，测的仍是「注入只发生在返回的副本里」。
+  2. `sqlite-quick-check-gate` 的 `skipped` 期望 `'process'` 实际 `'marker'`：进程缓存与 `lastOkAt` marker 都拿数据库路径字符串当 key，而 `PRAGMA database_list` 报的是 SQLite 解析后的路径、调用方传的是配置里的路径；macOS 上 `/var` → `/private/var` 符号链接让同一库有两个 key，缓存永远 miss（marker 因为同目录还能读到，才表现为 `'marker'`）。**这是产品缺陷**：每次启动白扫一遍整库。修法：新增 `quickCheckPathOf()`（`realpathSync`，失败回退 `path.resolve`），cache 与 marker 共用一个 key。
+  3. `acp/server.workspace-mapping` 2 例 `setActiveProjectPath` 返回 undefined：`assertSafeAcpCwd()` 返回 realpath 后的 cwd，而默认工作区根与已注册项目路径是按配置原样存的，同一个符号链接问题让 `sameProjectPath` 必然不等 → 默认工作区被当成「某个项目」去激活、已注册项目被当成新目录再注册。修法：`isDefaultWorkspaceCwd` 与新增的 `cwdMatchesProjectPath` 都把配置侧 realpath 后再比；解析不到就保持原样。`sameProjectPath` 本身不动（路由/UI 同步调用太多，不适合塞同步 IO）。
+- 验证：全量 `npx vitest run` → 505 files / 5598 tests，**5597 passed、1 skipped、0 failed**。1 skipped 是 `terminal-vendor-runtime.test.mjs` 的 `describe.skipIf(!hasVendoredPrebuild)`（环境相关、一直如此）。定向：`sqlite-quick-check-gate` 11、`runtime-info` 10、`acp/*` 17，全过；关键是「会话内直接跑也绿」，不再需要 `env -u QUICKFORGE_*`。`npm run lint` → exit 0、0 problems。
+- 文档：`docs/wiki/server/README.md`（ACP 段落补两侧解析符号链接）、`docs/architecture/sqlite-storage-foundation.zh-CN.md`（§6.1 补缓存 key 规范化）。
+- 未做：`sameProjectPath` 仍是同步字符串比较；项目注册时写进配置的路径不改写；Windows 短路径（8.3 名）下 `realpathSync` 的归一化没有实测。

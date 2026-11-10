@@ -186,6 +186,7 @@ health 执行轻量 `SELECT 1`、SQLite 版本、PRAGMA、`user_version` 与 mig
 - shared `quick_check` 只在权威 backup/export、restore 边界、显式完整性维护与离线工具等场景使用；restore 的关系/count/digest 校验按各域恢复流程执行，日常启动不复算快照 digest。
 - `server/sqlite/database.mjs` 的 `runSharedSqliteQuickCheck()` 仍为这些显式调用点提供进程内按数据库路径去重与 7 天 marker 降频；`:memory:` 始终真扫，marker 缺失/损坏/不可读则退回真扫。
 - `verifyIntegrity({quickCheck:true, forceQuickCheck:true})` 与 `QUICKFORGE_SQLITE_QUICK_CHECK=force` 可强制真扫；失败照旧 fail closed，且不写 marker、不进入缓存。
+- 进程内缓存与 `lastOkAt` marker 都以**解析过符号链接的数据库路径**为 key（`quickCheckPathOf`）。`PRAGMA database_list` 报的是 SQLite 自己解析出来的路径，调用方传的是配置里的路径，macOS 上 `/var` 是 `/private/var` 的符号链接，这两个字符串会不同——同一库于是看起来像两个，缓存永远不命中、每次都要真扫一遍（marker 因为在同一目录下仍能读到，表现成「skipped: marker」而不是 `process`）。解析不了的路径（尚未落盘）退回 `path.resolve`。
 
 历史“authoritative 启动时四域各扫一次，再由 shared quick_check 去重”的描述已被上述边界策略取代。WAL + `synchronous=NORMAL` 降低 torn-write 风险；`quick_check` 主要发现磁盘 bit-rot / 文件系统级损坏，逻辑关系与快照一致性由 backup/restore/export 和维护边界各自校验。
 

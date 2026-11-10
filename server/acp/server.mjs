@@ -621,16 +621,52 @@ async function assertSafeAcpAdditionalDirectories(additionalDirectories = []) {
   return result
 }
 
-function isDefaultWorkspaceCwd(cwd) {
+/**
+ * Is this cwd the default (project-less) workspace?
+ *
+ * `assertSafeAcpCwd` hands back a `realpath`, while the default workspace root is
+ * stored exactly as configured — and on macOS `/var` is a symlink to `/private/var`,
+ * so the configured `/var/folders/...` never string-matches the resolved
+ * `/private/var/folders/...`. Comparing only the raw strings would then treat the
+ * default workspace as "some other directory" and activate (or create) a project for
+ * it. Resolving the configured side too keeps the comparison about the directory, not
+ * about how it was spelled.
+ */
+async function isDefaultWorkspaceCwd(cwd) {
   const defaultWorkspaceRoot = getDefaultWorkspaceRoot()
-  return defaultWorkspaceRoot && sameProjectPath(cwd, defaultWorkspaceRoot)
+  if (!defaultWorkspaceRoot) return false
+  if (sameProjectPath(cwd, defaultWorkspaceRoot)) return true
+  const resolvedRoot = await fs.realpath(defaultWorkspaceRoot).catch(() => null)
+  return resolvedRoot ? sameProjectPath(cwd, resolvedRoot) : false
+}
+
+/**
+ * Does the resolved cwd point at this configured project path?
+ *
+ * The same symlink problem as `isDefaultWorkspaceCwd`: a project is stored with the
+ * path the user picked (`/var/folders/...` on macOS), while the ACP cwd arrives already
+ * resolved (`/private/var/folders/...`), so the raw comparison misses and the session
+ * gets filed under a brand-new project instead of the existing one. Resolving the
+ * configured side too keeps the lookup about the directory; a path that no longer
+ * exists keeps its configured spelling, which is what the old comparison used.
+ */
+async function cwdMatchesProjectPath(cwd, projectPath) {
+  if (sameProjectPath(cwd, projectPath)) return true
+  const resolved = await fs.realpath(projectPath).catch(() => null)
+  return resolved ? sameProjectPath(cwd, resolved) : false
 }
 
 async function resolveProjectForCwd(cwd) {
   const resolvedCwd = await assertSafeAcpCwd(cwd)
-  if (isDefaultWorkspaceCwd(resolvedCwd)) return null
+  if (await isDefaultWorkspaceCwd(resolvedCwd)) return null
   const config = await readProjectConfig()
-  let project = config.projects.find((item) => sameProjectPath(item.path, resolvedCwd))
+  let project = null
+  for (const item of config.projects) {
+    if (await cwdMatchesProjectPath(resolvedCwd, item.path)) {
+      project = item
+      break
+    }
+  }
   if (!project) {
     const updated = await setActiveProjectPath(resolvedCwd)
     project = updated.project

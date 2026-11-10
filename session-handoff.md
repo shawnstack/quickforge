@@ -1,5 +1,38 @@
 # Current Session Handoff
 
+## 当前交接：red-test-baseline（done，2026-11-10）
+
+- Current Objective（当前目标）：用户不接受「这 4 个失败是既有基线」，要求把失败用例真正修对。范围只限这 4 例。
+- 结论（一句话）：三个根因分别修在各自根上，**全量 0 失败**——没有放宽断言、没有 skip。
+- 三个根因：
+  1. `tests/server/runtime-info.test.mjs`：断言 `process.env.QUICKFORGE_SESSION_ID` 为 undefined，在 QuickForge 自己拉起的 `run_command` 里必然假失败 → 改成对比调用前快照 + 断言 `baseEnv` 未被写入。
+  2. `server/sqlite/database.mjs`：进程缓存与 marker 都拿路径字符串当 key，`PRAGMA database_list` 与调用方传入的路径在 macOS 上因 `/var`→`/private/var` 不同 → 同一库两个 key，缓存永不命中（表现为 `skipped: 'marker'`）。**产品缺陷**，新增 `quickCheckPathOf()`（`realpathSync`，失败回退 `path.resolve`）统一 key。
+  3. `server/acp/server.mjs`：`assertSafeAcpCwd()` 返回 realpath，而默认工作区/项目路径按配置原样存 → `sameProjectPath` 必然不等，默认工作区被误判成项目、已注册项目被再注册。`isDefaultWorkspaceCwd` 改异步 + 新增 `cwdMatchesProjectPath`，两侧都 realpath；`sameProjectPath` 不动。
+- 改动文件：`tests/server/runtime-info.test.mjs`、`server/sqlite/database.mjs`、`server/acp/server.mjs`、`docs/wiki/server/README.md`、`docs/architecture/sqlite-storage-foundation.zh-CN.md`、`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：全量 `npx vitest run` → 505 files / 5598 tests，**5597 passed、1 skipped、0 failed**（skip 是 `terminal-vendor-runtime.test.mjs` 的 `describe.skipIf(!hasVendoredPrebuild)`）；定向 `sqlite-quick-check-gate` 11 / `runtime-info` 10 / `acp/*` 17 全过；关键是**会话内直接跑也绿**，不再需要 `env -u QUICKFORGE_*`。`npm run lint` → exit 0、0 problems。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. 未提交。工作区当前是两批改动混在一起：`frontmatter-title-follows-rename`（`server/frontmatter.mjs`、`server/note-store.mjs`、`tests/server/memory-notes.test.mjs`、`docs/architecture/memory-system.zh-CN.md`）+ 本次 `red-test-baseline`（上面那几个）。提交时应分成两条。
+  2. 审查报告里剩的未修项：`spawn` 默认 `full-access`（P1，安全）、工作记忆开关不重建已存在会话的工具集（P2）、关闭工作记忆后 `<experiences>` 段仍注入（P2）、`--api` 不校验回环、`ensureDefaultGlobalSkills` 早退不写 v2 marker、两处过期注释、旧经验库无自动迁移。
+  3. 待确认：Windows 短路径（8.3 名）下 `realpathSync` 的归一化行为没实测。
+
+## 当前交接：frontmatter-title-follows-rename（done，2026-11-10）
+
+- Current Objective（当前目标）：修审查 `0a0b0905` 时报的 P1——`move_memory_note` 改名后 front matter `title` 停在旧名字，导致这篇笔记此后再也写不进去。用户明确只让修这一条，其余问题不许扩大范围。
+- 结论（一句话）：已修，改在存储层 `moveNoteFile`（工作记忆与经验库共用一条路）：改名成功后把 front matter 的 `title` 只改那一行的值，其余字节不动，返回值新增 `titleSynced`。
+- 改动文件：
+  1. `server/frontmatter.mjs`：新增 `formatYamlScalar`（按需加引号）与 `setFrontmatterScalar`（只改指定 key 的值行，CRLF 保留）。
+  2. `server/note-store.mjs`：`moveNoteFile` 改名后同步 `title`；新增 `retitledNoteContent` / `replaceNoteFileContent`；三个返回点补 `titleSynced`。
+  3. `tests/server/memory-notes.test.mjs`：新增 4 例（改名后能继续写 + 索引跟新名、归档时改名同步、含 ` #` 自动加引号、纯 `# 标题` 笔记内容不动）。
+  4. 文档：`docs/architecture/memory-system.zh-CN.md`、`docs/wiki/server/README.md` 各补一句契约说明。
+  5. 记录：`feature_list.json`（新增条目 `frontmatter-title-follows-rename`）、`progress.md`、本文件。
+- Evidence（验证）：修复前复现脚本（临时目录）→ 改名后索引是旧标题、再写入 400；修复后 → 索引是新标题、再写入成功。`memory-notes` 22 → 26 例全过；`dreaming-curator-agent` + `chat-surface-send` 一起 48 passed；全量 `npx vitest run` → 505 files / 5598 tests，5593 passed、4 failed、1 skipped（4 个失败与审查时同一批基线：runtime-info 1 例在会话内必然假失败 + sqlite quick_check 1 例 + acp workspace-mapping 2 例）；`npx eslint .` → exit 0、无输出。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **本批改动未提交**（7 个文件，`git status` 里全是本次的），按项目规矩等用户发话再提交。
+  2. 审查报告里剩的项未修，按优先级排：`spawn` 默认 `full-access`（P1，安全）→ 工作记忆开关不重建已存在会话的工具集（P2）→ 关闭工作记忆后 `<experiences>` 段仍注入（P2）→ `tests/server/runtime-info.test.mjs:64` 断言外部环境变量（P2，会让会话内跑全量测试恒红）→ P3 若干（`--api` 不校验回环、`ensureDefaultGlobalSkills` 早退不写 v2 marker、两处过期注释、旧库无迁移）。
+  3. 本机已有的 22 篇经验不需要回填：它们的 `title` 本来就等于文件名；只有将来被改名时才会走新逻辑。
+
 ## 当前交接：quickforge-api-skill（done，2026-11-10）
 
 - 本轮追加（同日，用户要求）：`spawn` 出的子会话要「默认全权限 + 用当前的思考等级」。

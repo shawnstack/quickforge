@@ -246,7 +246,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 **行为约束**:
 - ACP stdio：`quickforge acp` 在创建 Agent 前先完成 JSON storage 与 SQLite 基础库初始化，连接关闭或启动失败时在 `finally` 幂等关闭 SQLite；动态导入避免 public-api 先设置 dataDir 的时序被顶层 import 固化。
 - stdout 保留给 ACP NDJSON 协议；日志走 QuickForge logger 的 stderr / 日志文件。
-- 新会话会校验 ACP `cwd` 并记录 `additionalDirectories`；当 `cwd` 等于全局默认工作区时，会话保持 `global` scope，不会把该目录注册成项目；其他 `cwd` 会注册/激活 QuickForge 项目。额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。项目路径匹配采用规范化 + 大小写不敏感比较（`sameProjectPath`），确保同一目录在 Windows 等大小写不敏感文件系统上始终命中同一已注册项目，而非被重复注册成新的 projectId。
+- 新会话会校验 ACP `cwd` 并记录 `additionalDirectories`；当 `cwd` 等于全局默认工作区时，会话保持 `global` scope，不会把该目录注册成项目；其他 `cwd` 会注册/激活 QuickForge 项目。额外目录会作为 ACP 上下文注入 prompt，但不会在当前实现中直接放宽 QuickForge workspace 工具的写入边界。项目路径匹配采用规范化 + 大小写不敏感比较（`sameProjectPath`），确保同一目录在 Windows 等大小写不敏感文件系统上始终命中同一已注册项目，而非被重复注册成新的 projectId。**比较两侧都会先解析符号链接**（`isDefaultWorkspaceCwd` / `cwdMatchesProjectPath`）：`cwd` 由 `assertSafeAcpCwd()` 返回 `fs.realpath` 的结果，而默认工作区与项目路径是按用户配置原样存的，macOS 上 `/var` 是 `/private/var` 的符号链接，只比字符串会把「本来就是默认工作区」的目录判成某个项目、或把已注册项目当成新目录再注册一次。
 - `session/list` 会合并 QuickForge 持久化 `sessions-metadata` 与当前内存 active sessions；`session/load` 恢复会话后会通过 ACP `session/update` 回放历史 user/assistant 消息。
 - ACP document 事件会维护当前打开/聚焦文档缓存，并在当前轮模型上下文中临时注入 `<acp_context>`，使“当前文件/打开文件”类请求能获得 IDE buffer 上下文；该内部上下文不会写入可见用户消息、持久化会话或历史回放。
 - ACP prompt 启动失败、取消、删除或关闭会话时会统一移除 pending prompt、Agent EventEmitter 和 AbortSignal 监听器；同一会话的并发 prompt 会只拒绝后发请求，不中断已运行请求。
@@ -381,6 +381,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 - 共用契约：一个 `.md` 一件事、**文件名就是结论那句话**、正文第一行 `# 标题` 必须与文件名一致、单篇 ≤ 4000 字符。
 - **没有删除**。退休一篇笔记 = `move_memory_note` 挪进 `_archive/`。归档可逆，删除不可逆，所以这一层干脆不提供删除。
+- `moveNoteFile()` 改名时会把 front matter 的 `title` 一起改掉（只改那一行的值，含 ` #` 之类的值自动加引号，其余字节不动）：`writeNoteFile()` 要求两者逐字相同，只搬文件会让这篇笔记此后再也写不进去，而改名通常是「先改名、再更新内容」的前半步。返回值里的 `titleSynced` 报告这次有没有改写（`null` = 本来没有或不用改，`false` = 改名成功但标题没写上）。没有 front matter 的笔记（工作记忆的 `# 标题` 写法）内容一字不动，也不会被塞进一个 front matter 头。
 - `normalizeNoteName()`：拒绝 `/ \ : * ? " < > |`、控制字符、以点开头、含 `..`；`.md` 后缀可省略。`writeNoteFile()` 拒绝空正文——「写空 = 删除」是最容易被一次截断回复触发的破坏，直接不给。
 - `index.md` 由 `readExperienceIndex()` 每次读取时扫描目录重建（写入只在内容变化时发生）：一行一条，**只放文件名**；`candidate_skill: true` 的条目前加 `★`，`general: false` 的行尾加 `（特殊）`。去掉 `—— 何时用` 是有意的：文件名本来就是结论句，再抄一遍 `description` 等于为同一句话付两次钱。上限 200 行 / 20000 字符（按最宽的一行算，200 行约 1.4 万字符，所以先撞到的是行数上限），超出的旧条目掉出索引但文件仍在——索引是指针，不是副本。
 - 经验的文件头是 front matter（`title` / `description` / `general` / `candidate_skill`），由 `experienceMetaOf()` 交给 `frontmatter.mjs` 的 `parseFrontmatter()` 解析——那个子集解析器本来就在给 agent profile 用，不引依赖。`general` 缺省 `true`，`candidate_skill` 在代码里与 `general` 做与运算：技能会加载进所有项目，特殊经验不能是候选。

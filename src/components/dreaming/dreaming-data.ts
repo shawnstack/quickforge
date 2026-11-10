@@ -102,7 +102,10 @@ export type DreamingRun = {
 export type DreamingExperience = {
   name: string
   title: string
-  whenToUse: string
+  /** Front matter `description`: when someone should open this file. */
+  description: string
+  /** False means the procedure is special to one project and must be adapted. */
+  general: boolean
   /** Marked by the curator as worth turning into an Agent Skill (a human decides). */
   candidateSkill: boolean
   chars: number

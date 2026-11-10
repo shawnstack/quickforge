@@ -1,6 +1,53 @@
 {
   "features": [
     {
+      "id": "draft-restore-on-refused-send",
+      "title": "服务端拒绝发送时草稿丢失：prompt 已改为返回 boolean，发送流程仍在等它抛异常",
+      "status": "done",
+      "summary": "v2.4.1 只读审查就记下的 P1 回归，一直没修。`ServerAgent.prompt` / `DeferredSessionAgent.prompt` 现在把「消息有没有交出去」表达成解析值 `true/false`（HTTP 失败、409 写租约冲突、会话已销毁都返回 false），不再 reject；而 `ChatSurface` 的 `runSendMessage()` 只 catch reject，并且已经先调用了 `clearEditor()`。结果是失败时既不回填草稿也不报错，用户刚打的字直接消失。修复：`SendMessageContext.prompt` 的返回类型从 `Promise<void>` 改成 `Promise<boolean | void>`（此前类型把返回值写死成 void，等于是主动把它丢掉），发送流程判 `result === false` 时回填 `restoreEditor` 并提示新增文案 `chatSendFailedNotAccepted`；真正的异常仍走原来的 catch。测试从 15 例变 17 例：保留两条 `mockRejectedValue` 覆盖真异常，新增文本草稿与附件草稿各一条覆盖返回 false。",
+      "files": [
+        "src/components/chat/surface/ChatSurface.tsx（prompt 类型 + runSendMessage 判定 false 后回填）",
+        "src/lib/i18n.ts（新增 chatSendFailedNotAccepted，中英各一条）",
+        "tests/frontend/chat-surface-send.test.ts（新增 2 例）"
+      ],
+      "verification": "npx vitest run tests/frontend/chat-surface-send.test.ts tests/frontend/chat-surface-behavior-alignment.test.ts → 2 files / 37 passed；npx tsc -b → exit 0；npx eslint 三个改动文件 → 0 problems；server 全量 211 files / 2239 passed、3 failed 均为既有基线。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "只修 UI 侧的草稿恢复，未改服务端「什么时候返回 false」的判定。"
+    },
+    {
+      "id": "compaction-gate-single-source",
+      "title": "压缩前「有没有新消息」的判定改用消息里的摘要定界，与用量口径统一",
+      "status": "done",
+      "summary": "自动压缩第 7 关 `hasNewMessagesSinceCompaction()` 原来只认 `contextCompaction` 元数据，第一行就是 `if (!session?.contextCompaction?.summaryMessage) return true`；而算上下文占用的 `minimumProviderUsageIndex()` 早已改成「优先按消息里的摘要定界」。`/summary` 新建的会话与 fork 出来的压缩会话只有摘要消息、没有元数据，于是第 7 关恒放行：明明没有压缩后的新内容，也会先空压一次（花一次模型调用、界面闪一下「正在整理上下文」）。修复：压缩点统一以消息里的摘要为准（`summaryIndexInMessages`），判断顺序改为 ① 元数据 `sourceMessageCount` 变长；② 存在时间戳晚于压缩时刻（`compactionCutoffMs`）的普通消息——摘要消息与压缩提示行（`kind: 'summary' | 'notice'`）不算新内容；③ 一条时间戳都没有时退回「摘要之后是否还有普通消息」。不能只看数组长度：`/summary` 与 fork 会把压缩前的最近几轮原样带在摘要后面，长度一直更大但时间戳更早。",
+      "files": [
+        "server/auto-compaction.mjs（hasNewMessagesSinceCompaction 重写，新增 isCompactionMessage，import isCompactionNoticeMessage）",
+        "tests/server/auto-compaction.test.mjs（新增 2 例：无元数据时按摘要定界、无时间戳时退回长度）",
+        "docs/wiki/server/README.md（第 7 关描述、压缩后不重压段落，删掉「已知口径不一致」标注）"
+      ],
+      "verification": "npx vitest run 三个压缩相关文件（auto-compaction / history / notice）→ 31 passed（auto-compaction 由 14 增至 16）；npx eslint 改动文件 → 0 problems；server 全量 211 files / 2239 passed、3 failed 既有基线。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "只改「要不要压」的判定，未改压缩算法、切片规则与用量估算；`compactedAt` / `sourceMessageCount` 的写入逻辑未动。"
+    },
+    {
+      "id": "working-memory-tool-gate",
+      "title": "工作记忆关闭时笔记工具读写一起不注册，直调 HTTP 旁路也一并关掉",
+      "status": "done",
+      "summary": "工作记忆 beta 默认关闭，但 `memoryNoteTools`（list / read / write / move）在 `createServerTools()` 里无条件注册，`server/working-memory.mjs` 的读写层也不看 `enabled`——设置页显示关闭，主 Agent 与子 Agent 照样能往 `~/.quickforge/working-memory` 写笔记。用户拍板「关闭时读写一起关」（方案 B：不给半开状态，读一个被关掉的目录没有意义）。修复四处：① `createServerTools()` 用 `isWorkingMemoryEnabled()` 包住注册；② `listAvailableAgentTools()` 改 async，关闭时不列出笔记工具（原来从 `[...workspaceTools, ...memoryNoteTools]` 派生，等于勾一个永远不生效的选项）；③ 子 Agent 的 `effectiveAllowedTools` 过滤掉 `MEMORY_READ_TOOL_NAMES`，否则提示词里的 Allowed tools 会列出不存在的工具，模型要先撞一次 not allowed 才改道；④ `POST /api/tools/<note-tool>` 直调旁路返回 403——这条最关键，不然 agent 侧关了、HTTP 照样能写盘。能力策略与 `safeReadTools` / `planAllowedTools` 不改：工具不注册时它们自然用不上，保留可避免 Profile 里的旧配置被判定为非法。",
+      "files": [
+        "server/agent-manager.mjs（memoryNoteTools 注册加 isWorkingMemoryEnabled 门禁）",
+        "server/agent-profiles.mjs（listAvailableAgentTools 改 async 并按开关过滤）",
+        "server/routes/agent-profiles.mjs（await）",
+        "server/agent-subagent-runner.mjs（effectiveAllowedTools 过滤 MEMORY_READ_TOOL_NAMES）",
+        "server/routes/tools.mjs（直调门禁，403）",
+        "tests/server/agent-manager.memory-tools-gate.test.mjs（新增 2 例：关闭不注册任何笔记工具、开启后主 Agent 拿全四个）",
+        "tests/server/routes/tools.memory-gate.test.mjs（新增 2 例：关闭时四个工具直调均 403、开启时 list_memory_notes 正常返回）",
+        "tests/server/agent-profiles.test.mjs（原用例改 await 并显式开启；新增关闭时全部隐藏一例）"
+      ],
+      "verification": "定向 6 files：agent-manager.memory-tools-gate 2、routes/tools.memory-gate 2、agent-profiles 12、subagents / agent-manager.subagents / routes/agent-profiles 全过；server 全量 211 files / 2239 passed、3 failed 均为既有基线（acp workspace-mapping 2 + sqlite quick_check 1）；npx eslint 改动文件 0 problems。",
+      "updatedAt": "2026-11-09",
+      "boundaries": "未改工作记忆的存储格式与设置页行为；设置页浏览笔记走文件系统、不经这些工具，关闭后仍可用。"
+    },
+    {
       "id": "doc-reality-sync-2026-11",
       "title": "文档与注释追认代码现状：3 篇架构文档的过期状态标注 + 3 处已改名标识符的注释",
       "status": "done",
@@ -2558,6 +2605,59 @@
       "verification": "每个子项独立验证：拆分前先跑该模块相关测试建立基线，拆分后要求相关测试全绿 + npx eslint 0 problems + npm run build 通过；涉及前端组件再跑 npx tsc -b。不得一次提交多个模块的拆分。",
       "updatedAt": "2026-11-09",
       "boundaries": "明确不要动：i18n.ts、code-highlight.ts（纯数据表/规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs（职责单一，只是长）。不要为了拆而拆——先确认文件里存在两类以上无共同主题的职责再动手。"
-    }
+    },
+    {
+      "id": "experience-general-axis",
+      "title": "经验库加「通用 / 特殊」轴：文件头改 front matter，索引只留文件名",
+      "status": "done",
+      "summary": "用户提出现在的经验库只有一个「候选技能」标签，维度太窄，希望加一组能表达「通用性 / 特殊性」的标签，目的是同时保住通用和泛用、防止过拟合。设计讨论收敛到一条二元轴，落地为三件互相咬合的事。① 文件头换成 YAML front matter（`title` / `description` / `general` / `candidate_skill`），复用 `server/frontmatter.mjs` 里原本给 agent profile 用的手写子集解析器，不引依赖；正文只留「怎么做 / 坑 / 来源」。② `general` 是那条轴：`true` = 换个项目照做不用改一个字，`false` = 里面带着本项目专有的文件名、路径、命令或产品行为，复用前要换掉，判定标准写进整理员提示词（「读到哪句会停下来问『哪个文件？』，那句就是特殊」）。缺省 `true`，所以索引里只给 `false` 的加 `（特殊）`。③ 索引从「文件名 —— 何时用」砍成只有文件名：文件名本来就是结论句，`description` 再抄一遍等于为同一句话付两次钱；按最宽一行（★ + 60 字标题 + （特殊））算，200 行约 1.4 万字符，先撞到的是行数上限而不是字符上限。另外加了一条硬联动：`candidate_skill: true` 要求 `general: true`，写入时直接拒绝矛盾组合（`writeExperience`），读取时 `experienceMetaOf()` 再做与运算兜底，特殊经验不可能成为候选技能——技能会被加载进所有项目，把一条特殊经验升成技能等于把一个项目的细节写进所有人的默认行为。写入层新增两条校验：front matter `title` 必须与文件名逐字相同（不一致直接拒，因为「同一句话存两份」迟早漂开），`# 标题` 行不再是必需（front matter 有 title 即可）。旧格式仍然能读：`noteHeadingOf` / `noteWhenToUseOf` 先看 front matter 再回退到 `- 何时用：` / `# 标题`，所以不存在「必须一次性迁移完」的窗口。存量 22 篇已一次性迁移，迁移前整目录快照到 `~/.quickforge/_backups/experiences-20261110-174028` 并 diff 校验；`general` 逐篇人工判定，脚本对不在清单里的文件直接报错、不猜。迁移结果：11 篇标特殊；原本 5 个 ★ 里有 2 个（`清理僵尸代码先证死再动手`、`审查本机桌面 Web 应用`）因正文含 `src server`、`routes/*.mjs`、`public/sw.js` 这类本项目路径被判为特殊，★ 随之取消——这正是这条轴想要的约束：想升技能，先把步骤改写成不绑项目的版本。",
+      "files": [
+        "server/experiences.mjs（新增 experienceMetaOf；索引只渲染文件名 + ★ + （特殊）；candidateSkill 与 general 做与运算；旧 bullet 仍在兜底）",
+        "server/note-store.mjs（新增 noteFrontmatterTitleOf；noteHeadingOf / noteWhenToUseOf 改为 front matter 优先 + bullet 回退；writeNoteFile 接受 front matter title 并要求与文件名一致）",
+        "server/dreaming/prompt.mjs（经验格式模板换成 front matter；补 general 判定标准与「★ 要求 general」的硬规则）",
+        "server/system-prompt.mjs（<experiences> 块说明索引只有文件名、（特殊）是什么意思、★ 只给通用条目）",
+        "server/tools/memory-notes.mjs（list 输出改用 description，特殊条目带可读提示）",
+        "src/components/dreaming/dreaming-data.ts（whenToUse → description，新增 general）",
+        "src/components/dreaming/DreamingSettingsTab.tsx（特殊 badge，搜索改读 description）",
+        "src/lib/i18n.ts（新增 dreamingExperienceSpecific，中英各一条）",
+        "tests/server/memory-notes.test.mjs（新增 front matter 解析、特殊标记、坏头部降级、title 不一致被拒、旧格式回退；索引断言改为只含文件名）",
+        "tests/server/dreaming-curator-agent.test.mjs（沉淀用例改用 front matter 正文）",
+        "docs/architecture/memory-system.zh-CN.md（第 3、4、5、7 节：文件格式、索引形态、注入说明、整理员准则）",
+        "docs/wiki/README.md（经验库一段）",
+        "docs/wiki/server/README.md（experiences 条目、整理员准则、API 表格）",
+        "feature_list.json",
+        "progress.md",
+        "session-handoff.md"
+      ],
+      "verification": "npm run test → 504 files / 5583 tests：5579 passed、3 failed、1 skipped。3 个失败（tests/server/acp/server.workspace-mapping.test.mjs 2 例、tests/server/sqlite-quick-check-gate.test.mjs 1 例）用 git worktree 在干净 HEAD 复跑同样失败，是既有基线。npm run lint → 0 problems。npm run build → 通过（仅既有 chunk 体积警告）。定向 tests/server/memory-notes.test.mjs → 22 passed。存量 22 篇迁移后用真实目录复验：22 条 / 11 特殊 / 3 星 / general 全为 boolean / 0 冲突。自评审后又补修三处：① `general: 否` 被 firstOptionalBoolean 当成「没填」回落成 true（加本地 flagOf 认 否/no/是/yes）；② `candidate_skill: true` + `general: false` 被静默丢弃、文件与显示不一致（改为写入拒绝）；③ MAX_EXPERIENCE_INDEX_CHARS 的注释还写着「两个上限差不多同时用完」（改为说明在当前两个上限下不可触发，并补回字符上限分支的测试）。未创建 Git commit、未推送、未触碰 dist / package-dist / package-offline。",
+      "updatedAt": "2026-11-10",
+      "boundaries": "不改梦境定时机制、不改快照/回滚、不改四个记忆工具的参数契约；索引上限仍是 200 行 / 20000 字符。未给经验加「项目 id」字段——「（特殊）」只是提示，特殊条目仍会出现在别的项目的索引里，按项目过滤是另一件事。迁移只做格式搬运，未改写任何一条经验的办法内容；三篇原本没有「何时用」bullet 的经验，`description` 取自它们自己的「症状」段。"
+    },
+    {
+    "id": "quickforge-api-skill",
+    "title": "内置 skill `quickforge-api`：让 Agent 用本机 HTTP API 自省并操作自己",
+    "status": "done",
+    "summary": "用户要一个内置 skill 驱动 QuickForge 本地 API，让 Agent「自己操作自己」。先做的只读调研定了两件事实：① 本地 API 已闭环（`POST /api/agents/:id` 建会话 → `/prompt` → `/messages` → `/abort`），sessionId 由调用方生成；② 但 Agent 不知道自己是谁——系统提示词只给项目名/路径/项目 id，拿不到自己的 sessionId，也不知道 API 端口，而且没有任何内置工具能发 HTTP（`run_command` + curl 要走审批）。另有一条硬约束：给自己发 prompt 必然 409 `GENERATION_ALREADY_RUNNING`，所以「自己操作自己」不是自我对话循环，真实价值是自省、改自己的标题/模型/思考档/goal、派生子会话干活、回看自己实际收到的提示词。落地成三块：① `server/runtime-info.mjs` 在进程内记 `{host,port,baseUrl}`（**不落盘**——dev 32176 与正式 5176 同时运行、自定义端口不可预期，共用文件只会互相覆盖），`server/index.mjs` 在 listen 回调 `setRuntimeInfo()`，`toolRunCommand` 的 spawn 传 `env: buildChildProcessEnv(context)` 注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`；② 内置 skill `skills/quickforge-api/`：`SKILL.md`（何时用、命令表、红线、报错对照、配方）+ 零依赖 `scripts/qf-api.mjs`（15 个子命令，每个映射一个写死的端点，**不接受任意 method/path**）+ `references/endpoints.md`（白名单速查 + 明确不给出口的端点）；③ `defaultGlobalSkillNames` 加 `quickforge-api` 并把迁移标记升到 `.default-skills-v2`，否则 v1 marker 已存在、存量安装永远看不到它。安全边界画在脚本层：不给 `DELETE /api/agents/*`、`access-mode`/`yolo-mode`、`lan-access`、`terminal`、`backup`、`plugins`、`mcp`、会话级 SSE（单连接，抢了会踢掉用户页面，改用轮询 `status`）。理由是 `server/access-policy.mjs` 里本机回环即认证、没有 token，通用 HTTP 出口等于把破坏性端点一起交出去。",
+    "files": [
+      "server/runtime-info.mjs（新增：setRuntimeInfo / getRuntimeInfo / clearRuntimeInfo / buildChildProcessEnv；wildcard host 归一化成 127.0.0.1，非法端口返回 null）",
+      "server/index.mjs（listen 回调里 setRuntimeInfo({ host, port: boundPort })）",
+      "server/tools/index.mjs（toolRunCommand 的 spawn 传 env: buildChildProcessEnv(context)）",
+      "server/skills.mjs（defaultGlobalSkillNames 加 quickforge-api；marker `.default-skills-v1` → `.default-skills-v2`）",
+      "skills/quickforge-api/SKILL.md（新增）",
+      "skills/quickforge-api/scripts/qf-api.mjs（新增，零依赖）",
+      "skills/quickforge-api/references/endpoints.md（新增）",
+      "tests/server/runtime-info.test.mjs（新增，10 例）",
+      "tests/server/skills.test.mjs（默认启用列表断言改为三项）",
+      "docs/architecture/quickforge-api-skill.zh-CN.md（新增）",
+      "docs/wiki/README.md（架构文档表加一行）",
+      "docs/wiki/server/README.md（内置 skill 清单、marker v2、quickforge-api 说明）",
+      "feature_list.json",
+      "progress.md",
+      "session-handoff.md"
+    ],
+    "verification": "npx vitest run tests/server → 212 files / 2259 tests：2255 passed、3 failed、1 skipped。3 个失败（`acp/server.workspace-mapping.test.mjs` 2 例 `setActiveProjectPath` 返回 undefined、`sqlite-quick-check-gate.test.mjs` 1 例缓存语义）与前序会话记录的既有基线一致，单独复跑 `sqlite-quick-check-gate` 仍是 1 failed，且两者都不引用本次改动的模块。定向 `npx vitest run tests/server/runtime-info.test.mjs tests/server/skills.test.mjs` → 14 passed，包含真的 spawn 子进程读 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` 的端到端断言。`npx eslint`（7 个改动文件）→ 0 problems。`npm run build` → 通过（仅既有 chunk 体积警告）。手工冒烟（本机运行实例 5176）：`whoami` / `agents` / `sessions` / `skills` / `instructions` 全部返回预期结构。未创建 Git commit、未推送、未触碰 `dist/`（gitignored）/ `package-dist` / `package-offline`。**自评审（只读）后又修了 1 个 P1**：`ensureDefaultGlobalSkills` 升 marker 到 v2 时重放了整份默认名单，会把用户手动取消过的旧默认（如 `plugin-creator`）重新打开——本机实测 `globalSkills` 只有 `['skill-creator']`，重启后必然被改成三项。修法：新增 `defaultSkillsIntroducedInV2`，v1 marker 存在时只补 `quickforge-api`。补了一条回归测试，`tests/server/skills.test.mjs` → 5 passed；server 全量 → 212 files / 2260 tests，2256 passed、3 failed（同一基线）、1 skipped。",
+    "updatedAt": "2026-11-10",
+    "boundaries": "**用户对三个设计选项没有回答（等待超时），按推荐项落地：方案 B（skill + 脚本 + 身份注入）、能力档位 3（自省 + 改自己设置 + 派生子会话并驱动）、升级默认 marker 让存量安装也自动启用。**若要改成只读或不让老用户自动获得，回退点很小：删 `defaultGlobalSkillNames` 里的 `quickforge-api`、把 marker 退回 v1；能力面收窄就删 `qf-api.mjs` 对应子命令。不给脚本加任意 path/method 参数是故意的，扩能力必须同时更新 `references/endpoints.md` 与黑名单测试。运行时信息只存进程内存、不落盘，外部程序读不到——这是为多实例正确性做的取舍。新增子命令时要留意 `/api/agents` 列表项比 `/api/agents/:id/status` 窄，两者形状不能混用。改完需要重启运行中的实例才生效（注入与默认启用都在服务端）。**自评审留下未修的项**：P2-1 ACP/stdio 入口不起 HTTP，那条链上 `setRuntimeInfo` 永远为空，身份注入缺失（降级不崩，但 SKILL.md 没写明这一点）；P2-2 `qf-api.mjs:308/328` 只看 `typeof content === 'string'`，多模态消息的 block 数组会被静默丢成 `preview: null`；P2-3 `wait` 轮询 `/api/agents/:id/status` 会经 `restoreAgent` 唤醒冷会话（`show` 不会），两个命令语义不一致；P3 四条（`<skill-dir>` 占位符来源未解释、description 触发词过宽易误激活、pid warning 措辞诱导模型猜端口、测试里两条脆弱断言）。待确认：Windows 上 `{...process.env}` 展开的 PATH 大小写问题（需真机实测）。"
+  }
   ]
 }

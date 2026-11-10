@@ -382,7 +382,8 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 共用契约：一个 `.md` 一件事、**文件名就是结论那句话**、正文第一行 `# 标题` 必须与文件名一致、单篇 ≤ 4000 字符。
 - **没有删除**。退休一篇笔记 = `move_memory_note` 挪进 `_archive/`。归档可逆，删除不可逆，所以这一层干脆不提供删除。
 - `normalizeNoteName()`：拒绝 `/ \ : * ? " < > |`、控制字符、以点开头、含 `..`；`.md` 后缀可省略。`writeNoteFile()` 拒绝空正文——「写空 = 删除」是最容易被一次截断回复触发的破坏，直接不给。
-- `index.md` 由 `readExperienceIndex()` 每次读取时扫描目录重建（写入只在内容变化时发生）：一行一条 `文件名 —— 何时用`，`候选技能：是` 的条目前加 `★`。上限 200 行 / 20000 字符，超出的旧条目掉出索引但文件仍在——索引是指针，不是副本。
+- `index.md` 由 `readExperienceIndex()` 每次读取时扫描目录重建（写入只在内容变化时发生）：一行一条，**只放文件名**；`candidate_skill: true` 的条目前加 `★`，`general: false` 的行尾加 `（特殊）`。去掉 `—— 何时用` 是有意的：文件名本来就是结论句，再抄一遍 `description` 等于为同一句话付两次钱。上限 200 行 / 20000 字符（按最宽的一行算，200 行约 1.4 万字符，所以先撞到的是行数上限），超出的旧条目掉出索引但文件仍在——索引是指针，不是副本。
+- 经验的文件头是 front matter（`title` / `description` / `general` / `candidate_skill`），由 `experienceMetaOf()` 交给 `frontmatter.mjs` 的 `parseFrontmatter()` 解析——那个子集解析器本来就在给 agent profile 用，不引依赖。`general` 缺省 `true`，`candidate_skill` 在代码里与 `general` 做与运算：技能会加载进所有项目，特殊经验不能是候选。
 - `readExperiencesPrompt()` 在没有经验时返回 `null`（不注入空块）。
 
 ### dreaming/ — 梦境整理员
@@ -394,7 +395,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - **一次一个会话、串行、从旧到新**：旧实现把所有会话合成一份 10 万字符 transcript 交给一次调用；改成逐会话后上下文短、任务明确，单个会话失败只影响自己。从旧到新是工作真实发生的顺序，后面的会话可以修正前面立下的笔记。
 - **整理员是 agent，不是流水线**：`server/dreaming/curator.mjs` 直接 `new Agent(...)`（不走 `AgentManager`，因为后台任务不需要持久化会话、生成标题或审批），`systemPrompt = CURATOR_SYSTEM_PROMPT`，工具只有四个记忆工具。`createCuratorToolGuard()` 是唯一的安全闸：非记忆工具一律 block，工具有调用预算（默认 60 次）；无人值守场景绝不发起审批。
 - **快照先拍再改**：`snapshotMemory()` 把两个目录整份复制到 `~/.quickforge/dreaming-snapshots/<runId>/`，**快照失败则整轮不执行**（能改记忆却没有回头路的 agent 比不整理更糟）。保留最近 10 份，`pruneSnapshots()` 清理。
-- 整理员准则（`server/dreaming/prompt.mjs`）：只负责一个会话；先列目录再写，已有同类就改写；文件名与结论不一致必须改名；不删只归档；单轮最多 5 篇；沉淀门槛是「3 篇以上工作记忆/会话里出现过」或「只出现一次但步骤明确」；建新经验前先读索引；不许碰 `skills/`，只能标 `候选技能：是`。
+- 整理员准则（`server/dreaming/prompt.mjs`）：只负责一个会话；先列目录再写，已有同类就改写；文件名与结论不一致必须改名；不删只归档；单轮最多 5 篇；沉淀门槛是「3 篇以上工作记忆/会话里出现过」或「只出现一次但步骤明确」；建新经验前先读索引；写 front matter 时 `title` 必须与文件名逐字相同，`general` 只回答「换个项目能不能照做」，`candidate_skill: true` 要求 `general: true`；不许碰 `skills/`。
 - 失败语义：某个会话失败记一条并继续（全部失败才算整轮 `failed`）；时间预算（`MAX_RUN_MS`，默认 45 分钟）用尽则在会话边界停下，run 记 `operations.stopped`；把剩余会话留到下一轮。
 - 触发：开启即定时（无独立开关）；`startDreamingRunner()`（interval + unref + 首跑延迟，形态同 auto-archive）按 `nextRunAt` 每日执行；窗口 `[上次成功 period_to, now]`，首次为本地零点到当前。手动走 `POST /api/dreaming/run`。进程内单飞，重入返回 skipped。
 - 回滚：`POST /api/dreaming/runs/:id/restore` 用那一轮的目录快照整份覆盖回来（无快照 409）；不靠「反向执行 diff」——diff 是整理员自己的说法，用它还原等于信任一次失败的运行。
@@ -436,7 +437,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 **用途**: Agent Skills 的发现、加载和管理。
 
 **搜索路径**:
-1. `<quickforge>/skills/` — 随 Runtime 分发的内置全局 skills；当前包含 Anthropic `skill-creator`
+1. `<quickforge>/skills/` — 随 Runtime 分发的内置全局 skills；当前包含 Anthropic `skill-creator`、`plugin-creator` 与 `quickforge-api`（驱动本机 HTTP API 自我操作，见 [QuickForge 本地 API Skill](../architecture/quickforge-api-skill.zh-CN.md)）
 2. `~/.claude/skills/` — Claude 用户级 skills
 3. `~/.opencode/skills/` — opencode 用户级 skills
 4. `~/.agents/skills/` — 用户级共享 skills
@@ -447,7 +448,9 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 9. `<workspace>/.quickforge/skills/` — 项目级 QuickForge skills
 10. 启用插件贡献的 `contributes.skills` — 插件打包 skills
 
-内置 `skill-creator` 会在首次运行新版本时自动加入全局已选 Skills；迁移标记写入 `~/.quickforge/config/.default-skills-v1`，因此用户后续取消后不会在重启时被重新启用。用户级目录按上述顺序覆盖同名内置 Skill，其中 `~/.quickforge/skills` 优先级最高；Runtime 更新只替换内置副本，不覆盖用户文件。上游来源、固定 commit 和许可证记录在 `skills/skill-creator/UPSTREAM.md`。
+内置 `skill-creator` / `plugin-creator` / `quickforge-api` 会在首次运行新版本时自动加入全局已选 Skills；迁移标记写入 `~/.quickforge/config/.default-skills-v2`（v2 用于把 `quickforge-api` 推给存量安装），因此用户后续取消后不会在重启时被重新启用。用户级目录按上述顺序覆盖同名内置 Skill，其中 `~/.quickforge/skills` 优先级最高；Runtime 更新只替换内置副本，不覆盖用户文件。上游来源、固定 commit 和许可证记录在 `skills/skill-creator/UPSTREAM.md`。
+
+`quickforge-api` 是本项目自己的 skill：`SKILL.md` 讲什么时候用、哪些端点绝对不给出口，`scripts/qf-api.mjs` 是零依赖的最小客户端（每个子命令映射一个写死的端点，不接受任意 method/path），`references/endpoints.md` 是白名单速查。它能成立的前提是 `server/runtime-info.mjs`：`server/index.mjs` 在 listen 回调里 `setRuntimeInfo()`，`toolRunCommand` 再通过 `buildChildProcessEnv(context)` 给每个子进程注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`。运行时信息只存进程内存不落盘——dev 与正式实例、自定义端口共用同一个文件只会互相覆盖。详见 [QuickForge 本地 API Skill](../architecture/quickforge-api-skill.zh-CN.md)。
 
 **功能**:
 - `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表
@@ -568,16 +571,16 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 | 4 | 当前模型没有 `contextWindow` | `missing_context_window` |
 | 5 | `inputTokens <= 0`（没有可用的上报用量） | `unknown_usage`（不打 info，只在首次打一条 warn） |
 | 6 | `inputTokens / contextWindow < thresholdPercent` | `below_threshold`（最常见；这条不打 info 日志） |
-| 7 | `hasNewMessagesSinceCompaction()` 为 false | `not_enough_new_messages` |
+| 7 | `hasNewMessagesSinceCompaction()` 为 false（压缩点之后没有新内容） | `not_enough_new_messages` |
 | 8 | `buildCompactionSourceMessages()` 结果少于 2 条 | `not_enough_history` |
 
 第 4–6 关由 `context-usage.mjs` 的 `evaluateContextCompactionGate(usage, thresholdPercent)` 一次判定，返回 `{ shouldCompact, reason }`（reason 就是表中那三个值）；`maybeAutoCompactSession()` 只负责把 reason 透传出去，**不再用 token 数二次推断原因**——早先 `below_threshold` 盖住 `unknown_usage` 就是二次推断造成的。阈值换算在该函数内部：阈值转成 reserve tokens 后复用 `pi-agent-core.shouldCompact()`，只算输入、不含预留输出。全部关卡通过后才置 `session.autoCompacting = true`、发布 `summarizing` notice 并调用 `compactSessionInPlace()`；`finally` 无论成功、跳过还是抛错都清 notice 并复位 `autoCompacting`（这是旧设计「卡在正在整理上下文」的修复点）。
 
 **只有主会话 Agent 会自动压缩**: 全仓只有 `agent-manager.mjs` 主会话 Agent 构造处挂了 `transformContext`。`run_subagent` 的子 Agent、`run_workflow` 内的 Agent、后台/headless 临时 agent 都**不压缩**——它们没有这条 hook，长任务会直接撞模型窗口报错。给子 Agent 加压缩不是接线问题：它们的 messages 不持久化、没有滚动摘要的落点。
 
-**压缩后不会立刻重压（第 7 关的作用）**: `compactSessionInPlace()` 把 `sourceMessageCount` 更新为压缩后的数组长度、`compactedAt` 也刷新到此刻，所以压缩完成后紧接着的下一次检查里，第 7 关必然拦下（`source.length > sourceMessageCount` 为假、也没有时间戳晚于 `compactedAt` 的消息）。否则「摘要 + 线后增量」本身仍超阈值时会无休止连压。
+**压缩后不会立刻重压（第 7 关的作用）**: 压缩完成后紧接着的下一次检查里，第 7 关必然拦下——压缩点之后既没有更长的数组（元数据 `sourceMessageCount`），也没有时间戳晚于压缩时刻的普通消息。否则「摘要 + 线后增量」本身仍超阈值时会无休止连压。
 
-**已知口径不一致（第 7 关）**: `hasNewMessagesSinceCompaction()` 仍只认 `contextCompaction` 元数据（第一行 `if (!session?.contextCompaction?.summaryMessage) return true`），而 `minimumProviderUsageIndex()` 已改成「优先按 messages 里的摘要消息定界」。对 `/summary` 新建会话和 fork 出来的压缩会话（只有摘要消息、没有元数据）第 6 关恒放行，若估算确实过阈值会先空压一次；危害被第 7 关（`< 2 条`）兜住，且压完就产生元数据、不会循环。后续如需统一，两处都应以 `lastCompactionMessageIndex(source)` 为准。
+**压缩点判定只有一套口径（第 7 关）**: `hasNewMessagesSinceCompaction()` 与 `minimumProviderUsageIndex()` 都以「消息里的摘要」作为压缩点的权威表达——`/summary` 新建的会话与 fork 出来的压缩会话没有 `contextCompaction` 元数据，只有摘要消息。判断「压缩之后有没有新内容」的顺序是：① 元数据 `sourceMessageCount` 变长；② 存在时间戳晚于压缩时刻（`compactionCutoffMs()`：优先元数据 `compactedAt`，缺失时退回摘要消息自己的时间戳）的普通消息——摘要消息与压缩提示行（`quickforgeCompaction.kind === 'summary' | 'notice'`）不算新内容；③ 一条时间戳都没有（构造数据或很旧的会话）时退回「摘要之后是否还有普通消息」。早先这里只认元数据、对上面两类会话恒返回 true，于是没有新内容也会先空压一次；现在不会了。
 
 **压缩流水线状态投影（`compactionNotice`）**: 该模块是压缩 UI 状态的唯一来源。`COMPACTION_NOTICE_PHASES` 只有 `summarizing` 一个可渲染阶段——压缩不经过用户决策，所以不需要决策行；`setCompactionNotice()` / `clearCompactionNotice()` 在**每一次进入与退出**（成功、跳过、抛错、取消）都发布完整状态帧 `auto_compact_state`，`null` 表示流水线空闲，因此前端不需要从事件的有无推断状态。失败刻意不是服务端持有的阶段：它由 `auto_compact_failed` 临时渲染，避免投影停在某个终态。`getSessionState()` 投影 `compactionNotice`，因此刷新页面或后加入的客户端也能看到「正在整理上下文」。旧实现的 `awaiting_confirmation` 阶段、`AUTO_COMPACT_DECISION`（`approved` / `declined` / `timed_out` / `unavailable`）、`approve-auto-compact` / `reject-auto-compact` 两个路由、`pendingAutoCompactApprovals` 队列、`createAutoCompactApprovalPromise()` 与前端 `ContextCompactionDecisionRow` 已整体删除。"
 
@@ -669,7 +672,7 @@ Dreaming 的 `/api/dreaming/*` 同样采用前缀分发（`server/index.mjs` 的
 | GET | `/api/dreaming` | 设置 + 生效模型与来源 + 最近一次 run + 计数（`experiences` / `candidateSkills` / `runs`）+ 生成的 `experienceIndex` |
 | PUT | `/api/dreaming/settings` | 开关 / 定时 / 模型 / 敏感信息策略 / 输出语言；启用时重算 `nextRunAt`，关闭时清空 |
 | POST | `/api/dreaming/run` | 立即处理；已关闭 403，运行中 409 |
-| GET | `/api/dreaming/experiences` | 经验列表（文件名、何时用、候选技能标记）+ 生成的索引 + 归档条数 |
+| GET | `/api/dreaming/experiences` | 经验列表（文件名、描述、`general` / `candidate_skill` 标记）+ 生成的索引 + 归档条数 |
 | GET | `/api/dreaming/runs?page&pageSize` | 运行历史（分页） |
 | GET | `/api/dreaming/runs/:id` | 运行详情：`run`（`operations.sessions` 逐会话报告、`operations.actions`、`operations.snapshot`、`raw_response`、`input_chars`、`model_label`） |
 | POST | `/api/dreaming/runs/:id/restore` | 用该轮目录快照回滚两个记忆目录（无快照 409） |

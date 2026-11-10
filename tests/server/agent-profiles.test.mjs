@@ -210,14 +210,30 @@ describe('managed custom agent markdown profiles', () => {
     expect(profiles.some((profile) => profile.name === 'fake')).toBe(false)
   })
 
-  it('offers the read-only note tools to profiles but never the writing ones', async () => {
+  it('offers the read-only note tools to profiles when working memory is enabled', async () => {
     const { listAvailableAgentTools } = await import('../../server/agent-profiles.mjs')
-    const names = listAvailableAgentTools().map((tool) => tool.name)
+    const { saveWorkingMemorySettings } = await import('../../server/working-memory.mjs')
+    await saveWorkingMemorySettings({ enabled: true })
+
+    const names = (await listAvailableAgentTools()).map((tool) => tool.name)
 
     expect(names).toContain('list_memory_notes')
     expect(names).toContain('read_memory_note')
     expect(names).not.toContain('write_memory_note')
     expect(names).not.toContain('move_memory_note')
+  })
+
+  it('hides every note tool from profiles while working memory is disabled', async () => {
+    const { listAvailableAgentTools } = await import('../../server/agent-profiles.mjs')
+    const { saveWorkingMemorySettings } = await import('../../server/working-memory.mjs')
+    await saveWorkingMemorySettings({ enabled: false })
+
+    const names = (await listAvailableAgentTools()).map((tool) => tool.name)
+
+    for (const noteTool of ['list_memory_notes', 'read_memory_note', 'write_memory_note', 'move_memory_note']) {
+      expect(names).not.toContain(noteTool)
+    }
+    expect(names).toContain('read_file')
   })
 
   it('accepts note reads in every policy and rejects note writes', async () => {

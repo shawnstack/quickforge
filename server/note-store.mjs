@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { firstString, parseFrontmatter } from './frontmatter.mjs'
 import { openPathInFileManager } from './utils/platform.mjs'
 
 /**
@@ -70,8 +71,23 @@ export function noteTitleOfName(name) {
     : value
 }
 
-/** First `# heading` of a note, falling back to the file name. */
+/** Front matter `title` of a note, or an empty string when there is none. */
+export function noteFrontmatterTitleOf(content) {
+  const { metadata } = parseFrontmatter(content)
+  return firstString(metadata.title, metadata['标题']) || ''
+}
+
+/**
+ * The display title of a note: front matter first, then the first `# heading`, then
+ * the file name.
+ *
+ * The two spellings coexist on purpose — working-memory notes are written as plain
+ * markdown with a heading, experiences carry the title in front matter — and both
+ * fall back to the file name, which is the one value that always exists.
+ */
 export function noteHeadingOf(content, fallback = '') {
+  const fromFrontmatter = noteFrontmatterTitleOf(content)
+  if (fromFrontmatter) return fromFrontmatter
   for (const line of String(content ?? '').split('\n')) {
     const match = /^#\s+(.+?)\s*$/.exec(line)
     if (match) return match[1]
@@ -82,11 +98,15 @@ export function noteHeadingOf(content, fallback = '') {
 /**
  * The one-line "when to use this" summary.
  *
- * The experience format reserves a `- 何时用：` / `- When to use:` bullet for it.
- * The index is built from this field, so the index never drifts from the file:
- * both are read from the same place.
+ * The experience format carries it as front matter `description`; older notes used
+ * a `- 何时用：` / `- When to use:` bullet. Both are read, front matter first, so a
+ * library does not have to be migrated in one go. The index no longer prints this
+ * line, but Settings does.
  */
 export function noteWhenToUseOf(content) {
+  const { metadata } = parseFrontmatter(content)
+  const fromFrontmatter = firstString(metadata.description, metadata.summary, metadata['描述'])
+  if (fromFrontmatter) return fromFrontmatter
   for (const line of String(content ?? '').split('\n')) {
     const match = /^\s*[-*]\s*(?:何时用|什么时候用|when to use)\s*[:：]\s*(.+?)\s*$/i.exec(line)
     if (match) return match[1]
@@ -225,8 +245,18 @@ export async function writeNoteFile(dir, name, content) {
   if (text.length > MAX_NOTE_CONTENT_CHARS) {
     throw new NoteStoreError(`Note content is longer than ${MAX_NOTE_CONTENT_CHARS} characters (got ${text.length}).`)
   }
-  if (!/^#\s+\S+/m.test(text)) {
-    throw new NoteStoreError('Note content must start with a "# title" line; the title is the file name in one sentence.')
+  if (!/^#\s+\S+/m.test(text) && !noteFrontmatterTitleOf(text)) {
+    throw new NoteStoreError(
+      'Note content must carry a title: a "# title" line or a front matter `title:`. The title is the file name in one sentence.',
+    )
+  }
+  // A title that disagrees with the file name is two copies of one sentence that
+  // would drift apart. Rejecting is cheaper than deciding which one wins later.
+  const declaredTitle = noteFrontmatterTitleOf(text)
+  if (declaredTitle && declaredTitle !== noteTitleOfName(fileName)) {
+    throw new NoteStoreError(
+      `Front matter title "${declaredTitle}" must equal the note name "${noteTitleOfName(fileName)}"; use move_memory_note to rename instead.`,
+    )
   }
   await ensureDir(dir)
   const file = path.join(dir, fileName)

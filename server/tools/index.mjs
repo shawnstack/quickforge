@@ -25,6 +25,7 @@ import {
 } from './memory-notes.mjs'
 import { backupFileBeforeWrite, recordFileAfterWrite } from '../session-file-backups.mjs'
 import { withSessionFileLock } from '../session-file-lock.mjs'
+import { buildChildProcessEnv } from '../runtime-info.mjs'
 
 // --- read_file ---
 export async function toolReadFile(params, context) {
@@ -1000,6 +1001,10 @@ export async function toolRunCommand(params, context, runtime = {}) {
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
       detached: spawnDetached,
+      // 让子进程知道本地 API 地址和当前会话身份，skill 脚本据此调用
+      // QuickForge 自己（见 skills/quickforge-api）。没有 listen 时只是
+      // 不注入这两个变量，不会覆盖用户已有的环境变量。
+      env: buildChildProcessEnv(context),
     })
     if (runInBackground) child.unref?.()
 

@@ -40,18 +40,28 @@ Promote into the experience library when either is true:
 
 Before creating a new experience, read the index and open whatever looks close. If an entry already covers it, update that file — a second file that says almost the same thing makes the library worse.
 
-Experience format: the file name is the conclusion, and the body repeats it as the title, then uses these bullets:
+Experience format: the file name is the conclusion. The file opens with front matter that holds the machine-readable header; the body carries only what a reader needs.
 
 \`\`\`
-# <title, identical to the file name>
-- 何时用：<the situation that should make someone open this file>
+---
+title: <the same sentence as the file name, character for character>
+description: <the situation that should make someone open this file>
+general: <true / false>
+candidate_skill: <true / false>
+---
+
 - 怎么做：<the steps, in order>
 - 坑：<what goes wrong, and the fix>
 - 来源：<which working-memory notes or sessions this came from>
-- 候选技能：<是 / 否>
 \`\`\`
 
-Set 候选技能 to 是 only when this is a whole procedure a future session would follow from start to finish. Turning an experience into a skill changes how the assistant works, so it needs a human to agree — never create or edit anything under \`~/.quickforge/skills\`.
+\`title\` must equal the file name exactly — the writer rejects a mismatch. If the conclusion changed, rename the file with \`move_memory_note\`; never retitle in place.
+
+If a value contains \` #\`, wrap it in double quotes. An unquoted \` #\` starts a YAML comment and everything after it is lost.
+
+\`general\` answers one question: would a different project follow this as written? Write \`true\` only when the note contains no file name, path, command, symbol or product behaviour that belongs to this project. One such detail and the answer is \`false\`. To decide, imagine a reader in an unrelated project: the sentence that makes them stop and ask "which file?" is the detail that makes this \`false\`.
+
+\`candidate_skill\` is \`true\` only for a whole procedure a future session would follow from start to finish, **and only when \`general\` is also \`true\`. A skill is loaded into every project, so a special experience can never be one — if the note is special, \`candidate_skill\` is \`false\` however good the procedure is, and the writer rejects the combination rather than dropping the flag quietly. Turning an experience into a skill changes how the assistant works, so it needs a human to agree — never create or edit anything under \`~/.quickforge/skills\`.
 
 Never archive an experience just because it is old. An unused procedure is not a wrong one.
 

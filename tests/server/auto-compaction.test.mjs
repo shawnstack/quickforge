@@ -391,4 +391,45 @@ describe('context usage after compaction', () => {
     expect(hasNewMessagesSinceCompaction(session, [{ ...textMessage('user', 'old'), timestamp: compactedAt - 1 }])).toBe(false)
     expect(hasNewMessagesSinceCompaction(session, [{ ...textMessage('user', 'new'), timestamp: compactedAt + 1 }])).toBe(true)
   })
+
+  it('treats the message summary as the compaction point when metadata is missing', () => {
+    // /summary 新会话与 fork 出来的压缩会话只有消息里的摘要，没有
+    // contextCompaction 元数据。摘要后面跟着的是压缩前保留下来的最近几轮，
+    // 不能因为「数组比摘要长」就认为有新内容——那会白压一次。
+    const compactedAt = Date.now() - 1000
+    const summaryMessage = {
+      ...textMessage('user', 'compact summary'),
+      timestamp: compactedAt,
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+    }
+    const noticeMessage = {
+      ...textMessage('user', 'compacted notice'),
+      timestamp: compactedAt + 1,
+      details: { quickforgeCompaction: { version: 1, kind: 'notice' } },
+    }
+    const preservedTail = [
+      { ...textMessage('user', 'recent question'), timestamp: compactedAt - 3000 },
+      { ...textMessage('assistant', 'recent answer'), timestamp: compactedAt - 2000 },
+    ]
+    const session = {}
+
+    expect(hasNewMessagesSinceCompaction(session, [summaryMessage, noticeMessage, ...preservedTail])).toBe(false)
+    expect(hasNewMessagesSinceCompaction(session, [
+      summaryMessage,
+      noticeMessage,
+      ...preservedTail,
+      { ...textMessage('user', 'brand new question'), timestamp: compactedAt + 5000 },
+    ])).toBe(true)
+  })
+
+  it('falls back to the tail length when nothing has timestamps', () => {
+    const summaryMessage = {
+      ...textMessage('user', 'compact summary'),
+      details: { quickforgeCompaction: { version: 1, kind: 'summary' } },
+    }
+    const session = {}
+
+    expect(hasNewMessagesSinceCompaction(session, [summaryMessage])).toBe(false)
+    expect(hasNewMessagesSinceCompaction(session, [summaryMessage, textMessage('user', 'next')])).toBe(true)
+  })
 })

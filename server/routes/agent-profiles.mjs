@@ -177,7 +177,7 @@ export async function handleAgentProfilesApi(req, res, url, context = {}) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/agent-profiles/available-tools') {
-    sendJson(res, 200, { tools: listAvailableAgentTools() })
+    sendJson(res, 200, { tools: await listAvailableAgentTools() })
     return
   }
 

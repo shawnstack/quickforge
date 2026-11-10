@@ -213,6 +213,31 @@ describe('chat surface sendMessage flow', () => {
     expect(env.onError).toHaveBeenCalledTimes(1)
   })
 
+  // 服务端拒绝时 prompt 解析为 false 而不是抛错（HTTP 失败 / 写租约冲突 /
+  // 会话已销毁）。编辑器此时已被清空，必须和 reject 一样回填草稿。
+  it('restores the draft when the server refuses the send without throwing', async () => {
+    const env = createContext({ prompt: vi.fn(async () => false) })
+    const restoreEditor = vi.fn()
+    const attachments = [attachment('keep')]
+
+    await runSendMessage('please send', attachments, { ...env.context, restoreEditor })
+
+    expect(restoreEditor).toHaveBeenCalledTimes(1)
+    expect(restoreEditor).toHaveBeenCalledWith('please send', attachments)
+    expect(env.onError).toHaveBeenCalledTimes(1)
+    expect(env.onError.mock.calls[0][0]).toBe('The server did not accept the message. Draft restored.')
+  })
+
+  it('restores a text-only draft when the server refuses the send', async () => {
+    const env = createContext({ prompt: vi.fn(async () => false) })
+    const restoreEditor = vi.fn()
+
+    await runSendMessage('hello again', undefined, { ...env.context, restoreEditor })
+
+    expect(restoreEditor).toHaveBeenCalledWith('hello again', undefined)
+    expect(env.onError).toHaveBeenCalledTimes(1)
+  })
+
   it('clears the editor only after onBeforeSend completes', async () => {
     const order: string[] = []
     const env = createContext({

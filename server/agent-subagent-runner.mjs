@@ -13,6 +13,7 @@ import { isMcpToolName } from './mcp/registry.mjs'
 import { getAgentProfile } from './agent-profiles.mjs'
 import { agentProfileFromMarkdown } from './agent-profile-files.mjs'
 import {
+  MEMORY_READ_TOOL_NAMES,
   applyCapabilityPolicy,
   inferCapabilityPolicy,
   normalizeCapabilityPolicy,
@@ -32,6 +33,7 @@ import { hasFullAccess } from './agent-manager.mjs'
 import { createApprovalPromise } from './agent-approval-orchestrator.mjs'
 import { emitSessionEvent } from './agent-session-events.mjs'
 import { createServerTools, currentSessionTurnId } from './agent-manager.mjs'
+import { isWorkingMemoryEnabled } from './working-memory.mjs'
 
 const SUBAGENT_DEFAULT_TIMEOUT_MS = 2 * 60 * 60 * 1000 // 2 hours
 const SUBAGENT_MAX_TIMEOUT_MS = 2 * 60 * 60 * 1000
@@ -395,7 +397,12 @@ async function executeSubagentRun(parentSession, toolCallId, definition, params,
     (definition.allowMcpTools === true && isMcpToolName(toolName))
     || (definition.allowAgentSkills === true && (toolName === 'activate_skill' || toolName === 'read_skill_resource'))
   ))
+  // 工作记忆关闭时父 Agent 那边根本不注册笔记工具，子 Agent 的白名单也必须
+  // 一起收紧：否则提示词的 Allowed tools 会列出一批不存在的工具，模型每次都要
+  // 先撞一次 "not allowed" 才改道。
+  const workingMemoryEnabled = await isWorkingMemoryEnabled()
   const effectiveAllowedTools = [...new Set([...definition.allowedTools, ...inheritedToolNames])]
+    .filter((toolName) => workingMemoryEnabled || !MEMORY_READ_TOOL_NAMES.includes(toolName))
   const subagentSessionId = `${parentSession.sessionId}:subagent:${definition.name}:${randomUUID()}`
   const startedAt = Date.now()
   const lifecycleContext = {

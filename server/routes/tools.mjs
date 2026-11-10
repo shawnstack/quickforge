@@ -1,8 +1,9 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { readStore } from '../storage.mjs'
 import { toolHandlers, loadSkillToolContext } from '../tools/index.mjs'
-import { createSkillTools, globalMemoryTool, workspaceTools } from '../tools/definitions.mjs'
+import { createSkillTools, globalMemoryTool, MEMORY_NOTE_TOOL_NAMES, workspaceTools } from '../tools/definitions.mjs'
 import { isGlobalMemoryEnabled } from '../global-memory.mjs'
+import { isWorkingMemoryEnabled } from '../working-memory.mjs'
 import { createMcpToolDefinitions } from '../mcp/registry.mjs'
 import { callPluginTool, createPluginToolDefinitions, isPluginToolName } from '../plugins/registry.mjs'
 import { safeReadTools } from '../approval-store.mjs'
@@ -97,6 +98,14 @@ export async function handleToolApi(req, res, url) {
   if (!handler || directRouteDisabledTools.has(name)) {
     const error = new Error(`Unknown tool: ${name}`)
     error.statusCode = 404
+    throw error
+  }
+
+  // 工作记忆关闭时笔记工具在 agent 侧已经不注册；直接 HTTP 调用这条旁路也要
+  // 一起关掉，否则「设置里关了」照样能通过 /api/tools/write_memory_note 写盘。
+  if (MEMORY_NOTE_TOOL_NAMES.includes(name) && !(await isWorkingMemoryEnabled())) {
+    const error = new Error(`Working memory is disabled: ${name} is unavailable`)
+    error.statusCode = 403
     throw error
   }
 

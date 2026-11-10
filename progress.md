@@ -2,6 +2,29 @@
 
 按时间倒序追加。每个 feature 一段，完成后在此留档。
 
+## draft-restore-on-refused-send（done，2026-11-09）
+
+- 起因：v2.4.1 只读审查就记下的 P1 回归，一直挂着没修。用户说「同意」后动手。
+- 根因：`prompt()` 早改成解析 `true/false` 表达「消息有没有交出去」，但 `ChatSurface.runSendMessage()` 仍只 catch reject，而 `clearEditor()` 在调用前已经执行——HTTP 失败 / 409 写租约冲突 / 会话已销毁时，草稿被清掉、提示也不弹。
+- 改动：`SendMessageContext.prompt` 返回类型 `Promise<void>` → `Promise<boolean | void>`（类型原本把返回值吞掉了）；`runSendMessage` 判 `result === false` 时回填草稿并提示 `chatSendFailedNotAccepted`（新键，中英各一）；真异常仍走 catch。
+- Evidence：定向 2 files / 37 passed（新增 2 例：文本草稿、附件草稿）；`npx tsc -b` exit 0；`npx eslint` 三个改动文件 0 problems；server 全量 2239 passed / 3 failed 既有基线。
+- Notes：服务端「什么时候返回 false」的判定未动。
+
+## compaction-gate-single-source（done，2026-11-09）
+
+- 起因：用户没听懂「压缩前判定口径统一」，解释后同意做。
+- 问题：第 7 关 `hasNewMessagesSinceCompaction()` 只认 `contextCompaction` 元数据，而算占用的 `minimumProviderUsageIndex()` 早已按消息里的摘要定界。`/summary` 新会话与 fork 出来的压缩会话只有摘要消息、没有元数据 → 第 7 关恒放行 → 没有新内容也先空压一次。
+- 改动：统一以消息里的摘要为压缩点（`summaryIndexInMessages`）；判定顺序 ① `sourceMessageCount` 变长 ② 有普通消息时间戳晚于 `compactionCutoffMs`（摘要消息与 `kind: 'notice'` 不算新内容）③ 全无时间戳时退回「摘要之后是否还有普通消息」。新增 `isCompactionMessage`。
+- 为什么不能只看长度：`/summary` 与 fork 会把压缩前的最近几轮原样带在摘要后面，数组一直更长，但那些消息的时间戳更早。
+- Evidence：压缩相关 3 files / 31 passed（auto-compaction 14 → 16）；`eslint` 0 problems；server 全量通过（同上）。wiki 第 7 关与「已知口径不一致」段落同步改写。
+
+## working-memory-tool-gate（done，2026-11-09）
+
+- 起因：工作记忆默认关闭，但主 Agent 与子 Agent 仍能往 `~/.quickforge/working-memory` 写笔记。用户拍板方案 B——关闭时读写一起关，不给「能读不能写」的半开状态。
+- 改动四处：① `createServerTools()` 注册 `memoryNoteTools` 前判 `isWorkingMemoryEnabled()`；② `listAvailableAgentTools()` 改 async，关闭时不列出笔记工具；③ 子 Agent 的 `effectiveAllowedTools` 过滤 `MEMORY_READ_TOOL_NAMES`（否则提示词列出不存在的工具）；④ `POST /api/tools/<note-tool>` 直调返回 403——agent 侧关了但 HTTP 旁路还能写盘，这条最要紧。
+- 刻意不改：`agent-profile-schema.mjs` 的能力策略、`approval-store.mjs` 的 `safeReadTools` / `planAllowedTools`。工具不注册时它们自然用不上，保留可避免 Profile 里已有的旧配置被判非法。
+- Evidence：新增两个测试文件（注册层 2 例、直调层 2 例），`agent-profiles.test.mjs` 原用例改 await 并显式开启、新增关闭时全部隐藏一例；定向 6 files 全过；server 全量 211 files / 2239 passed、3 failed 既有基线；`eslint` 0 problems。
+
 ## doc-reality-sync-2026-11（done，2026-11-09）
 
 - 起因：工作区里留着一批没有留档的文档/注释改动，内容是「文档和注释追认代码现状」，无对应 feature 记录。提交前补记，避免历史里出现来历不明的改动。
@@ -2085,3 +2108,52 @@
   - `server/agent-goal-runner.mjs`（1599 行）经确认 **不是死代码**：`resolveGoalEngine()` 对没有 `goalEngine === 'v2'` 标记的会话仍回退到 legacy 引擎，属技术债而非僵尸；真要处理应是「退役 legacy 引擎」而不是「删除死代码」。
   - 顺手观察到但不属于本 feature 的问题：`server/acp/server.mjs`、`server/session-state-backup.mjs` 等工作区里他人未提交的改动，正是上面 3 个既有失败的来源，未介入。
   - 未创建 Git commit；未触碰 `dist/`、`package-dist/`、`package-offline/`。
+
+## experience-general-axis-2026-11-10（done，2026-11-10）
+
+- 起因：用户问「经验库是不是只有候选技能一个标签，能不能加通用 / 特殊这类标签，兼容通用性和泛用、防止过拟合」。第一版设计给成了三档 + 两个正文槽位 + 三条防腐检查，被「你不要理解偏了」打回——这是一条二元轴，不是一套工作流。
+- 定稿：文件头改 YAML front matter（`title` / `description` / `general` / `candidate_skill`），索引只留文件名，`general: false` 的行尾加 `（特殊）`，`candidate_skill: true` 必须 `general: true`。
+- 复用了 `server/frontmatter.mjs`（原本给 agent profile 用的手写子集解析器），没有引依赖。它同时兼容全角冒号与坏头部：解析不到 head 就当没有，不抛错。
+- 索引去掉 `—— 何时用` 的依据：文件名本来就是结论句，`description` 再抄一遍是同一句话付两次钱。按最宽一行算，200 行约 1.4 万字符，先撞到的是行数上限而不是字符上限，所以两个上限的先后关系变了（原注释假设「两个上限差不多同时用完」）。
+- `candidate_skill` 与 `general` 的与运算写在 `experienceMetaOf()` 里，不靠提示词自觉。副作用：迁移后 5 个 ★ 掉到 3 个——`清理僵尸代码先证死再动手`、`审查本机桌面 Web 应用` 的正文里有点名本项目的路径（`src server`、`routes/*.mjs`、`public/sw.js`），按规则属特殊，★ 取消。想拿回 ★ 就得先把步骤改写成不绑项目的版本。
+- 迁移：22 篇一次性处理，先整目录快照到 `~/.quickforge/_backups/experiences-20261110-174028` 并 `diff -rq` 校验；`general` 逐篇人工判定写成清单，脚本对清单外的文件直接 `sys.exit`，不猜。第一次跑被自己写的一致性守卫拦下（两篇的 `# 标题` 与文件名只差措辞，其中一篇是文件名不能带引号导致的），改成「以文件名为准、打印被退休的旧标题」后再跑。
+- Evidence（验证）：`npm run test` → 504 files / 5575 passed、4 failed；3 个失败用 `git worktree` 在干净 HEAD 复跑同样失败（既有基线），第 4 个是本次引入的（`dreaming-curator-agent` 沉淀用例还断言着旧的 `—— 动 config 目录前`），已修。`npm run lint` → 0 problems；`npm run build` → 通过。worktree 用后已 remove。
+- Notes：
+  - 没给经验加「项目 id」。「（特殊）」只是提示，特殊条目仍然会出现在别的项目的索引里；真要按项目过滤得给笔记加字段并让索引按当前项目筛，是另一件事。
+  - 迁移只搬格式，没改写任何一条经验的正文办法；三篇原本没有「何时用」bullet 的，`description` 取自它们自己的「症状」段。
+  - 未创建 Git commit、未推送。
+
+### 自评审补修（用户要求「自己评审一下」）
+
+- 拿边界输入实测，不是读代码猜，找出三处，都已补修并加测试：
+  - **`general: 否` 被静默读成 `true`（最严重）**。`firstOptionalBoolean` 只认 `true` / `false` 字符串，`否` 不匹配 → `undefined` → 回落默认 `true`。整理员是全中文写手，想标「特殊」最自然的写法就是「否」，结果索引里没有 `（特殊）`，下个会话照着绑死本项目的流程硬套——正是这条轴要防的错，被它自己破了。修法：经验层加本地 `flagOf`（认 `否/no/off/0` 与 `是/yes/on/1`），**不动**共用的 `firstOptionalBoolean`（agent profile 还在用，那个契约应保持严格 YAML 布尔）。
+  - **`candidate_skill: true` + `general: false` 被静默丢弃**。文件说「我是技能候选」，系统算出 false，磁盘和界面各说一套且无任何提示。改成 `writeExperience` 直接拒绝（和 title 不一致同样处理）；读取时的与运算降级为「手改文件的兜底」，不再是正常路径。
+  - **`MAX_EXPERIENCE_INDEX_CHARS` 的注释说谎**。文档改了、代码注释还写着「两个上限差不多同时用完」；实际 200 行 × ~68 字符 ≈ 14k，字符上限不可触发。改成说明「在当前两个上限下不可触发，留着是因为它约束的是一条每轮都注入的字符串」，并补回字符上限分支的测试（用手工构造的超长标题驱动，因为真实文件名上限 60 字符走不到）。
+- 顺手补的文案：设置页经验库说明里加一句「带『特殊』标记的经验只对某个项目或场景成立，专有的名字要先换掉」——否则第一次看到 badge 的人不知道那是什么。
+- 已知未修（已写进 feature boundaries）：`description` 里的 ` #` 会被 `parseYamlScalar` 当行内注释截断（只影响设置页那一行显示，靠提示词要求加引号，写入层无法回推原值所以不做校验）；`（特殊）` 只是提示不是过滤，特殊条目仍出现在所有项目的索引里；每篇笔记的 front matter 被解析三次（22 篇无感，200 篇也就 600 次正则）。
+- 最终验证：`npm run test` → 504 files / 5583 tests，5579 passed、3 failed、1 skipped（3 个失败为既有基线）；`npm run lint` → 0 problems；`npm run build` → 通过；`tests/server/memory-notes.test.mjs` 22 passed。
+
+## quickforge-api-skill（done，2026-11-10）
+
+- 起因：用户要「一个内置 skill 驱动 QuickForge 本地 API，让 Agent 自己操作自己」。我给了三档取舍（只读 / 加身份注入 / 再加受限工具）和三个能力档位，用户没回答就超时了，按推荐项落地：方案 B + 能力档位 3 + 升级默认 marker。这个默认选择已写进 feature 的 boundaries，回退成本很低。
+- 调研（explore 只读）结论三条，决定了设计形状：① 本地 API 已闭环，`sessionId` 由调用方生成，所以「创建 → prompt → 读消息 → abort」用 HTTP 就能走通；② 但 Agent **不知道自己是谁**——系统提示词只给项目名/路径/项目 id，拿不到自己的 `sessionId`，也不知道端口，而且内置工具里没有任何一个能发 HTTP（只能 `run_command` + curl，会走审批）；③ 给自己发 prompt 必然 409 `GENERATION_ALREADY_RUNNING`，所以「自己操作自己」不能设计成自我对话循环。
+- 改动：新增 `server/runtime-info.mjs`（进程内记 `{host,port,baseUrl}`，**不落盘**，并提供 `buildChildProcessEnv`）；`server/index.mjs` 在 listen 回调 `setRuntimeInfo()`；`toolRunCommand` 的 spawn 传 `env: buildChildProcessEnv(context)`，注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`。新增内置 skill `skills/quickforge-api/`：`SKILL.md`（命令表 + 红线 + 报错对照 + 配方）、零依赖 `scripts/qf-api.mjs`（15 个子命令）、`references/endpoints.md`。`defaultGlobalSkillNames` 加 `quickforge-api`，marker 从 `.default-skills-v1` 升到 `-v2`（不升的话 v1 marker 已存在，存量安装永远看不到新 skill）。
+- 安全取舍：本机回环即认证（`access-policy.mjs` 里 `isLocalRequest === true` 直接放行），所以**没做通用 HTTP 工具**，而是每个子命令映射一个写死端点，明确不给 `DELETE /api/agents/*`、`access-mode`/`yolo-mode`、`lan-access`、`terminal`、`backup`、`plugins`、`mcp`，也不订阅会话级 SSE（单连接，抢了会把用户页面踢掉，改成轮询 `status`）。这三条边界同时写进 SKILL.md 的红线和测试里的正文黑名单断言。
+- 踩到的坑（值得记）：`~/.quickforge/quickforge.pid` 是陈旧的（文件里 54436，真实进程 69209，应用内重启不更新它）。我第一版把它当硬校验，结果端口探测明明有服务却报「找不到」。改成「pid 匹配 > 同数据目录 > 唯一可用实例」的优先级排序，pid 不匹配只作为 `whoami` 的 warning。教训：pid 文件只能当提示，不能当门槛。
+- 第二个坑：`/api/agents` 的列表项比 `/api/agents/:id/status` 窄（`listSessions` 只有 sessionId/scope/status/title/source），我一开始复用 status 的映射函数，冒烟时看到 `projectId: null`、`messageCount: null` 才发现。现在两个命令各用自己的映射，并在代码里写了注释。
+- Evidence（验证）：`npx vitest run tests/server` → 212 files / 2259 tests，2255 passed、3 failed、1 skipped；3 个失败是既有基线（acp workspace-mapping 2 例 + sqlite-quick-check-gate 1 例），单跑 `sqlite-quick-check-gate` 仍 1 failed，且都不引用本次改动模块。定向 `runtime-info.test.mjs` + `skills.test.mjs` → 14 passed（含真的 spawn 子进程读三个环境变量的端到端断言）。`npx eslint` 7 个改动文件 → 0 problems。`npm run build` → 通过。手工冒烟（运行实例 5176）：`whoami` / `agents` / `sessions` / `skills` / `instructions` 全部返回预期结构。
+- Notes：
+  - **运行中的实例必须重启**才生效：注入逻辑和默认启用都在服务端。本会话里 `env | grep QUICKFORGE` 就没有 `SESSION_ID`（跑的还是旧进程），这也顺带证明了端口探测兜底是必要的。
+  - 没写 `references/recipes.md`：配方直接放在 `SKILL.md` 里了，同一个场景写两处就是同一句话付两次钱。
+  - 未创建 Git commit、未推送；工作区里仍有其他会话未提交的改动（`agent-profiles`、`ChatSurface`、`auto-compaction` 等），提交时要分组。
+  - 调研时顺手发现但没动的两处：`server/system-prompt.mjs` 开启工作记忆时会注入两个 `<working_memory>` 块（重复段，真实缺陷）；`getSessionStatus` 之外的 agent 自省目前只有环境变量这条路，如果以后要「免审批只读自省」，更合适的是加一个只读工具而不是放宽 `run_command` 的审批。
+- 自评审（只读、按 P0–P3 分级）：**1 个 P1、3 个 P2、4 个 P3，无 P0**。
+  - **P1（已修）**：marker 升到 v2 时重放了整份默认名单，会把用户手动取消过的旧默认（`plugin-creator`）重新打开。本机实锤：v1 marker 在（8 月 26 日），`~/.quickforge/config/projects.json` 的 `globalSkills` 只有 `['skill-creator']`——重启必然被改成三项。修法：新增 `defaultSkillsIntroducedInV2 = ['quickforge-api']`，v1 marker 存在时只补它；`tests/server/skills.test.mjs` 补一条存量回归用例 → 5 passed。
+  - P2 三条 + P3 四条 + 一条 Windows 待确认风险已写进 feature 的 boundaries，**未修**（用户只要求先修 P1）。
+  - 评审没改任何代码：先读 `ensureDefaultGlobalSkills`、`toolRunCommand` 的 spawn 点、`projectContext` 的字段来源、`message.content` 的实际形态（可能是 block 数组），再用真实配置文件验证 P1 不是理论问题。
+- 后续（用户当场提要求）：`spawn` 出的子会话要「默认开全部权限」并且「用当前的思考等级」。
+  - 改 `skills/quickforge-api/scripts/qf-api.mjs`：新增 `--access-mode default|full-access`（白名单，默认 `full-access`）；`--thinking` 不传时读自己的 `/state` 继承思考档，返回值多一个 `thinkingSource`（inherited / flag / fallback）；`show` 补返回 `accessMode` 便于复核服务端真实状态。
+  - 边界没松：整段放开请求体仍然禁止，白名单之外的值直接报错；**已存在**会话的 `/access-mode` 依然没有子命令。SKILL.md 红线 3/4 与 `references/endpoints.md` 同步了这条唯一的例外。
+  - `--model` 仍是死参数（服务端 `normalizeModelReference` 要 `{source,providerId,modelId}` 对象，脚本传字符串 → 400），用户决定不修，子会话沿用默认模型。
+  - Evidence：实测三例 —— 不传参数 → `accessMode: full-access` / `thinkingLevel: xhigh` / `thinkingSource: inherited`；`--access-mode default --thinking low` → 两者都被覆盖；`--access-mode yolo` → 直接拒绝且不建会话。`show` 复核服务端确认落盘值一致。真派了一个活（跑 `node -v`/`pwd`），2 秒内 idle、5 条消息，没有被审批卡住。
+  - 验证坑：`tests/server/runtime-info.test.mjs` 断言 `process.env.QUICKFORGE_SESSION_ID` 是 undefined，在会话里直接跑必然假失败；要 `env -u QUICKFORGE_SESSION_ID -u QUICKFORGE_PROJECT_ID -u QUICKFORGE_API_BASE -u QUICKFORGE_WORKSPACE_ROOT npx vitest run …` → 10 passed。定向 `npx eslint skills/quickforge-api/scripts/qf-api.mjs` → 0 problems。

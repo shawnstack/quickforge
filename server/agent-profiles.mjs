@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { readStore, userAgentsDir, writeStore } from './storage.mjs'
 import { builtinSubagentProfilePath, ensureBuiltinSubagentMarkdownFiles, subagentDefinitions } from './subagents.mjs'
 import { memoryNoteTools, workspaceTools } from './tools/definitions.mjs'
+import { isWorkingMemoryEnabled } from './working-memory.mjs'
 import { defaultGlobalWorkspaceContext, projectContextFromId } from './project-config.mjs'
 import {
   deleteUserAgentProfileMarkdown,
@@ -389,7 +390,10 @@ export function agentProfileSnapshot(profile) {
 
 export { AGENT_PROFILE_TOOL_NAMES } from './agent-profile-schema.mjs'
 
-export function listAvailableAgentTools() {
+export async function listAvailableAgentTools() {
+  // 工作记忆关闭时笔记工具不该出现在勾选列表里：注册层已经不给它们，这里
+  // 再列出来只会让用户勾一个永远不生效的选项。
+  const workingMemoryEnabled = await isWorkingMemoryEnabled()
   const labels = {
     read_file: 'Read file',
     grep_files: 'Search files',
@@ -403,7 +407,7 @@ export function listAvailableAgentTools() {
   // Note tools live outside `workspaceTools` (they reach folders that are not in
   // the project), but they are valid profile tools, so they have to be listed
   // here as well — `allowedToolNames` is what keeps write/move out of the UI.
-  return [...workspaceTools, ...memoryNoteTools]
+  return [...workspaceTools, ...(workingMemoryEnabled ? memoryNoteTools : [])]
     .filter((tool) => allowedToolNames.has(tool.name))
     .map((tool) => ({
       name: tool.name,

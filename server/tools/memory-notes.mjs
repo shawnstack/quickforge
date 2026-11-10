@@ -97,8 +97,10 @@ export const memoryNoteTools = [
 export const MEMORY_NOTE_TOOL_NAMES = Object.freeze(memoryNoteTools.map((tool) => tool.name))
 
 function formatEntry(entry, scope) {
-  const when = scope === 'experience' && entry.whenToUse ? ` —— ${entry.whenToUse}` : ''
-  return `- ${entry.title}${when} (${entry.chars} chars)`
+  if (scope !== 'experience') return `- ${entry.title} (${entry.chars} chars)`
+  const scopeMark = entry.general === false ? '（特殊：复用前要先换掉本项目专有的名字、路径或命令）' : ''
+  const when = entry.description ? ` —— ${entry.description}` : ''
+  return `- ${entry.title}${scopeMark}${when} (${entry.chars} chars)`
 }
 
 export async function toolListMemoryNotes(params = {}) {

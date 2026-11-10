@@ -152,11 +152,13 @@ ${escapeXml(instructions.globalMemory.content)}
     parts.push(`
 <experiences>
 The experience library is a shared folder outside this workspace: ${escapeXml(instructions.experiences.displayPath || instructions.experiences.path)}
-What follows is only its index — one line per experience: the file name (a one-sentence summary) and when to use it. It is a pointer, not the content. Before relying on an entry, open that one file with read_memory_note (scope "experience"); do not answer from the summary line alone.
+What follows is only its index — one line per experience, and that line is just the file name, which is the note's conclusion in one sentence. It is a pointer, not the content. Before relying on an entry, open that one file with read_memory_note (scope "experience"); do not answer from the summary line alone.
+
+An entry ending in （特殊） was written for one project or one situation: the shape of the procedure holds, but the file names, paths, commands or product behaviours inside it belong to that project and have to be replaced with this one's. An unmarked entry is meant to be followed as written.
 
 If nothing in the index looks relevant, do not go browsing the folder. An empty or unrelated index is a normal state, not a problem to fix.
 
-Entries marked ★ are candidates for becoming an Agent Skill. Turning one into a skill changes how you work, so it needs a human to say yes; never create or edit a skill yourself.
+Entries marked ★ are candidates for becoming an Agent Skill. A skill is loaded into every project, so only general entries can carry the star. Turning one into a skill changes how you work, so it needs a human to say yes; never create or edit a skill yourself.
 
 <experience_index>
 ${escapeXml(instructions.experiences.index)}

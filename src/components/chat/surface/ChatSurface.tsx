@@ -66,8 +66,12 @@ export interface SendMessageContext {
   /** Put a failed send's text and attachments back into the composer. */
   restoreEditor?: (input: string, attachments: Attachment[] | undefined) => void
   enableAutoScroll: () => void
-  /** Deliver the prompt: a plain string, or a user message with attachments. */
-  prompt: (message: string | UserMessageWithAttachments) => Promise<void>
+  /**
+   * Deliver the prompt. Resolves `false` when the message was not accepted by
+   * the server (HTTP failure, write-lease conflict, disposed session); only
+   * real exceptions reject.
+   */
+  prompt: (message: string | UserMessageWithAttachments) => Promise<boolean | void>
   onError?: (message: string) => void
 }
 
@@ -80,8 +84,10 @@ export interface SendMessageContext {
  *   for minutes while another turn starts) and drop the send when live.
  * - Run `onBeforeSend`, clear the editor, re-enable auto-scroll, then prompt
  *   with a `user-with-attachments` message when attachments exist.
- * - When the prompt rejects, restore the draft through `restoreEditor` and
- *   surface the failure via `onError` instead of losing the composer text.
+ * - When the prompt rejects, or resolves `false` because the server refused the
+ *   send (HTTP failure / write-lease conflict / disposed session), restore the
+ *   draft through `restoreEditor` and surface the failure via `onError` instead
+ *   of losing the composer text.
  */
 export async function runSendMessage(input: string, attachments: Attachment[] | undefined, context: SendMessageContext): Promise<void> {
   // `attachments` may be undefined; treat "no attachments" as absence, not
@@ -119,16 +125,22 @@ export async function runSendMessage(input: string, attachments: Attachment[] | 
   context.clearEditor()
   context.enableAutoScroll()
 
+  // `prompt` resolves `false` when the message never reached the server (HTTP
+  // failure, write-lease conflict, disposed session). The editor was cleared
+  // above, so a refused send has to give the draft back exactly like a
+  // rejection does — otherwise the user's text disappears silently.
   try {
-    if (hasAttachments) {
-      await context.prompt({
-        role: 'user-with-attachments',
-        content: input,
-        attachments: attachments as Attachment[],
-        timestamp: Date.now(),
-      })
-    } else {
-      await context.prompt(input)
+    const result = hasAttachments
+      ? await context.prompt({
+          role: 'user-with-attachments',
+          content: input,
+          attachments: attachments as Attachment[],
+          timestamp: Date.now(),
+        })
+      : await context.prompt(input)
+    if (result === false) {
+      context.restoreEditor?.(input, attachments)
+      context.onError?.(t('chatSendFailedNotAccepted'))
     }
   } catch (error) {
     // Prompt rejected (network/server refusal): give the draft back to the

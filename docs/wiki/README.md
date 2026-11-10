@@ -58,6 +58,7 @@ quickforge/
 | [对话渲染性能与内存评审](../architecture/chat-render-perf-review.zh-CN.md) | 流式稳定块冻结、工具事件合并、装饰固定成本、缓存字节预算与序列化共享（含 5 项否决候选与理由） |
 | [对话轨迹](../architecture/conversation-trace.zh-CN.md) | 对话区的只读运行时视图（Turn→Step→Tool 投影、三轨时间总览、检查器、不虚构耗时） |
 | [记忆体系：工作记忆 + 经验库](../architecture/memory-system.zh-CN.md) | 三层记忆（`MEMORY.md` 偏好 / `working-memory/` 活笔记 / `experiences/` 经验库）+ 生成式索引的渐进式披露 + 梦境整理员「一次一个会话」逐轮起 agent + 整目录快照回滚；`DREAMING.md` 与 `recall_experience` 已退役 |
+| [QuickForge 本地 API Skill](../architecture/quickforge-api-skill.zh-CN.md) | 内置 `quickforge-api`：Agent 通过本机 HTTP API 自省与自我操作。为什么是 skill 而不是通用 HTTP 工具、`run_command` 的环境变量身份注入、白名单端点与不给出口的破坏性端点 |
 | [前端状态管理迁移（Zustand）](../architecture/zustand-migration.zh-CN.md) | App 级状态迁入 `src/stores/` 的 10 个 zustand store（兼容层模式、请求信号替代 window 事件桥、迁移守则与测试适配） |
 | [日志系统设计](../architecture/logging-design.zh-CN.md) | 日志分级、落盘与清理 |
 | [Android 远程客户端](../architecture/android-remote-client.zh-CN.md) | Capacitor 薄壳、Tailscale 直连与通知 |
@@ -83,7 +84,7 @@ quickforge/
 
 - **多模型供应商**: OpenAI 兼容 `/v1/chat/completions` 和 Anthropic Messages API
 - **工作记忆（Beta）**: 设置页可开启「工作记忆」（与「用户记忆」「梦境记忆」同属设置里的「记忆」分组）。开启后系统提示词注入 `<working_memory>`：共享笔记目录 `~/.quickforge/working-memory/`、几条原则和内部笔记提示词（以压缩摘要提示词为底本改写成大白话，属于内部契约，设置页不暴露也不接受修改）。原则只讲机制和触发点——开工前先列目录挑相关的读，**觉得任务做完时回头看一眼有没有值得留给下次的东西，没有就不写**，不规定固定小节模板。一个 Markdown 文件只记一件事，文件名就是内容的一句话总结；读写走 `list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note` 四个工具（路径锁死在工作记忆与经验库两个目录内，不新增沙箱放宽，也**没有删除**——退休的笔记挪进 `_archive/`）。设置页的笔记区是只读的：按更新时间倒序分页列出标题与时间，每条可「打开」在系统文件管理器里选中该文件，目录行另有「打开文件夹」，不提供正文编辑。详见 [记忆体系：工作记忆 + 经验库](../architecture/memory-system.zh-CN.md)
-- **经验库**: `~/.quickforge/experiences/`，一条经验一个文件（文件名即结论，正文含「何时用 / 怎么做 / 坑 / 来源 / 候选技能」）。系统提示词里**只注入扫描生成的 `index.md`**（200 行封顶），正文按需 `read_memory_note` 读——这就是渐进式披露。经验由梦境整理员自动写入、无需人工审核；标了 `候选技能：是` 的条目会在索引里显示 `★`，升级成 Agent Skill 仍需人点头。设置·梦境记忆页的经验库列表只读，但每条经验可「打开」在系统文件管理器里选中该文件，工具条另有「打开文件夹」（与工作记忆的笔记「打开」同一套服务端动作，`note-store.mjs` 的 `revealNoteFile`）
+- **经验库**: `~/.quickforge/experiences/`，一条经验一个文件（文件名即结论；文件头是 front matter：`title` / `description` / `general` / `candidate_skill`，正文是「怎么做 / 坑 / 来源」）。系统提示词里**只注入扫描生成的 `index.md`**（200 行封顶，一行只有文件名，`（特殊）` 标记只对某个项目成立的条目），正文按需 `read_memory_note` 读——这就是渐进式披露。经验由梦境整理员自动写入、无需人工审核；`candidate_skill: true` 的条目在索引里显示 `★`，升级成 Agent Skill 仍需人点头，且只有 `general: true` 的经验才可能带 ★。设置·梦境记忆页的经验库列表只读，但每条经验可「打开」在系统文件管理器里选中该文件，工具条另有「打开文件夹」（与工作记忆的笔记「打开」同一套服务端动作，`note-store.mjs` 的 `revealNoteFile`）
 
 ## 快速链接
 

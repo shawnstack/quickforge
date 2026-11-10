@@ -53,7 +53,7 @@ describe('bundled skills', () => {
     await storage.ensureStorage()
     await expect(skills.ensureDefaultGlobalSkills()).resolves.toBe(true)
     await expect(storage.readProjectConfigData()).resolves.toMatchObject({
-      globalSkills: ['skill-creator', 'plugin-creator'],
+      globalSkills: ['skill-creator', 'plugin-creator', 'quickforge-api'],
     })
 
     await storage.atomicProjectConfigUpdate((config) => {
@@ -64,6 +64,26 @@ describe('bundled skills', () => {
     await expect(skills.ensureDefaultGlobalSkills()).resolves.toBe(false)
     await expect(storage.readProjectConfigData()).resolves.toMatchObject({
       globalSkills: [],
+    })
+  })
+
+  it('only adds the newly introduced default skill to installs that already opted out', async () => {
+    const skills = await import('../../server/skills.mjs')
+    const storage = await import('../../server/storage.mjs')
+
+    await storage.ensureStorage()
+    // 存量安装：默认 skill 早就初始化过（v1 marker 在），用户手动取消了 plugin-creator。
+    await storage.atomicProjectConfigUpdate((config) => {
+      config.globalSkills = ['skill-creator']
+      return config
+    })
+    await fs.mkdir(storage.configDir, { recursive: true })
+    await fs.writeFile(path.join(storage.configDir, '.default-skills-v1'), 'v1\n', { flag: 'wx' })
+
+    await expect(skills.ensureDefaultGlobalSkills()).resolves.toBe(true)
+    await expect(storage.readProjectConfigData()).resolves.toMatchObject({
+      // 只补 v2 新增的 quickforge-api；plugin-creator 不能被复活。
+      globalSkills: ['skill-creator', 'quickforge-api'],
     })
   })
 

@@ -3,6 +3,7 @@ import {
   compactConversation,
   compactionMessageDetails,
   extractCompactSummaryText,
+  isCompactionNoticeMessage,
   isCompactSummaryMessage,
   saveCompactBackup,
 } from './conversation-compaction.mjs'
@@ -301,14 +302,45 @@ function minimumProviderUsageIndex(session, messages) {
   return source.length - tailStart + 1
 }
 
+/**
+ * 压缩之后是否出现了新内容（决定要不要再压一次）。
+ *
+ * 压缩点的权威表达是「消息里的摘要」（方案 B），`contextCompaction` 只是派生
+ * 索引：`/summary` 新建的会话与 fork 出来的压缩会话只有摘要消息、没有元数据。
+ * 只认元数据会把它们当成「从未压缩」，于是明明没有新内容也会先空压一次。
+ * 这里与 `minimumProviderUsageIndex()` 同源：先按消息里的摘要定界，再用压缩
+ * 时刻（`compactionCutoffMs`）判断哪些内容是压缩之后才产生的。
+ *
+ * 注意不能只看数组长度：`/summary` 与 fork 会把压缩前的最近几轮原样带在摘要
+ * 后面，长度一直「比压缩后多」，但那些消息的时间戳早于压缩时刻。
+ */
 export function hasNewMessagesSinceCompaction(session, messages) {
-  if (!session?.contextCompaction?.summaryMessage) return true
   const source = Array.isArray(messages) ? messages : []
-  const sourceMessageCount = Number(session.contextCompaction.sourceMessageCount)
+  const compactionIndex = summaryIndexInMessages(session, source)
+  const metadata = session?.contextCompaction
+  if (compactionIndex < 0 && !metadata?.summaryMessage) return true
+
+  // 元数据里的长度基准：滚动压缩后主路径靠它判断「是否又长出来了」。
+  const sourceMessageCount = Number(metadata?.sourceMessageCount)
   if (Number.isFinite(sourceMessageCount) && sourceMessageCount > 0 && source.length > sourceMessageCount) return true
 
-  const compactedAt = Date.parse(session.contextCompaction.compactedAt || '')
-  return Number.isFinite(compactedAt) && source.some((message) => messageTimestampMs(message) > compactedAt)
+  // 时间戳才是「压缩之后有没有新内容」的事实来源；压缩流程自己写入的摘要与
+  // 提示行不算新内容。
+  const compactedAt = compactionCutoffMs(session, source)
+  if (compactedAt > 0) {
+    return source.some((message) => !isCompactionMessage(message) && messageTimestampMs(message) > compactedAt)
+  }
+
+  // 一条时间戳都没有（构造数据或很旧的会话）：退回长度判断。宁可多压一次，
+  // 也不要因为读不出时间戳就永远不压缩。
+  if (compactionIndex >= 0) {
+    return source.slice(compactionIndex + 1).some((message) => !isCompactionMessage(message))
+  }
+  return false
+}
+
+function isCompactionMessage(message) {
+  return isCompactSummaryMessage(message) || isCompactionNoticeMessage(message)
 }
 
 /**

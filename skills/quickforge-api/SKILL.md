@@ -1,0 +1,128 @@
+---
+name: quickforge-api
+description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档，以及派生并驱动子会话。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, or prompt), or asks to list/observe running agents, spawn a sub session, rename the current chat, or inspect the prompt you actually received.
+---
+
+# QuickForge 本地 API
+
+QuickForge 自己就是一个本机 HTTP 服务（默认 `http://127.0.0.1:5176`，dev 模式 `32176`）。
+这个 skill 用它的 API 查看和操作 QuickForge 本身，而不是操作用户的业务代码。
+
+## 第一原则：先自省，再动手
+
+```bash
+node <skill-dir>/scripts/qf-api.mjs whoami
+```
+
+`run_command` 会给每个子进程注入三个环境变量，脚本自动读取，**不要自己拼**：
+
+| 变量 | 含义 |
+|---|---|
+| `QUICKFORGE_API_BASE` | 本地 API 基址（含真实端口） |
+| `QUICKFORGE_SESSION_ID` | 我自己这个会话的 id |
+| `QUICKFORGE_PROJECT_ID` | 当前项目 id |
+| `QUICKFORGE_WORKSPACE_ROOT` | 当前工作区根路径 |
+
+`whoami` 返回不出来的情况只有一种：脚本被别的程序调用、没有这些变量。那时用
+`--api http://127.0.0.1:<port>` 显式指定，或者接受端口探测（`5176` / `32176`，并用
+`~/.quickforge/quickforge.pid` 校验不是连错实例）。
+
+**不要**用 `curl` 自己拼 URL。脚本是本 skill 唯一的网络出口，理由见下面的红线。
+
+## 命令表
+
+只读：
+
+| 命令 | 作用 |
+|---|---|
+| `whoami` | 我在哪、什么模型、什么项目、有没有在跑 |
+| `agents` | 内存中活跃的会话（正在跑的才在这里） |
+| `sessions --limit 20` | 存储里的历史会话，最新在前 |
+| `show <id> --tail 8` | 只读快照，**不会唤醒**会话 |
+| `messages <id> --from 0 --limit 20` | 会话消息（`/api/agents/...` 会唤醒会话） |
+| `instructions --system-prompt` | 我实际收到的系统提示词（调 skill / 排查提示词） |
+| `skills` | 当前会话能激活哪些 skill |
+
+写（默认作用于我自己）：
+
+| 命令 | 作用 |
+|---|---|
+| `title <文字>` | 改当前会话标题（UI 里更好找） |
+| `model <modelRef>` | 换模型 |
+| `thinking <off\|low\|medium\|high\|xhigh>` | 换思考档 |
+| `goal <confirm\|pause\|resume\|cancel\|revise\|accept>` | 目标模式动作 |
+| `wait --timeout 120` | 阻塞到当前会话不再流式输出 |
+
+其它会话：
+
+| 命令 | 作用 |
+|---|---|
+| `spawn --title T --message M` | 建一个子会话并立刻派活，返回它的 `sessionId` |
+| `prompt <id> <message...>` | 给别的会话发消息 |
+| `abort <id>` | 中止别的会话 |
+
+### `spawn` 的默认值（用户已授权）
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--thinking` | 继承我当前的思考档 | 读我自己的 `/state`，读不到才退回 `off` |
+| `--access-mode` | `full-access` | 子会话不逐条等审批；要它守规矩就传 `--access-mode default` |
+| 模型 | 我的默认模型 | `--model` 目前只收对象格式，字符串会 400，一般不要传 |
+
+返回值里带 `thinkingSource`：`inherited` 表示继承来的，`flag` 表示我显式传的，`fallback` 表示没读到我的状态。
+
+实际权限和思考档以服务端为准，用 `show <id>` 复核（返回里有 `accessMode`、`thinkingLevel`）。
+
+## 红线（不是建议）
+
+1. **只操作自己，或自己 `spawn` 出来的会话。** 本机回环即认证，脚本能写任何会话——这是权限，不是许可。用户没让你动的会话不要碰。
+2. **不要给自己发 prompt。** 正在跑的时候发必然 409 `GENERATION_ALREADY_RUNNING`，脚本已经直接拒绝。要并行干活就 `spawn`。
+3. **不做破坏性操作。** 删会话、**改已存在会话的** `access-mode` / `yolo-mode`、局域网访问、终端、备份恢复、插件安装、MCP 配置，这些都没有子命令，也**不要**用 `curl` 绕过。
+   唯一的例外是 `spawn --access-mode`：它只作用于**新建**会话，取值写死 `default` / `full-access`，由用户显式授权（见上一节的默认值表）。
+4. **不要改写脚本的请求面。** 每个子命令对应一个写死的端点，是有意为之：通用 HTTP 出口等于把整套 API 交给模型。`spawn --access-mode` 是唯一被放开的口子，且只接受白名单里的两个值；不要把它做成「传任意字段进请求体」。
+5. **不要把响应内容原样倒进回答。** 里面有绝对路径、会话 id、可能还有配置；按需摘一句就够。读长会话先用 `--limit`。
+6. **脚本的请求不带 `x-quickforge-client-id`**，因此不受前端写入租约约束，能写用户正开着的会话。所以第 1 条才那么严。
+
+## 报错怎么读
+
+| 现象 | 含义 | 怎么办 |
+|---|---|---|
+| `409 GENERATION_ALREADY_RUNNING` | 目标会话正在生成 | `wait` 等它，或换一个会话 |
+| `409 GOAL_ACTIVE` | 目标会话有活跃 goal | 先 `goal pause` / `cancel` |
+| `409 Session is already active in another tab` | 会话级 SSE 被占用 | 改用 `sessions` / `show`，不要去抢连接 |
+| `401` / 解锁页 | 请求不是从本机回环发的 | 用本机地址 `127.0.0.1` |
+| `503` | 服务还在启动初始化 | 等几秒重试 |
+| `Cannot find a running QuickForge local API` | 端口不是默认值，或服务没起 | `--api http://127.0.0.1:<port>` |
+
+## 典型用法
+
+**用户问「你现在是什么状态 / 用什么模型」**
+```bash
+node <skill-dir>/scripts/qf-api.mjs whoami --pretty
+```
+
+**用户抱怨「你怎么又答偏了」——查我实际收到的提示词**
+```bash
+node <skill-dir>/scripts/qf-api.mjs instructions --system-prompt
+```
+只看体积和启用的 skill 时不要加 `--system-prompt`，它会把整段提示词打出来。
+
+**把一个正交的活甩出去，自己继续**
+```bash
+node <skill-dir>/scripts/qf-api.mjs spawn --title "调查 X" --message "帮我调研 X 并给出结论"
+node <skill-dir>/scripts/qf-api.mjs wait --sessionId <id> --timeout 180
+node <skill-dir>/scripts/qf-api.mjs show <id>
+```
+`spawn` 出来的会话在 UI 里是独立会话，用户可以点进去看；它有自己的上下文，不污染我这条。
+默认是 `--access-mode full-access` 加继承我的思考档；要让子会话逐条走审批，加 `--access-mode default`。
+
+**给当前会话改名**（用户按标题找会话时很有用）
+```bash
+node <skill-dir>/scripts/qf-api.mjs title "存储层迁移复盘"
+```
+
+## 不要用它来做的事
+
+- 代替 `read_file` / `write_file` / `grep_files` 读工作区文件——API 里没有文件读写，绕过去只会更慢更危险。
+- 代替 `run_subagent`。进程内子 agent 有白名单、预算和审批边界，比 HTTP 更可控；只有需要「独立会话、UI 可见、用户可以接管」时才用 `spawn`。
+- 查别人（其他项目、其他用户）的会话。这里只有本机这一个 QuickForge。

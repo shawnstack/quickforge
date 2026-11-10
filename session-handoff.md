@@ -1,5 +1,65 @@
 # Current Session Handoff
 
+## 当前交接：quickforge-api-skill（done，2026-11-10）
+
+- 本轮追加（同日，用户要求）：`spawn` 出的子会话要「默认全权限 + 用当前的思考等级」。
+  - 改 `skills/quickforge-api/scripts/qf-api.mjs`：新增 `--access-mode default|full-access`（白名单，默认 `full-access`）；`--thinking` 省缺时读自己的 `/state` 继承思考档，返回 `thinkingSource`；`show` 补返回 `accessMode`。`SKILL.md` 红线 3/4 与 `references/endpoints.md` 同步了这条唯一例外。
+  - 未修：`--model` 仍是死参数（服务端要 `{source,providerId,modelId}` 对象，脚本传字符串 → 400），用户决定不修。
+  - Evidence：三例实测（默认 → full-access/xhigh/inherited；显式覆盖生效；`yolo` 被拒）+ `show` 复核落盘值；定向 `npx eslint` 0 problems；`tests/server/runtime-info.test.mjs` 10 passed（**必须在会话外用 `env -u QUICKFORGE_*` 跑**，否则该测试断言 `process.env.QUICKFORGE_SESSION_ID` 为 undefined 会假失败）。
+- Current Objective（当前目标）：用户要「一个内置 skill 驱动 QuickForge 本地 API，让 Agent 自己操作自己」。
+- 结论（一句话）：已落地——内置 skill `quickforge-api`（说明书 + 零依赖脚本 + 端点白名单）+ `server/runtime-info.mjs` 把「本地 API 在哪、我这次是谁」注入到每个 `run_command` 子进程，默认启用并通过 `.default-skills-v2` 推给存量安装。
+- 用户没有回答三个设计选项（等待超时），按推荐项落地：方案 B（skill + 脚本 + 身份注入）、能力档位 3（自省 + 改自己设置 + 派生子会话并驱动）、升级默认 marker。要回退只读版就删 `defaultGlobalSkillNames` 里的名字并把 marker 退回 v1。
+- 改动文件：
+  1. 服务端：`server/runtime-info.mjs`（新增）、`server/index.mjs`（listen 里 `setRuntimeInfo`）、`server/tools/index.mjs`（spawn 注入 env）、`server/skills.mjs`（默认列表 + marker v2）。
+  2. 内置 skill：`skills/quickforge-api/SKILL.md`、`scripts/qf-api.mjs`、`references/endpoints.md`（全部新增）。
+  3. 测试：`tests/server/runtime-info.test.mjs`（新增 10 例）、`tests/server/skills.test.mjs`。
+  4. 文档：`docs/architecture/quickforge-api-skill.zh-CN.md`（新增）、`docs/wiki/README.md`、`docs/wiki/server/README.md`。
+  5. 记录：`feature_list.json`、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run tests/server` → 212 files / 2260 tests，2256 passed、3 failed、1 skipped（3 个失败为既有基线：acp workspace-mapping 2 例 + sqlite quick-check 1 例）；定向 14 passed；`npx eslint` 0 problems；`npm run build` 通过；本机实例上 `whoami`/`agents`/`sessions`/`skills`/`instructions` 冒烟通过。
+- 自评审结论（只读，已按 P0–P3 交付）：**1 个 P1、3 个 P2、4 个 P3，无 P0**。P1 已修——marker 升 v2 时重放整份默认名单会复活用户取消过的 `plugin-creator`（本机 `globalSkills` 只有 `['skill-creator']`，重启必然被改），现改为存量只补 `quickforge-api`，`tests/server/skills.test.mjs` 5 passed。P2/P3 与一条 Windows 待确认风险留在 feature 的 boundaries，未修。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **重启运行中的 QuickForge** 才会加载新代码；重启后到设置页确认全局技能里出现 `quickforge-api`（`~/.quickforge/config/projects.json` 的 `globalSkills`），再让一个会话跑 `node <skill-dir>/scripts/qf-api.mjs whoami` 验证 `env.sessionId` 不再是 null。
+  2. 真机验收「驱动别的会话」：`spawn --title t --message m` → `wait --sessionId <id>` → `show <id>`，确认不会 409、UI 里能看到新会话。
+  3. 本批改动**未提交**，工作区里另有其他会话未提交的改动（`server/agent-profiles*`、`src/components/chat/surface/*`、`auto-compaction` 等），提交前先分组，别混成一条。
+  4. 可选后续：只读自省做成工具（如 `get_session_info`）比放宽 `run_command` 审批更合适；调研时发现的 `<working_memory>` 重复注入是独立缺陷，需要单开一条。
+
+## 当前交接：experience-general-axis-2026-11-10（done，2026-11-10）
+
+- Current Objective（当前目标）：用户要在经验库里加一条「通用性 / 特殊性」的轴，替代只有「候选技能」一个标签的现状，兼容通用与泛用、防止过拟合。
+- 结论（一句话）：一条二元轴落地完成——经验文件头改成 YAML front matter（`title` / `description` / `general` / `candidate_skill`），索引砍成只有文件名、`general: false` 的行尾带 `（特殊）`，`candidate_skill: true` 在代码里强制要求 `general: true`；存量 22 篇已迁移并验证。
+- 改动文件：
+  1. 服务端：`server/experiences.mjs`（`experienceMetaOf`、索引渲染、与运算）、`server/note-store.mjs`（front matter 优先的标题/描述读取 + 写入校验）、`server/dreaming/prompt.mjs`（格式模板与判定标准）、`server/system-prompt.mjs`（`<experiences>` 块说明）、`server/tools/memory-notes.mjs`（list 输出）。
+  2. 前端：`src/components/dreaming/dreaming-data.ts`、`src/components/dreaming/DreamingSettingsTab.tsx`、`src/lib/i18n.ts`。
+  3. 测试：`tests/server/memory-notes.test.mjs`（19 passed）、`tests/server/dreaming-curator-agent.test.mjs`。
+  4. 文档：`docs/architecture/memory-system.zh-CN.md`、`docs/wiki/README.md`、`docs/wiki/server/README.md`。
+  5. 记录：`feature_list.json`（新增 `experience-general-axis` done）、`progress.md`、本文件。
+- Evidence（验证）：`npm run test` → 504 files / **5583 tests：5579 passed、3 failed、1 skipped**；3 个失败（`acp/server.workspace-mapping` 2 例、`sqlite-quick-check-gate` 1 例）用 `git worktree` 在干净 HEAD 复跑同样失败，是既有基线。`npm run lint` → 0 problems。`npm run build` → 通过（仅既有 chunk 体积警告）。`tests/server/memory-notes.test.mjs` → 22 passed。存量迁移前已快照到 `~/.quickforge/_backups/experiences-20261110-174028` 并 `diff -rq` 校验。
+- 自评审补修（用户追加要求「自己评审一下」）：实测边界输入找出三处——`general: 否` 被 `firstOptionalBoolean` 静默回落成 `true`（改成经验层本地 `flagOf` 认中英写法）、`candidate_skill: true` + `general: false` 被静默丢弃（改成写入拒绝）、`MAX_EXPERIENCE_INDEX_CHARS` 的注释与现状不符（改正并补回分支测试）。另补了设置页「特殊」badge 的说明文案。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **★ 从 5 个掉到 3 个**：`清理僵尸代码先证死再动手`、`审查本机桌面 Web 应用` 被判为特殊（正文点了 `src server`、`routes/*.mjs`、`public/sw.js` 等本项目路径），按新规则不能当技能候选。想恢复 ★ 就得把这两篇的步骤改写成不绑项目的版本，那是内容改写，不是改代码。
+  2. 可选：给经验加「项目 id」字段，让索引按当前项目筛掉特殊条目——现在「（特殊）」只是提示，特殊条目仍会出现在所有项目的索引里。
+  3. 运行中的 QuickForge 实例需要重启才能加载新的解析逻辑；设置页的经验库列表届时会多一个「特殊」badge。
+  4. 本批改动**未提交**，且工作区里已有其他会话未提交的三条 feature 记录（`draft-restore-on-refused-send`、`compaction-gate-single-source`、`working-memory-tool-gate`），提交前先看清分组。
+  5. 已记录但未修的三处小限制：`description` 里的 ` #` 会被 `parseYamlScalar` 当注释截断（只影响设置页显示）；`（特殊）` 是提示不是过滤，特殊条目仍进所有项目的索引；每篇笔记的 front matter 被解析三次（无性能问题，只是不够干净）。
+
+## 当前交接：session-followups-2026-11-09（done，2026-11-09）
+
+- Current Objective（当前目标）：用户对上一轮列的待办逐项拍板——同意修丢草稿的 P1、同意拆 `scheduled-tasks.mjs`、无 provider 用量时**不加兜底**、工作记忆关闭时**读写一起禁**（方案 B）；「压缩前判定口径统一」没听懂，解释后同意做。
+- 结论（一句话）：三件已完成并验证——草稿丢失修复、压缩第 7 关改用消息里的摘要定界、工作记忆开关连工具注册与 HTTP 直调旁路一起关。第 4 件（拆 `server/routes/scheduled-tasks.mjs`）只做了调研，尚未动手。
+- 改动文件：
+  1. 草稿恢复：`src/components/chat/surface/ChatSurface.tsx`、`src/lib/i18n.ts`、`tests/frontend/chat-surface-send.test.ts`。
+  2. 压缩口径：`server/auto-compaction.mjs`、`tests/server/auto-compaction.test.mjs`、`docs/wiki/server/README.md`。
+  3. 工作记忆门禁：`server/agent-manager.mjs`、`server/agent-profiles.mjs`、`server/routes/agent-profiles.mjs`、`server/agent-subagent-runner.mjs`、`server/routes/tools.mjs`、`tests/server/agent-manager.memory-tools-gate.test.mjs`（新）、`tests/server/routes/tools.memory-gate.test.mjs`（新）、`tests/server/agent-profiles.test.mjs`。
+  4. 记录：`feature_list.json`（三条 done）、`progress.md`、本文件。
+- Evidence（验证）：`npx vitest run tests/server` → 211 files / **2239 passed、3 failed、1 skipped**，3 个失败仍是既有基线（acp workspace-mapping 2 + sqlite quick_check 1）；前后端定向测试全过；`npx tsc -b` exit 0；`npx eslint` 改动文件 0 problems。**未跑全量 `npm run test` 与 `npm run build`**（本轮只改 server 侧 .mjs、一个前端发送流程与测试，build 待提交前一并跑）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：
+  1. **拆 `server/routes/scheduled-tasks.mjs`（1104 行）尚未开始**。调研结论：文件里混了 6 件事——持久化（`getTasks` / `updateTask` / `persistRun` / `getTaskRuns` / `hydrateTaskRuns` / `recoverStaleScheduledTaskRuns` / `repairRecurringTaskStatuses`）、时间与输入归一化（`normalizeTaskInput` / `normalizeTaskSchedule` / `calculateNextRun` / `isRecurringTask`）、LLM 指令解析（`parseScheduledTaskInstructionWithAi` 等，第 153–223 行）、运行时状态（`runningTaskRunIds` 与 active/current run id 一族）、任务执行（`executeTask` 第 530–860 行）、调度循环（`schedulerTick` / start / stop / pause / resume）。建议拆成 `server/scheduled-tasks/{store,schedule,instruction,runtime,executor,runner}.mjs`，路由文件只留 `handleScheduledTasksApi` 并 re-export 现有 4 个导出（`recoverStaleScheduledTaskRuns` / `startScheduledTaskRunner` / `stopScheduledTaskRunner` / `handleScheduledTasksApi`）以保住契约。相关测试 7 个文件（`scheduled-tasks.test` / `.commands` / `.execution` / `scheduled-task-runs-service` / `scheduled-task-runs-repository` / `scheduled-runs-backup` / `scheduled-runs-offline-export`），拆分前先跑一遍建立基线。
+  2. 本轮改动**未提交**。用户此前偏好「合并成一次提交」，可照旧：`git add -A` 后一条 `refactor/fix` 提交，正文分三小节。
+  3. 仍未做、已记录：`god-module-decomposition` 其余 6 项；`unknown_usage` 不加兜底（用户已拍板，别再提）；P3-2 现已随本轮修完。
+
 ## 当前交接：workspace-batch-commit-2026-11-09（done，2026-11-09）
 
 - Current Objective（当前目标）：用户问「检查一下还有什么活没干、当前能不能提交代码」，确认后要求「直接合并成一次提交」。

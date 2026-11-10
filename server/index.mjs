@@ -17,6 +17,7 @@ import { recoverLanAccessRestorePlan } from './lan-access-backup.mjs'
 import { getNetworkProxyConfig, initializeNetworkProxy, refreshSystemProxy, updateNetworkProxyConfig } from './network-proxy.mjs'
 import { setDefaultWorkspaceRoot, initializeActiveProject, readProjectConfig, getActiveProject, readTerminalShellSetting, updateTerminalShellSetting, readTerminalShellConfig, updateTerminalShellConfig } from './project-config.mjs'
 import { getWorkspaceRoot } from './utils/workspace.mjs'
+import { setRuntimeInfo } from './runtime-info.mjs'
 import { handleStorageApi } from './routes/storage.mjs'
 import { handleProjectApi } from './routes/project.mjs'
 import { handleFilesystemApi, setActiveWorkspaceRootForFilesystem } from './routes/filesystem.mjs'
@@ -955,6 +956,8 @@ server.on('error', (error) => {
 server.listen(port, host, () => {
   const address = server.address()
   const boundPort = typeof address === 'object' && address ? address.port : port
+  // 让 run_command 子进程知道「本地 API 在哪」，见 server/runtime-info.mjs。
+  setRuntimeInfo({ host, port: boundPort })
   logger.info(`QuickForge local API: http://${host}:${boundPort}`)
   if (shareLanEnabled) {
     const lanUrls = getLanUrls(boundPort)

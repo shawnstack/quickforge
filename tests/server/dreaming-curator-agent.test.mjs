@@ -109,7 +109,14 @@ describe('curator turn with the real Agent', () => {
       [toolCall('write_memory_note', {
         scope: 'experience',
         name: '改配置前先备份',
-        content: '# 改配置前先备份\n\n- 何时用：动 config 目录前\n- 怎么做：cp 一份\n- 候选技能：是',
+        content: `---
+title: 改配置前先备份
+description: 动 config 目录前
+general: true
+candidate_skill: true
+---
+
+- 怎么做：cp 一份`,
       })],
       [{ type: 'text', text: '沉淀成经验了。' }],
     ]
@@ -118,7 +125,7 @@ describe('curator turn with the real Agent', () => {
       expect.objectContaining({ kind: 'write', scope: 'experience', title: '改配置前先备份' }),
     ])
     const index = await readFile(path.join(directory, 'experiences', 'index.md'), 'utf8')
-    expect(index).toContain('- ★ 改配置前先备份 —— 动 config 目录前')
+    expect(index).toContain('- ★ 改配置前先备份')
   })
 
   it('survives a model that asks for a tool it does not have', async () => {

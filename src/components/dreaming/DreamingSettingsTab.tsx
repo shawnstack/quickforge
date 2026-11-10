@@ -456,7 +456,7 @@ export function DreamingSettingsTab() {
     const query = experienceQuery.trim().toLowerCase()
     if (!query) return experiences
     return experiences.filter((entry) => (
-      entry.title.toLowerCase().includes(query) || entry.whenToUse.toLowerCase().includes(query)
+      entry.title.toLowerCase().includes(query) || entry.description.toLowerCase().includes(query)
     ))
   }, [experienceQuery, experiences])
 
@@ -659,10 +659,15 @@ export function DreamingSettingsTab() {
                             {t('dreamingExperienceCandidateSkill')}
                           </span>
                         ) : null}
+                        {entry.general === false ? (
+                          <span className="quickforge-settings-badge quickforge-settings-badge-muted">
+                            {t('dreamingExperienceSpecific')}
+                          </span>
+                        ) : null}
                       </div>
-                      {entry.whenToUse ? (
+                      {entry.description ? (
                         <span className="text-xs text-muted-foreground">
-                          {t('dreamingExperienceWhenToUse')}: {entry.whenToUse}
+                          {t('dreamingExperienceWhenToUse')}: {entry.description}
                         </span>
                       ) : null}
                       <span className="text-xs text-muted-foreground">

@@ -337,8 +337,14 @@ export async function createServerTools(projectId, projectContext, skillsContext
   // are added whether or not a workspace is bound. The tools are the only way in
   // — they are locked to those folders and have no delete, which is why they can
   // be handed to an unattended agent without an approval prompt.
-  for (const definition of memoryNoteTools) {
-    if (isAllowed(definition)) tools.push(wrapToolDefinition(definition, toolContext, toolPermissions))
+  //
+  // 关闭工作记忆时读写一起不注册：设置页显示「已关闭」而 agent 还能往磁盘写
+  // 笔记是最糟的组合。读也不给——读一个被关掉的目录没有意义，而且和「看不到
+  // 索引却拿得到读工具」的半开状态保持一致更简单。
+  if (await isWorkingMemoryEnabled()) {
+    for (const definition of memoryNoteTools) {
+      if (isAllowed(definition)) tools.push(wrapToolDefinition(definition, toolContext, toolPermissions))
+    }
   }
 
   if (includeWorkspaceTools && projectContext) {

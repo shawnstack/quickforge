@@ -12,8 +12,14 @@ const userSkillsDir = path.join(dataDir, 'skills')
 const sharedUserSkillsDir = path.join(os.homedir(), '.agents', 'skills')
 const claudeUserSkillsDir = path.join(os.homedir(), '.claude', 'skills')
 const opencodeUserSkillsDir = path.join(os.homedir(), '.opencode', 'skills')
-const defaultSkillsMarkerFile = path.join(configDir, '.default-skills-v1')
-const defaultGlobalSkillNames = ['skill-creator', 'plugin-creator']
+const defaultSkillsMarkerFile = path.join(configDir, '.default-skills-v2')
+const legacyDefaultSkillsMarkerFile = path.join(configDir, '.default-skills-v1')
+const defaultGlobalSkillNames = ['skill-creator', 'plugin-creator', 'quickforge-api']
+// 每个 marker 版本**新增**的默认 skill。存量安装只补这些，不重放整份名单：
+// 用户可能早已手动取消过 `plugin-creator`，重放会把他的选择覆盖掉，而 v1 marker
+// 存在的全部意义就是「取消后不要重开」。以后再加默认 skill 时，在这里登记并
+// 升 marker 版本。
+const defaultSkillsIntroducedInV2 = ['quickforge-api']
 const defaultEntry = 'SKILL.md'
 const resourceDirs = ['scripts', 'references', 'assets', 'agents', 'eval-viewer']
 const maxResourceFiles = 200
@@ -459,8 +465,13 @@ export async function loadGlobalSkills() {
 export async function ensureDefaultGlobalSkills() {
   if (existsSync(defaultSkillsMarkerFile)) return false
 
+  // 存量安装（v1 marker 还在）说明默认 skill 已经初始化过一次：只补本版本新增的
+  // 那一个，不重放整份名单，否则用户手动取消过的旧默认会被重新打开。
+  const alreadyInitialized = existsSync(legacyDefaultSkillsMarkerFile)
+  const pendingNames = alreadyInitialized ? defaultSkillsIntroducedInV2 : defaultGlobalSkillNames
+
   const known = new Set((await loadGlobalSkills()).map((skill) => skill.name))
-  const defaults = defaultGlobalSkillNames.filter((name) => known.has(name))
+  const defaults = pendingNames.filter((name) => known.has(name))
   if (defaults.length === 0) return false
 
   await atomicProjectConfigUpdate((config) => {

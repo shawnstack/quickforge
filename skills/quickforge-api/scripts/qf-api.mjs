@@ -57,7 +57,7 @@ Other sessions:
   prompt <sessionId> <message...>
   abort <sessionId>
 
-Scheduled tasks (create + reversible actions only):
+Scheduled tasks (create, reversible actions, plus deleting your own shift):
   tasks [--status enabled|paused]
   task-add --title T --instruction I --schedule <type> ...
         daily:    --time 09:00
@@ -67,12 +67,15 @@ Scheduled tasks (create + reversible actions only):
         once:     --at "<datetime>"
         cron:     --cron "0 9 * * *"             (5 fields, no seconds)
         extras:   [--model ID] [--thinking LEVEL] [--project ID|none] [--paused]
+                  [--self-scheduled]  mark this as MY shift: title gets the
+                  "[自约]" prefix and I am allowed to delete it later
                   model defaults to the model I am using right now
   task-pause <taskId> | task-resume <taskId>
   task-run <taskId> [--timeout S]   fire once now; waits for that run (default 300s)
   task-runs [--taskId ID] [--status S] [--page N] [--pageSize N]
   task-parse --instruction "..."    natural language -> cron draft (does not create)
-  Deleting or editing an existing task is NOT exposed; do that in the UI.
+  task-delete <taskId>              ONLY tasks created with --self-scheduled
+  Editing an existing task is NOT exposed; do that in the UI.
 
 Global options:
   --api <baseUrl>   override detected API base (default: $QUICKFORGE_API_BASE or probe)
@@ -229,6 +232,7 @@ function createClient(baseUrl) {
   return {
     get: (apiPath, timeoutMs) => request(baseUrl, 'GET', apiPath, undefined, timeoutMs),
     post: (apiPath, body, timeoutMs) => request(baseUrl, 'POST', apiPath, body ?? {}, timeoutMs),
+    delete: (apiPath, timeoutMs) => request(baseUrl, 'DELETE', apiPath, undefined, timeoutMs),
   }
 }
 
@@ -524,6 +528,11 @@ const SCHEDULE_TYPES = ['once', 'interval', 'daily', 'weekly', 'monthly', 'cron'
 const INTERVAL_UNITS = ['minute', 'hour', 'day']
 const DEFAULT_TASK_RUN_TIMEOUT_SECONDS = 300
 
+// 自约任务的标题前缀，有三个用途：脚本用它保证前缀一定存在；未来的班次用 `tasks`
+// 靠它在列表里认出「哪条是我自己的班」——这是唯一的自我识别方式，因为任务 id 在
+// 创建前不存在，没法提前写进 instruction；用户靠它过滤掉这些会话。
+const SELF_SCHEDULED_TITLE_PREFIX = '[自约]'
+
 function optionString(options, name) {
   const value = options[name]
   return typeof value === 'string' && value.trim() ? value.trim() : ''
@@ -652,6 +661,7 @@ function summarizeTask(task) {
     nextRunAt: task.nextRunAt ?? null,
     lastRunAt: task.lastRunAt ?? null,
     executionMode: task.executionMode ?? null,
+    createdBy: task.createdBy ?? 'user',
     projectId: task.projectId ?? null,
     modelId: task.modelRef?.modelId ?? task.model?.id ?? null,
     thinkingLevel: task.thinkingLevel ?? null,
@@ -683,7 +693,11 @@ async function commandTasks(client, options) {
 }
 
 async function commandTaskAdd(client, options) {
-  const title = requiredOption(options, 'title', '--title "任务名"')
+  const rawTitle = requiredOption(options, 'title', '--title "任务名"')
+  const selfScheduled = options['self-scheduled'] === true
+  const title = selfScheduled && !rawTitle.startsWith(SELF_SCHEDULED_TITLE_PREFIX)
+    ? `${SELF_SCHEDULED_TITLE_PREFIX} ${rawTitle}`
+    : rawTitle
   const instruction = requiredOption(options, 'instruction', '--instruction "到点后真正要做什么"')
   const binding = await resolveTaskModelBinding(client, optionString(options, 'model'))
   const project = resolveTaskProject(options)
@@ -703,6 +717,9 @@ async function commandTaskAdd(client, options) {
     modelRef: binding.modelRef,
     thinkingLevel,
   }
+  // 只有显式 `--self-scheduled` 才算「我给自己排的班」：服务端据此记 createdBy='agent'
+  // 并允许我删掉它。不传这个 flag 就是用户的日程，我永远删不掉。
+  if (selfScheduled) body.createdBy = 'agent'
   if (project) {
     body.projectId = project.projectId
     if (project.projectName) body.projectName = project.projectName
@@ -713,6 +730,15 @@ async function commandTaskAdd(client, options) {
     ...summarizeTask(created.task),
     modelSource: binding.source,
   }
+}
+
+async function commandTaskDelete(client, positional) {
+  const taskId = positional[0]
+  if (!taskId) throw new Error('task-delete needs a taskId (see "tasks", find the one with createdBy "agent")')
+  // selfScheduledOnly=1 让服务端替我们守边界：只放行自己 `--self-scheduled` 建的班，
+  // 用户建的、以及加 createdBy 之前的存量任务一律 403。界面删除不带这个参数，行为不变。
+  await client.delete(`/api/scheduled-tasks/${encodeURIComponent(taskId)}?selfScheduledOnly=1`)
+  return { ok: true, taskId }
 }
 
 async function commandTaskAction(client, positional, options, action) {
@@ -810,6 +836,7 @@ async function main() {
     case 'task-pause': result = await commandTaskAction(client, positional, options, 'pause'); break
     case 'task-resume': result = await commandTaskAction(client, positional, options, 'resume'); break
     case 'task-run': result = await commandTaskAction(client, positional, options, 'run'); break
+    case 'task-delete': result = await commandTaskDelete(client, positional); break
     case 'task-runs': result = await commandTaskRuns(client, options); break
     case 'task-parse': result = await commandTaskParse(client, options); break
     default:

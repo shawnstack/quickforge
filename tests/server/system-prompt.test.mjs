@@ -149,4 +149,19 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('<working_memory>')
     expect(prompt).not.toContain('Working memory is a shared folder')
   })
+
+  it('injects the continuity block only when the quickforge-api skill is available', () => {
+    // The block advertises capabilities that live in that skill's script. Without
+    // the skill it would be teaching the model to use something that is not there.
+    expect(composeSystemPrompt({ skills: [] })).not.toContain('<continuity>')
+    expect(composeSystemPrompt({ skills: [{ name: 'skill-creator' }] })).not.toContain('<continuity>')
+
+    const prompt = composeSystemPrompt({ skills: [{ name: 'quickforge-api' }] })
+    expect(prompt).toContain('<continuity>')
+    expect(prompt).toContain('You can schedule a shift for yourself')
+    expect(prompt).toContain('Choosing to do nothing is a correct answer, not a failure')
+    expect(prompt).toContain('task-add --self-scheduled')
+    expect(prompt).toContain('At most one [自约] task exists at any time')
+    expect(prompt).toContain('You may only delete tasks you created with --self-scheduled')
+  })
 })

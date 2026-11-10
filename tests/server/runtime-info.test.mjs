@@ -123,11 +123,14 @@ describe('quickforge-api skill', () => {
     expect(stdout).toContain('QUICKFORGE_SESSION_ID')
   })
 
-  it('keeps the endpoint surface read/write-safe: no DELETE, no self-prompt', async () => {
+  it('keeps the endpoint surface read/write-safe: the only DELETE is the self-scheduled one', async () => {
     const source = await fs.readFile(scriptPath, 'utf8')
-    // 本机回环即认证：任何 DELETE 或多出来的破坏性端点都会放大成事故。
-    expect(source).not.toMatch(/method:\s*'DELETE'/)
-    expect(source).not.toMatch(/'DELETE'/)
+    // 本机回环即认证：任何多余的 DELETE 都会放大成事故。唯一的例外是「收掉自己
+    // --self-scheduled 排的班」——它必须带 selfScheduledOnly=1，服务端据此只放行
+    // createdBy === 'agent' 的任务，用户建的和存量任务一律 403。所以这里不禁止
+    // DELETE，而是钉死它只能有一处、且必须带那道查询参数。
+    expect(source.match(/'DELETE'/g) || []).toHaveLength(1)
+    expect(source).toMatch(/selfScheduledOnly=1/)
     for (const forbidden of ['/api/terminal', '/api/backup', '/api/lan-access', '/api/plugins', '/api/mcp', '/access-mode', '/yolo-mode']) {
       expect(source).not.toContain(forbidden)
     }

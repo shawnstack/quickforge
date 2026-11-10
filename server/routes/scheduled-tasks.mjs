@@ -221,6 +221,13 @@ async function parseScheduledTaskInstructionWithAi(instruction, modelInput, thin
   }
 }
 
+// 只有 `agent` 是特殊值：标记这条任务是 AI 给自己排的班（标题 `[自约]` 开头），
+// 因而允许 AI 用 DELETE 自己收掉。存量任务没有这个字段，一律按 `user` 处理——
+// 也就是说「没写」= 「用户建的」= 「AI 不许删」，默认值站在保守那一边。
+function normalizeCreatedBy(value) {
+  return String(value ?? '').trim().toLowerCase() === 'agent' ? 'agent' : 'user'
+}
+
 function normalizeTaskInput(input, existing = {}) {
   const normalized = normalizeTaskSchedule(input, existing)
   return {
@@ -987,6 +994,7 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
       thinkingLevel: body?.thinkingLevel || (body?.model?.reasoning ? 'high' : 'off'),
       projectId: body?.projectId || null,
       projectName: body?.projectName || null,
+      createdBy: normalizeCreatedBy(body?.createdBy),
       status: enabled ? 'enabled' : 'paused',
       createdAt: now,
       updatedAt: now,
@@ -1040,6 +1048,13 @@ export async function handleScheduledTasksApi(req, res, url, context = {}) {
 
     if (req.method === 'DELETE' && !action) {
       const existingForDelete = (await readStore(STORE))[taskId]
+      // 界面删除不带 selfScheduledOnly，保持原有行为——用户永远能删自己排的日程。
+      // agent 走脚本删除时会带这个参数，服务端据此只放行它自己 --self-scheduled 建的班。
+      // 删除不可逆（会连带删运行历史），所以这条边界能由服务端判定的时候就别只靠文档自觉。
+      const selfScheduledOnly = url.searchParams.get('selfScheduledOnly') === '1'
+      if (selfScheduledOnly && existingForDelete && existingForDelete.createdBy !== 'agent') {
+        throw requestError('Only self-scheduled tasks can be deleted', 403)
+      }
       const before = existingForDelete ? await hydrateTaskRuns(existingForDelete, MAX_RUN_HISTORY_PER_TASK) : null
       await taskRunsService.deleteTaskRuns(taskId)
       try {

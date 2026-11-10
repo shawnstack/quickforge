@@ -885,3 +885,94 @@ describe('scheduled task execution lifecycle', () => {
     expect(storage.atomicUpdate).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('scheduled task deletion boundary (self-scheduled only)', () => {
+  const baseTask = (overrides = {}) => ({
+    id: 'seed',
+    title: 'seed task',
+    instruction: 'do work',
+    scheduleType: 'daily',
+    executeTime: '09:00',
+    status: 'paused',
+    runs: [],
+    ...overrides,
+  })
+
+  async function seed(task) {
+    const storage = await import('../../server/storage.mjs')
+    await storage.atomicUpdate('scheduled-tasks', (data) => ({ ...data, [task.id]: task }))
+    return task
+  }
+
+  async function remove(taskId, { selfScheduledOnly = false } = {}) {
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const response = mockResponse()
+    const query = selfScheduledOnly ? '?selfScheduledOnly=1' : ''
+    await routes.handleScheduledTasksApi({ method: 'DELETE' }, response, new URL(`http://localhost/api/scheduled-tasks/${taskId}${query}`))
+    return response
+  }
+
+  async function create(body) {
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const req = Readable.from([Buffer.from(JSON.stringify(body))])
+    req.method = 'POST'
+    const response = mockResponse()
+    await routes.handleScheduledTasksApi(req, response, new URL('http://localhost/api/scheduled-tasks'))
+    return response
+  }
+
+  it('defaults createdBy to user so an agent cannot claim an existing schedule', async () => {
+    const response = await create({
+      task: { title: 'team standup', instruction: 'summarize yesterday', scheduleType: 'daily', executeTime: '09:00' },
+    })
+    expect(response.status).toBe(200)
+    expect(response.body.task.createdBy).toBe('user')
+  })
+
+  it('records createdBy=agent only when the caller explicitly asks for it', async () => {
+    const response = await create({
+      task: { title: '[自约] check regressions', instruction: 'check', scheduleType: 'daily', executeTime: '09:00' },
+      createdBy: 'agent',
+    })
+    expect(response.status).toBe(200)
+    expect(response.body.task.createdBy).toBe('agent')
+  })
+
+  it('falls back to user for unknown createdBy values instead of trusting the caller', async () => {
+    const response = await create({
+      task: { title: 'looks normal', instruction: 'x', scheduleType: 'daily', executeTime: '09:00' },
+      createdBy: 'root',
+    })
+    expect(response.status).toBe(200)
+    expect(response.body.task.createdBy).toBe('user')
+  })
+
+  it('rejects the agent deleting a user task when it claims self-scheduled-only', async () => {
+    await seed(baseTask({ id: 'user-owned', createdBy: 'user' }))
+    await expect(remove('user-owned', { selfScheduledOnly: true })).rejects.toMatchObject({ statusCode: 403 })
+    expect(mocks.stores.get('scheduled-tasks')['user-owned'].createdBy).toBe('user')
+    expect(mocks.deleteTaskRuns).not.toHaveBeenCalledWith('user-owned')
+  })
+
+  it('still lets the UI delete a user task, because it does not send the self-scheduled-only flag', async () => {
+    await seed(baseTask({ id: 'user-owned-ui', createdBy: 'user' }))
+    const response = await remove('user-owned-ui')
+    expect(response.status).toBe(200)
+    expect(mocks.stores.get('scheduled-tasks')['user-owned-ui']).toBeUndefined()
+  })
+
+  it('rejects deleting a legacy task that predates the createdBy field', async () => {
+    await seed(baseTask({ id: 'legacy-owned' }))
+    await expect(remove('legacy-owned', { selfScheduledOnly: true })).rejects.toMatchObject({ statusCode: 403 })
+    expect(mocks.stores.get('scheduled-tasks')['legacy-owned']).toBeDefined()
+    expect(mocks.deleteTaskRuns).not.toHaveBeenCalledWith('legacy-owned')
+  })
+
+  it('deletes a self-scheduled task together with its run history', async () => {
+    await seed(baseTask({ id: 'self-owned', title: '[自约] nightly check', createdBy: 'agent' }))
+    const response = await remove('self-owned', { selfScheduledOnly: true })
+    expect(response.status).toBe(200)
+    expect(mocks.stores.get('scheduled-tasks')['self-owned']).toBeUndefined()
+    expect(mocks.deleteTaskRuns).toHaveBeenCalledWith('self-owned')
+  })
+})

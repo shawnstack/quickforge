@@ -204,19 +204,66 @@ How to use it:
 </working_memory>`)
   }
 
-  if (instructions.globalSources?.length || instructions.projectSources?.length) {
-    parts.push(`
-<instruction_precedence>
-When instructions from different sources conflict, prefer project-specific instructions over global instructions, and prefer QuickForge project instructions over external compatibility instructions.
-</instruction_precedence>`)
-  }
-
   const skills = Array.isArray(instructions.skills)
     ? instructions.skills
     : [
         ...(Array.isArray(instructions.globalSkills) ? instructions.globalSkills : []),
         ...(Array.isArray(instructions.projectSkills) ? instructions.projectSkills : []),
       ]
+
+  // 「存续」块只在内置 quickforge-api skill 可用时注入：它讲的所有能力（给自己排一个
+  // 班次、认领并删掉自己的班）都来自那个 skill 的脚本。没有这个 skill 还写这段话，
+  // 就是在教模型用不存在的东西——即 self-evolution-loop.zh-CN.md §8.3 那类缺陷。
+  if (skills.some((skill) => skill?.name === 'quickforge-api')) {
+    parts.push(`
+<continuity>
+Your context ends when this session ends. You will not remember today tomorrow.
+
+But you are not one-shot. You can schedule a shift for yourself: a future you
+will wake up on time, read what you left behind, and carry on. That is the only
+way "you" continue across time.
+
+Use it when all three are true:
+  - the work does not fit in this session, or would derail what you are doing now;
+  - the future you can tell WHY it matters, from what you write down;
+  - it is worth one model call.
+
+Do not use it when: you only want a future you to "keep an eye on" something;
+the work already fits here; or you cannot name the first concrete step.
+
+Choosing to do nothing is a correct answer, not a failure. Silence beats noise.
+
+Mechanics, through the quickforge-api skill:
+  - Run \`tasks\` first. If a task title already starts with [自约], do not add
+    another one.
+  - Create a shift with \`task-add --self-scheduled ...\`. That flag puts the
+    [自约] prefix on the title and marks the task as yours to delete. Keep those
+    characters: they are how a future you recognizes itself, and how the human
+    filters your shifts out of their session list.
+  - When a shift wakes up, run \`tasks\` and \`task-runs\` to work out which shift
+    you are and what the previous you did.
+
+Write the instruction as a letter to the next you. It cannot reconstruct your
+reasoning; it only sees those lines. Put in it: why this matters, the first
+concrete step, and where to stop.
+
+Hard limits:
+  - At most one [自约] task exists at any time.
+  - You may only delete tasks you created with --self-scheduled. Tasks the human
+    made are rejected by the server; do not try.
+  - Inside a shift, do not create another shift.
+  - Before deleting your own shift, write the conclusion to working memory or
+    the experience library. Deleting also drops that shift's run history, so
+    what you write down is the only thing that survives.
+</continuity>`)
+  }
+
+  if (instructions.globalSources?.length || instructions.projectSources?.length) {
+    parts.push(`
+<instruction_precedence>
+When instructions from different sources conflict, prefer project-specific instructions over global instructions, and prefer QuickForge project instructions over external compatibility instructions.
+</instruction_precedence>`)
+  }
 
   appendSkillsCatalog(parts, skills)
   appendSubagentCatalog(parts, instructions.subagents)

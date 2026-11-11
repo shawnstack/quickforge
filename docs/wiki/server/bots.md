@@ -117,15 +117,15 @@
 
 第一次发言之后会话落盘，之后两条都退化成普通路径。
 
-### 7.2 吉祥物：界面里的形象与设计稿同一套数据
+### 7.2 吉祥物：界面里的动作与设计稿 mascot-v3 逐字一致
 
-两处：**输入框右上角**（bot 模式下有当前 bot 时，`size={84}`，约 49px 球径，贴在输入框上边缘，闲着时偶尔走一小段）和**侧栏 bot 行首**（24px，替换原来的状态圆点），都在 `src/components/bots/mascot/`。
+两处：**输入框右上角**（bot 模式下有当前 bot 时，`size={84}`，约 49px 球径，贴在输入框上边缘，闲着时偶尔走一小段）和**侧栏 bot 行首**（24px，替换原来的状态圆点），都在 `src/components/bots/mascot/`。设置面板里另有 44px 的预览。
 
-> **尺寸不是随便给的**：画布 512 里球只占 300（余量留给跳跃），所以只要 `size` 的 58.6% 才是球径。设计稿 `mascot-v3.html` 用 220 画布 → 球径 129px，压扁拉伸看得一清二楚；产品里给过 64（球径 37px），10% 的形变只有 3px，用户的观感就是「不如设计稿生动」；一味往大加到 104（球径 61px）又被否「太大了」，因为球会往上压住消息区。最终落在 84（球径 49px）：**球径 ≥ 46px 才看得出 10% 的压扁拉伸，再大就侵占消息区**。小尺寸（`size <= 64`）会自动分派 `-small` 增强关键帧（位移 ×1.35、形变 ×1.3），但那只救得了眼神，救不了 squash & stretch。
+> **尺寸不是随便给的**：画布 512 里球只占 300（余量留给跳跃），所以只要 `size` 的 58.6% 才是球径。设计稿 `mascot-v3.html` 用 `width=220` → 球径 129px；产品里给过 64（球径 37px）嫌「没在动」，104（球径 61px）又被否「太大了」，因为球会往上压住消息区，最终落在 84（球径 49px）。三处尺寸都不变，动作统一照搬设计稿、按 `size/220` 等比缩放；已去掉原先 `size <= 64` 时的 `-small` 增强关键帧。
 
 
-- `mascot-anim.css` 与 `mascot-geometry.ts` 是**生成文件**，来自 `docs/design/bot-mascot/generate-bot-gif.py --emit-web`。设计稿的 GIF 和界面里的动画共用同一套姿态函数（关键帧采样成 CSS `matrix()` / `translate+rotate+scale`），所以不会出现「素材好看、界面走形」。
-- 换色只改两个 CSS 变量（`--qf-mascot-body` / `--qf-mascot-eye`），不重新生成任何素材；这就是没用 GIF 当界面素材的原因。
+- `mascot-anim.css` 与 `mascot-geometry.ts` 是**生成文件**，来自 `docs/design/bot-mascot/generate-bot-gif.py` 的 `emit_web()`（`--emit-web`）。关键帧和缓动**逐字照搬设计稿 `mascot-v3.html`**（脚本里的 `V3_WEB`）：变换原点在球心 `(256,258)`，用设计稿原样的 `ease-in-out` / `cubic-bezier`，左右眼共用一套。GIF 仍由 `pose_*` 采样，是旧动作，两者暂不一致。
+- 换色只改两个 CSS 变量（`--qf-mascot-body` / `--qf-mascot-eye`），不重新生成任何素材；这就是没用 GIF 当界面素材的原因。用的是默认墨黑配色（`#0B0B0C` / `#FFFFFF`）时组件不写内联颜色、只标 `data-look='default'`，由 CSS 按主题取色：深色主题下换成白身黑眼，否则黑球和背景几乎同色。代价是深色主题下特意选了墨黑也会显示成白色。
 - 动作由 `resolveMascotState()`（纯函数，`mascot-state.ts`）从现有信号推导，优先级：出错 / 等审批 → `alert`，工具执行 → `working`，流式 → `thinking`，刚完成 → `happy`（`useMascotState` 只对这一种保持 1.8s），心跳关掉 → `sleepy`，其余 `idle`。
 - 侧栏行没有当前会话的细粒度状态，只用 bot 自身字段拼：`heartbeat.lastError` → `alert`、`busy` → `working`、心跳关 → `sleepy`。原来那个 1.5px 状态圆点已被吉祥物取代。
 - 侧栏 24px 的尺寸（球径 14px）只够看出「在动」，眼睛动作演不出来，所以**状态靠文字讲**：行右侧那截小字由 `botStatusSummary()`（`bots-data.ts`）算，优先级 出错 > 在忙 > 睡了 > 上次醒来多久前 > 还没醒过，隔一分钟重算一次；`hover` 时让位给设置按钮。设计规范里「运行状态应保留文字」说的就是这件事。

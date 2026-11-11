@@ -498,11 +498,116 @@ def _keyframes(steps: int = 50) -> str:
     return _web_css()
 
 
+# ---- 界面动画：mascot-v3.html 的手写关键帧，原样照搬 --------------------------
+# 界面不再从 pose_* 采样，而是逐字使用设计稿 v3 的 CSS 关键帧和缓动：
+# 以球心 (256,258) 为变换原点、整段用 ease-in-out / cubic-bezier 缓动、
+# 左右眼共用一套（开心、走路两态眼睛不动）。这样任何尺寸下都和设计稿是同一个动作，
+# 只是整体按 size/220 等比缩放；不再有小尺寸「增强版」。
+# 注意：GIF（build_svg_minimal / pose_*）仍是旧动作，与界面不完全一致。
+# 每项：(循环秒数, 身体缓动, 身体关键帧, 眼睛缓动, 眼睛关键帧或 None)
+V3_WEB: dict[str, tuple[float, str, str, str, str | None]] = {
+    "idle": (
+        1.6, "ease-in-out",
+        """  0%        { transform: translateY(0)     scale(1, 1); }
+  50%       { transform: translateY(-30px) scale(0.92, 1.10); }
+  100%      { transform: translateY(0)     scale(1, 1); }""",
+        "linear",
+        """  0%, 60%   { transform: scaleY(1); }
+  62%       { transform: scaleY(0.06); }
+  68%       { transform: scaleY(1); }
+  80%       { transform: scaleY(1); }
+  82%       { transform: scaleY(0.06); }
+  88%,100%  { transform: scaleY(1); }""",
+    ),
+    "thinking": (
+        1.8, "cubic-bezier(.4,0,.2,1)",
+        """  0%        { transform: rotate(0)      translateY(0); }
+  12%       { transform: rotate(-14deg) translateY(-8px); }
+  38%       { transform: rotate(-11deg) translateY(-5px); }
+  48%       { transform: rotate(13deg)  translateY(-9px); }
+  70%       { transform: rotate(9deg)   translateY(-6px); }
+  78%       { transform: rotate(0)      translateY(0) scale(1,1); }
+  84%       { transform: rotate(0)      translateY(-10px) scale(1.12, 0.88); }
+  92%       { transform: rotate(0)      translateY(2px)  scale(0.96, 1.06); }
+  100%      { transform: rotate(0)      translateY(0) scale(1,1); }""",
+        "ease-in-out",
+        """  0%        { transform: translateX(0); }
+  16%       { transform: translateX(30px); }
+  40%       { transform: translateX(8px); }
+  46%       { transform: translateX(32px); }
+  68%       { transform: translateX(0); }
+  84%       { transform: translateX(-10px); }
+  100%      { transform: translateX(0); }""",
+    ),
+    "working": (
+        0.7, "cubic-bezier(.3,0,.4,1)",
+        """  0%        { transform: rotate(-6deg) translateY(0)     scale(1, 1); }
+  30%       { transform: rotate(-6deg) translateY(-26px) scale(0.93, 1.09); }
+  55%       { transform: rotate(-6deg) translateY(2px)   scale(1.14, 0.86); }
+  80%,100%  { transform: rotate(-6deg) translateY(0)     scale(1, 1); }""",
+        "linear",
+        """  0%,100%   { transform: translateY(9px) scaleY(0.92); }""",
+    ),
+    "happy": (
+        0.9, "cubic-bezier(.3,0,.2,1)",
+        """  0%        { transform: translateY(0)    scale(1, 1); }
+  14%       { transform: translateY(18px) scale(1.20, 0.80); }
+  38%       { transform: translateY(-68px) scale(0.86, 1.16); }
+  58%       { transform: translateY(0)    scale(1, 1); }
+  66%       { transform: translateY(10px) scale(1.30, 0.70); }
+  80%       { transform: translateY(-24px) scale(0.95, 1.06); }
+  92%,100%  { transform: translateY(0)    scale(1, 1); }""",
+        "linear", None,
+    ),
+    "sleepy": (
+        3.2, "ease-in-out",
+        """  0%        { transform: rotate(0)     translateY(0)    scale(1, 1); }
+  28%       { transform: rotate(-7deg) translateY(20px) scale(1.07, 0.90); }
+  42%       { transform: rotate(-2deg) translateY(7px)  scale(1.02, 0.97); }
+  68%       { transform: rotate(-13deg) translateY(30px) scale(1.12, 0.85); }
+  86%       { transform: rotate(-4deg) translateY(9px)  scale(1.03, 0.96); }
+  100%      { transform: rotate(0)     translateY(0)    scale(1, 1); }""",
+        "ease-in-out",
+        """  0%, 18%   { transform: scaleY(1); }
+  52%       { transform: scaleY(0.10); }
+  60%       { transform: scaleY(0.55); }
+  70%       { transform: scaleY(0.08); }
+  88%       { transform: scaleY(0.5); }
+  100%      { transform: scaleY(0.8); }""",
+    ),
+    "alert": (
+        1.1, "cubic-bezier(.2,0,.3,1)",
+        """  0%        { transform: translateY(0) scale(1,1); }
+  10%       { transform: translateY(-58px) scale(0.80, 1.22); }
+  26%       { transform: translateY(0) scale(1.32, 0.68); }
+  34%       { transform: translateX(-16px) rotate(-5deg) scale(1.06,0.94); }
+  44%       { transform: translateX(16px)  rotate(5deg)  scale(1.06,0.94); }
+  54%       { transform: translateX(-9px)  rotate(-3deg); }
+  62%       { transform: translateX(0)     rotate(0); }
+  100%      { transform: translateY(0) scale(1,1); }""",
+        "linear",
+        """  0%, 8%    { transform: scale(1); }
+  14%, 100% { transform: scale(1.3, 1.35); }""",
+    ),
+    "walk": (
+        0.8, "ease-in-out",
+        """  0%        { transform: translateY(0)   scale(1, 1); }
+  22%       { transform: translateY(-30px) scale(0.94, 1.08); }
+  48%       { transform: translateY(2px) scale(1.10, 0.90); }
+  72%       { transform: translateY(-16px) scale(0.97, 1.05); }
+  100%      { transform: translateY(0)   scale(1, 1); }""",
+        "linear", None,
+    ),
+}
+
+
 def _web_css() -> str:
+    ink_body, ink_eye = PALETTES["ink"]
+    inv_body, inv_eye = PALETTES["inverse"]
     rules = [
-        "/* 基础：SVG 元素上的 transform 与 CSS 动画共用同一套坐标系 */",
+        "/* 动作逐字照搬设计稿 mascot-v3.html（见生成脚本 V3_WEB），任何尺寸都是同一个动作 */",
         ".qf-mascot { display: inline-block; overflow: visible; vertical-align: middle; }",
-        ".qf-mascot__body { transform-box: view-box; transform-origin: 0 0; }",
+        f".qf-mascot__body {{ transform-box: view-box; transform-origin: {BW_BODY_CX}px {BW_BODY_CY}px; }}",
         ".qf-mascot__part { transform-box: fill-box; transform-origin: center; }",
         "",
         "/* 只有开心用弯月眼，其余状态用椭圆眼 */",
@@ -510,16 +615,29 @@ def _web_css() -> str:
         ".qf-mascot[data-state='happy'] .qf-mascot__eye { display: none; }",
         ".qf-mascot[data-state='happy'] .qf-mascot__arc { display: block; }",
         "",
+        "/* 默认墨黑配色在深色主题下几乎和背景同色：自动换成反色（白身黑眼） */",
+        f".qf-mascot[data-look='default'] {{ --qf-mascot-body: {ink_body}; --qf-mascot-eye: {ink_eye}; }}",
+        f".dark .qf-mascot[data-look='default'] {{ --qf-mascot-body: {inv_body}; --qf-mascot-eye: {inv_eye}; }}",
+        "",
     ]
     blocks: list[str] = []
-    for state, (fn, frames) in STATES.items():
-        dur = frames / FPS
-        _emit_state_frames(blocks, rules, state, dur, fn, lambda p: p, "")
-        _emit_state_frames(blocks, rules, state, dur, fn, _enhance, "-small")
+    for state, (dur, body_ease, body_kf, eye_ease, eye_kf) in V3_WEB.items():
+        sel = f".qf-mascot[data-state='{state}']"
+        rules.append(
+            f"{sel} .qf-mascot__body {{ animation: qf-mascot-body-{state} {dur:.2f}s {body_ease} infinite; }}"
+        )
+        blocks.append(f"@keyframes qf-mascot-body-{state} {{\n{body_kf}\n}}")
+        if eye_kf is not None:
+            rules.append(
+                f"{sel} .qf-mascot__eye-l,\n{sel} .qf-mascot__eye-r "
+                f"{{ animation: qf-mascot-eye-{state} {dur:.2f}s {eye_ease} infinite; }}"
+            )
+            blocks.append(f"@keyframes qf-mascot-eye-{state} {{\n{eye_kf}\n}}")
+        rules.append("")
 
     # 注意：状态规则是 `.qf-mascot[data-state=...] .qf-mascot__body`（0,3,0），
     # 关动画的规则必须更高或加 !important —— 否则「关掉动画」和「减弱动效」
-    # 都会输给状态规则，等于开关无效。small 规则是 (0,4,0)，仍在其下，无需另调。
+    # 都会输给状态规则，等于开关无效。
     rules.append("/* 设置里关掉动画、或系统要求减弱动效时：停在初始姿态 */")
     rules.append(
         ".qf-mascot.qf-mascot--static .qf-mascot__body,\n"
@@ -542,7 +660,7 @@ def _web_ts() -> str:
         f"  {{ id: '{name}', body: '{body}', eye: '{eye}' }}" for name, (body, eye) in PALETTES.items()
     )
     durations = ",\n".join(
-        f"  {state}: {frames / FPS:.2f}" for state, (_fn, frames) in STATES.items()
+        f"  {state}: {V3_WEB[state][0]:.2f}" for state in STATES
     )
     labels = "\n".join(f"  {state}: '{label[0]}'," for state, label in STATE_LABELS.items())
     return f"""/** 由 docs/design/bot-mascot/generate-bot-gif.py --emit-web 生成，勿手改。
@@ -561,7 +679,7 @@ export const MASCOT_EYE_SHAPE = {{
 
 export const MASCOT_ARC = {{ d: '{BW_ARC}', width: {BW_ARC_WIDTH} }}
 
-/** 每个状态的循环时长（秒），与 GIF 一致。 */
+/** 每个状态的循环时长（秒），与设计稿 mascot-v3.html 一致（GIF 暂未同步）。 */
 export const MASCOT_DURATIONS = {{
 {durations},
 }} as const
@@ -610,8 +728,8 @@ def emit_web(out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     css_path = out_dir / "mascot-anim.css"
     ts_path = out_dir / "mascot-geometry.ts"
-    css_path.write_text(_web_css(), encoding="utf-8")
-    ts_path.write_text(_web_ts(), encoding="utf-8")
+    css_path.write_text(_web_css(), encoding="utf-8", newline="\n")
+    ts_path.write_text(_web_ts(), encoding="utf-8", newline="\n")
     print(f"web: {css_path}")
     print(f"web: {ts_path}")
 

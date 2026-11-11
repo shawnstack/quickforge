@@ -1,5 +1,14 @@
 # Current Session Handoff
 
+## 本轮：吉祥物动作逐字照搬设计稿 mascot-v3（2026-11-11 22:25）
+
+- 目标：尺寸不变（84 / 24 / 44），动作与桌面设计稿 `mascot-v3.html` 一致；三处都用新动作；深色主题下默认配色改白身黑眼。
+- 结论：生成脚本加 `V3_WEB`（设计稿关键帧+缓动原文）后重新生成 `mascot-anim.css` / `mascot-geometry.ts`；脚本比对 12 组关键帧、12 条动画绑定、变换原点均与设计稿一致。`BotMascot` 去掉 `data-size`，默认配色走 `data-look='default'` + `.dark` 反色。
+- 改动文件：`docs/design/bot-mascot/generate-bot-gif.py`、`src/components/bots/mascot/{mascot-anim.css,mascot-geometry.ts,BotMascot.tsx}`、`tests/frontend/bot-mascot.test.ts`、`docs/design/bot-mascot/README.md`、`docs/wiki/server/bots.md`、`progress.md`、`feature_list.json`。
+- 验证：针对性测试 34 passed；`npm run lint` 通过；`npm run build` 通过（`dist/` 已重建）；全量 `npm run test` 520 files / 5741 passed、2 skipped、0 failed。
+- 未完 / 下一步：① GIF 与 `series/palette.html` 仍是旧动作（本机缺 rsvg-convert / ffmpeg）；② 需要用户在 app 里肉眼确认三处效果（尤其深色主题和开心时上跳是否被裁）。
+- 未提交，无 commit / tag / push。
+
 ## 本轮：吉祥物「不如设计稿生动」的定因与放大（2026-11-11 19:35）
 
 - 目标：用户问 `~/.quickforge/bots/bot-e7e445bf/mascot-v3.html` 是不是产品实现的那版，「这个非常生动，但对话框好像没这么生动，为什么」，并选定「尺寸 + 动作两件都做」、侧栏那只「放大一点（24～28px）」。

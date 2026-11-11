@@ -14,14 +14,14 @@ export const MASCOT_EYE_SHAPE = {
 
 export const MASCOT_ARC = { d: 'M -18 6 Q 0 -17 18 6', width: 11 }
 
-/** 每个状态的循环时长（秒），与 GIF 一致。 */
+/** 每个状态的循环时长（秒），与设计稿 mascot-v3.html 一致（GIF 暂未同步）。 */
 export const MASCOT_DURATIONS = {
   idle: 1.60,
   thinking: 1.80,
-  working: 0.72,
-  happy: 0.88,
+  working: 0.70,
+  happy: 0.90,
   sleepy: 3.20,
-  alert: 1.12,
+  alert: 1.10,
   walk: 0.80,
 } as const
 

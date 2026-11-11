@@ -51,27 +51,40 @@ describe('resolveMascotState', () => {
 })
 
 describe('吉祥物动画样式契约', () => {
-  it('六个状态都有身体与左右眼的独立关键帧', () => {
+  it('每个状态都有身体动画；有眼睛动作的状态左右眼共用一套', () => {
     for (const state of Object.keys(MASCOT_DURATIONS)) {
       expect(css).toContain(`@keyframes qf-mascot-body-${state}`)
-      expect(css).toContain(`@keyframes qf-mascot-eyeL-${state}`)
-      expect(css).toContain(`@keyframes qf-mascot-eyeR-${state}`)
+    }
+    // 开心（弯月眼）和走路两态眼睛不动，与设计稿一致
+    for (const state of ['idle', 'thinking', 'working', 'sleepy', 'alert']) {
+      expect(css).toContain(`@keyframes qf-mascot-eye-${state}`)
+      expect(css).toContain(`.qf-mascot[data-state='${state}'] .qf-mascot__eye-l,`)
+      expect(css).toContain(`.qf-mascot[data-state='${state}'] .qf-mascot__eye-r {`)
     }
   })
 
   it('每个状态的动画时长与几何数据一致', () => {
     for (const [state, seconds] of Object.entries(MASCOT_DURATIONS)) {
       expect(css).toContain(
-        `.qf-mascot[data-state='${state}'] .qf-mascot__body { animation: qf-mascot-body-${state} ${seconds.toFixed(2)}s linear infinite; }`,
+        `.qf-mascot[data-state='${state}'] .qf-mascot__body { animation: qf-mascot-body-${state} ${seconds.toFixed(2)}s `,
       )
     }
   })
 
-  it('左右眼各有一套动画，能做对眼和分开', () => {
-    for (const state of Object.keys(MASCOT_DURATIONS)) {
-      expect(css).toContain(`.qf-mascot[data-state='${state}'] .qf-mascot__eye-l`)
-      expect(css).toContain(`.qf-mascot[data-state='${state}'] .qf-mascot__eye-r`)
-    }
+  it('动作与设计稿 mascot-v3.html 一致：球心为变换原点、原样缓动、不再分小尺寸增强版', () => {
+    expect(css).toContain('.qf-mascot__body { transform-box: view-box; transform-origin: 256px 258px; }')
+    expect(css).toContain('qf-mascot-body-idle 1.60s ease-in-out infinite')
+    expect(css).toContain('qf-mascot-body-happy 0.90s cubic-bezier(.3,0,.2,1) infinite')
+    expect(css).toContain('50%       { transform: translateY(-30px) scale(0.92, 1.10); }')
+    expect(css).toContain('38%       { transform: translateY(-68px) scale(0.86, 1.16); }')
+    expect(css).not.toContain('-small')
+    expect(css).not.toContain('data-size')
+    expect(componentSource).not.toContain('data-size')
+  })
+
+  it('默认墨黑配色在深色主题下换成白身黑眼', () => {
+    expect(css).toContain(".dark .qf-mascot[data-look='default'] { --qf-mascot-body: #FFFFFF; --qf-mascot-eye: #0B0B0C; }")
+    expect(componentSource).toContain("data-look={isDefaultLook ? 'default' : undefined}")
   })
 
   it('减弱动效与「关掉动画」都停在静态姿态', () => {

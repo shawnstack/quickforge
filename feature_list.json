@@ -3068,6 +3068,22 @@
         "docs/design/bot-mascot/README.md（7 个状态、-small 增强版、尺寸下限一节）"
       ],
       "boundaries": "① 纯前端，硬刷新即生效，无服务端改动，没重新生成 mascot-anim.css（也没有必要——生成脚本的输出与仓库文件逐字节相同，说明它没漂）。② 没改任何动作曲线：v3 的关键帧已经全在 pose_* 里，唯一差别是帧数取整带来的时长（happy 0.88 vs 0.9、alert 1.12 vs 1.1、working 0.72 vs 0.7），肉眼不可辨。③ 尺寸是两次反馈迭代出来的：64（球径 37px）「没在动」→ 104（球径 61px）「太大了」→ 84（球径 49px）。球底边恒在输入框上边缘（-translate-y-[80%] 与 size 无关），变化的是球顶往上探的高度（84 时约 49px）；测试锁下限（球径 ≥ 46px，往小改会先红），上界由用户的眼睛定。④ 侧栏行高会从 32px 涨到 36px（py-1.5 + 内容 24px），bot 多时列表会长一点。⑤ 未创建 commit / tag / push。"
+    },
+    {
+      "id": "bot-mascot-match-v3-design",
+      "title": "吉祥物动作逐字照搬设计稿 mascot-v3，尺寸不变；深色主题默认配色反色",
+      "status": "done",
+      "summary": "生成脚本新增 V3_WEB（设计稿关键帧与缓动原文），mascot-anim.css 改为球心原点 + 原样缓动 + 左右眼共用，去掉 -small 加大版；BotMascot 去掉 data-size，默认墨黑配色在 .dark 下换成白身黑眼。",
+      "files": [
+        "docs/design/bot-mascot/generate-bot-gif.py",
+        "src/components/bots/mascot/mascot-anim.css（生成）",
+        "src/components/bots/mascot/mascot-geometry.ts（生成）",
+        "src/components/bots/mascot/BotMascot.tsx",
+        "tests/frontend/bot-mascot.test.ts",
+        "docs/design/bot-mascot/README.md",
+        "docs/wiki/server/bots.md"
+      ],
+      "boundaries": "GIF / palette.html 仍是旧动作（本机缺 rsvg-convert/ffmpeg）；深色主题下特意选墨黑也显示白色；未 commit。"
     }
   ]
 }

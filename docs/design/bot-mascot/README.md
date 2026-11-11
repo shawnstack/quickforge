@@ -71,12 +71,14 @@ python3 docs/design/bot-mascot/generate-bot-gif.py --state happy --palette grape
 
 `--emit-web` 会写出两个前端文件（生成产物，勿手改）：
 
-- `src/components/bots/mascot/mascot-anim.css`：7 个状态（含 `walk`）× 身体/左右眼的关键帧，每个状态一套原版 + 一套 `-small` 增强版（`size <= 64` 时启用），加上 `prefers-reduced-motion` 与「关掉动画」的静态降级。
-- `src/components/bots/mascot/mascot-geometry.ts`：几何、每个状态的循环时长、8 套预设配色。
+- `src/components/bots/mascot/mascot-anim.css`：7 个状态（含 `walk`）的关键帧，**逐字照搬设计稿 `mascot-v3.html`**（脚本里的 `V3_WEB`）：变换原点在球心 `(256,258)`，缓动用设计稿原样的 `ease-in-out` / `cubic-bezier`，左右眼共用一套；任何尺寸都是同一个动作，只按 `size/220` 等比缩放，不再有 `-small` 增强版。另含默认墨黑配色在深色主题下换成白身黑眼（`data-look='default'`）、`prefers-reduced-motion` 与「关掉动画」的静态降级。
+- `src/components/bots/mascot/mascot-geometry.ts`：几何、每个状态的循环时长（与设计稿一致）、8 套预设配色。
+
+> GIF 与 `series/palette.html` 仍由 `pose_*` 采样，是旧动作，和界面不完全一致；本机缺 `rsvg-convert` / `ffmpeg` 时，只重新生成前端文件可直接调用脚本里的 `emit_web()`。
 
 界面里渲染的是内联 SVG（`BotMascot.tsx`），颜色走 `--qf-mascot-body` / `--qf-mascot-eye` 两个 CSS 变量，所以换色不需要重新生成任何素材，任意尺寸也不会模糊。动作选哪个由 `resolveMascotState()` 从会话状态推导，映射见 `docs/wiki/server/bots.md` §7.2。
 
-**尺寸是有下限的**：画布 512 里球只占 300（余量留给跳跃和歪头），所以球径只有 `size` 的 58.6%。`size=64` → 球径 37px，10% 的压扁拉伸只有 3px，肉眼只会觉得「几乎没动」；设计稿 `mascot-v3.html` 是 220 画布 → 球径 129px，所以看起来生动。输入框那只因此给到 84（球径 49px —— 试过 104/61px，用户嫌「太大了」，因为球会往上侵占消息区），侧栏行首 24px（球径 14px）只当「在动」的指示用。改尺寸前先算球径，别只改 `size` 的数字。
+**尺寸是有下限的**：画布 512 里球只占 300（余量留给跳跃和歪头），所以球径只有 `size` 的 58.6%。设计稿 `mascot-v3.html` 是 `width=220` → 球径 129px；界面里输入框那只是 84（球径 49px —— 64 嫌没动、104 嫌太大），侧栏行首 24px（球径 14px）只当「在动」的指示用。动作在所有尺寸下都与设计稿相同，只是等比缩小。改尺寸前先算球径，别只改 `size` 的数字。
 
 ## 验收指标（看不到画面，用数字代替眼睛）
 

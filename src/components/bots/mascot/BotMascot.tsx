@@ -22,8 +22,9 @@ const DEFAULT_LOOK: BotMascotLook = { body: '#0B0B0C', eye: '#FFFFFF', animated:
 /**
  * bot 的吉祥物：一个圆球 + 两只眼睛。
  *
- * 动作不是这里写的 —— `mascot-anim.css` 是从设计稿的同一套姿态函数生成的，
- * 所以界面里的动作和 `docs/design/bot-mascot/series/*.gif` 是同一套。
+ * 动作不是这里写的 —— `mascot-anim.css` 由生成脚本输出，关键帧逐字照搬设计稿
+ * `mascot-v3.html`，所以任何尺寸下都是设计稿那个动作（只是等比缩放）。
+ * `docs/design/bot-mascot/series/*.gif` 仍是旧动作，暂未同步。
  * 换颜色只改两个 CSS 变量，不重新生成任何素材。
  */
 export function BotMascot({
@@ -52,6 +53,10 @@ export function BotMascot({
   const body = look?.body ?? DEFAULT_LOOK.body
   const eye = look?.eye ?? DEFAULT_LOOK.eye
   const animated = look?.animated ?? DEFAULT_LOOK.animated
+  // 用的是默认墨黑配色时不写内联颜色，交给 CSS 按主题取色：
+  // 深色主题下黑球和背景几乎同色，`mascot-anim.css` 会换成白身黑眼。
+  const isDefaultLook =
+    body.toUpperCase() === DEFAULT_LOOK.body && eye.toUpperCase() === DEFAULT_LOOK.eye
 
   const centerX = MASCOT_BODY_SHAPE.cx
   const leftX = centerX - MASCOT_EYE_SHAPE.dx
@@ -61,13 +66,16 @@ export function BotMascot({
     <svg
       className={cn('qf-mascot', !animated && 'qf-mascot--static', className)}
       data-state={state}
-      // 小尺寸（侧栏 18px / 输入框 ~64px）物理上演不出眼神，切到增强版关键帧
-      // （data-size='small' 分派 -small keyframes：位移/旋转 ×1.35、形变 ×1.3）。
-      data-size={size <= 64 ? 'small' : undefined}
+      // 动作与设计稿 mascot-v3.html 逐字一致，任何尺寸都只是等比缩放，不再分大小版本。
+      data-look={isDefaultLook ? 'default' : undefined}
       width={size}
       height={size}
       viewBox={`0 0 ${MASCOT_VIEW_BOX} ${MASCOT_VIEW_BOX}`}
-      style={{ '--qf-mascot-body': body, '--qf-mascot-eye': eye } as CSSProperties}
+      style={
+        isDefaultLook
+          ? undefined
+          : ({ '--qf-mascot-body': body, '--qf-mascot-eye': eye } as CSSProperties)
+      }
       role={title ? 'img' : undefined}
       aria-label={title}
       aria-hidden={title ? undefined : true}

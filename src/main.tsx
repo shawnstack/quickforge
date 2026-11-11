@@ -55,9 +55,32 @@ window.addEventListener('unhandledrejection', (event) => {
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativePlatform()) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // Service Worker registration should not block the app.
-    })
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((registration) => {
+        // 发现新版本 SW：等它装完 → 让它立刻接管 → 接管后本页自动刷新。
+        // 没有 this，用户得自己硬刷两次才能换新版本，没人会这么做。
+        registration.addEventListener('updatefound', () => {
+          const installing = registration.installing
+          if (!installing) return
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              installing.postMessage('SKIP_WAITING')
+            }
+          })
+        })
+        // 已有 worker 在装（register 晚于 updatefound 时补一枪）
+        if (registration.installing) registration.installing.postMessage('SKIP_WAITING')
+        let refreshing = false
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (refreshing) return
+          refreshing = true
+          window.location.reload()
+        })
+      })
+      .catch(() => {
+        // Service Worker registration should not block the app.
+      })
   })
 }
 

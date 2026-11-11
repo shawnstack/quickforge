@@ -28,9 +28,19 @@
 
 ## Startup Workflow
 
-- 新会话开始先读取 `docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`，恢复上下文。
+- 新会话开始先读取 `docs/wiki/README.md`、`feature_list.json`、`progress.md`、`session-handoff.md`，恢复上下文；三个状态文件由归档规则保持精简，只含当前状态。
+- `docs/archive/` 里的历史归档默认不读；需要某个已完成 feature 的方案/边界/验证细节时，再按月查对应文件。
 - 从 `feature_list.json` 选择当前 feature（非 done 且依赖已满足的优先）；本次会话只推进该 feature。
 - 开始或恢复关键工作前，可用 `bash init.sh` 执行基线验证（`npm run test`、`npm run lint`、`npm run build`，不安装依赖）。
+
+## 归档（Archive）
+
+- 状态文件只放当前状态，旧内容进归档：
+  - `feature_list.json` 只保留未完成 feature（done / superseded 由脚本移走）；
+  - `progress.md` 只保留日期最新的一段与 Notes 段；
+  - `session-handoff.md` 只保留最近一轮。
+- 归档命令：`node scripts/archive-harness.mjs`（`--dry-run` 预览）。归档进 `docs/archive/{features,progress,handoffs}/`，按月分文件，脚本幂等（重复执行不会重复归档）。
+- 三个触发时机必须归档：① feature 标记 done 的当轮；② 用户要求提交代码时（先归档再 commit）；③ 会话结束前。发现活文件明显超出上述范围（如 progress 多段历史、handoff 多轮并存）也随时可跑。
 
 ## Verification Commands
 
@@ -53,4 +63,5 @@
 
 - 更新 `session-handoff.md`：当前目标、改动文件、blocker、下一步。
 - 同步更新 `progress.md` 与 `feature_list.json` 的状态；完成的 feature 标记为 done。
+- 跑一次 `node scripts/archive-harness.mjs` 归档，保证活文件只留当前状态。
 - 未提交/未完成事项明确记录，方便下个会话恢复。

@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { dataDir } from './storage.mjs'
+import { dataDir, memoryDirOf } from './storage.mjs'
 import {
   ARCHIVE_DIR_NAME,
   NoteStoreError,
@@ -33,7 +33,7 @@ import { openPathInFileManager } from './utils/platform.mjs'
 
 export const EXPERIENCES_DIR_NAME = 'experiences'
 export const EXPERIENCE_INDEX_FILE_NAME = 'index.md'
-export const EXPERIENCES_DISPLAY_PATH = '~/.quickforge/experiences'
+export const EXPERIENCES_DISPLAY_PATH = '~/.quickforge/memory/experiences'
 export const MAX_EXPERIENCE_INDEX_LINES = 200
 // A hard ceiling on a string that is injected into every system prompt. With the
 // 200-line cap above and the 60-character file-name cap, it cannot fire from real
@@ -106,7 +106,7 @@ export function experienceMetaOf(content) {
 }
 
 export function experiencesDir(options = {}) {
-  return path.join(options.dataDir || dataDir, EXPERIENCES_DIR_NAME)
+  return path.join(memoryDirOf(options.dataDir || dataDir), EXPERIENCES_DIR_NAME)
 }
 
 export async function ensureExperiencesDir(options = {}) {
@@ -245,33 +245,19 @@ export async function listArchivedExperiences(options = {}) {
 }
 
 /**
- * The block injected into the system prompt.
+ * The pointer injected into the system prompt.
  *
- * Only the index goes in: enough for the model to notice that a relevant
- * experience exists, not enough to make it think it already knows the details.
- * The block says so explicitly, otherwise models tend to answer from the index
- * line instead of opening the file.
+ * The index itself is not injected: it is one line per lesson learned, so its
+ * size is a permanent cost paid on every message of every session. What goes in
+ * is where the index lives and when to go read it — the model lists the folder
+ * when a task looks familiar.
  */
 export async function readExperiencesPrompt(options = {}) {
-  const { markdown, entries } = await readExperienceIndex(options)
+  const { entries } = await readExperienceIndex(options)
   if (entries.length === 0) return null
   return {
     path: experiencesDir(options),
     displayPath: EXPERIENCES_DISPLAY_PATH,
-    // The file keeps its title and its "generated, do not edit" comments for the
-    // humans who cat it; the prompt gets neither. Everything injected is paid for
-    // on every message, and an escaped `&lt;!--` reads as noise to the model.
-    index: stripIndexChrome(markdown),
     count: entries.length,
   }
-}
-
-/** The part of `index.md` worth spending prompt tokens on: just the bullet lines. */
-export function stripIndexChrome(markdown) {
-  return String(markdown ?? '')
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .split('\n')
-    .filter((line) => !/^#\s/.test(line.trim()))
-    .join('\n')
-    .trim()
 }

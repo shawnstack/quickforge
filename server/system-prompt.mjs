@@ -145,24 +145,17 @@ ${escapeXml(instructions.globalMemory.content)}
     }
   }
 
-  // The experience library is the long-lived half of memory. Only its index goes
-  // in: enough for the model to notice that something relevant exists, not enough
-  // to let it answer from the summary without opening the file.
-  if (instructions.experiences?.index) {
+  // The experience library is the long-lived half of memory. Its index is not
+  // injected: it is one line per lesson learned, so its size is a permanent cost
+  // paid on every message of every session. The block below only says where the
+  // index lives and when to go read it.
+  if (instructions.experiences) {
     parts.push(`
 <experiences>
 The experience library is a shared folder outside this workspace: ${escapeXml(instructions.experiences.displayPath || instructions.experiences.path)}
-What follows is only its index — one line per experience, and that line is just the file name, which is the note's conclusion in one sentence. It is a pointer, not the content. Before relying on an entry, open that one file with read_memory_note (scope "experience"); do not answer from the summary line alone.
+Its index is index.md — one file name per line, and the name is that experience's conclusion. When a task looks familiar, read it yourself with list_memory_notes (scope "experience"), then open the ones that fit with read_memory_note.
 
-An entry ending in （特殊） was written for one project or one situation: the shape of the procedure holds, but the file names, paths, commands or product behaviours inside it belong to that project and have to be replaced with this one's. An unmarked entry is meant to be followed as written.
-
-If nothing in the index looks relevant, do not go browsing the folder. An empty or unrelated index is a normal state, not a problem to fix.
-
-Entries marked ★ are candidates for becoming an Agent Skill. A skill is loaded into every project, so only general entries can carry the star. Turning one into a skill changes how you work, so it needs a human to say yes; never create or edit a skill yourself.
-
-<experience_index>
-${escapeXml(instructions.experiences.index)}
-</experience_index>
+An entry ending in （特殊） belongs to one project: replace its file names, paths and commands before reusing it. Entries marked ★ could become an Agent Skill, but that needs a human to say yes.
 </experiences>`)
   }
 

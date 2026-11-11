@@ -11,7 +11,6 @@ import {
   moveExperience,
   readExperienceIndex,
   readExperiencesPrompt,
-  stripIndexChrome,
   writeExperience,
 } from '../../server/experiences.mjs'
 import {
@@ -299,19 +298,13 @@ general: no
     await expect(readExperiencesPrompt(options())).resolves.toBeNull()
   })
 
-  it('injects only the bullet lines, not the file title or its comments', () => {
-    const markdown = '# 经验库索引\n\n<!-- 自动生成 -->\n\n- 一\n'
-    expect(stripIndexChrome(markdown)).toBe('- 一')
-  })
-
-  it('gives the prompt the same pointer the file holds', async () => {
+  it('points at the index instead of injecting it', async () => {
     await writeExperience(options(), '构建失败先清 dist', EXPERIENCE_BODY('构建失败先清 dist', '构建报错时'))
     const prompt = await readExperiencesPrompt(options())
-    // The heading lives in the file for humans; the prompt pays only for the lines
-    // the model can actually act on.
-    expect(prompt.index).toBe('- 构建失败先清 dist')
-    expect(prompt.index).not.toContain('经验库索引')
-    expect(prompt.index).not.toContain('<!--')
+    // The index grows with every lesson; only the pointer is cheap enough to repeat.
+    expect(prompt.index).toBeUndefined()
+    expect(prompt.count).toBe(1)
+    expect(prompt.displayPath).toContain('memory/experiences')
   })
 
   it('renames and archives without ever deleting the text', async () => {

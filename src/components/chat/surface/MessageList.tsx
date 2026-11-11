@@ -8,6 +8,8 @@ import { isRenderableMessage } from './content-parts'
 import { createRenderKeyIndex } from './render-key-index'
 import { CompactionMessage } from './CompactionMessage'
 import { isCompactionMessage } from './compaction-message'
+import { BotHeartbeatMessage } from './BotHeartbeatMessage'
+import { isBotHeartbeatMessage } from './bot-heartbeat-message'
 import { ContextCompactionStatusRow } from './ContextCompactionStatusRow'
 import { AssistantWaitingBubble } from './AssistantWaitingBubble'
 import { t } from '@/lib/i18n'
@@ -156,6 +158,11 @@ export function MessageList({ messages, messageIndexOffset = 0, tools, pendingTo
     const key = renderKeys.keys[index]
     if (isCompactionMessage(message)) {
       return <CompactionMessage key={key} message={message} mergedIntoLater={rowIndex < lastCompactionRow} />
+    }
+    // 心跳走普通 prompt 通道，role 也是 user：不单独分派就会渲染成用户气泡，
+    // 而那些字用户从来没打过（见 server/bot-runner.mjs）。
+    if (isBotHeartbeatMessage(message)) {
+      return <BotHeartbeatMessage key={key} message={message} />
     }
     if (message.role === 'user' || message.role === 'user-with-attachments') {
       return <UserMessage key={key} message={message} />

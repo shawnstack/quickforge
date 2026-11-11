@@ -19,6 +19,7 @@ import { syncAssistantArtifactCard } from './assistant-artifact-card'
 
 import { syncGoalInternalMessage } from './goal-internal-message'
 import { isCompactionMessage } from '../surface/compaction-message'
+import { isBotHeartbeatMessage } from '../surface/bot-heartbeat-message'
 import { syncGoalIterationDivider } from './goal-iteration-divider'
 import { removeRollbackConfirmPopover, showRollbackConfirmPopover } from './rollback-confirm-popover'
 import {
@@ -595,6 +596,8 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     const internalGoalMessage = syncGoalInternalMessage(element, rawMessage)
     // 压缩摘要不是用户输入：不加编辑/回滚/重试/输入折叠/上下文 chip，只保留 pill 自带的展开与复制。
     const compactionMessage = isCompactionMessage(rawMessage)
+    // 心跳唤醒同样不是用户输入：不给编辑/回滚/重试，这一行只自带展开。
+    const botHeartbeatMessage = isBotHeartbeatMessage(rawMessage)
     if (!entry) return
     // 就地编辑中的行保持原样：不要重建动作行或重写 dataset key，
     // 否则用户正在输入的编辑框会被装饰层冲掉。
@@ -625,7 +628,7 @@ export function decorateMessages(deps: MessageDecorationDeps) {
     element.dataset[DECORATED_KEY_FLAG] = decorationKey
     // Keep the user-message host as a process-turn boundary and index anchor.
     // Its divider is synced below even when there is no assistant in this run.
-    if (internalGoalMessage || compactionMessage) {
+    if (internalGoalMessage || compactionMessage || botHeartbeatMessage) {
       element.querySelector('.quickforge-message-actions')?.remove()
       return
     }

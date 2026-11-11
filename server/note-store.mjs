@@ -81,7 +81,7 @@ export function noteFrontmatterTitleOf(content) {
  * The display title of a note: front matter first, then the first `# heading`, then
  * the file name.
  *
- * The two spellings coexist on purpose — working-memory notes are written as plain
+ * The two spellings coexist on purpose — notes are written as plain
  * markdown with a heading, experiences carry the title in front matter — and both
  * fall back to the file name, which is the one value that always exists.
  */

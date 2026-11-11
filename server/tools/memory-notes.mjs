@@ -27,16 +27,16 @@ import { noteTitleOfName } from '../note-store.mjs'
 
 export const MEMORY_NOTE_SCOPES = Object.freeze(['working', 'experience'])
 
-const SCOPE_DESCRIPTION = 'Which folder: "working" = the current project\'s working memory (~/.quickforge/working-memory), "experience" = the shared experience library (~/.quickforge/experiences).'
+const SCOPE_DESCRIPTION = 'Which folder: "working" = the notes folder (~/.quickforge/memory/notes), "experience" = the experience library (~/.quickforge/memory/experiences). Both are shared across every project.'
 
 function scopeLabel(scope) {
-  return scope === 'experience' ? 'experience library' : 'working memory'
+  return scope === 'experience' ? 'experience library' : 'notes'
 }
 
 function normalizeScope(value) {
   const scope = String(value ?? '').trim().toLowerCase()
-  if (scope === 'experience' || scope === 'experiences' || scope === '经验') return 'experience'
-  if (scope === 'working' || scope === 'working-memory' || scope === '工作') return 'working'
+  if (scope === 'experience') return 'experience'
+  if (scope === 'working') return 'working'
   const error = new Error(`Unknown memory scope "${value}". Use "working" or "experience".`)
   error.statusCode = 400
   throw error

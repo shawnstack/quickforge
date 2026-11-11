@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { dataDir } from '../storage.mjs'
+import { dataDir, memoryDirOf } from '../storage.mjs'
 import { copyNoteDir, replaceNoteDirFromSnapshot } from '../note-store.mjs'
 import { experiencesDir } from '../experiences.mjs'
 import { workingMemoryDir } from '../working-memory.mjs'
@@ -17,11 +17,11 @@ import { logger } from '../utils/logger.mjs'
  * write, a crash, or a bug in the curator.
  */
 
-export const SNAPSHOT_DIR_NAME = 'dreaming-snapshots'
+export const SNAPSHOT_DIR_NAME = 'snapshots'
 export const MAX_SNAPSHOTS = 10
 
 export function snapshotsRoot(options = {}) {
-  return path.join(options.dataDir || dataDir, SNAPSHOT_DIR_NAME)
+  return path.join(memoryDirOf(options.dataDir || dataDir), SNAPSHOT_DIR_NAME)
 }
 
 export function snapshotDirOf(runId, options = {}) {
@@ -29,7 +29,7 @@ export function snapshotDirOf(runId, options = {}) {
 }
 
 /**
- * Copy both memory folders into `<dataDir>/dreaming-snapshots/<runId>/`.
+ * Copy both memory folders into `<dataDir>/memory/snapshots/<runId>/`.
  *
  * A missing folder is not an error: on a fresh install neither exists yet, and a
  * run that creates the first note must still be undoable back to "empty".
@@ -37,7 +37,7 @@ export function snapshotDirOf(runId, options = {}) {
 export async function snapshotMemory({ runId, dataDir: baseDir } = {}) {
   if (!runId) throw new Error('A run id is required to snapshot memory.')
   const root = snapshotDirOf(runId, { dataDir: baseDir })
-  const workingTarget = path.join(root, 'working-memory')
+  const workingTarget = path.join(root, 'notes')
   const experiencesTarget = path.join(root, 'experiences')
   // Both targets are created even when the source folder is missing: restoring a
   // first-ever run has to be able to bring memory back to *empty*, and a snapshot
@@ -72,7 +72,7 @@ export async function restoreMemorySnapshot(runId, options = {}) {
     throw Object.assign(new Error('这次运行的文件快照已经不在了，无法回滚。'), { statusCode: 409 })
   }
   const [working, experiences] = await Promise.all([
-    replaceNoteDirFromSnapshot(path.join(root, 'working-memory'), workingMemoryDir(options)),
+    replaceNoteDirFromSnapshot(path.join(root, 'notes'), workingMemoryDir(options)),
     replaceNoteDirFromSnapshot(path.join(root, 'experiences'), experiencesDir(options)),
   ])
   return {

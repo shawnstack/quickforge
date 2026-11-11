@@ -38,6 +38,7 @@ import {
   rollbackSessionMessages,
   isSessionFileRollbackBusy,
   continueSession,
+  requestSessionCompaction,
   stripSplitSessionState,
   agentEvents,
 } from '../agent-manager.mjs'
@@ -83,6 +84,23 @@ function clientIdFromRequest(req) {
   const raw = req?.headers?.[CLIENT_ID_HEADER]
   const value = Array.isArray(raw) ? raw[0] : raw
   return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+/**
+ * 「这条请求来自会话自己」的自报标识，取值为调用方所属的会话 id。
+ * 只有 agent 侧脚本会带（`QUICKFORGE_SESSION_ID` 是 run_command 子进程的
+ * 环境变量），浏览器窗口从不带。
+ *
+ * 回环即认证，本机任何进程都能伪造它——这里不把它当身份认证，只当作一条
+ * 语义收窄：豁免只作用于「运行中排队一次压缩」这条无副作用的路径（见
+ * requestSessionCompaction 的注释），不打开任何写库入口。
+ */
+const SELF_SESSION_HEADER = 'x-quickforge-agent-session'
+
+function isSelfSessionRequest(req, sessionId) {
+  const raw = req?.headers?.[SELF_SESSION_HEADER]
+  const value = Array.isArray(raw) ? raw[0] : raw
+  return typeof value === 'string' && value.trim() === sessionId
 }
 
 function leaseError(sessionId, holder) {
@@ -403,6 +421,28 @@ export async function handleAgentApi(req, res, url, context = {}) {
       throw error
     }
     sendJson(res, 200, budget)
+    return
+  }
+
+  // POST /api/agents/:sessionId/compact — 会话主动请求压缩上下文。
+  //
+  // 存在的理由：会话看不见自己还剩多少窗口（context-usage 只是只读油表），
+  // 也没法在跑的过程中给自己发一条 /compact 消息——那条路要求会话空闲，而
+  // 请求方正是它自己。所以时机判定放在服务端：空闲就同步压完并把摘要正文回
+  // 给调用方，正在跑就登记一次性强制压缩，由下一次模型请求前生效，这一轮照
+  // 常继续。响应里的 `scheduled` 就是这两种情形的分界，调用方必须区分。
+  //
+  // 写权限不在这里一刀切：守卫以回调形式交给 requestSessionCompaction，由它
+  // 在 running 判定之后分别检查（在跑的分支只写内存标记，空闲的分支才落库）。
+  // 否则「会话在跑时压自己」永远会在入口被正在浏览它的窗口持有的租约挡掉。
+  if (req.method === 'POST' && subPath === 'compact') {
+    const body = await readJsonBody(req)
+    const result = await requestSessionCompaction(sessionId, {
+      reason: body?.reason,
+      selfRequest: isSelfSessionRequest(req, sessionId),
+      assertWriteAccess: () => assertSessionWriteAccess(req, sessionId),
+    })
+    sendJson(res, 200, result)
     return
   }
 

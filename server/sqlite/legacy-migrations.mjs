@@ -589,13 +589,7 @@ export const LEGACY_MIGRATIONS = Object.freeze([
     },
   }),
   Object.freeze({
-    // Dreaming long-term memory (see docs/architecture/dreaming-memory.zh-CN.md).
-    // `memories` is the structured experience store written only by the
-    // background Dreaming worker; `memories_fts` is a plain (non-external)
-    // FTS5 index keyed by the memories implicit rowid, because the default
-    // unicode61 tokenizer cannot match CJK substrings and trigram can (verified
-    // against the bundled SQLite). `dreaming_runs` is the run log the settings
-    // page renders; `memory_events` is the per-entry audit trail.
+    // v13: structured memory store and its run log.
     version: 13,
     name: 'create_dreaming_memory',
     up(database) {
@@ -725,8 +719,7 @@ export const LEGACY_MIGRATIONS = Object.freeze([
     // vectors) was replaced by a single LLM-owned notes block in MEMORY.md.
     // Dropping the tables is the point: with no second store there is no
     // dedupe/decay/retrieval pipeline to keep consistent with the notes file.
-    // Existing rows are intentionally discarded rather than migrated - the next
-    // run rebuilds the notes from the same session history.
+    // v17: drops the structured memory store.
     version: 17,
     name: 'drop_structured_memory_store',
     up(database) {
@@ -739,13 +732,7 @@ export const LEGACY_MIGRATIONS = Object.freeze([
     },
   }),
   Object.freeze({
-    // Feedback loop for the notes file. The notes themselves stay a plain file
-    // owned by the model; this table only remembers "was this note ever actually
-    // recalled?", which is the one piece of evidence a file cannot carry.
-    //
-    // Keyed by the derived note id (hash of the text) instead of a row id, so the
-    // note has no identity to keep in sync: rewrite the wording and it is a new
-    // note with a fresh record.
+    // v18: recall counter for notes; v20 drops it.
     version: 18,
     name: 'create_dreaming_note_stats',
     up(database) {

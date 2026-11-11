@@ -2,14 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { getSqliteStorage } from './database.mjs'
 
 /**
- * Dreaming keeps exactly one piece of relational state: the run log.
- *
- * The memory itself is a notes block inside MEMORY.md, owned and rewritten by the
- * model on every pass. There is no `memories` table, no FTS index, no per-entry
- * audit and no vectors — see docs/architecture/dreaming-memory.zh-CN.md. What a
- * run still needs to persist is "when did it last succeed, what did it read, what
- * did it change", because that is what the settings page shows and what the
- * watermark for the next window is computed from.
+ * The only relational state here is the run log: when a pass ran, what window it
+ * covered, what it read and what it changed. The notes themselves are Markdown
+ * files in the notes and experience folders, so there is no content
+ * table, no full-text index and no per-entry audit to keep in sync.
  */
 
 export const DREAMING_TRIGGERS = Object.freeze(['schedule', 'manual'])
@@ -24,9 +20,7 @@ function storage() {
 
 function toRun(row) {
   if (!row) return null
-  // Older rows stored an operation array, and the bullet-list era stored a line
-  // diff. Both normalize to the current shape — the per-session report — so the
-  // page never has to branch on a run's age.
+  // Normalize whatever shape was persisted, so the page never branches on a run's age.
   const rawOperations = JSON.parse(row.operations_json ?? '[]')
   const operations = !rawOperations || typeof rawOperations !== 'object' || Array.isArray(rawOperations)
     ? { sessions: [], actions: [], snapshot: null, snapshotFiles: null, stopped: null }
@@ -58,7 +52,6 @@ function toRun(row) {
     retiredCount: Number(row.retired_count),
     rejectedCount: Number(row.rejected_count),
     summary: row.summary ?? null,
-    // `{ added: string[], removed: string[], dropped: [...] }` for notes runs.
     operations,
     error: row.error ?? null,
     startedAt: Number(row.started_at),
@@ -70,61 +63,6 @@ function toRun(row) {
 export function createDreamingRepository(handle = storage()) {
   if (!handle || typeof handle.prepare !== 'function' || typeof handle.transaction !== 'function') {
     throw new TypeError('Dreaming repository requires a SQLite storage handle')
-  }
-
-  /**
-   * Recall feedback. Keyed by the caller-supplied note id (hash of the text), so
-   * this table never has to know what a note is — it only counts.
-   */
-  function recordNoteRecall(notes, now) {
-    const entries = (Array.isArray(notes) ? notes : []).filter((note) => note?.id && note?.text)
-    if (entries.length === 0) return 0
-    const statement = handle.prepare(`INSERT INTO dreaming_note_stats (
-        note_id, note_text, recall_count, last_recalled_at, created_at, updated_at
-      ) VALUES (?, ?, 1, ?, ?, ?)
-      ON CONFLICT(note_id) DO UPDATE SET
-        note_text = excluded.note_text,
-        recall_count = dreaming_note_stats.recall_count + 1,
-        last_recalled_at = excluded.last_recalled_at`)
-    for (const note of entries) statement.run(note.id, note.text, now, now, now)
-    return entries.length
-  }
-
-  function listNoteStats() {
-    const rows = handle.prepare('SELECT note_id, note_text, recall_count, last_recalled_at, created_at FROM dreaming_note_stats').all()
-    const stats = new Map()
-    for (const row of rows) {
-      stats.set(row.note_id, {
-        text: row.note_text,
-        recallCount: Number(row.recall_count),
-        lastRecalledAt: row.last_recalled_at === null ? null : Number(row.last_recalled_at),
-        createdAt: Number(row.created_at),
-      })
-    }
-    return stats
-  }
-
-  /**
-   * Keep the stats table exactly in step with the notes file: new notes get a row
-   * (so their age is known), vanished notes lose theirs (so a re-added wording
-   * starts clean instead of inheriting an old count).
-   */
-  function syncNoteStats(notes, now) {
-    const entries = (Array.isArray(notes) ? notes : []).filter((note) => note?.id && note?.text)
-    const insert = handle.prepare('INSERT OR IGNORE INTO dreaming_note_stats (note_id, note_text, recall_count, created_at, updated_at) VALUES (?, ?, 0, ?, ?)')
-    for (const note of entries) insert.run(note.id, note.text, now, now)
-    if (entries.length === 0) {
-      handle.prepare('DELETE FROM dreaming_note_stats').run()
-      return { kept: 0, removed: 0 }
-    }
-    const placeholders = entries.map(() => '?').join(', ')
-    const removed = handle.prepare(`DELETE FROM dreaming_note_stats WHERE note_id NOT IN (${placeholders})`)
-      .run(...entries.map((note) => note.id))
-    return { kept: entries.length, removed: Number(removed.changes ?? 0) }
-  }
-
-  function deleteNoteStat(noteId) {
-    handle.prepare('DELETE FROM dreaming_note_stats WHERE note_id = ?').run(String(noteId))
   }
 
   function createRun({ id, trigger, periodFrom, periodTo, startedAt, modelLabel = null, inputChars = 0, sessions = null, contentLanguage = null }) {
@@ -201,10 +139,6 @@ export function createDreamingRepository(handle = storage()) {
 
   return {
     transaction: (callback) => handle.transaction(callback),
-    recordNoteRecall,
-    listNoteStats,
-    syncNoteStats,
-    deleteNoteStat,
     createRun,
     finishRun,
     findRun,

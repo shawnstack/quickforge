@@ -1,10 +1,10 @@
 /**
  * Dreaming (memory curator) — transport types and fetchers.
  *
- * The worker changed shape: instead of rewriting one bullet list, each finished
- * session gets its own agent turn that edits the working-memory folder and, when
- * warranted, promotes something into the experience library. So a run is described
- * as "what each session did", and the experience library is what you browse.
+ * Each finished session gets its own agent turn that edits the working-memory
+ * folder and, when warranted, promotes something into the experience library. A
+ * run is therefore described as "what each session did", and the experience
+ * library is what you browse.
  */
 import { t } from '@/lib/i18n'
 

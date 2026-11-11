@@ -167,5 +167,10 @@ describe('system prompt', () => {
     expect(prompt).toContain('task-add --self-scheduled')
     expect(prompt).toContain('At most one [自约] task exists at any time')
     expect(prompt).toContain('You may only delete tasks you created with --self-scheduled')
+    // 常驻班与一次性班必须分开说：混成一条规矩，未来的模型会照旧把自己删掉。
+    expect(prompt).toContain('Two kinds of shift')
+    expect(prompt).toContain('A standing shift')
+    expect(prompt).toContain('do not delete yourself')
+    expect(prompt).toContain('A standing shift is never deleted by you')
   })
 })

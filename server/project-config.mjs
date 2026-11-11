@@ -248,7 +248,13 @@ export async function resolveTerminalShellProfile(profileId) {
 }
 
 export function getActiveProject(config) {
-  return config.projects.find((project) => project.id === config.activeProjectId) || config.projects[0]
+  // bot 目录也是注册项目（文件工具要它的 path 当 workspaceRoot），但它不是
+  // 「用户的当前项目」：activeProjectId 或 projects[0] 的兜底一旦落到 bot 上，
+  // 终端默认目录、全局技能解析、无 projectId 的会话都会跑进 bot 目录里。
+  // 优先返回真正的项目；实在没有（只有 bot）才退回第一个，保持原兜底语义。
+  return config.projects.find((project) => project.id === config.activeProjectId && project.kind !== 'bot')
+    || config.projects.find((project) => project.kind !== 'bot')
+    || config.projects[0]
 }
 
 export async function setActiveProjectPath(inputPath) {
@@ -260,6 +266,9 @@ export async function setActiveProjectPath(inputPath) {
 
   const updated = await atomicProjectConfigUpdate((config) => {
     project = config.projects.find((item) => sameProjectPath(item.path, resolved))
+    // bot 目录不是用户的项目：不活化、也不改名（名字属于那个 bot）。
+    // 仍然把项目原样返回，调用方（bot 会话）需要它的 path 当工具工作空间。
+    if (project?.kind === 'bot') return config
     if (!project) {
       project = {
         id: randomUUID(),
@@ -282,8 +291,10 @@ export async function setActiveProjectPath(inputPath) {
     return config
   })
 
-  await ensureProjectCache(project.id)
-  setWorkspaceRoot(resolved)
+  if (project?.kind !== 'bot') {
+    await ensureProjectCache(project.id)
+    setWorkspaceRoot(resolved)
+  }
   return { project, projects: updated.projects }
 }
 
@@ -425,6 +436,21 @@ export async function projectContextFromId(projectId) {
   }
 }
 
+/**
+ * 读某个工作空间自带的 MEMORY.md。bot 的记忆就落在这儿：
+ * 一个 bot 一间自己的房，记忆跟着房走，不跟全局那份混。
+ */
+async function readWorkspaceMemoryPrompt(workspaceRoot) {
+  if (!workspaceRoot) return null
+  try {
+    const content = await fs.readFile(path.join(workspaceRoot, 'MEMORY.md'), 'utf8')
+    const trimmed = content.trim()
+    return trimmed || null
+  } catch {
+    return null
+  }
+}
+
 async function readInstructionSources(candidates) {
   const sources = []
   const seen = new Set()
@@ -474,11 +500,13 @@ export async function buildInstructionsPayload(projectId) {
   const config = await readProjectConfig()
   let projectInstructionSources = []
   let project = projectId ? config.projects.find((item) => item.id === projectId) ?? null : null
+  let projectWorkspaceRoot = null
 
   if (projectId) {
     try {
       const context = await projectContextFromId(projectId)
       project = context.project
+      projectWorkspaceRoot = context.workspaceRoot
       projectInstructionSources = await readInstructionSources(projectInstructionCandidates(context.workspaceRoot))
     } catch {
       // project not found or inaccessible — leave projectInstructions null
@@ -493,7 +521,11 @@ export async function buildInstructionsPayload(projectId) {
     ? await loadSelectedProjectSkills(project.skills, project.path)
     : []
   const activeSkills = mergeSkills(globalSkills, projectSkills)
-  const globalMemory = await readGlobalMemoryPrompt()
+  // Bot 有自己的 MEMORY.md，就放在它工作空间的根上。有就用它顶掉全局记忆块：
+  // 一个 bot 的记忆只属于它，不该和别的 bot（或全局那份）混在一起。
+  const globalMemory = (project?.kind === 'bot' && projectWorkspaceRoot
+    ? await readWorkspaceMemoryPrompt(projectWorkspaceRoot)
+    : null) ?? await readGlobalMemoryPrompt()
   const experiences = await readExperiencesPrompt().catch(() => null)
   const workingMemory = await readWorkingMemoryPrompt()
   const stripRuntimeFields = ({ rootDir: _rootDir, instructions: _instructions, location: _location, ...skill }) => skill

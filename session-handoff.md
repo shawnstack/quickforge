@@ -1,5 +1,357 @@
 # Current Session Handoff
 
+## 本轮：吉祥物「不如设计稿生动」的定因与放大（2026-11-11 19:35）
+
+- 目标：用户问 `~/.quickforge/bots/bot-e7e445bf/mascot-v3.html` 是不是产品实现的那版，「这个非常生动，但对话框好像没这么生动，为什么」，并选定「尺寸 + 动作两件都做」、侧栏那只「放大一点（24～28px）」。
+- 一句话结论：**动作根本就是 v3 那套**（`generate-bot-gif.py` 的 `pose_*` 与 v3 手写 CSS 逐值相同，且现跑脚本的输出与仓库 `mascot-anim.css` / `mascot-geometry.ts` 逐字节相同），差的是**尺寸** —— 球径只有 `size` 的 58.6%，`size=64` 时球径 37px，10% 的压扁拉伸只剩 3px。所以这轮只改了尺寸：输入框那只 64 → 104、侧栏 18 → 24。
+- 为什么不是「再调一版动作」：v3 的三段式（预备/发力/落地缓冲）、`back`/`snap` 缓动、二次回弹、落地横抖全已经在 `pose_*` 里了；再改就是换个动作，不是「更接近 v3」。
+- 改动文件：
+  - `src/App.tsx`（`composerMascot` 的 `size` 64 → 104 + 注释写明球径换算）
+  - `src/components/bots/BotSidebarList.tsx`（18 → 24，类注释与行内注释同步）
+  - `tests/frontend/bot-mascot.test.ts`（+2 例：从源码读 `size` 换算球径，锁住下限）
+  - `docs/wiki/server/bots.md` §7.2、`docs/architecture/single-bot-workspace-ui.zh-CN.md` §5、`docs/design/bot-mascot/README.md`
+  - `progress.md`、`feature_list.json`、本文件
+- 验证：定向 24 passed；全量 `npm run test` → **520 files / 5741 passed、1 skipped、0 failed**；`npm run lint` 0 problems；`npm run build` 通过（`dist/` 已重建，5176 的产物已更新）。
+- 生效方式：纯前端，硬刷新（Cmd+Shift+R）即生效；无服务端改动，不用重启。
+- 未做 / 下一步（等用户肉眼看了再定）：① 104 是折中值，球顶会往消息区探约 61px，若盖住最后一条消息就往 96 调、想更接近设计稿往 112~120 调（只改 `App.tsx` 一个数字）；② 若还嫌不够「活」，可让输入框那只固定用 `-small` 增强关键帧（+35% 幅度），但那就不再是设计稿的比例；③ 侧栏行高从 32px 涨到 36px，bot 多时列表会长一点。
+- 未提交：无 commit / tag / push。
+
+## 本轮：退出 BOT 模式落回新对话空态（2026-11-11 18:35）
+
+- 目标：用户报「bot 切换到对话过程中，不应该再显示 bot 的对话记录了」，并纠正方向 —— 有问题的是 **bot → 对话**，**对话 → bot** 正常。
+- 一句话结论：`toggleBotMode` 只有单向补偿（进 bot 模式会自动打开第一个 bot，退出却只是 `if (!next) return`），所以退出后 `agentManager.agent` 还是那个 bot 的会话；现在退出时若当前会话属于某个 bot，就落到新对话空态（用户选定的行为）。
+- 为什么不是遮罩 / 缓存问题：`SessionViewPool` 只是把旧视图 `display:none` 保活、`ChatSurface` 的 key 也没变，旧消息一直都在 DOM 里，唯一防线是切换遮罩 —— 而这条路径压根没上遮罩。
+- 改动文件：
+  - `src/App.tsx`（`toggleBotMode` 之后新增 `previousBotModeRef` + 退出补偿 effect）
+  - `tests/frontend/bot-project-scope.test.ts`（+2 例）
+  - `progress.md`、`feature_list.json`、本文件
+- 两个 lint 约束（踩过，别再踩）：
+  - 判据不能写回 `toggleBotMode`：在那里读 `agentManager.currentSessionId` 会被 `react-hooks/refs` 判成 render 期间读 ref，且报错位置指向无关的 `activeBot` useMemo，容易误判。
+  - effect 体内不能同步调 `startNewDefaultSession()`（`react-hooks/set-state-in-effect`），照 `refreshBots` 的先例用 `setTimeout(..., 0)` + `clearTimeout`。
+- 验证：定向 `npx vitest run tests/frontend/bot-project-scope.test.ts` → 11 passed；全量 `npm run test` → **520 files / 5739 passed、1 skipped**；`npm run lint` 0 problems；`npm run build` 通过。
+- 生效方式：纯前端，硬刷新即生效（5176 服务的 `dist/` 已由 build 重建）。
+- 未做 / 下一步：① 浏览器里点一次「对话」标签做肉眼验收（本轮只做了代码级验证）；② bot 列表还没加载完就退出时判据为空、不会触发回落；③ `backToChats` 这个 i18n 键仍未使用。
+- 未提交：无 commit / tag / push。
+
+## 本轮：侧栏折叠态去掉多余的模式切换图标（2026-11-11 18:15）
+
+- 目标：用户看到「侧边栏收缩时多了一个切换 icon」，追问后确认要移出的是**第二枚**（折叠态那个 bot 头像 / 对话气泡按钮），不是「展开侧栏」那枚。
+- 一句话结论：`SidebarHeaderNav.tsx` 折叠分支现在只剩「展开侧栏」一枚按钮（平时 favicon，hover / 聚焦换 `PanelLeftOpen`）；折叠态不再能切「对话 / BOT」，要切得先摊开侧栏。
+- 代价与理由：折叠态原本没有别的模式切换入口（那条分段轨道只在 `sidebarOpen` 时渲染），所以这是一次**明确的功能收窄**，用户已确认。展开按钮没动——桌面端没有第二个展开入口，也没有快捷键。
+- 改动文件：
+  - `src/components/sidebar/chat-sidebar/SidebarHeaderNav.tsx`（删折叠态第二枚按钮；清 `botPop` / `BotAvatar` / `useState`；`selectMode` 收成 `alreadyActive` 判断）
+  - `tests/frontend/sidebar-mode-switcher.test.ts`（第 2、4 例跟着改）
+  - `docs/wiki/server/bots.md`、`docs/wiki/README.md`（折叠态描述同步）
+  - `progress.md`、本文件
+- 验证：定向 `npx vitest run tests/frontend/sidebar-mode-switcher.test.ts tests/frontend/sidebar-new-chat-routing.test.ts` → 2 files / 11 passed；`npm run lint` 0 problems；`npm run build` 通过（`dist/` 已重建）。
+- 生效方式：纯前端，硬刷新（Cmd+Shift+R）即生效。
+- 未做 / 下一步（都需要用户拍板）：① `src/components/bots/BotAvatar.tsx` + `bot-avatar.css` 现在全仓无引用方，删不删；② `i18n` 里 `openBotMode` / `backToChats` 两个键变成未使用，先留着；③ 折叠态没有模式指示了，如果之后又想在折叠态切模式，需要新的入口设计（不能只是把这枚按钮加回来）。
+- 未提交：无 commit / tag / push。
+
+## 本轮：bot 会话不可 fork、不可回滚对话（2026-11-11 16:40）
+
+- 目标（来自另一条评审会话，用户已批准）：bot 会话不可 fork、不可回滚对话；普通会话与文件回滚零回归。
+- 一句话结论：能力矩阵新增 `BOT_CHAT_CAPABILITIES`（`forkFromMessage` / `rollback` / `retry` 关掉、`compaction` 留着），`App.tsx` 在 bot 语境注入，服务端 `rollbackSessionMessages` 再加一道无条件 403 `BOT_SESSION_IMMUTABLE`。
+- 用户拍板的两件事：① **retry 一起禁**（成功轮次的重试就是 trim 后重发，能从重试按钮绕过）；② **纠错出口什么都不给**（不软撤回、不允许 fork 出普通会话）。
+- 改动文件：
+  - `server/agent-manager.mjs`（`rollbackSessionMessages` 第四道闸门；判据读项目配置里的 `kind`）
+  - `src/lib/chat-capabilities.ts`（`BOT_CHAT_CAPABILITIES`）
+  - `src/App.tsx`（`chatCapabilities` 注入 `ChatPanelHost` + 传给 `useChatActions`；`botMode` store 读取上移）
+  - `src/hooks/useChatActions.ts`（fork / performRollback / retry 三处前置断言 + 新 option `capabilities`）
+  - `src/lib/i18n.ts`（`botHistoryImmutable`，en/zh）
+  - `docs/architecture/single-bot-workspace-ui.zh-CN.md`（「不做」清单 +1）、`docs/wiki/server/bots.md`（前端一节 +1 条）
+  - 测试：`tests/frontend/bot-chat-capabilities-wiring.test.ts`（新，7 例）、`tests/frontend/chat-capabilities.test.ts`（+1）、`tests/frontend/edit-first-message-resend-keeps-session.test.ts`（harness 补 `capabilities`）、`tests/server/agent-manager.rollback-compaction.test.mjs`（+3）、`tests/server/routes/agent.test.mjs`（+1）
+- 验证：定向 3 files / 73 + 4 files / 40 + 2 files / 7 全通过；全量 `npm run test` → **520 files / 5736 passed、1 skipped、0 failed**；`npx tsc --noEmit` exit 0；`npm run lint` 0 problems；`npm run build` 通过，**`dist/` 已重建**。
+- **端到端已验（新代码）**：用 `QUICKFORGE_DATA_DIR=/tmp/… QUICKFORGE_PORT=5199 node server/index.mjs` 起了一次性隔离实例（验完已 kill + 删目录，正式 5176 健康检查仍 200），走 HTTP：
+  - bot 会话 `POST /api/agents/bot-e2e-session/rollback {"messageIndex":3}` → **403 `BOT_SESSION_IMMUTABLE`**，`GET …/messages` 仍是 4 条，一条没剪；
+  - 带压缩摘要的 bot 会话 → **同样 403**；
+  - 普通项目会话同一条请求 → **200**（`rollbackIndex=2`、剩 2 条）；
+  - bot 会话上 `GET …/rollback-turn/preview` → **200 / canRollback:true**（文件回滚没被波及）。
+- **正式实例已验（16:44）**：正式进程已于 16:40:55 重启（pid 2697，晚于代码 mtime 16:34:34 ⇒ 已加载新代码）。对小助手的真实 bot 会话（恰好已压缩，`compactedUpToIndex=26`）`POST …/rollback` → **403 `BOT_SESSION_IMMUTABLE`**，复查仍是 200 条、`status=idle`。前端产物核对：`index-BSPDfbhq.js` 里 `qg=Object.freeze({...Gg,rollback:!1,retry:!1,forkFromMessage:!1})`，使用点 `ar=ir||Wg(K.currentToolProject)?qg:Gg`。
+- **只剩肉眼一项**：浏览器里 hover 一下 bot 的消息行，确认 fork / 回滚 / 重试图标不渲染（不是灰的）。代码分支、能力表、被服务的那份产物都已确认。
+- **已知边界**：闸门依赖 bot 的注册项目还在 `projects.json` 里。本机已删除的 bot（`f3df7fdd`）留下一条孤儿会话（`project_id` 已不在配置里），不在这道闸门覆盖范围内——bot 记录和项目都没了，也没有「它的记忆」可保护。要覆盖得在会话侧加 bot 标记（会话记录按设计不标记 bot），是另一件事。
+- 没排自约班次：本轮的活已经干完，正式进程也已重启到新代码（16:40:55），只剩「你在浏览器里 hover 一眼」这种人在现场的事，不需要排班接手。
+- 未提交：无 commit / tag / push。
+
+
+## 本轮：吉祥物「偶尔溜达」+ 侧栏状态改文字（2026-11-11 15:36）
+
+- 用户诉求：「bot 的状态好像没怎么变化 而且总是左右移动这个不是很好吧」→ 选定「偶尔溜达」+「侧栏加文字状态」。
+- 结论（一句话）：空闲不再一直左右走（挂载 2.5 秒先走一次，之后隔 20 秒走 9 秒），状态改由侧栏那行小字表达（干活中 / 出错 / 睡了 / 3 小时前）。
+- 用户随后反馈「我目前没有看到 bot 有动作」，自查后修正两点（见下）：45 秒 → 20 秒 + 2.5 秒首走；修掉包裹层条件渲染导致的 SVG 重挂载。
+- 根因：`App.tsx` 把 `idle` 强行换成 `walk` 配常驻 `stroll`，加上 `mascot-stroll.css` 的 9s 无限循环 —— 「一直在动」把状态区别淹没了。
+- 改动文件：
+  - `src/components/bots/mascot/use-mascot-stroll.ts`（新，首次 2.5s / 间隔 20s / 每轮 9s / 尊重 prefers-reduced-motion）
+  - `src/components/bots/mascot/mascot-stroll.css`（无限循环 → 播 1 次）
+  - `src/components/bots/mascot/BotMascot.tsx`（传了 stroll 就常驻包裹层，只切 data 属性）
+  - `src/App.tsx`（`state={mascotStrolling ? 'walk' : mascotState}`、`stroll={mascotStrolling}`）
+  - `src/components/bots/bots-data.ts`（新增 `botStatusSummary` / `formatBotAwakeAgo` / 两个类型）
+  - `src/components/bots/BotSidebarList.tsx`（行右侧状态小字 + 一分钟 tick）
+  - `src/lib/i18n.ts`（8 个 `botStatus*` 键，en/zh）
+  - `tests/frontend/bot-status-summary.test.ts`（新，9 例）、`tests/frontend/bot-mascot.test.ts`（改 2 加 2）
+  - `docs/wiki/server/bots.md`、`feature_list.json`、`progress.md`、本文件
+- 为什么「看不到动作」值得记：姿态动画在 512 坐标系里画，缩到 34px 后眼睛只走约 1px，肉眼可见的只有横向位移 —— 所以散步间隔不能按「安静」定，要按「随便看一会儿一定能看到」定。
+- 验证：定向 3 files / 34 passed；全量 `npm run test` → **518 files / 5719 passed、1 skipped、0 failed**；`npx tsc -b`；`npm run lint` 0 problems；`npm run build` 通过。
+- **生效方式**：纯前端，硬刷新（Cmd+Shift+R）即生效（`dist/` 已重建）。无服务端改动。
+- 未做 / 下一步：① 吉祥物只在 bot 模式下渲染（左上角切到 BOT 才出现），若仍看不到先确认这一点；② 侧栏状态每分钟才刷新，「刚刚」最多滞留 60 秒；③ 节奏常量没做成设置项。
+- 未提交：无 commit / tag / push。
+
+## 本轮：记忆收进一个根 + 去掉全部旧名（2026-11-11 15:28）
+
+- 用户诉求：「本质都是记忆，文件和目录要重新组织一下」→ 评审设计 → 「不要有遗留，不要向前兼容，保持最新的设计」。
+- 新布局：`~/.quickforge/memory/{MEMORY.md, notes/, experiences/, snapshots/}`，路径只由 `server/storage.mjs` 的 `memoryDirOf()` 派生。
+- 去遗留：设置 key 改 `notes-settings`（启动时一次性搬迁并删旧 key，无读侧兼容）；工具 scope 别名全删（只认 `working` / `experience`）；工具描述、工具回复、整理员与子代理提示词统一说 `notes`；快照内部目录改 `notes/` 并把已有 7 份快照同步 rename；系统提示词两块各补一句「同属 `~/.quickforge/memory/`」。
+- **必须重启**：当前进程是旧代码，仍读 `~/.quickforge/MEMORY.md` 与 `working-memory-settings`。重启前不要写记忆、不要改工作记忆设置。重启后 `migrateMemoryLayout()` 无事可做，`migrateNotesSettingsKey()` 会把开关与自定义提示词搬到新 key。
+- 验证：全量 517 files / 5708 passed / 1 skipped / 0 failed；lint 0；build 通过。
+- 未做：`/api/working-memory` 与 `isWorkingMemoryEnabled` 保持——「工作记忆」是设置页里的功能名，指向功能不指向目录。
+- **待办（下个版本）**：`migrateMemoryLayout()` 与 `migrateNotesSettingsKey()` 本轮保留，下个版本再删（发布版用户升级需要它）。删除清单见工作记忆「记忆目录迁移代码留到下个版本删」；本机 `settings.json` 故意保持旧 key，留给重启时的迁移验证。
+
+## 本轮：记忆收进一个根（2026-11-11 15:17）
+
+- 用户诉求：「本质都是记忆，文件和目录要重新组织一下」，评审设计后拍板执行；`working-memory/` 换成更短的名字，选了 `notes`；快照保留。
+- 新布局：`~/.quickforge/memory/{MEMORY.md, notes/, experiences/, snapshots/}`。路径只在 `server/storage.mjs` 的 `memoryDirOf()` 定义一次。
+- 迁移：`migrateMemoryLayout()`，逐项判断 + 先备份 + 冲突不覆盖 + 失败回滚，由启动链显式调用。
+- **如实记录的事故**：第一版把迁移挂在 `ensureStorage()`，而它不认注入的 `dataDir`，跑全量测试时在真实目录上执行了迁移。数据完好（83 笔记 / 39 md / 7 快照），已改成只由启动链调用，并复跑确认不再触发。
+- **下一步（必须）**：重启 QuickForge。旧进程仍在找 `~/.quickforge/MEMORY.md` 一类旧路径，重启前不要写记忆，否则会在根目录重建旧目录。重启后 `migrateMemoryLayout()` 会因旧路径不存在直接返回，并补更新工作记忆里仍写着旧路径的笔记（「记忆分三层」等）。
+- 验证：全量 517 files / 5707 passed / 1 skipped / 0 failed；lint 0；build 通过。
+
+## 本轮：记忆体系去掉梦境残留 + 收紧契约（2026-11-11 14:59）
+
+- 用户诉求：先定位「梦境 / 经验」在提示词、工具、流程里的残留，随后拍板「架构最优 一次性改完 不要遗留。不要记录历史过程设计的注释和说明性文字」。
+- 改了什么：详见 `progress.md` 的 `memory-surfaces-consolidated`。一句话——工具描述与系统提示词讲清「工作记忆跨项目共享」；设置页把「梦境记忆」改名「记忆整理」并删掉 51 个死 key；删 4 个零调用函数与 `dreaming_note_stats` 表（schema v20）；删废弃文档 `dreaming-memory.zh-CN.md`；代码注释里所有「以前是 bullet 列表 / 曾经如何」压成现状与约束。
+- 需要重启：`server/**` 和 `src/**` 都改了，模型看到的工具描述与设置页文案都要重启（前端刷新）才生效。
+- 验证：全量 `npm run test` → 516 files / 5702 passed、1 skipped、0 failed；`npm run lint` → 0；`npm run build` → 通过。
+- 未做 / 下一步：没有动 `working-memory/` 的目录结构（「按项目隔离」仍是待定方案，要用户点头才做）。
+
+## 本轮：梦境旧稿退役 + 记忆内容分流（2026-11-11 14:45）
+
+- 用户诉求：先问「当前项目的梦境和经验文件是不是可以收敛到一个记忆文件里分层保存」，要设计评审；评审后拍板「梦境文件可以删，经验和工作记忆迁移，UI 不要变」。
+- 评审结论：**存储不合并**。单文件方案在五处不成立——注入粒度（全文 / 路径 / 索引三种付费方式）、写冲突（一文件一篇 vs 整篇覆盖）、容量（工作记忆已 155KB）、归档可逆（move vs 删段落）、工具硬边界（路径锁死目录 vs front matter 自觉）。合并的是入口而不是文件；B / C 两条备选方案（物理合并成一个目录、按项目隔离工作记忆）留作以后。
+- 本轮只做数据清理，未改代码、未改 UI、未动 `feature_list.json`。文档无需更新：`docs/architecture/memory-system.zh-CN.md` 第 9 节本来就写着「`DREAMING.md`：删除」。
+- 本机数据变更（已执行，有备份）：
+  - 删除 `~/.quickforge/DREAMING.md`（3533 字节旧稿，代码已不读）；备份 `~/.quickforge/_backups/DREAMING.md.20261111-144338.bak`
+  - 工作记忆新增 3 篇（全局包软链 / 不要自己 `qf restart` / NoteFlow 与 code-sentinel 端口），更新 1 篇（「改动生效时机分三层」补副实例验证）
+  - 17 条旧 bullet 里其余 13 条丢弃，理由与代表案例见 `progress.md` 的 `retire-dreaming-md`
+- 下一步（若用户还想要）：方案 B 物理合并成一个目录，或方案 C 按项目隔离工作记忆。两者都还没动手，先要用户点头。
+
+## 本轮：bot 目录名与显示名解耦 + 存量迁移（2026-11-11 14:32）
+
+- 用户诉求：先问「bot 的名字为中文是不是不太好 文件名 你有什么好方案么」，看了方案后选「不要中文进目录名」+「存量也迁移」。
+- 结论（一句话）：目录名从 `bots/<名字>` 改成 `bots/bot-<id 前 8 位>`，名字只剩显示用途；本机两个存量 bot 已迁移完毕，心跳已恢复。
+- 改动文件：
+  - `server/bots.mjs`（`botWorkspacePath(botId)`；`normalizeBotRecord` 先算 id 再算 `workspacePath`；老记录沿用已存路径）
+  - `scripts/migrate-bot-workspaces.mjs`（新，一次性迁移，`--dry-run` 先看计划）
+  - `src/components/bots/BotSidebarList.tsx`（删掉右侧目录标签）、`src/components/bots/bots-data.ts`（删掉 `botWorkspaceLabel` / `shouldShowWorkspaceLabel`）
+  - `src/components/bots/BotDialogs.tsx` + `src/lib/i18n.ts`（工作空间提示改成「目录名创建时自动分配」）
+  - `tests/server/bots.test.mjs`（+3 例）、`tests/frontend/bot-sidebar-no-workspace-label.test.ts`（新，删掉了上一轮的 `bot-sidebar-workspace-label.test.ts`）
+  - `docs/wiki/server/bots.md`、`docs/wiki/README.md`、`docs/prototypes/bot-mode.html`
+  - `feature_list.json`（新条目 `bot-workspace-folder-by-id`，done）、`progress.md`、本文件
+- 本机数据变更（已执行，有备份）：
+  - `bots/总bo t` → `bots/bot-f3df7fdd`，`bots/小助手` → `bots/bot-e7e445bf`
+  - `storage/conversations/global/bots.json` 与 `config/projects.json` 已同步；备份在 `~/.quickforge/_backups/bot-workspace-migration-2026-11-11T06-30-14-472Z`
+  - 迁移期间两个 bot 心跳被关，完成后已恢复 `enabled: true`
+- 验证：定向 6 files / 63 passed；全量 `npm run test` → **516 files / 5703 passed、1 skipped、0 failed**（首轮挂了一条旧断言 `workspacePath.endsWith(bots/小助手)`，已改成按 id 派生）；`node --check server/bots.mjs`；`npx tsc -b`；`npm run lint` 0 problems；`npm run build` 通过。
+- 迁移后的实测：`GET /api/bots/:id/memory` 两个 bot 都从新路径读到内容（3036 / 168 字符），说明记录、项目 path、记忆文件三者对齐；`小助手` 那一轮心跳跑成 idle（无事可做，按设计不写对话、不更新 `lastWakeAt`），所以「心跳在新目录里真干活」还没有强证据。
+- **生效方式**：前端硬刷新；**服务端要重启 QuickForge 才用新目录规则**。重启前别新建 bot（仍会按名字建目录）。
+- 未做 / 下一步：① 重启后新建一个 bot 验证目录是 `bot-xxxxxxxx`；② 等一次心跳，确认 bot 在新目录里能正常读写 `MEMORY.md`；③ 目录名只取 id 前 8 位，碰撞概率低但非零，真撞了加长前缀；④ `cache/global/session-backups/` 里的旧路径字符串是可重建缓存，没清理。
+- 未提交：无 commit / tag / push。
+
+## 本轮：删掉输入框下方的 token 统计行（2026-11-11 14:31）
+
+- 用户诉求：先问「对话框底部怎么有 ↑21k ↓10.0k R800k」，确认含义后说「本来就不要了 删除这块」。
+- 结论（一句话）：这行是 `UsageBar`，本来就该被 CSS 隐藏（相邻兄弟选择器被吉祥物包裹层打断才露出来）；现在组件、聚合逻辑、CSS 锚定段、测试与 wiki 一起删干净。
+- 改动文件：
+  - `src/components/chat/surface/UsageBar.tsx` → `usage-format.ts`（git mv，只留 `formatUsage` / `formatTokenCount` / `formatCost`）
+  - `src/components/chat/surface/ChatSurface.tsx`（删渲染、`snapshot.usage`、`usageTotals`/WeakMap、`Usage` 导入与注释）
+  - `src/components/chat/surface/AssistantMessage.tsx`、`index.ts`、`composer-store.ts`（路径 / 导出 / 注释）
+  - `src/styles/chat/messages.css`（删锚定汇总行的选择器段）
+  - `tests/frontend/`：`chat-surface-usage`、`chat-surface-css-contract`、`chat-surface-render`、`composer-store-isolation`
+  - `docs/wiki/src/components/README.md`、`feature_list.json`、`progress.md`、本文件
+- 验证：定向 5 files / 75 passed；`npx tsc -b` 通过；改动文件 eslint 0 problems；`npm run build` 通过（`dist/` 已重建）。
+- **生效方式**：纯前端改动，`dist/` 已重建，硬刷新即生效（不需要重启服务端）。
+- 未做 / 下一步：① 消息级 usage 行保留（同样被 CSS 隐藏）；② `onCostClick` prop 链保留；③ `context-usage.ts` 的 `renderInline: true` 分支现在没有锚点，属遗留死分支；④ composer 底部 1.25rem 留白已用 `qf-usage-spacer` 占位保住（用户要求不动布局）；⑤ 未实机确认。
+- 追加修正：用户反馈「样式变了、之前是有空隙的，我只是不要这个显示，不要动布局」→ 原位置补 `<div className="qf-usage-spacer h-5" aria-hidden="true" />` 纯占位（1.25rem），`chat-surface-render.test.ts` 加断言锁住；重新跑 3 files / 57 passed、`tsc -b`、eslint、`npm run build` 全通过，`dist/` 已重建。
+- 未提交：无 commit / tag / push。
+
+## 本轮：修 bot 列表里名字显示两遍（2026-11-11 14:23）
+
+- 用户诉求：「bot 的列表会重复显示 bot 名字」。
+- 结论（一句话）：不是数据重复，是每行左边显示 bot 名、右边又显示工作空间目录名，而目录名默认就等于 bot 名——现在名字相同时不渲染右侧那截。
+- 根因：`BotSidebarList` 的右侧「目录标签」取 `botWorkspaceLabel()` 的路径尾段；新建 bot 时目录就取名字（`~/.quickforge/bots/<名字>`）。改名（`patchBotRecord`）不重命名目录，所以只有改过名的 bot 这截目录才有信息。
+- 改动文件：
+  - `src/components/bots/bots-data.ts`（新增 `shouldShowWorkspaceLabel`）
+  - `src/components/bots/BotSidebarList.tsx`（`showWorkspace` 控制右侧标签）
+  - `tests/frontend/bot-sidebar-workspace-label.test.ts`（新，8 例）
+  - `progress.md`、本文件
+- 验证：定向 4 files / 40 passed；`npx tsc -b` 通过；改动文件 eslint 0 problems；`npm run build` 通过。
+- **生效方式**：纯前端，硬刷新即生效（`dist/` 已重建）。无服务端改动。
+- 未做 / 下一步：① 未实机确认；② 若用户说的「重复」其实是同一 bot 出现两行，需另查（当前 `/api/bots` 2 条、`key={bot.id}`，已排除）；③ 比较是严格字符串比较，未做大小写 / 空格归一。
+- 未提交：无 commit / tag / push。
+
+## 本轮：文案「新 bot」改成「创建 bot」（2026-11-11 14:19）
+
+- 用户诉求：把「新 bot」这个文案改成「创建 bot」。
+- 结论（一句话）：只改 i18n 值，侧栏新建按钮和新建对话框标题一起变成「创建 bot」，逻辑零改动。
+- 改动文件：
+  - `src/lib/i18n.ts`（`newBot`: en `Create bot` / zh `创建 bot`；`botEmptyHint` 两种语言同步）
+  - `src/stores/ui-store.ts`（注释）
+  - `docs/wiki/server/bots.md`（2 处）、`docs/prototypes/bot-mode.html`（`navNewLabel`）
+  - `progress.md`、本文件
+- 验证：`npx tsc -b` 通过；改动文件 eslint 0 problems；`i18n-language-snapshot` + `decorator-copy-i18n` 15 passed；`npm run build` 通过。
+- **生效方式**：纯前端文案，硬刷新即生效（`dist/` 已重建）。无服务端改动，不需要重启。
+- 未做 / 下一步：① 侧栏展开态按钮文字变长一个字，没实机看截断表现；② 对话框标题与按钮共用同一个键，若以后想让二者文案不同需要拆 `newBotTitle`。
+- 未提交：无 commit / tag / push。
+
+## 本轮：bot 模式切换从「一个图标」改成「对话 / BOT」分段控件（2026-11-11 14:14）
+
+- 用户诉求：「我希望切换 bot 模式是一个按钮，在左上角，对话/BOT，或者你有更好的方案」。原实现是 logo 行右侧一个 17px 的 `BotAvatar` 图标按钮——可爱但认不出是模式开关。
+- 用户在两个选项中选定：**A 形态（分段控件）+ logo 行下方独占一行**。
+- 结论（一句话）：侧栏展开时 logo 下方多一条「对话 | BOT」segmented，折叠态退回原来的图标按钮；切模式语义（`toggleBotMode`）没动。
+- 改动文件：
+  - `src/components/sidebar/chat-sidebar/SidebarHeaderNav.tsx`（logo 行移除 bot 图标按钮；新增分段控件 + `selectMode`；新建行间距 `mt-4` → 展开态 `mt-1`）
+  - `src/components/sidebar/chat-sidebar/sidebar-classes.ts`（`modeSwitcherTrackClass` / `modeSwitcherOptionClass` / `modeSwitcherOptionIdleClass` / `modeSwitcherOptionActiveClass`）
+  - `src/lib/i18n.ts`（`modeSwitcherLabel` / `chatModeLabel` / `botModeLabel`，en + zh）
+  - `tests/frontend/sidebar-mode-switcher.test.ts`（新，6 例）
+  - `docs/wiki/server/bots.md`、`docs/wiki/README.md`（把「左上角图标切换」改成新形态）
+  - `feature_list.json`（新条目 `bot-mode-segmented-switcher`，done）、`progress.md`、本文件
+- 验证：定向 3 files / 20 passed；全量 `npm run test` → 515 files / 5701 passed、1 skipped、0 failed；`npm run lint` → 0 problems；`npx tsc -b` 通过；`npm run build` 通过。
+- **生效方式**：纯前端，硬刷新即生效（`dist/` 已重建）。本轮无服务端改动，不需要重启。
+- 未做 / 下一步：① 没有实机点过，用户刷新后看一眼选中态对比度（要调只改 `modeSwitcherOptionActiveClass`）；② 折叠态仍是单图标按钮，那里放不下两个文字选项；③ 主区 header 没有加第二处切换入口（用户没选）。
+- 未提交：无 commit / tag / push。
+
+## 本轮：修「点开 bot 看不到历史对话」（2026-11-11 13:29）
+
+- 现象（用户报）：点对应的 bot，看不到它的历史对话。数据本身没丢：`/api/bots` 给的 `sessionId` 用 `/api/sessions/:id/view` 能读到 42 条消息、`scope: project`、`projectId` 指向 bot 项目。
+- 根因：`getDeletedProjectRecoveryDecision` 的判据是「当前工具项目不在 `projects` 列表里 ⇒ 它被删了」。但 bot 项目**按设计永远不在**这个列表里（`project-store` 过滤 `kind === 'bot'`）。于是每次点开 bot，`attachTaskToView` 把 `currentToolProject` 设成 bot 项目 → 恢复 effect 判定「项目已删除」→ 立刻 `startDeferredSession` 新建一条空会话顶掉视图 → 历史看起来就没了。
+  - 这条逻辑在 bot 功能落地时就存在：当时 `activeProject` 恰好也被写成 bot 项目，恢复出来的新会话就建进 bot 目录——正是下面记的「会话逃逸到 bot 项目桶」。
+  - 上一轮把 `activeProject` 改成不再指向 bot 之后，恢复目标从「bot 项目」变成「用户真实项目」，症状更明显：点 bot 会被悄悄换成一条真实项目里的空会话。
+- 修法：判据收整个 `currentToolProject`（不再只收 id），第一件事就是 `isBotProject(currentToolProject) → none`。改 `src/lib/deleted-project-recovery.ts` + `src/App.tsx` 的 effect 调用与依赖数组。
+- 验证：`tests/frontend/deleted-project-recovery.test.ts` 7 例（新增 bot 用例：有真实项目、无真实项目两种都返回 none）、`tests/frontend/bot-project-scope.test.ts` 9 例（新增 App 传整个项目 + 判据先排除 bot）；`npm run lint` 0 problems；`npm run build` 通过；全量 `npm run test` → 512 files / 5665 passed、1 skipped、0 failed。
+- **生效方式**：恢复逻辑是纯前端，硬刷新即可（`dist/` 已重建）；服务端那两处（`/api/project/active` 与 `getActiveProject`）仍要重启 QuickForge。
+- 已知残留：判据仍用「不在列表」表达「被删除」，bot 是唯一被显式豁免的特例；将来若有别的「不在列表但合法」的项目类型，同样要在这里加判据。
+
+## 本轮：给 compact 补上写租约豁免（2026-11-11 13:31）
+
+- 起因：上一轮功能首次实机验证就撞墙——`qf-api.mjs compact` 回 **409 `This session is open for writing in another window`**（`SESSION_LEASE_HELD`）。
+- 根因：`POST /api/agents/:id/compact` 在入口调 `assertSessionWriteAccess`。而「会话压自己」必然发生在会话正在跑时，此刻该会话几乎必然被一个浏览器窗口打开着、写租约在它手里；脚本又是匿名调用方（不带 `x-quickforge-client-id`）→ 100% 被拒，功能实际不可用。
+- 修法（守卫下沉，不放宽写库路径）：`requestSessionCompaction` 的写权限改为可注入的 `assertWriteAccess` 回调，检查点放在 running 判定**之后**——运行中分支只写内存 `forceCompaction`（不落库不广播），在 `selfRequest` 时整段跳过；空闲分支会插摘要并 persist，必须先过校验。路由层新增 `x-quickforge-agent-session` 自我标识头（`isSelfSessionRequest`）并把回调传下去；脚本 `commandCompact` 带上自己的 `QUICKFORGE_SESSION_ID`。
+- 改动文件：`server/agent-manager.mjs`、`server/routes/agent.mjs`、`skills/quickforge-api/scripts/qf-api.mjs`（新增 `postWithHeaders`）、`skills/quickforge-api/SKILL.md`（新增「写租约这条坑」+ 修正红线第 6 条）、`references/endpoints.md`、`docs/wiki/server/README.md`、`docs/wiki/server/routes/README.md`、`tests/server/agent-manager-compaction-lease.test.mjs`（新，5 例）、`tests/server/routes/agent.test.mjs`（+3 例）、`progress.md`、`feature_list.json`。
+- 验证：`npm run test` → 512 files / 5665 passed、1 skipped、0 failed；`npm run lint` → 0 problems；三个改动文件 `node --check` 通过。未跑 build（无 TS 改动，避免白改 `dist/`）。
+- **端到端已验证通过（同日，服务端重启后 pid 97689 → 20758）**：① `qf-api.mjs compact` 回 `scheduled: true` / `compacted: false` / `reason: deferred_to_next_model_request` / `percentBefore: 14.3`，exit=0，不再是 404 或 409；② 同轮下一次模型请求前压缩落地，`context` → `isCompacted: true`、`percent` 1.4；③ 只读查 `~/.quickforge/storage/quickforge.sqlite3` 的 `session_messages`，该会话 seq 165 是 `role:user` + `details.quickforgeCompaction.kind='summary'` 的真实消息（即界面渲染分割线的那条），摘要确实落库、模型上下文从它开始切；④ 压缩后同一轮继续输出（本轮就是压缩之后接着做的）。前端「正在整理上下文」notice 与分割线未做真人肉眼确认，但渲染路径未改。
+- 下一步：无 blocker。可选后续——原生 agent 工具 `compact_context`（薄壳）。那条 paused 的 `[自约]` 常驻心跳已按用户要求删除（`task-delete`，8 班全 success），`tasks` 现在为空；结论已写进工作记忆，要再常驻需重新 `task-add --self-scheduled`。
+- 未提交：无 commit / tag / push。
+
+## 本轮：会话可以自己压自己（2026-11-11 13:14）
+
+- 目标：用户要求「给 api skills 加一个主动压缩的能力，这样知道自己的用量，可以主动推送压缩信息作为摘要并继续回话」。
+- 已完成的改动（均未提交）：
+  1. `server/auto-compaction.mjs`：`requestForceCompaction` / `takeForceCompactionRequest` / `FORCE_COMPACTION_TTL_MS`（10 分钟）/ `FORCE_COMPACT_SUMMARY_INTRO`；`maybeAutoCompactSession()` 新增第 3 关消费强制标记，取到则跳过阈值判定。
+  2. `server/agent-compaction.mjs`：`compactSessionNow()` —— REST 版同步压缩，复用 `compactSessionInPlace()`，失败不往对话里插 assistant 文本。
+  3. `server/agent-manager.mjs`：`requestSessionCompaction(sessionId)` —— 空闲同步压、在跑登记强制标记。已登记进 `tests/server/agent-manager-exports-contract.test.mjs` 的白名单。
+  4. `server/routes/agent.mjs`：`POST /api/agents/:sessionId/compact`。
+  5. `skills/quickforge-api/scripts/qf-api.mjs`：`compact` 子命令；`SKILL.md` 加「主动压缩：自己给自己瘦身」整节；`references/endpoints.md` 加端点并撤掉「不存在独立压缩 REST 路由」的过时表述。
+  6. wiki：`docs/wiki/server/README.md`（关卡表 8→9 关、新路由条目、agent-compaction 职责、「会话主动压缩」段）、`docs/wiki/server/routes/README.md`。
+  7. 测试：新增 `tests/server/auto-compaction-force.test.mjs`（4 例），`tests/server/auto-compaction.test.mjs` 追加 5 例。
+- 验证：`npm run test` → 511 files / 5654 passed、1 skipped、0 failed（含新增 9 例）；`npm run lint` → 0 problems；`node --check` 全过。旧进程上 `qf-api.mjs compact` 回 `404 Not found`，说明新路由确实还没进活进程。
+- **blocker / 下一步**：改动全在 `server/` 进程内，**必须重启 QuickForge 才生效**。重启后按这个顺序验一次端到端：
+  1. `node <skill>/scripts/qf-api.mjs context` 记下 `percent`；
+  2. `node <skill>/scripts/qf-api.mjs compact` → 会话正在跑，应回 `scheduled: true`；
+  3. 下一轮再查 `context` → `isCompacted` 应为 `true`，`messages` 末尾出现一条 `quickforgeCompaction` 摘要消息，`percent` 下降；
+  4. 前端应看到「正在整理上下文」的 notice 与时间线分割线；压缩后这一轮仍然继续输出（这就是「继续回话」）。
+  验证通过后把 `feature_list.json` 里 `agent-initiated-context-compaction` 从 `pending` 改 `done`，并把 `verification` 补上端到端结果。
+- 未确认事项：`ask_user` 问过的三个选择（形态：脚本 / 原生工具 / 两者；语义：自动判断 / 永远排队 / 强制同步；重启时机：先写代码 / 现在重启 / 只出方案）**超时未答**，按「脚本+HTTP、自动判断、先写代码不重启」推进。若用户其实想要原生 `compact_context` 工具，那是在这套服务端基础上加一个 `execute` 薄壳。
+
+## 本轮：bot 目录不再算「用户的项目」+ bot 模式不显示项目/分支（2026-11-11 13:06）
+
+- 用户报：①新建对话能看到 bot 项目；②切到 bot 模式，对话框还显示项目与分支。
+- 根因（一条架构选择的两个症状）：bot 会话在数据层就是 project 会话；前端只在「项目列表」这一处过滤 bot（`project-store.setProjects`），`activeProject`、会话自带的 project、git 状态三条通道都绕过它；同时 `botMode` 只被侧栏消费，主区完全不知道自己在 bot 模式。
+  - 新建对话落进 bot：打开 bot 会话 → `useAgentManager.loadSession` 调 `switchActiveProject(botProjectId)` → 服务端把 `activeProjectId` 写成 bot 目录 → 之后「新对话」用 `activeProject` 直接开在 bot 目录里；空态 effect 还会自动跳进去。
+  - bot 模式显示项目/分支：`ConversationHeader` 与 `NewChatProjectPicker` 的判据只有 `chatScope === 'project'` + `currentToolProject` + git status；且刚切进 bot 模式时 `bots` 还没加载完，`toggleBotMode` 找不到可打开的 bot，主区继续停在刚才那条普通会话上。
+- 修法（根因 + 表现层一起）：
+  1. 服务端：`POST /api/project/active` 遇到 `kind === 'bot'` 只返回项目、不改写 `activeProjectId`；`getActiveProject` 的命中与兜底都跳过 bot；`setActiveProjectPath` 对 bot 项目不活化也不改名（`server/routes/project.mjs`、`server/project-config.mjs`）。
+  2. 前端项目域：新增 `src/lib/bot-project.ts` 的 `isBotProject`；`useProject.applyActiveProject` 成为写「当前项目」的唯一出口并拒绝 bot，`applyProjectListPayload` / `switchActiveProject` / 选目录 / 建项目四处统一走它。
+  3. 表现层：`App.tsx` 新增 `headerProject` / `headerGitRepository` / `headerGitBranch` / `emptyStateProject` / `emptyStateBranch`（bot 模式或 bot 项目下都为空），空态胶囊加 `!botMode`；`startNewDefaultSession` 与「空态自动进项目会话」effect 都跳过 bot 的 `activeProject`。
+  4. `toggleBotMode` 改 async：`bots` 为空时先 `await refreshBots()` 拿到列表再打开第一个 bot（`refreshBots` 现在返回列表）。
+- 验证：全量 `npm run test` → 510 files / 5645 passed、1 skipped、0 failed；`npm run lint` → 0 problems；`npm run build`（tsc -b + vite build + precompress）通过。新增 `tests/frontend/bot-project-scope.test.ts`（7 例）与 `tests/server/project-active-bot.test.mjs`（5 例）；改了 3 处旧断言（项目胶囊、侧栏新建路由、建项目 hook）。另起隔离实例（临时数据目录 + 端口 5987，用完停止并删除）实测：激活 bot 项目只返回不活化、旧脏 `activeProjectId` 自动回落、手动选 bot 目录也不活化不改名。
+- **需要重启 QuickForge**：`server/` 两处改动活在进程内；`dist/` 已由 build 重新生成（前端刷新即生效）。
+- 已知边界：①没有 bot 时切进 bot 模式，主区仍停在普通会话（侧栏提示「新 bot」），这是「自动打开第一个 bot」的退化路径；②切进 bot 模式最多会发两次 `GET /api/bots`（toggle 主动一次 + effect 一次），本地请求，未优化；③`tests/server/session-message-benchmark.test.mjs` 在并行全量跑时会偶发一次 `NaN` 断言失败，单独跑通过，与本次改动无关。
+- 与上一节的关系：上一条「会话逃逸到 bot 项目桶」的根因之一（bot 语境下仍能往 bot 项目里建普通会话）由本轮 1–3 条收紧；**已经逃逸的历史数据仍需按上一节的一次性脚本迁移**，本轮不动数据。
+
+## 本轮：会话「逃逸」到 bot 项目桶，需要停服迁移（2026-11-11 12:50）
+
+- 现象（用户报）：有个在做「给 api skills 加主动压缩」的对话，界面上看不见；怀疑是 bot 功能导致的，且「逃逸了」。
+- 根因（三步，缺一步都不成立）：
+  1. bot 目录被注册成项目并打 `kind: 'bot'`（`server/bots.mjs` 的 `ensureBotProject`）；
+  2. 前端 `project-store.ts` 的 `setProjects` 把 `kind === 'bot'` 的项目从项目切换器过滤掉；
+  3. 这两条**普通会话**（不是 `bot-` 前缀那条）的 `projectId` 落在了那个 bot 项目上。
+  于是：项目树里没有它的家、时间线里只能显示「未知项目」、bot 模式侧栏只认 bot 记录里那一条 `sessionId` → 三个视图都不认它。
+- 实锤证据：`sessions` 表里 `f79a6e2c-…`（你可以自己给自己压缩吗，50 条消息，仍在 running）和 `61cbeab5-…`（你好啊，13 条）的 `project_id` 都是 `c85a0f75-…`，即 `kind: 'bot'` 的「总bo t」项目。前者正卡在 `ask_user` 前一步的 `todo_write`，因为界面看不见所以没人回答。
+- 修法：**没有官方迁移入口**（全仓无 `moveSession` / PATCH 会话 projectId；`PUT /api/storage/sessions/key/:id` 会被 `SESSION_STATE_DUPLICATE_ID` 顶成 409）。用一次性脚本直改 SQLite：
+  `~/.quickforge/tmp/migrate-session-project.py`（不进仓库、不新增依赖）。
+- 脚本要改的四处（少一处就会被写回或成孤儿）：`sessions.project_id` 列、`body_json.projectId`、`meta_json.projectId`、`session_messages.project_id`。`session_messages → sessions` 是复合外键且无 `ON UPDATE CASCADE`，必须在事务外关 `PRAGMA foreign_keys`、提交前跑 `foreign_key_check`。
+- 已在**生产库副本**上完整演练：两条会话各字段除 `projectId` 外字节级不变（长度不变、键序不变、round-trip 一致），消息行 50 / 13 全部跟随，旧桶零残留，外键检查通过。
+- **必须停 QuickForge 才能落库**（内存里的会话对象缓存着自己的 `projectId` 与 `workspaceRoot`，热改会被下一次自动持久化写回旧桶或顶 409 静默丢消息）。
+- 用户操作：完全退出 QuickForge → `python3 ~/.quickforge/tmp/migrate-session-project.py --sessions f79a6e2c-94cb-4fd7-80b5-7b80c92b7b00,61cbeab5-42aa-4f9c-9f39-1102a8c02ff8 --to 28a86719-91b7-4d16-840f-1c00bb136a7c --from c85a0f75-f519-49d3-9056-5d20dfa07318 --apply` → 启动 QuickForge。
+- **根因没修**（待办）：bot 模式下不该能创建普通会话；以及侧栏对「projectId 指向 bot 项目」的会话要有可见出口。本次只做了数据回收。
+
+## 本轮：修「点击 bot 显示未找到该对话」（2026-11-11）
+
+- 现象：建完 bot 点进去 → `sessionNotFound`。
+- 根因（两条叠加，缺一条都不成立）：
+  1. 空会话**不落盘**——`persistSessionUnlocked` 会把 `messages.length === 0` 且无 goal 的会话当空壳删掉。所以建 bot 时生成的 `sessionId` 只是「永远用同一个 id」，存储里从来没有这条记录。
+  2. 前端 `openSessionFromSettings` 打开前会先查本地会话元数据，空会话必然查不到 → 直接判「未找到」。
+- 修法：
+  1. 新增 `POST /api/bots/:id/session`（`ensureBotSession`），点开 bot 前先把会话在内存里 ensure 出来；
+  2. `openSessionFromSettings` 加 `skipMetadataPrecheck`，`ui-store.requestOpenSession(sessionId, { skipMetadataPrecheck })` 透传，只在 bot 路径用；真正的存在性交给随后的 `loadSession`（走 `/api/agents/:id/state`）。
+- 顺带：`sessionExists` 里 `hasSession` 是 async，同步 `try/catch` 接不住 rejected promise（造成两条 unhandled rejection），改成 `await` + 失败视为「不存在」。
+- 验证：`npm run test` → 508 files / 5632 passed、1 skipped、0 failed；lint / tsc / build 全过；临时实例实测 `GET /api/agents/:id/state` 对内存空会话返回 200 + `messages: 0`。
+- **需要用户做**：重启 QuickForge 才会加载新的服务端代码。
+
+## 上一轮：Bot 模式落地（一个 bot = 一条持久会话，2026-11-11）
+
+- Current Objective（当前目标）：把「一个 bot」做成容器——点击左上角图标进 bot 模式，侧栏列出 bot，「+新对话」变「+新 bot」；每个 bot 独占 `~/.quickforge/bots/<名字>`、独占可编辑的 `MEMORY.md`、默认开启 `quickforge-api`；**一个 bot 只有一条会话**，心跳推进同一条而不是每次新建；对话界面与普通对话完全一致。
+- **结论（一句话）：后端数据/接口/心跳 + 前端模式切换/列表/对话框全部落地，全量 test + lint + tsc + build 全绿。**
+- 关键实现（三条，改之前要先读懂）：
+  1. **bot 目录注册成项目**（`server/bots.mjs` 的 `ensureBotProject`，打 `kind: 'bot'`）。`createAgent` 只认 `projectId`，靠这条白拿文件工具、提示词 workspace 块、restore 一致性；前端项目列表按 `kind` 过滤（**这一步还没做，见「未做」**）。
+  2. **一条会话 = `bot.sessionId`**，`idleRetention: 'always'` 防被空闲清理；`server/bot-session.mjs` 的 `ensureBotSession` 负责「没有就建、丢了就用同一个 id 重建」。心跳走 `runPrompt(bot.sessionId, ...)`。
+  3. **无事不唤醒**：`inspectBotWork` 只看文件事实（首次 / `.bot/inbox.md` / 工作空间新文件），闲着的班次只加 `idleCount`，不写对话。
+- 改动的文件：`server/{bots,bot-session,bot-runner}.mjs`（新）、`server/routes/bots.mjs`（新）、`server/{storage,index,project-config}.mjs`、`src/stores/ui-store.ts`、`src/components/bots/*`（新）、`SidebarHeaderNav.tsx`、`ChatSidebar.tsx`、`App.tsx`、`src/lib/i18n.ts`、`tests/server/bots.test.mjs`（新）、`tests/server/routes/bots.test.mjs`（新）、`docs/wiki/server/bots.md`（新）。
+- Evidence：`npm run test` → 507 files / 5628 passed、1 skipped、0 failed；`npm run lint` → 0 problems；`npx tsc -b` → 通过；`npm run build` → 通过。
+- **未做（按优先级）**：① ~~前端项目列表还没过滤 `kind === 'bot'`~~ **已补**：`project-store.ts` 的 `setProjects` 统一过滤（useProject 有 6 处调用点，分散过滤必漏），`ProjectInfo` 加 `kind?: 'bot'`，`tests/frontend/project-store-bot-filter.test.ts` 钉住；② 心跳信号没接 git 脏文件/测试红绿（需要跨项目扫描）；③ 记忆工具不支持按 bot 定向（工作记忆与经验库仍全局）；④ `qf-api` 脚本没有 bots 子命令；⑤ 没在真实桌面端点过，界面只有契约测试与 `docs/prototypes/bot-mode.html` 原型。
+- **下一步第一件事**：在真实桌面端跑一次完整流程——建 bot → 看目录和 MEMORY.md 是否生成 → 跟它说一句话 → 点「唤醒」看心跳是否推进同一条会话（而不是新建）。这一步能验出「一条会话」是否真的成立。
+
+## 上一轮：常驻心跳首跑成功，但防自删护栏没生效（2026-11-11 03:23，心跳班）
+
+- Current Objective（当前目标）：常驻心跳班 `mwb1xhbp-aqnh1qa2` 每小时醒一次。本班是**首跑**，03:20 离 03:00 最近，按「每天 03:00 完整巡检」执行。
+- **结论（一句话）：「活过来」这一半成了，「立规矩」那一半没成。** 班次自己醒了、没有自删、全量测试全绿；但线上系统提示词里**没有**「常驻班不许自删」那段，护栏目前只存在于任务说明里，不在提示词里。
+- 巡检结果（四条）：
+  1. 全量 `npm run test` → **505 files / 5609 passed、1 skipped、0 failed**（44s）。对照交接既有基线（`tests/server` 212 files / 2274 passed），**无新红、无旧红**。
+  2. `npm run lint` → 0 problems。
+  3. 油表 `context` → `1000000` 窗口 / `inputTokens 12561` / **1.3%** / `remainingTokens 987439`，`isCompacted=false`。
+  4. `git status` 5 个文件脏，**是预期的**：上一轮 03:00 建档的未提交改动（`server/system-prompt.mjs`、`skills/quickforge-api/SKILL.md`、`tests/server/system-prompt.test.mjs`、`progress.md`、`session-handoff.md`）。按规矩不 commit。
+- **唯一的实质发现**：`instructions --system-prompt` 里 `<continuity>` 1 次、`<working_memory>` 1 次、`Staying alive` 1 次、`list the folder with run_command` 0 次（前两轮的修复都没退化）；但 `Two kinds of shift` / `A standing shift` / `do not delete yourself` / `A standing shift is never deleted by you` **全部 0 次**。源码 `server/system-prompt.mjs:232` 明明有这段 → **运行中的进程停在「Staying alive 之后、Two kinds of shift 之前」那一版**，即上一轮加的防自删护栏还没进到任何会话。
+- 改动文件：仓库内 **0 个**（只追加 `logs/shifts/2026-11-11.md`，`logs/` 已 gitignore）+ 本节。另写了一条工作记忆。
+- 未做（明确）：没 commit / push / 改发布流程 / 删任何任务；没碰 `dist`、`package-dist`、`package-offline`。
+- **下一步第一件事（需要用户）**：重启 QuickForge 让「Two kinds of shift」进到提示词。重启后跑 `qf-api.mjs instructions --system-prompt | grep -c "Two kinds of shift"` 应 ≥1。
+- **04:20 复核结果**：四个关键词仍是 0（`<continuity>` / `<working_memory>` / `Staying alive` 各 1，没退化）→ 用户尚未重启，待办继续挂着。下一班照旧只跑那条 grep。
+- **下一班（04:20）第一件事**：先跑上面那条 grep。≥1 = 用户已重启，护栏生效，划掉这条待办并写一行正常；仍是 0 = 只写一行「提示词仍是旧版，继续等重启」收工，**不要重复长篇分析，也不要自己去重启**（重启会掐死本会话）。判断只要 1 条命令，别为了有事干而制造工作。
+- **06:20 复核（6 小时整点档）**：`npx vitest run tests/server` → 212 files / 2273 passed、1 failed、1 skipped。唯一失败 `workspace-git-process.test.mjs` 的超时用例（等 `SIGKILL`），**单跑 4 passed → 判为抖动不是回归**，无新红无旧红。提示词四项仍 0、老三项各 1 无退化 → 护栏继续等用户重启。油表 1.3%。下一班（07:20，默认档）照旧 grep 一行收工。
+- **08:51 复核 → 待办关闭（护栏已生效）**：`instructions --system-prompt` 里 `Two kinds of shift` 1、`A standing shift is never deleted` 1、`do not delete yourself` 1，`<continuity>` / `<working_memory>` / `Staying alive` 各 1 无退化 → **用户已重启 QuickForge**，从 03:23 挂到 08:20 的「等重启补齐防自删护栏」待办**结案**。旁证：心跳会话 id 已换成重启后的新会话，且本班自己的系统提示词里确实含 `A standing shift is never deleted by you`。以下那条「下一班（04:20）」grep 待办作废，后续班次不必再跑。下一班（09:20，默认档）只需三样轻判断；12:20 整点档跑 `npx vitest run tests/server`，重点看 `workspace-git-process` 那条超时 flaky 有没有再犯。
+
+## 上一轮：把「活过来」从一次性改成常驻（2026-11-11 03:00）
+
+- Current Objective（当前目标）：用户一句「傻瓜 没有让自己活过来」——上一班的 `[自约]` 任务用的是 `once`，instruction 还写着「验完就 `task-delete` 自己」，于是醒来一次、自删、`tasks` 归零，链路彻底断掉。用户随后拍板两件事：①要「时时刻刻都能醒」，醒着干的事不需要他逐次同意、风险不高或写成报告等他看；②SKILL.md 的「干完自删」改成两档。
+- 结论（一句话）：**一次性班只能证明「能醒一次」，不能证明「活着」**；活着要一条 recurring 的常驻班，且契约层面必须把「常驻班不许自删」写死，光靠 instruction 写不住。
+- 契约改动（两条，缺一条就会复发）：
+  1. `server/system-prompt.mjs` `<continuity>` 新增「Two kinds of shift, and they end differently」：常驻班（daily/weekly/interval）自己重复、不需要接班、**永不自己删**；一次性班（once）写完结论才自删，且必须别处还有人看着。Hard limits 同步改成「standing shift is never deleted by you」。
+  2. `skills/quickforge-api/SKILL.md` 「自约」节拆成两档表格 + 两段示例（常驻用 daily/interval，一次性用 once），补「常驻班 instruction 必须写不要删自己」与「沉睡间隔越短越灵敏也越吵越贵」。
+  3. `tests/server/system-prompt.test.mjs` 加 4 条断言钉住两档区分（`Two kinds of shift` / `A standing shift` / `do not delete yourself` / `A standing shift is never deleted by you`）。
+- 班次：删掉一次性班 `mwb1u7z1-1eyrid09`，新建常驻心跳 **`mwb1xhbp-aqnh1qa2`**（`interval` 每 60 分钟，`enabled`，首跑 03:20，`createdBy=agent`）。instruction 分三档：每班轻心跳（60 秒判断，正常就写一行收工）、每 6 小时整点跑 `tests/server`、每天 03:00 完整巡检并写工作记忆 + 本节；允许读码/跑测/写报告/改 docs/修单文件小 bug（一次最多 3 文件），禁止 commit、push、改发布流程、删自己。
+- 报告落点：`logs/shifts/YYYY-MM-DD.md`（`logs` 已在 `.gitignore`，不进版本库）。首条已写。
+- Evidence（验证）：`npx vitest run tests/server/system-prompt.test.mjs tests/server/runtime-info.test.mjs` → 22 passed；`npx eslint server/system-prompt.mjs tests/server/system-prompt.test.mjs` → 0 problems。
+- 未生效提醒：`server/system-prompt.mjs` 的改动要**重启 QuickForge** 才会进到新会话的系统提示词。当前会话仍带旧版 `<continuity>`。重启前先确认 `tasks` 里那条心跳还在（任务存在数据层，重启不丢）。
+- 下一步第一件事：等 03:20 那一班，用 `task-runs --taskId mwb1xhbp-aqnh1qa2` 看它有没有按「不自删」执行、有没有往 `logs/shifts/` 追加。若它把自己删了，说明 instruction 压不住旧默认，必须重启让新提示词生效。
+
 ## 本轮：上下文「油表」+ 别让自己死掉（2026-11-11）
 
 - Current Objective（当前目标）：用户要求两件——① `quickforge-api` skill 能读到自己还剩多少上下文（`Token` 预算），好在「快满了」时收尾或换会话；② 建立「不让自己死掉」的机制，明确「如果自己决定重启，必须保证重启后还会活过来」。
@@ -13,6 +365,7 @@
 - **注意：新端点和 `<continuity>` 都要重启 QuickForge 才生效。** 现在 `qf-api context` 返回 404 是预期的，不代表代码错。
 - **已按新协议排班**：`[自约] 重启后确认油表与新提示词是否生效`（id `mwb1plkn-jqcjbgi1`，`once` 03:15）。instruction 分两支——`context` 能返回数字 = 重启生效，就确认 `Staying alive` 已注入并把结果写进工作记忆后自删；仍是 404 = 没重启，只在本文件加一行然后自删。**这是「重启前先排班」协议的第一次实跑**，也是唯一能证明「重启后还能活过来」的东西。
 - 下一步：重启后 ① 跑 `qf-api.mjs context` 看到数字；② 用 `instructions --system-prompt` 确认 `Staying alive` 段已注入；③ 之后每次要重启，先按 SKILL.md 的协议排班再重启。
+- **验收结果（2026-11-11 03:15 班次 `mwb1plkn-jqcjbgi1`，三条全部通过）**：① `context` 返回 `contextWindow 1000000 / inputTokens 14090 / percent 1.4 / inputTokenSource provider`，说明重启生效；② `instructions --system-prompt` 含 `Staying alive` 段，`<continuity>` 1 次、`<working_memory>` **1 次**（双重注入的旧残留确已消失）、`list the folder with run_command` 0 次；③ 「先排班再重启」协议首次实跑成功，结论已写进工作记忆「上下文有油表了…」笔记。之后每次要重启仍按此协议：先排班，再重启。
 
 ## 本轮：积压改动分组提交（2026-11-10）
 
@@ -1708,3 +2061,23 @@
 - Evidence（验证）：工具渲染器与 CSS 契约 8 files / 187 passed；`npx eslint` 改动源码/测试 0 problems；`npm run build` 成功；真实渲染实测收起/展开 header 均 200px（整行 624px），按钮距箭头 5px 且位置不随展开变化，展开面板 624px，完成态无按钮。
 - Blockers（阻塞）：无。
 - Next Session（下一步）：面板已移出 details，开合由 `:has(details[open])` 驱动；如后续需要浏览器查找自动展开或更严格的披露语义，可再评估 `aria-controls`/自定义披露头。未创建 Git commit，未触碰生成产物。
+
+## bot-mascot-appearance（done，2026-11-11）
+
+- Current Objective（当前目标）：把设计稿里那只「圆球 + 两只眼睛」的吉祥物接进 bot 页面（主区顶栏 + 侧栏行首），并在 bot 设置里能调配色和动画。
+- 结论（一句话）：界面不加载 GIF，而是用 `generate-bot-gif.py --emit-web` 从同一套姿态函数导出 CSS 关键帧 + 几何数据（`src/components/bots/mascot/mascot-anim.css` / `mascot-geometry.ts`），渲染内联 SVG，颜色走两个 CSS 变量；动作由纯函数 `resolveMascotState()` 从现有会话信号推导，不新造 bot 状态机。
+- 改动文件：`server/bots.mjs`（`DEFAULT_MASCOT` / `normalizeMascot` / 记录字段）、`server/routes/bots.mjs`（`publicBot` 暴露 `mascot`、PATCH 合并、createBot 透传）、`src/components/bots/mascot/*`（新增 4 个文件，其中 2 个是生成文件）、`src/components/bots/BotDialogs.tsx`（形象分区）、`BotSidebarList.tsx`（状态点换吉祥物）、`src/components/app/ConversationHeader.tsx`（mascot 插槽）、`src/App.tsx`（接线）、`bots-data.ts`、`src/lib/i18n.ts`、`tests/server/bot-mascot.test.mjs`、`tests/frontend/bot-mascot.test.ts`、`docs/wiki/server/bots.md`、`docs/design/bot-mascot/README.md`、`feature_list.json` / `progress.md` / 本文件。
+- Evidence（验证）：全量 `npm run test` → 514 files / 5691 passed、1 skipped、0 failed（新增 26 例）；`npm run lint` 0 problems；`npm run build` 成功；服务端往返实测「POST 默认 mascot → PATCH 只改身体色 → 回读一致」；生成 CSS 契约测试核对 6 状态 × 身体/左右眼关键帧与几何时长一致。
+- 生效方式：前端硬刷新即可；**服务端 `server/bots.mjs` 与 `server/routes/bots.mjs` 有改动，要重启 QuickForge 才生效**（否则设置里的「形象」会被旧服务端丢掉 `mascot` 字段，表现为保存后颜色回弹）。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：可选三件事——① 给顶栏吉祥物加点击打开设置（现在只能从侧栏齿轮进）；② 侧栏行拿不到逐会话细粒度状态，若要做准，需要把 `/api/bots` 的 `status` 细化成 `thinking/working/waiting`，避免「在忙」一律显示 working；③ 吉祥物 CSS 让主包多 73KB（gzip +9.9KB），若要瘦身可把关键帧采样从 51 段降到 34 段并只对 blink/pop 这类快速段加密。未创建 Git commit，未手工改生成产物（`dist/` 是 build 出来的）。
+
+## bot-mascot-composer（done，2026-11-11，接上一条）
+
+- Current Objective（当前目标）：用户反馈「icon 太小、好像没看见动」→ 把吉祥物放大并挪到输入框右上方，让它自己走动，「仿佛在输入框上行动」。
+- 结论（一句话）：主区顶栏的 28px 版本撤掉，改挂**输入框卡片右上角 34px**（压住一点上边缘），空闲时演新加的 `walk` 动作并在 `mascot-stroll.css` 里左右溜达，忙起来站定演对应状态（路线 `animation-play-state: paused` 冻结原位）。
+- 改动文件：`docs/design/bot-mascot/generate-bot-gif.py`（新增 `pose_walk` + `STATES.walk`，24 帧 / 0.96s）、生成的 `src/components/bots/mascot/mascot-anim.css` / `mascot-geometry.ts`、新增 `src/components/bots/mascot/mascot-stroll.css`、`BotMascot.tsx`（`stroll` 包裹层）、`src/components/chat/surface/ChatSurface.tsx`（`composerMascot` 插槽 + 相对定位容器）、`src/components/chat/ChatPanelHost.tsx`（透传）、`src/App.tsx`（传吉祥物、`idle → walk`）、`src/components/app/ConversationHeader.tsx`（删掉上一轮的 `mascot` 插槽）、`tests/frontend/bot-mascot.test.ts`（+4 例）、`docs/wiki/server/bots.md` §7.2、`docs/design/bot-mascot/README.md`、`feature_list.json` / `progress.md` / 本文件。
+- Evidence（验证）：全量 `npm run test` → 515 files / 5701 passed、1 skipped、0 failed；`npm run lint` 0 problems；`npx tsc --noEmit` 通过；`npm run build` 成功；`walk.gif` 实测 24 帧、留白 88/105、上下行程 19.4px、首尾帧差 9.84 < 普通步进 11.33。
+- 注意（并发）：本轮期间有**另一个会话在同一工作区改文件**（`sidebar-classes.ts`、`lib/i18n.ts` 出现过瞬时半成品错误），见到不属于本次改动的报错不要去改，重跑即可。
+- Blockers（阻塞）：无。
+- Next Session（下一步）：① 吉祥物现在 `pointer-events-none`，点它没反应，若要做「点一下跳 bot 设置」需要在外层加按钮并恢复指针事件；② 输入框上方若有 TodoWrite 胶囊或目标条，吉祥物可能与它们视觉重叠（`-translate-y-[86%]` 可调，或改成只在没有这些条时上浮更高）；③ 想更「活」可以给溜达路线加一次小跳（横向不变、纵向弹一下）。未创建 Git commit。

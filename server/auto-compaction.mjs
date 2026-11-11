@@ -48,6 +48,46 @@ export async function readAutoCompactSettings() {
 }
 
 /**
+ * agent 主动请求的一次性强制压缩（POST /api/agents/:id/compact）。
+ *
+ * 为什么不「立刻压」：请求来自会话自己，而它正在跑的这一刻 `isStreaming`
+ * 必然为真，同步压缩会和正在进行的生成抢同一份消息数组。所以运行中的请求
+ * 只登记一个标记，由下一次模型请求前的 transformSessionContext 消费；压缩
+ * 完成后这一轮继续跑，摘要就是它下一眼看到的历史。
+ */
+export const FORCE_COMPACTION_TTL_MS = 10 * 60 * 1000
+
+/**
+ * 强制压缩的摘要引导语。与自动压缩分开写，因为来源不同、对模型的约束也不同：
+ * 这是会话自己决定的一次压缩，发生在工作途中，所以要求它留住任务状态与下一步，
+ * 而不是像阈值压缩那样只求短。
+ */
+export const FORCE_COMPACT_SUMMARY_INTRO = [
+  'This session compacted its own context on request.',
+  'Treat the following summary as the authoritative replacement for earlier history.',
+  'It was produced while work was in progress, so keep task state, decisions, open questions and the next concrete step; if information is missing, ask for clarification instead of guessing.',
+].join(' ')
+
+export function requestForceCompaction(session, { reason = 'agent_request', requestedAt = Date.now() } = {}) {
+  if (!session) return false
+  session.forceCompaction = { reason, requestedAt }
+  return true
+}
+
+/**
+ * 取出并清空标记（一次性）。过期标记直接作废：登记后如果这一轮根本没走到
+ * 下一次模型请求（被中止、被关闭），它不该在几小时后的某个 run 上突然生效。
+ */
+export function takeForceCompactionRequest(session, now = Date.now()) {
+  const request = session?.forceCompaction
+  if (!request) return null
+  session.forceCompaction = null
+  const requestedAt = Number(request.requestedAt) || 0
+  if (!requestedAt || now - requestedAt > FORCE_COMPACTION_TTL_MS) return null
+  return request
+}
+
+/**
  * Compaction UI state (single source of truth for the chat surface).
  *
  * Compaction is an internal detail: the full transcript stays in the session
@@ -520,9 +560,14 @@ export function estimateSessionContextUsage(session, messages = session?.agent?.
 
 export async function maybeAutoCompactSession({ session, messages, signal, emitSessionEvent, persistSession, logger }) {
   if (!session || session.autoCompacting) return { compacted: false }
-  const settings = await readAutoCompactSettings()
-  if (!settings.enabled) return { compacted: false, reason: 'disabled' }
   if (signal?.aborted) return { compacted: false, reason: 'aborted' }
+
+  // agent 主动请求：跳过阈值判定，但仍然尊重「用户关掉了自动压缩」——那是
+  // 用户对自己的上下文说的话，会话的一次请求不该覆盖它，只把原因回传。
+  const forced = takeForceCompactionRequest(session)
+
+  const settings = await readAutoCompactSettings()
+  if (!settings.enabled) return { compacted: false, reason: 'disabled', forced: Boolean(forced) }
 
   const loopMessages = buildAutoCompactLoopMessages(session, messages)
   const usage = estimateContextUsage({
@@ -532,7 +577,11 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
     model: session.model,
     minimumProviderUsageIndex: minimumProviderUsageIndex(session, messages),
   })
-  const gate = evaluateContextCompactionGate(usage, settings.thresholdPercent)
+  // 强制压缩不判定阈值，但「确实有可压缩的历史」这两条前置照旧：压一个
+  // 只有一条消息的会话既无收益也会白花一次模型调用。
+  const gate = forced
+    ? { shouldCompact: true, reason: null }
+    : evaluateContextCompactionGate(usage, settings.thresholdPercent)
   if (!gate.shouldCompact) return { compacted: false, usage, reason: gate.reason }
 
   if (!hasNewMessagesSinceCompaction(session, messages)) {
@@ -560,11 +609,13 @@ export async function maybeAutoCompactSession({ session, messages, signal, emitS
       thresholdPercent: settings.thresholdPercent,
       emitSessionEvent,
       persistSession,
-      reason: 'auto_compact',
-      summaryIntro: 'The previous conversation has been automatically compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
+      reason: forced ? 'agent_compact' : 'auto_compact',
+      summaryIntro: forced
+        ? FORCE_COMPACT_SUMMARY_INTRO
+        : 'The previous conversation has been automatically compacted. Treat the following summary as the authoritative replacement for earlier history. If information is missing, ask for clarification instead of guessing.',
     })
     if (!result.compacted) return result
-    return { compacted: true, usage }
+    return { compacted: true, usage, forced: Boolean(forced), reason: forced ? 'agent_compact' : 'auto_compact' }
   } catch (error) {
     logger?.warn?.(`Auto compact failed for session ${session.sessionId}:`, error?.message || error, { sessionId: session.sessionId })
     emitSessionEvent?.(session, {

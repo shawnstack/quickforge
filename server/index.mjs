@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { sendJson, sendError } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
-import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, createPhysicalSessionStateFsAdapter } from './storage.mjs'
+import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, migrateMemoryLayout, getMemoryLayoutMigration, createPhysicalSessionStateFsAdapter } from './storage.mjs'
+import { migrateNotesSettingsKey } from './working-memory.mjs'
 import { initializeSessionStateService, stopSessionStateService } from './session-state-service.mjs'
 import { importSessionStateFromJson } from './session-state-import.mjs'
 import { initializeShareService, stopShareService } from './share-service.mjs'
@@ -32,6 +33,8 @@ import { ensureDefaultGlobalSkills } from './skills.mjs'
 import { handleAgentApi } from './routes/agent.mjs'
 import { handleAgentProfilesApi } from './routes/agent-profiles.mjs'
 import { handleScheduledTasksApi, recoverStaleScheduledTaskRuns, startScheduledTaskRunner, stopScheduledTaskRunner } from './routes/scheduled-tasks.mjs'
+import { handleBotsApi } from './routes/bots.mjs'
+import { startBotRunner, stopBotRunner } from './bot-runner.mjs'
 import { startAutoArchiveRunner, stopAutoArchiveRunner } from './auto-archive.mjs'
 import { startHookEngine, stopHookEngine } from './hooks/hook-engine.mjs'
 import { handleBackupApi } from './routes/backup.mjs'
@@ -190,6 +193,7 @@ function closeHttpServer() {
 async function shutdownRuntime() {
   try {
     stopScheduledTaskRunner()
+    stopBotRunner()
     stopAutoArchiveRunner()
     stopDreamingRunner()
     stopHookEngine()
@@ -516,6 +520,12 @@ async function handleApi(req, res, url, requestContext = {}) {
   // Scheduled task routes
   if (pathname === '/api/scheduled-tasks' || pathname.startsWith('/api/scheduled-tasks/')) {
     await handleScheduledTasksApi(req, res, url, requestContext)
+    return
+  }
+
+  // Bot routes（一个 bot = 一条记录 + 独占目录 + 一条持久会话）
+  if (pathname === '/api/bots' || pathname.startsWith('/api/bots/')) {
+    await handleBotsApi(req, res, url)
     return
   }
 
@@ -851,6 +861,19 @@ server.on('upgrade', (req, socket, head) => {
 // the operator intervenes (fix data / restart).
 try {
   await ensureStorage()
+  // Memory lives under memory/; older installs are moved once, at startup only.
+  // Deliberately not part of ensureStorage(): that helper always resolves the
+  // real data dir, so tests injecting another one would migrate the live layout.
+  await migrateMemoryLayout()
+  if (await migrateNotesSettingsKey()) logger.warn('Notes settings moved to the notes-settings key')
+  const memoryLayout = getMemoryLayoutMigration()
+  if (memoryLayout) {
+    logger.warn('Memory moved into memory/', {
+      moved: memoryLayout.moved,
+      conflicts: memoryLayout.conflicts,
+      backupPath: memoryLayout.backupDir,
+    })
+  }
   await initializeSqliteStorage({ dataDir })
 } catch (error) {
   logger.error('QuickForge startup failed', { errorName: error?.name || 'Error', errorMessage: error?.message, stack: error?.stack })
@@ -921,6 +944,7 @@ async function runStartupInitialization() {
   await timedStartupStep('active-project', () => initializeActiveProject())
   setActiveWorkspaceRootForFilesystem(getWorkspaceRoot())
   startScheduledTaskRunner()
+  startBotRunner()
   startAutoArchiveRunner()
   startDreamingRunner()
   await timedStartupStep('hook-engine', () => startHookEngine())

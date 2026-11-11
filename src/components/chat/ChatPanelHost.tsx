@@ -241,6 +241,11 @@ type ChatPanelHostArtifactProps = {
 
 /** 视图状态与能力开关：模型入口、草稿恢复、只读形态、任务启动器与轮次导航。 */
 type ChatPanelHostViewProps = {
+  /**
+   * bot 模式下贴在输入框右上角的吉祥物（由 App 决定演哪个动作）。
+   * 普通会话、分享页、Side Chat 都不传，等于没有这块装饰。
+   */
+  composerMascot?: React.ReactNode
   onModelSelect?: (anchor?: HTMLElement) => void
   onAccessModeChange: (mode: AgentAccessMode) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
@@ -380,6 +385,7 @@ export function ChatPanelHost({
   rollbackConfirmTitle,
   rollbackConfirmDescription,
   capabilities = QUICKFORGE_CHAT_CAPABILITIES,
+  composerMascot,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const surfaceRef = useRef<WindowedChatSurfaceHandle | null>(null)
@@ -1781,6 +1787,7 @@ export function ChatPanelHost({
           // disabled, matching the old `disableComposerControls` path.
           showAgentAccessControl={sideChatMode || (effectiveCapabilities.accessMode && workspaceToolsEnabled)}
           composerControlsDisabled={sideChatMode}
+          composerMascot={composerMascot}
           leaseObserver={leaseObserver}
           leaseDegraded={leaseDegraded}
           onTakeOverLease={takeOverLease}

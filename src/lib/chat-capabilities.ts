@@ -1,9 +1,10 @@
 /**
  * Chat surface capability flags.
  *
- * The main conversation enables the full QuickForge surface; Side Chat and
- * read-only pages narrow it through `applyChatPagePolicy`. Unsupported controls
- * are rendered separately in a native disabled state by the shared panel
+ * The main conversation enables the full QuickForge surface. Side Chat uses a
+ * fixed table, bot sessions use `BOT_CHAT_CAPABILITIES` (history is memory), and
+ * read-only pages narrow a table through `applyChatPagePolicy`. Unsupported
+ * controls are rendered separately in a native disabled state by the shared panel
  * decoration.
  */
 
@@ -66,6 +67,22 @@ export const SIDE_CHAT_UI_CAPABILITIES: ChatCapabilities = Object.freeze({
   attachments: false,
   messageSteering: false,
   goal: false,
+})
+
+/**
+ * bot 的会话就是它的长期记忆（一个 bot = 一个持久会话）。它需要压缩给自己
+ * 腾上下文，但历史不能被剪短：
+ * - `forkFromMessage` 会复制出一份带着同样记忆和心跳指令的分身；
+ * - `rollback` / `retry` 会直接从数组里抹掉轮次，压缩指针随后悬空
+ *   （摘要消息被删、或摘要描述的那段已不存在）。
+ * 文件回滚（`/rollback-turn`）只写磁盘、不碰 messages，不在能力位里。
+ * 服务端 `rollbackSessionMessages` 另有无条件 403 兜底。
+ */
+export const BOT_CHAT_CAPABILITIES: ChatCapabilities = Object.freeze({
+  ...QUICKFORGE_CHAT_CAPABILITIES,
+  rollback: false,
+  retry: false,
+  forkFromMessage: false,
 })
 
 type ChatPagePolicy = {

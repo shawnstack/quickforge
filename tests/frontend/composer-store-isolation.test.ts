@@ -12,9 +12,9 @@ import { createComposerStore } from '../../src/components/chat/surface/composer-
  * The reported symptom was "typing gets laggy once the conversation has many
  * turns". The cause was ownership, not a slow component: the composer text lived
  * in `ChatSurface`'s top-level `useState`, so every keystroke re-rendered the
- * whole surface — including `UsageBar`'s `filter`/`reduce` over every assistant
- * message and `TodoWriteSummary`'s backwards scan. Both scale with conversation
- * length, which is why only long chats felt slow.
+ * whole surface — including `TodoWriteSummary`'s backwards scan over every
+ * message. That scan scales with conversation length, which is why only long
+ * chats felt slow.
  *
  * The fix moves text/attachments into an external store
  * (`composer-store.ts`) subscribed only by the composer leaves. These cases

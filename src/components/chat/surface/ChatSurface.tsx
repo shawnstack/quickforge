@@ -16,7 +16,6 @@ import type {
   ChatSurfaceProps,
   Model,
   ThinkingLevel,
-  Usage,
   UserMessageWithAttachments,
   AssistantMessage as AssistantMessageType,
 } from './ChatTypes'
@@ -41,7 +40,6 @@ import type { ContextCompactionState } from './ContextCompactionNotice'
 import { resolveAssistantWaitingRow } from './AssistantWaitingBubble'
 import { isRenderableMessage, messageRenderKeys } from './content-parts'
 import { CommandActionsEnabledContext, LocalFilePathHandlerContext } from './surface-context'
-import { aggregateUsage, UsageBar } from './UsageBar'
 import { createComposerStore } from './composer-store'
 import {
   readLatestTodoWriteSnapshot,
@@ -193,18 +191,11 @@ export interface AgentSurfaceSnapshot {
    */
   goal?: GoalState | null
   /**
-   * Usage totals across every assistant message. Derived here, once per
-   * snapshot commit, instead of inside `UsageBar` on every render: the composer
-   * area re-rendered on each keystroke before the store split, and a full
-   * `filter`/`reduce` over the message list was the O(messages) part of it.
-   * Cached by `messages` identity (see `usageTotalsBySource`), so an unchanged
-   * conversation costs one WeakMap lookup.
-   */
-  usage: Usage
-  /**
-   * Newest valid `todo_write` result, or null. Same reasoning as `usage`: the
-   * capsule above the composer used to scan the message list backwards on every
-   * composer render. Cached by `messages` identity.
+   * Newest valid `todo_write` result, or null. Derived here, once per snapshot
+   * commit, instead of scanning the message list backwards on every composer
+   * render: the composer area re-rendered on each keystroke before the store
+   * split. Cached by `messages` identity, so an unchanged conversation costs one
+   * WeakMap lookup.
    */
   todoSnapshot: { snapshot: TodoWriteSnapshot; key: string } | null
 }
@@ -272,9 +263,8 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
   // The goal is replaced wholesale by the server agent on `goal_updated`, so a
   // reference comparison is enough (same reasoning as contextCompaction).
   const goal = (state as { goal?: GoalState | null }).goal ?? null
-  // Derived projections of `messages` (see `usageTotals` / `latestTodoSnapshot`):
-  // computed here, once per snapshot, and cached by array identity.
-  const usage = usageTotals(messages)
+  // Derived projection of `messages` (see `latestTodoSnapshot`): computed here,
+  // once per snapshot, and cached by array identity.
   const todoSnapshot = latestTodoSnapshot(messages)
   if (
     previous &&
@@ -289,7 +279,6 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     previous.contextCompaction === contextCompaction &&
     previous.compactionNotice === compactionNotice &&
     previous.goal === goal &&
-    previous.usage === usage &&
     previous.todoSnapshot === todoSnapshot &&
     previous.streamingMessage === undefined &&
     streamingMessage === undefined
@@ -311,38 +300,17 @@ export function readAgentSnapshot(agent: Agent, previous?: AgentSurfaceSnapshot)
     contextCompaction,
     compactionNotice,
     goal,
-    usage,
     todoSnapshot,
   }
 }
 
 /**
- * Cached `aggregateUsage` results, keyed by messages-array identity.
- *
- * `readAgentSnapshot` already reuses a `messages` identity when no element
- * changed, so an unchanged conversation always hits this cache and the totals
- * keep the same object identity — which is what lets `UsageBar`'s memo (and the
- * snapshot's own no-change bail-out) short-circuit. Weak keys let replaced
- * snapshots be collected.
- */
-const usageTotalsBySource = new WeakMap<readonly AgentMessage[], Usage>()
-
-function usageTotals(messages: AgentMessage[]): Usage {
-  let totals = usageTotalsBySource.get(messages)
-  if (totals === undefined) {
-    totals = aggregateUsage(messages)
-    usageTotalsBySource.set(messages, totals)
-  }
-  return totals
-}
-
-/**
  * Cached newest-`todo_write` lookup, keyed by messages-array identity.
  *
- * Same contract as `usageTotals`: the capsule above the composer used to scan
- * the message list backwards on every composer render (once per keystroke once
- * the input state lived in `ChatSurface`). Caching by array identity makes that
- * cost one WeakMap lookup per commit instead of O(messages).
+ * The capsule above the composer used to scan the message list backwards on
+ * every composer render (once per keystroke once the input state lived in
+ * `ChatSurface`). Caching by array identity makes that cost one WeakMap lookup
+ * per commit instead of O(messages).
  */
 const todoSnapshotBySource = new WeakMap<readonly AgentMessage[], { snapshot: TodoWriteSnapshot; key: string } | null>()
 
@@ -854,6 +822,12 @@ type WindowedChatSurfaceProps = ChatSurfaceProps & {
    */
   composerControlsDisabled?: boolean
   /**
+   * bot 模式下贴在输入框右上角的吉祥物。
+   * 这里只负责位置（压在输入框上边缘、不拦鼠标）；演什么动作由调用方决定，
+   * 普通会话与 Side Chat 都不传。
+   */
+  composerMascot?: React.ReactNode
+  /**
    * Plan-mode toggle in the composer's left control row. The trigger renders
    * only while plan mode is ON: the decoration created it when planMode was
    * true and removed it when false, so plan mode off must not add a button.
@@ -963,6 +937,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
     selectPluginCapability,
     onDismissComposerSuggestions,
     composerControlsDisabled = false,
+    composerMascot,
     showPlanModeControl = false,
     planMode = false,
     onTogglePlanMode,
@@ -1047,10 +1022,10 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
    * Composer hot-path state, deliberately held outside React's render inputs.
    *
    * The text used to be `useState` here, which meant every keystroke re-rendered
-   * this entire component — including the `UsageBar` aggregation and the todo
-   * capsule scan over every message. Both are now derived once per snapshot
-   * (see `AgentSurfaceSnapshot.usage` / `.todoSnapshot`), and only the composer
-   * leaves subscribe to the store, so typing costs one `<textarea>` render.
+   * this entire component — including the todo capsule scan over every message.
+   * That scan is now derived once per snapshot (see
+   * `AgentSurfaceSnapshot.todoSnapshot`), and only the composer leaves subscribe
+   * to the store, so typing costs one `<textarea>` render.
    *
    * Created once via the lazy initializer: a new store per render would reset
    * the text and re-subscribe every consumer.
@@ -1621,7 +1596,8 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                   onAction={onGoalAction}
                 />
               ) : null}
-              <MessageEditor
+              <div className="relative">
+                <MessageEditor
                 store={composerStore}
                 isStreaming={snapshot.isStreaming}
                 isWaiting={isReplyWaiting}
@@ -1688,7 +1664,19 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                   </>
                 )}
               />
-              <UsageBar totals={snapshot.usage} onCostClick={onCostClick} />
+                {composerMascot ? (
+                  <div className="pointer-events-none absolute right-4 top-0 z-10 -translate-y-[80%]">
+                    {composerMascot}
+                  </div>
+                ) : null}
+              </div>
+              {/*
+                * 布局占位（勿删）：这里原本是 composer 下方的用量统计行
+                * （`.qf-usage-bar`，`h-5` = 1.25rem）。统计文本已按用户要求
+                * 移除，但这 20px 高度是 composer dock 的既有留白——删掉它输入框
+                * 会贴底，属于不该发生的布局变化。要改留白就改这个高度，别整块删。
+                */}
+              <div className="qf-usage-spacer h-5" aria-hidden="true" />
             </div>
           </div>
         )}

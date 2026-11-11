@@ -28,7 +28,8 @@ describe('memory routes', () => {
   it('loads a document while memory is disabled', async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-memory-route-'))
     try {
-      await fs.writeFile(path.join(dataDir, 'MEMORY.md'), '# User memory\n\nUser is a developer.\n')
+      await fs.mkdir(path.join(dataDir, 'memory'), { recursive: true })
+      await fs.writeFile(path.join(dataDir, 'memory', 'MEMORY.md'), '# User memory\n\nUser is a developer.\n')
       const response = mockResponse()
       await handleMemoryApi(mockRequest('GET'), response, { dataDir, enabled: false })
       expect(response.status).toBe(200)
@@ -50,7 +51,7 @@ describe('memory routes', () => {
       expect(response.status).toBe(200)
       expect(response.body.chars).toBe(markdown.length)
       expect(response.body.markdown).toBe(markdown)
-      await expect(fs.readFile(path.join(dataDir, 'MEMORY.md'), 'utf8')).resolves.toBe(markdown)
+      await expect(fs.readFile(path.join(dataDir, 'memory', 'MEMORY.md'), 'utf8')).resolves.toBe(markdown)
     } finally {
       await fs.rm(dataDir, { recursive: true, force: true })
     }

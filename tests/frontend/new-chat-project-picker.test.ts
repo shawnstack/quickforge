@@ -65,8 +65,13 @@ describe('new chat project row', () => {
   })
 
   it('wires the branch and reused selector from the current project git status', () => {
-    expect(appSource).toContain("branch={agentManager.chatScope === 'project' && titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined}")
-    expect(appSource).toContain("branchMenu={agentManager.chatScope === 'project'")
+    // bot 目录不是用户的项目，bot 模式下主区也不属于项目语境：两者都在
+    // `emptyStateProject` 这一处收敛，胶囊与分支菜单共用它。
+    expect(appSource).toContain("const emptyStateProject = agentManager.chatScope === 'project' && !botMode && !isBotProject(agentManager.currentToolProject)")
+    expect(appSource).toContain('const emptyStateBranch = emptyStateProject && titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined')
+    expect(appSource).toContain('selectedProject={emptyStateProject}')
+    expect(appSource).toContain('branch={emptyStateBranch}')
+    expect(appSource).toContain('branchMenu={emptyStateProject?.id && emptyStateBranch ? {')
     expect(appSource).toContain('onCheckout: handleCheckoutTitleBranch')
     expect(appSource).toContain('onCreated: handleBranchCreated')
   })

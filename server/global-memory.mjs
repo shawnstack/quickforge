@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { dataDir, readStore } from './storage.mjs'
+import { dataDir, memoryDirOf, readStore } from './storage.mjs'
 import { countExperiences } from './experiences.mjs'
 
 /**
@@ -9,18 +9,14 @@ import { countExperiences } from './experiences.mjs'
  *
  * `MEMORY.md` is the file the user owns: only the user (and the
  * `manage_global_memory` tool acting for them) writes it. Nothing machine-generated
- * is spliced into it.
- *
- * The machine half used to be a second file (`DREAMING.md`) holding a bullet list
- * that the Dreaming worker rewrote wholesale. That whole arrangement is gone: the
- * machine's memory is now the working-memory folder plus the experience library,
- * two folders of ordinary Markdown files that the agent edits directly. Keeping
- * the human file separate from those remains the point — no markers, no
- * re-composition on save, no partial ownership.
+ * is spliced into it — no markers, no re-composition on save, no partial ownership.
+ * Everything the assistant learns goes to the notes and experience
+ * folders as ordinary Markdown files instead.
  */
 
 export const GLOBAL_MEMORY_SETTINGS_KEY = 'memory-settings'
 export const GLOBAL_MEMORY_FILE_NAME = 'MEMORY.md'
+export const GLOBAL_MEMORY_DISPLAY_PATH = '~/.quickforge/memory/MEMORY.md'
 export const DEFAULT_GLOBAL_MEMORY_SETTINGS = { enabled: true }
 
 const MAX_MEMORY_FILE_BYTES = 16 * 1024
@@ -42,7 +38,7 @@ export async function isGlobalMemoryEnabled() {
 }
 
 export function globalMemoryFilePath(baseDir = dataDir) {
-  return path.join(baseDir, GLOBAL_MEMORY_FILE_NAME)
+  return path.join(memoryDirOf(baseDir), GLOBAL_MEMORY_FILE_NAME)
 }
 
 function requestError(message, statusCode = 400) {
@@ -102,7 +98,7 @@ export async function readGlobalMemoryDocument(options = {}) {
   return {
     enabled: options.enabled === undefined ? await isGlobalMemoryEnabled() : options.enabled,
     markdown: memory.markdown,
-    path: '~/.quickforge/MEMORY.md',
+    path: GLOBAL_MEMORY_DISPLAY_PATH,
     count,
   }
 }
@@ -134,7 +130,7 @@ export async function saveGlobalMemoryDocument(markdown, options = {}) {
     return {
       enabled: true,
       markdown: validated,
-      path: '~/.quickforge/MEMORY.md',
+      path: GLOBAL_MEMORY_DISPLAY_PATH,
       file,
       chars: validated.length,
     }
@@ -146,7 +142,7 @@ export async function readGlobalMemoryPrompt(options = {}) {
   if (options.enabled === undefined && !(await isGlobalMemoryEnabled())) return null
   const memory = await readGlobalMemory(options)
   return {
-    source: '~/.quickforge/MEMORY.md',
+    source: GLOBAL_MEMORY_DISPLAY_PATH,
     content: memory.markdown.trim() || null,
     enabled: true,
   }

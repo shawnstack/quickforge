@@ -37,6 +37,7 @@ const EXPECTED_EXPORTS = [
   'rejectToolCall',
   'releaseSessionLease',
   'releaseSse',
+  'requestSessionCompaction', // POST /api/agents/:id/compact 的入口
   'resetStaleTaskStatuses',
   'restoreAgent',
   'rollbackSessionMessages',

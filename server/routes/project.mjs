@@ -98,6 +98,14 @@ export async function handleProjectApi(req, res, url, context = {}) {
       error.statusCode = 404
       throw error
     }
+    // bot 目录是注册项目，但不是用户的「当前项目」：只把它返回给调用方
+    // （bot 会话需要它的 path 当工具工作空间），不改写 activeProjectId。
+    // 否则打开一次 bot，用户的新对话、终端默认目录、无 projectId 的工具
+    // 都会被带到 bot 目录里，而且切回普通对话后没人记得切回来。
+    if (selected.kind === 'bot') {
+      sendJson(res, 200, { project: selected, projects: config.projects, workspaceRoot: getWorkspaceRoot() })
+      return
+    }
     const result = await setActiveProjectPath(selected.path)
     sendJson(res, 200, { ...result, workspaceRoot: getWorkspaceRoot() })
     return

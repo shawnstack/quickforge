@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_AUTO_COMPACT_SETTINGS,
+  FORCE_COMPACTION_TTL_MS,
+  FORCE_COMPACT_SUMMARY_INTRO,
   buildAutoCompactLoopMessages,
   estimateSessionContextUsage,
   hasNewMessagesSinceCompaction,
   normalizeAutoCompactSettings,
+  requestForceCompaction,
+  takeForceCompactionRequest,
 } from '../../server/auto-compaction.mjs'
 
 describe('auto compact settings', () => {
@@ -431,5 +435,44 @@ describe('context usage after compaction', () => {
 
     expect(hasNewMessagesSinceCompaction(session, [summaryMessage])).toBe(false)
     expect(hasNewMessagesSinceCompaction(session, [summaryMessage, textMessage('user', 'next')])).toBe(true)
+  })
+})
+
+describe('force compaction request', () => {
+  it('hands the request back exactly once', () => {
+    const session = {}
+    expect(requestForceCompaction(session, { reason: 'agent_request' })).toBe(true)
+    const taken = takeForceCompactionRequest(session)
+    expect(taken.reason).toBe('agent_request')
+    // 一次性：拿到就清空，否则下一次模型请求会再压一遍（白花一次调用）。
+    expect(session.forceCompaction).toBeNull()
+    expect(takeForceCompactionRequest(session)).toBeNull()
+  })
+
+  it('drops a stale request instead of firing it later', () => {
+    const session = {}
+    requestForceCompaction(session, { requestedAt: 1_000 })
+    // 登记后这一轮没走到下一次模型请求（被中止/关闭）：过期标记作废，
+    // 不能在几小时后的某个 run 上突然生效。
+    expect(takeForceCompactionRequest(session, 1_000 + FORCE_COMPACTION_TTL_MS + 1)).toBeNull()
+    expect(session.forceCompaction).toBeNull()
+  })
+
+  it('keeps a request inside the ttl window', () => {
+    const session = {}
+    requestForceCompaction(session, { requestedAt: 1_000 })
+    expect(takeForceCompactionRequest(session, 1_000 + FORCE_COMPACTION_TTL_MS)).not.toBeNull()
+  })
+
+  it('ignores a session without a request and a null session', () => {
+    expect(takeForceCompactionRequest({})).toBeNull()
+    expect(takeForceCompactionRequest(null)).toBeNull()
+    expect(requestForceCompaction(null)).toBe(false)
+  })
+
+  it('spells out the in-progress constraints in the forced summary intro', () => {
+    // 强制压缩发生在工作途中，摘要必须留住任务状态而不是只求短。
+    expect(FORCE_COMPACT_SUMMARY_INTRO).toMatch(/next concrete step/)
+    expect(FORCE_COMPACT_SUMMARY_INTRO).toMatch(/open questions/)
   })
 })

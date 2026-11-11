@@ -1,0 +1,67 @@
+/* 黑白色小机器人头像（BotAvatar）。
+   动效只在被点击时播一次：调用方把 popKey 加一，svg 重挂，动画重播。
+   时长与缓动全部走 foundation.css 的 token，不散落新数值。 */
+
+.qf-bot-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.qf-bot-avatar__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.qf-bot-avatar__head,
+.qf-bot-avatar__eye,
+.qf-bot-avatar__antenna {
+  transform-box: fill-box;
+}
+
+.qf-bot-avatar__svg--pop .qf-bot-avatar__head {
+  transform-origin: center;
+  animation: qf-bot-avatar-pop var(--quickforge-dur-slow) var(--quickforge-ease-out);
+}
+
+.qf-bot-avatar__svg--pop .qf-bot-avatar__eye {
+  transform-origin: center;
+  animation: qf-bot-avatar-blink var(--quickforge-dur-slow) var(--quickforge-ease-out);
+}
+
+.qf-bot-avatar__svg--pop .qf-bot-avatar__antenna {
+  transform-origin: bottom center;
+  animation: qf-bot-avatar-wiggle var(--quickforge-dur-slow) var(--quickforge-ease-out);
+}
+
+/* 弹一下：先横向鼓、再纵向回弹，像一颗软糖。 */
+@keyframes qf-bot-avatar-pop {
+  0% { transform: scale(1, 1); }
+  35% { transform: scale(1.08, 0.92); }
+  65% { transform: scale(0.97, 1.05); }
+  100% { transform: scale(1, 1); }
+}
+
+/* 眨个眼。 */
+@keyframes qf-bot-avatar-blink {
+  0%, 100% { transform: scaleY(1); }
+  40% { transform: scaleY(0.12); }
+  70% { transform: scaleY(1.15); }
+}
+
+/* 天线跟着晃一下。 */
+@keyframes qf-bot-avatar-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  35% { transform: rotate(-14deg); }
+  70% { transform: rotate(9deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qf-bot-avatar__svg--pop .qf-bot-avatar__head,
+  .qf-bot-avatar__svg--pop .qf-bot-avatar__eye,
+  .qf-bot-avatar__svg--pop .qf-bot-avatar__antenna {
+    animation: none;
+  }
+}

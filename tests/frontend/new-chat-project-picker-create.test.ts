@@ -48,7 +48,7 @@ describe('create project in default workspace', () => {
     expect(start).toBeGreaterThan(0)
     const body = projectHookSource.slice(start, projectHookSource.indexOf('const toggleProjectExpanded'))
     expect(body).toContain('invalidateApiCache(PROJECT_LIST_CACHE_KEY)')
-    expect(body).toContain('setActiveProject(payload.project)')
+    expect(body).toContain('applyActiveProject(payload.project)')
     expect(body).toContain('setSelectingProject(false)')
   })
 

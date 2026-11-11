@@ -69,7 +69,7 @@ server/
 ├── goal-settings.mjs         # Goal 默认预算与引擎设置（settings 键 goal-settings；maxIterations clamp 1–100，engine legacy/v2）
 ├── session-file-backups.mjs  # 会话级文件影子备份（变更摘要 / 安全回滚 / 轮级回滚）
 ├── auto-archive.mjs          # 超过 30 天未更新对话的自动归档 runner
-├── dreaming/                 # 梦境整理员：逐会话采集 / 整理提示词 / agent 执行 / 整目录快照 / runner
+├── dreaming/                 # 记忆整理员：逐会话采集 / 整理提示词 / agent 执行 / 整目录快照 / runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
 ├── storage.mjs               # 文件存储层 (707 行)
@@ -143,7 +143,7 @@ server/
 - `agent-session-events.mjs` — 共享事件核心：`agentEvents` emitter、`emitSessionEvent` 与 split-message 分帧转换、消息构造器、tool timing / runtime tool execution 合并、context usage 估算。**消息裁剪不在这里做**：`emitSessionEvent` 发出完整事件（带 `logVersion`），按连接裁剪由 `message-log.mjs` 的 `createConnectionProjector` 负责。
 - `message-log.mjs` — 会话消息日志：`logVersion`（只随消息真的变化递增）、`tailWindow` / `projectSessionSnapshot`（尾部窗口 + `messagesAfter` + 绝对 seq 的 goal 标记）、`createConnectionProjector`（每连接一份投递游标，`messages_replaced` / 总数回退视为替换）。见 `docs/architecture/message-log-consistency.zh-CN.md`。
 - `event-log.mjs` — 全局 SSE 事件环：全局单调 `seq`、轻量帧（无消息体、流式帧不入环）重放、`since(lastSeq)` 的缺口判定（缺口 → 客户端 `resync`）。
-- `agent-compaction.mjs` — `/summary` / `/compact` / `/clear` 会话压缩业务（`summarySession` / `compactSession` / `clearSession`）。
+- `agent-compaction.mjs` — `/summary` / `/compact` / `/clear` 会话压缩业务（`summarySession` / `compactSession` / `compactSessionNow` / `clearSession`）。`compactSessionNow()` 是 REST 版的同步压缩：与斜杠命令同一套 `compactSessionInPlace()`，但失败不往对话里插 assistant 文本——调用方是脚本，结论走响应体。
 - `agent-prompt-commands.mjs` — 斜杠命令状态解析（`resolveCommandState`）与 `/plan` `/init` `/review` `/commit` `/skill` `/agent` 及自定义命令 prompt 模板。
 - `agent-approval-orchestrator.mjs` — 工具审批 / ask_user / ACP 审批三类 Promise 编排（自动压缩不再需要审批，其 Promise 已删除）。
 - `agent-subagent-runner.mjs` — `run_subagent` 生命周期：`runSubagent`、临时 profile、超时/中止进度摘要、**部分成果回传（partial work report）**、错误 details 构建、trace 截尾与 `SUBAGENT_*` 常量。部分成果回传：成功/运行期失败/超时/父运行中止四路径都把「Work done 报告」（工具调用清单 + 全量 assistant 正文）追加到 toolResult 正文回传父模型，父模型可据此了解 subagent 内部行为、续接部分成果或只重派剩余工作；不做条数/行数限制，唯一截断是工具参数单行摘要（`SUBAGENT_TOOL_ARGS_SUMMARY_LIMIT` 200 字符）；成功时最终回复置顶并按索引跳过报告中与之重复的那条正文；超时/中止错误首句（含进度摘要）逐字保留为前缀、通用失败首行保持上游原文（前端 subagent trace 去重以 trace 终态错误文本精确比较，快照先于追加、自洽不受影响），报告经 toolResult output 块在运行详情展示；全量 messages 仍只进 `details`（`omitDetailsForLlm` 不送 LLM），报告是父模型了解过程的唯一通道。实时 trace、终态与错误终态 details 复用同一个 `subagentRuntimeDetails`：`model` 在继承模式下合并实际模型的 `provider/id/name`（保留 `mode/inherited`），并写入已解析的 `thinkingLevel`，供前端运行详情「运行信息」行展示。
@@ -298,7 +298,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 **用途**: 为四个业务域（会话 / 分享 / LAN 访问 / 定时任务运行）提供统一的 `node:sqlite` 文件连接、PRAGMA、append-only migration、同步事务与 health；详细设计见 [`docs/architecture/sqlite-storage-foundation.zh-CN.md`](../../architecture/sqlite-storage-foundation.zh-CN.md)。
 
 - 默认路径 `<QUICKFORGE_DATA_DIR 或 ~/.quickforge>/storage/quickforge.sqlite3`；内部支持 `dataDir` / `databasePath` 测试覆盖，不新增公开环境变量。
-- migration 链已折叠为**单条 baseline**：`server/sqlite/migrations.mjs` 只有 `{ version: BASELINE_VERSION (=19), name: 'baseline' }`，一次建出 15 张表 + 13 个索引——`schema_migrations`；会话 `sessions`/`session_messages`/`session_tombstones`/`session_state_maintenance_lock`；分享 `share_sessions`/`share_tokens`/`share_maintenance_lock`；LAN 访问 `lan_access_state`/`lan_access_tokens`/`lan_access_maintenance_lock`；定时任务运行 `scheduled_task_runs`/`scheduled_runs_maintenance_lock`；Dreaming `dreaming_note_stats`/`dreaming_runs`。兼容期对象（`session_states`、`session_index`、`session_json_mirror_queue`、`session_storage_state`、`share_storage_state`、`lan_access_storage_state`、`share_json_mirror_queue`、`lan_access_json_mirror_queue`、`scheduled_runs_state` 及全部 `*_v10_backup`）一律不建；历史演进（migration 1..18、v10 覆盖索引、v11 会话域 v2 重建、v12 删除 `record_digest`）见 [`docs/architecture/sqlite-storage-foundation.zh-CN.md`](../../architecture/sqlite-storage-foundation.zh-CN.md) §4.1 与 F5/F10/F11 存档文档。新增迁移只允许 append-only 追加（版本连续；迁移的 schema 变更与 `schema_migrations` 记录、`PRAGMA user_version` 更新同事务提交）。退役的 v1..v18 链冻结在 `server/sqlite/legacy-migrations.mjs`，只用于旧库自动升级，不再参与新库建表。
+- migration 链是**一条 baseline 加 append-only 迁移**：`server/sqlite/migrations.mjs` 的 baseline（`BASELINE_VERSION = 19`）一次建出 14 张表 + 12 个索引，之后追加 v20 删掉旧的 `dreaming_note_stats`——`schema_migrations`；会话 `sessions`/`session_messages`/`session_tombstones`/`session_state_maintenance_lock`；分享 `share_sessions`/`share_tokens`/`share_maintenance_lock`；LAN 访问 `lan_access_state`/`lan_access_tokens`/`lan_access_maintenance_lock`；定时任务运行 `scheduled_task_runs`/`scheduled_runs_maintenance_lock`；Dreaming `dreaming_runs`。兼容期对象（`session_states`、`session_index`、`session_json_mirror_queue`、`session_storage_state`、`share_storage_state`、`lan_access_storage_state`、`share_json_mirror_queue`、`lan_access_json_mirror_queue`、`scheduled_runs_state` 及全部 `*_v10_backup`）一律不建；历史演进（migration 1..18、v10 覆盖索引、v11 会话域 v2 重建、v12 删除 `record_digest`）见 [`docs/architecture/sqlite-storage-foundation.zh-CN.md`](../../architecture/sqlite-storage-foundation.zh-CN.md) §4.1 与 F5/F10/F11 存档文档。新增迁移只允许 append-only 追加（版本连续；迁移的 schema 变更与 `schema_migrations` 记录、`PRAGMA user_version` 更新同事务提交）。退役的 v1..v18 链冻结在 `server/sqlite/legacy-migrations.mjs`，只用于旧库自动升级，不再参与新库建表。
 - 版本门禁：`user_version` 高于代码支持版本、或 `user_version` 与 `schema_migrations` 行不一致时在业务初始化前 fail closed；落在 1..18 的兼容期旧库由 `server/sqlite/legacy-migrations.mjs`（冻结的 v1..v18 链，不再追加）在启动时自动升级到 baseline，升级前用 `VACUUM INTO` 写出 `<db>.pre-v19-from-v<旧版本>-<时间戳>.bak` 一致性快照，升级后执行一次 `VACUUM` 应用 `auto_vacuum=INCREMENTAL` 并回收兼容期对象；详见 [`docs/architecture/sqlite-storage-foundation.zh-CN.md`](../../architecture/sqlite-storage-foundation.zh-CN.md) §4.3。
 - 统一校验 `busy_timeout=5000`、`foreign_keys=ON`、`journal_mode=WAL`、`synchronous=NORMAL`（2026-08-26 用户决策切回，覆盖 §3.1 早前 FULL 定案：接受 OS 崩溃/断电回滚 checkpoint 以来已提交事务的有界窗口，进程崩溃安全）、`auto_vacuum=INCREMENTAL`（仅新库生效，配合删除后 `incremental_vacuum` 回收空间）；migration 使用 `BEGIN IMMEDIATE`、`PRAGMA user_version` 和同事务记录。
 - 会话域存储 v2 单一事实文档（三表布局、写入/删除/空间回收、一次性 JSON 导入、逃生通道、已知取舍）见 [`docs/architecture/session-storage-v2.zh-CN.md`](../../architecture/session-storage-v2.zh-CN.md)；F8/F9 与 F5/F10/F11 等历史设计文档保留为历史决策记录（其中 cutover/phase 描述已不再代表现状）。
@@ -314,6 +314,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `session-state-import.mjs`（存储 v2 新增）执行一次性 JSON 导入：空库 + 物理会话 JSON 文件存在时（`server/index.mjs` 启动链在维护窗口内触发），流式遍历旧 JSON 树、每会话一个事务幂等 `repository.save`、失败条目 skipped + diagnostics 不中断整体、结束 WAL checkpoint；JSON 全程只读。用户重导路径 = 删库文件（及 `-wal`/`-shm`）重启。`session-state-maintenance.mjs`（自退役的 cutover 模块抽出）持有 `session_state_maintenance_lock` 跨进程维护锁（owner 存活 + fencing + TTL 心跳），供 restore/verify 维护操作串行。
 - `agent-manager.mjs`（Phase 3）维护 `persistedMessageStorage`/`persistedMessageCount`/`persistedTailDigest`：权威保存显式按 plan 传 delta（append/replace），CAS 冲突按拆分表示（body 规范化 + 消息行 count/tail digest）判定 agent-owned 变更；`getSessionState` 增加 `messageStorage` 字段；拆分会话的 SSE `state`/`message_end`/`agent_end`/`messages_replaced` 帧只发 `messagesSummary` 与增量尾部（`messagesAfter`/`messagesIncremental`），不再携带全量 messages；路由新增 `GET /api/agents/:id/messages?after=N` 分页拉取，`GET /state`、`POST /restore` 与 SSE 初始 state 帧对拆分会话下发轻量 summary（stateVersion 语义不变）。存储 v2 下所有会话均为拆分表示（消息恒在 `session_messages`）。
 - `GET /api/agents/:id/context-usage`（上下文预算「油表」）：只读，返回 `{ sessionId, modelId, modelRef, messageCount, usage }`，`usage` 来自 `estimateSessionContextUsage`（`inputTokens` / `inputTokenSource` / `contextWindow` / `percent` / `remainingTokens` 由调用方算 / `breakdown`），会话不在内存时先尝试 `restoreAgent` 再 404。**刻意不并进 `/status`**：那条快照被客户端在流式期间轮询，而估算器要遍历全部消息；单独一条路由让热路径保持便宜。也不并进 `/state`，因为 `/state` 会回整段消息，而调用方只想看数字决定「还能干活」还是「该收尾交接」。
+- `POST /api/agents/:id/compact`（会话主动压缩上下文）：`quickforge-api` skill 的 `compact` 子命令打的就是这条。**时机判定在服务端，所以响应有两态**——会话空闲时同步走 `compactSessionNow()` 压完并回 `{ scheduled: false, compacted: true, summary, usageBefore, usageAfter }`；会话正在跑时绝不抢那一轮，只置一次性 `session.forceCompaction` 并回 `{ scheduled: true, reason: 'deferred_to_next_model_request' }`，由 `transformSessionContext()` 在下一次模型请求前消费，压缩完成后同一轮继续跑。这条路由存在的唯一理由就是「会话没法给自己发 prompt」：`/compact` 要求 `isStreaming === false`，而请求方正是它自己，必然 409。压缩可逆（原文保留、摘要只是插进去的一条消息），所以不像删会话那样禁止。**写租约的检查点因此在 running 判定之后**（由调用方把 `assertWriteAccess` 回调注入 `requestSessionCompaction()`）：运行中分支只写内存标记、不落库，且请求方自报 `x-quickforge-agent-session` 等于目标会话时整段跳过守卫；空闲分支会插摘要并持久化，仍必须持有租约。放在路由入口一刀切会让「会话在跑时压自己」永远 409——那一刻租约几乎必然被正在浏览该会话的窗口持有。
 - `share-store.mjs` 为分享记录/令牌的读写入口：全部读写路径经 `share-repository`（单事务、CAS 409、supersede/revoke/update/delete 失效事件、7天/≤50/authVersion 语义），不再有 JSON 读写分支、phase 路由或 mirror 物化，`conversation-shares.json` 只在备份导出/导入边界出现；维护锁持有期间写路径返回 423。`share-repository.mjs` 提供 `share_sessions`/`share_tokens` 严格对象映射与白名单、单事务 create/update、CAS revision、read/list、restore/tombstone delete、token issue/verify/prune 与不透明字段 roundtrip：同 session 其他记录被 supersede 时置 revoked/superseded、清 tokens 且 `authVersion+1`；更新当前记录未提供密码字段时保留 tokens，密码变化时清 tokens；issue/prune 同步 `updatedAt`/revision，issue 另更新访问计数与最后访问时间。snapshot count/digest 仅用于 backup/restore/export 和离线维护边界，不是在线行权威。
 - `share-service.mjs` 只剩 repository 访问器与注入：`configureShareService({ repository })`、`getShareRepository()`、`readShareStorageState()`（恒 `authoritative` + 实时分享数）、`initializeShareService()`、`stopShareService()`；phase 状态机、`share_storage_state`、`share_json_mirror_queue` drain 与 `requestShareJsonMirrorDrain` 均已删除。`server/index.mjs` 启动链在 session state 之后接入 `initializeShareService() → recoverShareRestorePlan()`；`shutdownRuntime` finally 调 `stopShareService()`。
 - `share-maintenance.mjs` 提供 share 域跨进程维护锁（表 `share_maintenance_lock`，PID+expiry+fencing+heartbeat）：`acquireShareMaintenanceLock`/`renewShareMaintenanceLock`/`releaseShareMaintenanceLock`/`isShareMaintenanceActive`/`currentShareMaintenanceContext`，供 backup/restore 维护边界使用（对应 `session-state-maintenance.mjs` 的既有模式；原 `share-cutover.mjs` 已删除）。
@@ -367,13 +368,13 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 - 设置项保存在 `settings['memory-settings']`，默认开启；设置页入口为「设置 → 记忆」，可直接查看、自由编辑、重新加载并原样保存完整 Markdown。
 - `GET /api/memory` 在开关关闭时也允许查看已有文件；`PUT /api/memory` 仅在开启时原样保存，并检查大小和敏感信息。
-- 记忆正文保存在 `~/.quickforge/MEMORY.md`，不要求固定标题、列表、分类或条目 ID；用于记录对未来对话有帮助的长期偏好、习惯、背景、工作方式和目标。
+- 记忆正文保存在 `~/.quickforge/memory/MEMORY.md`，不要求固定标题、列表、分类或条目 ID；用于记录对未来对话有帮助的长期偏好、习惯、背景、工作方式和目标。
 - 开启时，`buildInstructionsPayload()` 会把精简后的记忆注入 `<global_user_memory>`，并附加 `<memory_policy>`；主 Agent 可在普通对话中主动识别并保存长期有价值的信息，也会响应用户明确的记住、修改或忘记要求。
 - 主动记忆会排除仅适用于当前任务的要求、临时项目细节、基于单次行为的推断和不确定猜测；没有有价值的变化时不调用工具，不确定时不保存或向用户确认。
 - `manage_global_memory` 工具**只写不读**：当前文档已经作为 `<global_user_memory>` 注入提示词，模型直接用那份即可，不必再花一次调用去读；工具只负责整份覆盖写入，写入时去重、更新冲突信息，同时保留无关内容和原有格式。写入不弹审批，并拒绝密码、Token、API Key、Cookie、私钥等敏感信息。
 - 关闭后不注入记忆内容或主动记忆规则，并停止记忆工具的写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
 - Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
-- 记忆分三块，各管各的：`MEMORY.md` 是用户写的（设置页走 `GET`/`PUT /api/memory`，Agent 走只写的 `manage_global_memory`）；`~/.quickforge/working-memory/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
+- 记忆分三块，各管各的：`MEMORY.md` 是用户写的（设置页走 `GET`/`PUT /api/memory`，Agent 走只写的 `manage_global_memory`）；`~/.quickforge/memory/notes/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/memory/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
 - 注入策略分三级：`readGlobalMemoryPrompt()` → `<global_user_memory>`（全文）；`readExperiencesPrompt()` → `<experiences>`（**只有扫描生成的索引**，正文按需读）；`readWorkingMemoryPrompt()` → `<working_memory>`（**只有路径和写法规则**，不注入内容）。完整设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
 
 ### note-store.mjs / experiences.mjs — 笔记文件与经验库
@@ -388,15 +389,15 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 经验的文件头是 front matter（`title` / `description` / `general` / `candidate_skill`），由 `experienceMetaOf()` 交给 `frontmatter.mjs` 的 `parseFrontmatter()` 解析——那个子集解析器本来就在给 agent profile 用，不引依赖。`general` 缺省 `true`，`candidate_skill` 在代码里与 `general` 做与运算：技能会加载进所有项目，特殊经验不能是候选。
 - `readExperiencesPrompt()` 在没有经验时返回 `null`（不注入空块）。
 
-### dreaming/ — 梦境整理员
+### dreaming/ — 记忆整理员
 
 **用途**: 每天定时把已结束的会话回看一遍，**整理工作记忆目录**，并把反复出现或解法明确的做法沉淀成经验；设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
 
-- 数据：只有 `dreaming_runs`（运行记录 + 逐会话报告 + 快照路径 + 模型原始回复）。`dreaming_note_stats` 表为历史遗留，现已无写入方，保留不动。
+- 数据：只有 `dreaming_runs`（运行记录 + 逐会话报告 + 快照路径 + 模型原始回复）。
 - 流程：`collectSessionEntries()` 按窗口取会话（**只取 user 消息与 assistant 最终回答**，工具调用与工具输出不进 prompt；单会话 30k 字符封顶）→ 整目录快照 → **逐个会话**各起一轮 agent（`runCuratorTurn()`）→ 重建 `index.md` → 记 run。
-- **一次一个会话、串行、从旧到新**：旧实现把所有会话合成一份 10 万字符 transcript 交给一次调用；改成逐会话后上下文短、任务明确，单个会话失败只影响自己。从旧到新是工作真实发生的顺序，后面的会话可以修正前面立下的笔记。
+- **一次一个会话、串行、从旧到新**：逐会话处理让上下文短、任务明确，单个会话失败只影响自己。从旧到新是工作真实发生的顺序，后面的会话可以修正前面立下的笔记。
 - **整理员是 agent，不是流水线**：`server/dreaming/curator.mjs` 直接 `new Agent(...)`（不走 `AgentManager`，因为后台任务不需要持久化会话、生成标题或审批），`systemPrompt = CURATOR_SYSTEM_PROMPT`，工具只有四个记忆工具。`createCuratorToolGuard()` 是唯一的安全闸：非记忆工具一律 block，工具有调用预算（默认 60 次）；无人值守场景绝不发起审批。
-- **快照先拍再改**：`snapshotMemory()` 把两个目录整份复制到 `~/.quickforge/dreaming-snapshots/<runId>/`，**快照失败则整轮不执行**（能改记忆却没有回头路的 agent 比不整理更糟）。保留最近 10 份，`pruneSnapshots()` 清理。
+- **快照先拍再改**：`snapshotMemory()` 把两个目录整份复制到 `~/.quickforge/memory/snapshots/<runId>/`，**快照失败则整轮不执行**（能改记忆却没有回头路的 agent 比不整理更糟）。保留最近 10 份，`pruneSnapshots()` 清理。
 - 整理员准则（`server/dreaming/prompt.mjs`）：只负责一个会话；先列目录再写，已有同类就改写；文件名与结论不一致必须改名；不删只归档；单轮最多 5 篇；沉淀门槛是「3 篇以上工作记忆/会话里出现过」或「只出现一次但步骤明确」；建新经验前先读索引；写 front matter 时 `title` 必须与文件名逐字相同，`general` 只回答「换个项目能不能照做」，`candidate_skill: true` 要求 `general: true`；不许碰 `skills/`。
 - 失败语义：某个会话失败记一条并继续（全部失败才算整轮 `failed`）；时间预算（`MAX_RUN_MS`，默认 45 分钟）用尽则在会话边界停下，run 记 `operations.stopped`；把剩余会话留到下一轮。
 - 触发：开启即定时（无独立开关）；`startDreamingRunner()`（interval + unref + 首跑延迟，形态同 auto-archive）按 `nextRunAt` 每日执行；窗口 `[上次成功 period_to, now]`，首次为本地零点到当前。手动走 `POST /api/dreaming/run`。进程内单飞，重入返回 skipped。
@@ -404,14 +405,13 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 默认关闭（`dreaming-settings.enabled=false`）；`allowSensitive` 默认 true，设置页给一次性风险提示而非每轮确认。
 - **模型选择**：`resolveDreamingModel()` 的优先级是 指定的 `dreaming-settings.modelRef` → 最近对话模型（`settings['active-model']`） → 目录第一条。指定的模型失效时降级到下一优先级而不中断 run，设置页用 `overview.model`（含 `effective`/`source`/`available`）显示实际生效的模型与原因，保存时先校验 `modelRef` 可解析（不可解析 400）。
 - **输出语言由代码判定**：`detectContentLanguage()` 只采样 user 消息文本（CJK 权重 1:4），给出 `zh/en/null`，提示词里以 `## Output language` 硬要求下发；`dreaming-settings.contentLanguage`（默认 `auto`）可手动固定，判定结果记在 `dreaming_runs.content_language`。
-- 已退役：`DREAMING.md`、`recall_experience` 工具、`notes.mjs`、`recall.mjs`、`prune*` 四个剪枝设置。见 [Dreaming 记忆固化系统（已废弃）](../../architecture/dreaming-memory.zh-CN.md)。
 
 ### working-memory.mjs
 
 **用途**: 管理工作记忆（beta）——一个跨项目、跨会话共享的笔记文件夹。
 
-- 设置项保存在 `settings['working-memory-settings']`（`{ enabled, prompt }`），默认关闭；设置页入口为「设置 → 记忆 → 工作记忆」，与「用户记忆」「梦境记忆」同组，导航项带 Beta 徽章。
-- 笔记目录固定为 `~/.quickforge/working-memory/`，开启时自动创建（`ensureWorkingMemoryDir()`）。一个 `.md` 文件只记一件事，**文件名就是内容的一句话总结**。
+- 设置项保存在 `settings['notes-settings']`（`{ enabled, prompt }`），默认关闭；设置页入口为「设置 → 记忆 → 工作记忆」，与「用户记忆」「记忆整理」同组，导航项带 Beta 徽章。
+- 笔记目录固定为 `~/.quickforge/memory/notes/`，开启时自动创建（`ensureWorkingMemoryDir()`）。一个 `.md` 文件只记一件事，**文件名就是内容的一句话总结**。
 - 读写走四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`，`scope=working`），不再用 `run_command`：目录在 workspace 之外，工具把路径锁死在这两个目录里，既不用放宽沙箱，也不用每次审批。
 - 开启时 `buildInstructionsPayload()` 返回 `workingMemory`，`composeSystemPrompt()` 注入 `<working_memory>`：绝对路径 + 少量原则（先列目录挑相关文件、**觉得任务做完时回头检查有没有值得留的东西**、允许什么都不写、文件名=一句话总结、不删只归档、禁存敏感信息）+ 笔记提示词。
 - 笔记提示词 `DEFAULT_WORKING_MEMORY_PROMPT` 以 `conversation-compaction.mjs` 的 `COMPACT_SYSTEM_PROMPT` 为底本改写成大白话，只保留少量原则：短句、一个文件一件事、第一行即总结兼文件名、过时的改写或合并；**不给固定小节模板**（避免笔记写成填表）。它是内部契约，设置页既不展示也不接受修改；`settings.json` 里的 `prompt` 仅作为工程师调试口，最大 4000 字符。
@@ -567,16 +567,19 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 | # | 关卡 | 跳过 reason |
 |---|---|---|
-| 1 | `session.autoCompacting` 为真（上一次压缩还没收敛） | 无，静默返回 |
-| 2 | 设置为 `enabled: false` | `disabled` |
-| 3 | 传入 signal 已 abort | `aborted` |
-| 4 | 当前模型没有 `contextWindow` | `missing_context_window` |
-| 5 | `inputTokens <= 0`（没有可用的上报用量） | `unknown_usage`（不打 info，只在首次打一条 warn） |
-| 6 | `inputTokens / contextWindow < thresholdPercent` | `below_threshold`（最常见；这条不打 info 日志） |
-| 7 | `hasNewMessagesSinceCompaction()` 为 false（压缩点之后没有新内容） | `not_enough_new_messages` |
-| 8 | `buildCompactionSourceMessages()` 结果少于 2 条 | `not_enough_history` |
+| 1 | `session.autoCompacting` 为真（上一次压缩还没收敛） | 无，静默返回（此时**不**消费强制标记） |
+| 2 | 传入 signal 已 abort | `aborted` |
+| 3 | 取走一次性强制标记 `session.forceCompaction`（见下条「会话主动压缩」） | 无；取到则第 6–7 关的阈值判定整段跳过 |
+| 4 | 设置为 `enabled: false` | `disabled`（**强制请求也不越过**：关掉自动压缩是用户对自己的上下文说的话） |
+| 5 | 当前模型没有 `contextWindow` | `missing_context_window` |
+| 6 | `inputTokens <= 0`（没有可用的上报用量） | `unknown_usage`（不打 info，只在首次打一条 warn） |
+| 7 | `inputTokens / contextWindow < thresholdPercent` | `below_threshold`（最常见；这条不打 info 日志） |
+| 8 | `hasNewMessagesSinceCompaction()` 为 false（压缩点之后没有新内容） | `not_enough_new_messages` |
+| 9 | `buildCompactionSourceMessages()` 结果少于 2 条 | `not_enough_history` |
 
-第 4–6 关由 `context-usage.mjs` 的 `evaluateContextCompactionGate(usage, thresholdPercent)` 一次判定，返回 `{ shouldCompact, reason }`（reason 就是表中那三个值）；`maybeAutoCompactSession()` 只负责把 reason 透传出去，**不再用 token 数二次推断原因**——早先 `below_threshold` 盖住 `unknown_usage` 就是二次推断造成的。阈值换算在该函数内部：阈值转成 reserve tokens 后复用 `pi-agent-core.shouldCompact()`，只算输入、不含预留输出。全部关卡通过后才置 `session.autoCompacting = true`、发布 `summarizing` notice 并调用 `compactSessionInPlace()`；`finally` 无论成功、跳过还是抛错都清 notice 并复位 `autoCompacting`（这是旧设计「卡在正在整理上下文」的修复点）。
+第 5–7 关由 `context-usage.mjs` 的 `evaluateContextCompactionGate(usage, thresholdPercent)` 一次判定，返回 `{ shouldCompact, reason }`（reason 就是表中那三个值）；`maybeAutoCompactSession()` 只负责把 reason 透传出去，**不再用 token 数二次推断原因**——早先 `below_threshold` 盖住 `unknown_usage` 就是二次推断造成的。阈值换算在该函数内部：阈值转成 reserve tokens 后复用 `pi-agent-core.shouldCompact()`，只算输入、不含预留输出。全部关卡通过后才置 `session.autoCompacting = true`、发布 `summarizing` notice 并调用 `compactSessionInPlace()`；`finally` 无论成功、跳过还是抛错都清 notice 并复位 `autoCompacting`（这是旧设计「卡在正在整理上下文」的修复点）。
+
+**会话主动压缩（第 3 关的来源）**: `requestForceCompaction()` 只写一个 `{ reason, requestedAt }` 标记，`takeForceCompactionRequest()` 取值的同时清空并对超过 `FORCE_COMPACTION_TTL_MS`（10 分钟）的标记作废——登记后如果这一轮没走到下一次模型请求（被中止、被关闭），它不该在几小时后的某个 run 上突然生效。强制路径与阈值路径的唯一差别是第 7 关不判定，**第 8–9 关照旧**（没新内容、没足够历史就白花一次模型调用），摘要 reason 记为 `agent_compact`、引导语换成 `FORCE_COMPACT_SUMMARY_INTRO`（要求留住任务状态、未决问题与下一步，因为它发生在工作途中而不是收尾时）。副作用是这类会话在 `unknown_usage`（还没有供应商上报用量）时本来永远不会被压——强制请求是它唯一的出口。
 
 **只有主会话 Agent 会自动压缩**: 全仓只有 `agent-manager.mjs` 主会话 Agent 构造处挂了 `transformContext`。`run_subagent` 的子 Agent、`run_workflow` 内的 Agent、后台/headless 临时 agent 都**不压缩**——它们没有这条 hook，长任务会直接撞模型窗口报错。给子 Agent 加压缩不是接线问题：它们的 messages 不持久化、没有滚动摘要的落点。
 
@@ -688,7 +691,7 @@ Dreaming 的 `/api/dreaming/*` 同样采用前缀分发（`server/index.mjs` 的
 
 参见 [tools/ 文档](tools/)。`run_workflow` 的元数据在 `definitions.mjs`，执行入口由 `agent-manager.mjs` 包装，不在 `tools/index.mjs` 的 handler 表中。
 
-四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`）**不在** `workspaceTools` 数组里：两个记忆目录与项目无关，无工作区绑定的会话也要能用，因此由 `createServerTools()` 无条件补挂（仍受 `allowedToolNames` 白名单约束，subagent 可用它限制能力）。它们也是梦境整理员唯一能拿到的工具。
+四个记忆工具（`list_memory_notes` / `read_memory_note` / `write_memory_note` / `move_memory_note`）**不在** `workspaceTools` 数组里：两个记忆目录与项目无关，无工作区绑定的会话也要能用，因此由 `createServerTools()` 无条件补挂（仍受 `allowedToolNames` 白名单约束，subagent 可用它限制能力）。它们也是记忆整理员唯一能拿到的工具。
 
 ## 工具函数 (utils/)
 

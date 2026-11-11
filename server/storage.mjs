@@ -60,6 +60,9 @@ export const stores = new Set([
   'plugin-audit',
   'custom-agents',
   'agent-profile-overrides',
+  // Bot 模式：一个 bot = 一条记录 + 独占目录 + 一条持久会话。
+  // 走 bucket store，落 storage/conversations/global/bots.json。
+  'bots',
 ])
 
 // Monotonic in-process revisions for cache invalidation in route-level indexes.
@@ -204,6 +207,18 @@ export const userCommandsDir = path.join(dataDir, 'commands')
 export const userAgentsDir = path.join(dataDir, 'agents')
 export const builtinAgentsDir = path.join(userAgentsDir, 'builtin')
 export const tempAgentsDir = path.join(cacheDir, 'global', 'tmp', 'agents')
+
+// All memory lives under one root so its shape is defined in a single place.
+export const memoryDir = path.join(dataDir, 'memory')
+export const memoryFilePath = path.join(memoryDir, 'MEMORY.md')
+export const notesDir = path.join(memoryDir, 'notes')
+export const experiencesDir = path.join(memoryDir, 'experiences')
+export const snapshotsDir = path.join(memoryDir, 'snapshots')
+
+/** The memory root for a given data dir; tests derive it for a temporary one. */
+export function memoryDirOf(baseDir = dataDir) {
+  return path.join(baseDir, 'memory')
+}
 
 const quickForgeConfigFile = path.join(configDir, 'config.json')
 const configMigrationMarkerFile = path.join(configDir, '.layout-migrated')
@@ -1072,6 +1087,85 @@ export async function cleanOldTempAgents(retentionMs = 7 * 24 * 60 * 60 * 1000) 
   } catch {
     // ignore cleanup errors
   }
+}
+
+/**
+ * Where each memory artefact used to live (relative to the data dir), and where it
+ * lives now (relative to `memory/`).
+ */
+const MEMORY_LAYOUT_MOVES = Object.freeze([
+  ['MEMORY.md', 'MEMORY.md'],
+  ['working-memory', 'notes'],
+  ['experiences', 'experiences'],
+  ['dreaming-snapshots', 'snapshots'],
+])
+
+let memoryLayoutMigration = null
+
+/**
+ * What the one-time move did, or null when the layout was already current.
+ *
+ * Read by startup instead of logging from here: the logger takes `logsDir` from
+ * this module, so importing it back would be a cycle.
+ */
+export function getMemoryLayoutMigration() {
+  return memoryLayoutMigration
+}
+
+/**
+ * Move memory out of the data-dir root and into `memory/`.
+ *
+ * Each artefact is judged on its own rather than gating the whole move on
+ * "`memory/` exists": an interrupted run must not strand the rest in the old
+ * layout. Old copies are backed up before anything moves, and a failed move is
+ * rolled back — starting with memory split across two layouts is worse than not
+ * starting at all.
+ *
+ * A conflict (old and new both present) never overwrites the new copy: the old
+ * one is parked in the backup folder instead.
+ */
+export async function migrateMemoryLayout(baseDir = dataDir) {
+  const root = memoryDirOf(baseDir)
+  const moves = []
+  for (const [from, to] of MEMORY_LAYOUT_MOVES) {
+    const oldPath = path.join(baseDir, from)
+    if (!existsSync(oldPath)) continue
+    const newPath = path.join(root, to)
+    moves.push({ oldPath, newPath, conflict: existsSync(newPath) })
+  }
+  await fs.mkdir(root, { recursive: true })
+  if (moves.length === 0) return null
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const backupDir = path.join(baseDir, '_backups', `memory-layout-${stamp}`)
+  await fs.mkdir(backupDir, { recursive: true })
+  for (const move of moves) {
+    await fs.cp(move.oldPath, path.join(backupDir, path.basename(move.oldPath)), { recursive: true })
+  }
+
+  const done = []
+  let conflicts = 0
+  try {
+    for (const move of moves) {
+      if (move.conflict) {
+        const parked = path.join(backupDir, 'conflict', path.basename(move.oldPath))
+        await fs.mkdir(path.dirname(parked), { recursive: true })
+        await fs.rename(move.oldPath, parked)
+        conflicts += 1
+        continue
+      }
+      await fs.rename(move.oldPath, move.newPath)
+      done.push(move)
+    }
+  } catch (error) {
+    for (const move of done.reverse()) {
+      await fs.rename(move.newPath, move.oldPath).catch(() => undefined)
+    }
+    throw new Error(`Memory layout migration failed and was rolled back: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
+  }
+
+  memoryLayoutMigration = { moved: done.length, conflicts, backupDir }
+  return memoryLayoutMigration
 }
 
 // Cached storage-initialization promise.  ensureStorage() is idempotent (mkdir

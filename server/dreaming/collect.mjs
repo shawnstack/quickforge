@@ -252,11 +252,9 @@ export function collectSessionEntries({ from, to, maxSessions = MAX_SESSIONS_PER
 /**
  * Dominant language of what the user actually wrote.
  *
- * The model used to decide this itself from a one-line hint at the end of the
- * system prompt, and consistently answered in English when the transcript mixed
- * Chinese questions with English code/identifiers. Detecting it deterministically
- * from the user turns and passing an explicit directive is both cheaper and
- * reliably obeyed.
+ * Detect it deterministically and pass an explicit directive: asking the model to
+ * infer the language from the transcript makes it answer in English as soon as
+ * Chinese questions mix with English code/identifiers.
  *
  * Only user-role text is sampled: assistant prose and code comments skew English
  * in this codebase even when the user writes Chinese.

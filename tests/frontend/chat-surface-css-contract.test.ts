@@ -6,7 +6,6 @@ import { AssistantMessage } from '../../src/components/chat/surface/AssistantMes
 import { KatexMath } from '../../src/components/chat/surface/KatexMath'
 import { ThinkingBlock } from '../../src/components/chat/surface/ThinkingBlock'
 import { ToolMessage } from '../../src/components/chat/surface/ToolMessage'
-import { aggregateUsage, UsageBar } from '../../src/components/chat/surface/UsageBar'
 import { UserMessage } from '../../src/components/chat/surface/UserMessage'
 import type {
   AssistantMessage as AssistantMessageType,
@@ -77,7 +76,7 @@ describe('per-message usage line contract', () => {
     expect(css).toMatch(/\.qf-assistant-message > \.qf-usage-line,[\s\S]*?\{\s*display: none !important;/)
     // subagent 过程列表复用同一套消息组件，需要同样的隐藏分支（后代形式容忍包裹层级）。
     expect(css).toMatch(
-      /\[data-quickforge-subagent-process="true"\] \.qf-assistant-message \.qf-usage-line,/,
+      /\[data-quickforge-subagent-process="true"\] \.qf-assistant-message \.qf-usage-line/,
     )
     // 旧 DOM（根 > div > 用量元素 / message-list + assistant-message 标签）选择器
     // 对现 DOM 静默失效，不得回流。
@@ -85,23 +84,10 @@ describe('per-message usage line contract', () => {
     expect(css).not.toMatch(/message-list\s+assistant-message/)
   })
 
-  it('keeps hiding only the token/cost spans of the composer stats row', () => {
-    // 汇总行 = 装饰层挂 `quickforge-composer` 的 .qf-message-editor 紧随的 `.qf-usage-bar`；
-    // context usage / git 分支徽标（context-usage.ts 同一个 .ml-auto.items-center 容器内）保持可见。
-    expect(css).toMatch(
-      /\.quickforge-composer \+ \.qf-usage-bar[\s\S]{0,160}?:is\(span, button\):not\(\.quickforge-context-usage\):not\(\.quickforge-context-usage-label\):not\(\.quickforge-git-branch-inline\)/,
-    )
-    expect(css).not.toContain('.quickforge-composer + .text-xs.text-muted-foreground.flex.justify-between.items-center.h-5')
-  })
-
-  it('covers the onCostClick button variant of the stats row totals', () => {
-    // 宿主传 onCostClick 时 totals 渲染为 button 而非 span；隐藏选择器用
-    // :is(span, button) 同时命中两种形态（:not 豁免语义不变）。
-    const markup = renderToStaticMarkup(
-      createElement(UsageBar, { totals: aggregateUsage([assistantMessage()]), onCostClick: () => { } }),
-    )
-    expect(markup).toContain('<button type="button" class="cursor-pointer transition-colors hover:text-foreground">')
-    expect(css).not.toMatch(/\.ml-auto\.items-center\s*>\s*span:not\(/)
+  it('does not resurrect the removed composer stats row selector', () => {
+    // composer 下方的汇总统计行已整体移除：usage 行节点不再渲染，旧锚定规则
+    // 不得回流（否则又会命中不存在或语义不明的节点）。
+    expect(css).not.toContain('qf-usage-bar')
   })
 })
 

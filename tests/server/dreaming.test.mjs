@@ -36,8 +36,6 @@ function insertSession({ sessionId = 's1', projectId = 'p1', messages = [], upda
   })
 }
 
-const NOTE = (text) => ({ id: text, text })
-
 describe('dreaming schema', () => {
   it('keeps only the run log', () => {
     const tables = storage.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
@@ -82,15 +80,6 @@ describe('dreaming schema', () => {
     expect(() => repository.createRun({ trigger: 'nope', periodFrom: 0, periodTo: 1, startedAt: 1 })).toThrow(/trigger/)
     const run = repository.createRun({ trigger: 'schedule', periodFrom: 0, periodTo: 1, startedAt: 1 })
     expect(() => repository.finishRun(run.id, { status: 'nope' })).toThrow(/status/)
-  })
-})
-
-describe('legacy note stats table', () => {
-  it('still counts recalls, so an old database keeps working after the recall tool was removed', () => {
-    repository.recordNoteRecall([NOTE('发布前必须跑完整测试')], 1000)
-    repository.recordNoteRecall([NOTE('发布前必须跑完整测试')], 5000)
-    const stats = repository.listNoteStats()
-    expect(stats.get('发布前必须跑完整测试')).toMatchObject({ recallCount: 2, lastRecalledAt: 5000 })
   })
 })
 

@@ -30,10 +30,10 @@ afterEach(async () => {
 const options = () => ({ dataDir: directory })
 
 async function seedMemory() {
-  await mkdir(path.join(directory, 'working-memory'), { recursive: true })
-  await mkdir(path.join(directory, 'experiences'), { recursive: true })
-  await writeFile(path.join(directory, 'working-memory', '一.md'), '# 一\n\n原文', 'utf8')
-  await writeFile(path.join(directory, 'experiences', '经验.md'), '# 经验\n\n- 何时用：某天', 'utf8')
+  await mkdir(path.join(directory, 'memory', 'notes'), { recursive: true })
+  await mkdir(path.join(directory, 'memory', 'experiences'), { recursive: true })
+  await writeFile(path.join(directory, 'memory', 'notes', '一.md'), '# 一\n\n原文', 'utf8')
+  await writeFile(path.join(directory, 'memory', 'experiences', '经验.md'), '# 经验\n\n- 何时用：某天', 'utf8')
 }
 
 describe('memory snapshots', () => {
@@ -45,27 +45,27 @@ describe('memory snapshots', () => {
     expect(snapshot.dir).toBe(snapshotDirOf('run-1', options()))
 
     // Simulate a bad run: one file rewritten, one archived, one added.
-    await writeFile(path.join(directory, 'working-memory', '一.md'), '# 一\n\n被改坏了', 'utf8')
-    await writeFile(path.join(directory, 'working-memory', '二.md'), '# 二\n\n新写的', 'utf8')
-    await mkdir(path.join(directory, 'experiences', '_archive'), { recursive: true })
-    await rm(path.join(directory, 'experiences', '经验.md'))
+    await writeFile(path.join(directory, 'memory', 'notes', '一.md'), '# 一\n\n被改坏了', 'utf8')
+    await writeFile(path.join(directory, 'memory', 'notes', '二.md'), '# 二\n\n新写的', 'utf8')
+    await mkdir(path.join(directory, 'memory', 'experiences', '_archive'), { recursive: true })
+    await rm(path.join(directory, 'memory', 'experiences', '经验.md'))
 
     const restored = await restoreMemorySnapshot('run-1', options())
     expect(restored.workingMemoryFiles).toBe(1)
     expect(restored.experienceFiles).toBe(1)
-    expect(await readFile(path.join(directory, 'working-memory', '一.md'), 'utf8')).toContain('原文')
-    expect((await readdir(path.join(directory, 'working-memory'))).sort()).toEqual(['一.md'])
-    expect(await readFile(path.join(directory, 'experiences', '经验.md'), 'utf8')).toContain('何时用')
+    expect(await readFile(path.join(directory, 'memory', 'notes', '一.md'), 'utf8')).toContain('原文')
+    expect((await readdir(path.join(directory, 'memory', 'notes'))).sort()).toEqual(['一.md'])
+    expect(await readFile(path.join(directory, 'memory', 'experiences', '经验.md'), 'utf8')).toContain('何时用')
   })
 
   it('can roll a first-ever run back to empty, which is why a missing folder is not an error', async () => {
     const snapshot = await snapshotMemory({ runId: 'run-empty', dataDir: directory })
     expect(snapshot.workingMemoryFiles).toBe(0)
     expect(snapshot.experienceFiles).toBe(0)
-    await mkdir(path.join(directory, 'working-memory'), { recursive: true })
-    await writeFile(path.join(directory, 'working-memory', '一.md'), '# 一', 'utf8')
+    await mkdir(path.join(directory, 'memory', 'notes'), { recursive: true })
+    await writeFile(path.join(directory, 'memory', 'notes', '一.md'), '# 一', 'utf8')
     await restoreMemorySnapshot('run-empty', options())
-    expect(await readdir(path.join(directory, 'working-memory'))).toEqual([])
+    expect(await readdir(path.join(directory, 'memory', 'notes'))).toEqual([])
   })
 
   it('refuses to restore a run whose snapshot is gone', async () => {
@@ -80,7 +80,7 @@ describe('memory snapshots', () => {
     }
     const pruned = await pruneSnapshots(options())
     expect(pruned.removed).toBe(2)
-    const remaining = await readdir(path.join(directory, 'dreaming-snapshots'))
+    const remaining = await readdir(path.join(directory, 'memory', 'snapshots'))
     expect(remaining).toHaveLength(MAX_SNAPSHOTS)
     expect(remaining).not.toContain('run-00')
   })

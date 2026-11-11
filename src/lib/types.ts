@@ -36,6 +36,8 @@ export type ProjectInfo = {
   sortOrder?: number
   skills?: string[]
   commandDir?: string
+  /** 'bot' 表示这是某个 bot 的专属目录。它是真实项目（工具要用），但不该出现在项目切换器里。 */
+  kind?: 'bot'
 }
 
 export type SkillsScope = 'global' | 'project'

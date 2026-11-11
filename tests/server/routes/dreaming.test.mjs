@@ -158,7 +158,7 @@ describe('removed endpoints', () => {
 })
 
 describe('experience library open actions', () => {
-  const experienceDir = () => path.join(directory, 'experiences')
+  const experienceDir = () => path.join(directory, 'memory', 'experiences')
 
   it('reveals one experience file in the file manager', async () => {
     await mkdir(experienceDir(), { recursive: true })

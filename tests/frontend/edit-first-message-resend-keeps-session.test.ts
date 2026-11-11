@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { useChatActions } from '../../src/hooks/useChatActions'
+import { QUICKFORGE_CHAT_CAPABILITIES } from '../../src/lib/chat-capabilities'
 
 /**
  * 回归：回滚必须留在当前会话，不论入口是「就地编辑后重发」还是「回滚填回输入框」。
@@ -74,6 +75,7 @@ function useChatActionsHarness(options: { messages: unknown[]; rolledBackMessage
     syncSessionUI,
     setChatPanelRevision,
     refreshSessions,
+    capabilities: QUICKFORGE_CHAT_CAPABILITIES,
     needsModelSetup: false,
     setNeedsModelSetup: vi.fn(),
     switchActiveProject: vi.fn(),

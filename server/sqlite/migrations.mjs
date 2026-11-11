@@ -16,15 +16,6 @@ import { LEGACY_COMPAT_TABLES, LEGACY_DROPPED_COLUMNS, LEGACY_MIGRATIONS } from 
 export const BASELINE_VERSION = 19
 
 const BASELINE_SQL = `
-CREATE TABLE dreaming_note_stats (
-          note_id TEXT PRIMARY KEY CHECK (length(trim(note_id)) > 0),
-          note_text TEXT NOT NULL CHECK (length(trim(note_text)) > 0),
-          recall_count INTEGER NOT NULL DEFAULT 0 CHECK (recall_count >= 0),
-          last_recalled_at INTEGER,
-          created_at INTEGER NOT NULL CHECK (created_at >= 0),
-          updated_at INTEGER NOT NULL CHECK (updated_at >= 0)
-        );
-
 CREATE TABLE dreaming_runs (
           id TEXT PRIMARY KEY CHECK (length(trim(id)) > 0),
           trigger TEXT NOT NULL CHECK (trigger IN ('schedule', 'manual')),
@@ -240,9 +231,6 @@ CREATE TABLE share_tokens (
           FOREIGN KEY (share_id) REFERENCES share_sessions (share_id) ON DELETE CASCADE
         ) WITHOUT ROWID;
 
-CREATE INDEX idx_dreaming_note_stats_recall
-          ON dreaming_note_stats (recall_count, last_recalled_at);
-
 CREATE INDEX idx_dreaming_runs_started ON dreaming_runs (started_at DESC);
 
 CREATE INDEX idx_session_messages_session_id ON session_messages (session_id);
@@ -278,6 +266,13 @@ export const SQLITE_MIGRATIONS = Object.freeze([
     name: 'baseline',
     up(database) {
       database.exec(BASELINE_SQL)
+    },
+  }),
+  Object.freeze({
+    version: BASELINE_VERSION + 1,
+    name: 'drop_dreaming_note_stats',
+    up(database) {
+      database.exec('DROP TABLE IF EXISTS dreaming_note_stats')
     },
   }),
 ])

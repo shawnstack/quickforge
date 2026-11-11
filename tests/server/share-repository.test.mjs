@@ -3,7 +3,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applySqliteMigrations, BASELINE_VERSION, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { LATEST_SCHEMA_VERSION, NEXT_SCHEMA_VERSION } from '../helpers/sqlite-schema.mjs'
 import {
   createShareRepository,
   shareSnapshotDigest,
@@ -91,7 +92,7 @@ describe('share repository and baseline schema', () => {
     const failing = [
       ...SQLITE_MIGRATIONS,
       {
-        version: BASELINE_VERSION + 1,
+        version: NEXT_SCHEMA_VERSION,
         name: 'probe',
         up(db) {
           db.exec('CREATE TABLE migration_probe (id INTEGER PRIMARY KEY)')
@@ -100,8 +101,8 @@ describe('share repository and baseline schema', () => {
       },
     ]
     expect(() => applySqliteMigrations(database, { migrations: failing }))
-      .toThrow(new RegExp(`migration ${BASELINE_VERSION + 1}.*after-probe`))
-    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
+      .toThrow(new RegExp(`migration ${NEXT_SCHEMA_VERSION}.*after-probe`))
+    expect(database.prepare('PRAGMA user_version').get().user_version).toBe(LATEST_SCHEMA_VERSION)
     expect(database.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name='migration_probe'").get()).toBeUndefined()
     expect(database.prepare('SELECT share_id, revision FROM share_sessions').all()).toEqual([{ share_id: created.id, revision: 1 }])
     expect(repository.get(created.id)).toMatchObject({ id: created.id, revision: 1 })

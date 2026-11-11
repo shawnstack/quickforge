@@ -13,6 +13,7 @@ import {
   hasUserMessage,
 } from '@/lib/message-utils'
 import type { ProjectInfo, RestoredDraft } from '@/lib/types'
+import type { ChatCapabilities } from '@/lib/chat-capabilities'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
@@ -30,6 +31,8 @@ type UseChatActionsOptions = {
   syncSessionUI: AgentManager['syncSessionUI']
   setChatPanelRevision: AgentManager['setChatPanelRevision']
   refreshSessions: (opts?: { broadcast?: boolean }) => Promise<void>
+  /** 决定历史动作能不能做（bot 会话关掉 fork / 回滚 / 重试）。 */
+  capabilities: ChatCapabilities
   needsModelSetup: boolean
   setNeedsModelSetup: React.Dispatch<React.SetStateAction<boolean>>
   switchActiveProject: (projectId: string) => Promise<ProjectInfo>
@@ -57,6 +60,7 @@ export function useChatActions({
   syncSessionUI,
   setChatPanelRevision,
   refreshSessions,
+  capabilities,
   needsModelSetup,
   switchActiveProject,
   closeWorkspacePage,
@@ -128,6 +132,13 @@ export function useChatActions({
     const currentAgent = agentRef.current
     if (!currentAgent) return false
 
+    // 防御层（主判据是能力位：按钮根本不会渲染，服务端另有 403）。将来新加
+    // 历史入口时忘了配能力位，这里还能拦住。
+    if (!capabilities.rollback) {
+      void showAlert(t('botHistoryImmutable'))
+      return false
+    }
+
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationStillRunning'))
       return false
@@ -192,6 +203,7 @@ export function useChatActions({
     return true
   }, [
     agentRef,
+    capabilities,
     currentSessionIdRef,
     setChatPanelRevision,
     setRestoredDraft,
@@ -225,6 +237,13 @@ export function useChatActions({
   const forkFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current
     if (!currentAgent) return
+
+    // 防御层（主判据是能力位 + 服务端）。fork 会把 bot 的记忆和心跳指令复制成
+    // 一个普通会话，等于造出一个继续跑的分身。
+    if (!capabilities.forkFromMessage) {
+      void showAlert(t('botHistoryImmutable'))
+      return
+    }
 
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationAlreadyRunning'))
@@ -266,11 +285,17 @@ export function useChatActions({
     // the fork visible in the session index does not depend on the client's
     // local storage being initialized.
     refreshSessions({ broadcast: true }).catch((error) => logger.error('Failed to refresh sessions:', error))
-  }, [activeModelRef, activeProjectRef, agentRef, createAgent, currentChatScopeRef, refreshSessions])
+  }, [activeModelRef, activeProjectRef, agentRef, capabilities, createAgent, currentChatScopeRef, refreshSessions])
 
   const retryFromMessage = useCallback(async (messageIndex: number) => {
     const currentAgent = agentRef.current
     if (!currentAgent) return
+
+    // 成功轮次的重试是「截断后重发」，等价于回滚；bot 里连这条绕过路径也关掉。
+    if (!capabilities.retry) {
+      void showAlert(t('botHistoryImmutable'))
+      return
+    }
 
     if (currentAgent.state.isStreaming) {
       void showAlert(t('generationAlreadyRunning'))
@@ -323,7 +348,7 @@ export function useChatActions({
       syncSessionUI(currentTask).catch((err) => logger.error('Failed to sync session UI after retry:', err))
       setChatPanelRevision((value) => value + 1)
     }
-  }, [agentRef, currentSessionIdRef, setChatPanelRevision, syncSessionUI, taskMapRef])
+  }, [agentRef, capabilities, currentSessionIdRef, setChatPanelRevision, syncSessionUI, taskMapRef])
 
   return {
     startNewGlobalChat,

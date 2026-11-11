@@ -5,7 +5,8 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import { applySqliteMigrations, BASELINE_VERSION, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { LATEST_SCHEMA_VERSION, NEXT_SCHEMA_VERSION } from '../helpers/sqlite-schema.mjs'
 import { createScheduledTaskRunsRepository, MAX_SCHEDULED_TASK_RUNS_PER_TASK } from '../../server/sqlite/scheduled-task-runs-repository.mjs'
 
 const projectRoot = path.resolve(import.meta.dirname, '../..')
@@ -82,7 +83,7 @@ describe('scheduled task runs repository baseline schema', () => {
     const failing = [
       ...SQLITE_MIGRATIONS,
       {
-        version: BASELINE_VERSION + 1,
+        version: NEXT_SCHEMA_VERSION,
         name: 'probe',
         up(database) {
           database.exec('CREATE TABLE migration_probe (id INTEGER PRIMARY KEY)')
@@ -95,8 +96,8 @@ describe('scheduled task runs repository baseline schema', () => {
       raw.prepare(`INSERT INTO scheduled_task_runs (id, task_id, status, started_at, result, source, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
         .run('shadow', 'task-baseline', 'success', '2026-01-01T00:00:00.000Z', 'preserved', 'test', '2026-01-01T00:00:00.000Z')
       expect(() => applySqliteMigrations(raw, { migrations: failing }))
-        .toThrow(new RegExp(`migration ${BASELINE_VERSION + 1}.*after rebuild`))
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
+        .toThrow(new RegExp(`migration ${NEXT_SCHEMA_VERSION}.*after rebuild`))
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(LATEST_SCHEMA_VERSION)
       expect(raw.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'migration_probe'").get()).toBeUndefined()
       expect(raw.prepare('SELECT id, task_id, result FROM scheduled_task_runs').all()).toEqual([
         { id: 'shadow', task_id: 'task-baseline', result: 'preserved' },
@@ -187,7 +188,7 @@ describe('scheduled task runs repository baseline schema', () => {
     try {
       const applied = raw.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version)
       expect(applied).toEqual(SQLITE_MIGRATIONS.map((migration) => migration.version))
-      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(BASELINE_VERSION)
+      expect(raw.prepare('PRAGMA user_version').get().user_version).toBe(LATEST_SCHEMA_VERSION)
     } finally {
       raw.close()
     }

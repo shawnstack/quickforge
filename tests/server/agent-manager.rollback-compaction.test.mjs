@@ -171,4 +171,77 @@ describe('agent manager rollback with compaction', () => {
     expect(session.contextCompaction.summaryMessage).toBe(firstSummary)
     expect(session.contextCompaction.compactedUpToIndex).toBe(3)
   })
+
+  it('refuses to roll back a bot session even when it was never compacted', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { ensureBotProject } = await import('../../server/bots.mjs')
+    const { project: botProject } = await ensureBotProject({
+      name: 'bot',
+      workspacePath: path.join(tmpDir, 'bots', 'bot-test'),
+    })
+    const { createAgent, rollbackSessionMessages } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('bot-session', {
+      scope: 'project',
+      projectId: botProject.id,
+      model: { provider: 'mock', id: 'mock-model' },
+    })
+    session.agent.state.messages = [
+      textMessage('user', 'u0'),
+      textMessage('assistant', 'a0'),
+      textMessage('user', 'u1'),
+      textMessage('assistant', 'a1'),
+    ]
+
+    await expect(rollbackSessionMessages('bot-session', 3)).rejects.toMatchObject({
+      statusCode: 403,
+      errorCode: 'BOT_SESSION_IMMUTABLE',
+    })
+    expect(session.agent.state.messages).toHaveLength(4)
+  })
+
+  it('refuses to roll back a compacted bot session (the compaction pointer would dangle)', async () => {
+    const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const { ensureBotProject } = await import('../../server/bots.mjs')
+    const { project: botProject } = await ensureBotProject({
+      name: 'bot',
+      workspacePath: path.join(tmpDir, 'bots', 'bot-compacted'),
+    })
+    const { createAgent, rollbackSessionMessages } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('bot-compacted-session', {
+      scope: 'project',
+      projectId: botProject.id,
+      model: { provider: 'mock', id: 'mock-model' },
+    })
+    compactedSession(session)
+
+    await expect(rollbackSessionMessages('bot-compacted-session', 7)).rejects.toMatchObject({
+      errorCode: 'BOT_SESSION_IMMUTABLE',
+    })
+    expect(session.agent.state.messages).toHaveLength(8)
+    expect(session.contextCompaction).not.toBeNull()
+  })
+
+  it('still rolls back an ordinary project session (the guard keys off kind, not scope)', async () => {
+    const { setDefaultWorkspaceRoot, createProjectInDefaultWorkspace } = await import('../../server/project-config.mjs')
+    setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
+    const project = await createProjectInDefaultWorkspace('ordinary')
+    const { createAgent, rollbackSessionMessages } = await import('../../server/agent-manager.mjs')
+    const session = await createAgent('ordinary-project-session', {
+      scope: 'project',
+      projectId: project.project.id,
+      model: { provider: 'mock', id: 'mock-model' },
+    })
+    session.agent.state.messages = [
+      textMessage('user', 'u0'),
+      textMessage('assistant', 'a0'),
+      textMessage('user', 'u1'),
+      textMessage('assistant', 'a1'),
+    ]
+
+    await rollbackSessionMessages('ordinary-project-session', 3)
+
+    expect(session.agent.state.messages).toHaveLength(2)
+  })
 })

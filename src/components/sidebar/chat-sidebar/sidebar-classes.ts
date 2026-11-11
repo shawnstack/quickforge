@@ -25,6 +25,12 @@ export const iconSlotClass = 'inline-flex size-6 shrink-0 items-center justify-c
 export const iconButtonClass = `size-7 shrink-0 rounded-full transition-[background-color,color,box-shadow,opacity] duration-160 ease-out ${sidebarHoverBgClass}`
 export const sectionActionButtonClass = `quickforge-sidebar-section-icon ${iconButtonClass} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
 
+// 左上角「对话 / BOT」模式切换：一条轨道两个等宽选项，选中项浮到页面底色 + 细边框。
+export const modeSwitcherTrackClass = 'mt-2 flex w-full items-center gap-0.5 rounded-lg bg-muted/50 p-1'
+export const modeSwitcherOptionClass = 'flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent text-[13px] font-[350] leading-5 transition-[background-color,color,border-color] duration-160 ease-out'
+export const modeSwitcherOptionIdleClass = 'text-muted-foreground hover:text-foreground'
+export const modeSwitcherOptionActiveClass = 'border-border bg-background text-foreground'
+
 export const actionOverlayBaseClass = 'pointer-events-none absolute inset-y-0 right-2 z-20 flex items-center rounded-r-lg bg-gradient-to-l from-[var(--quickforge-sidebar-hover-bg)] via-[var(--quickforge-sidebar-hover-bg)]/95 to-transparent pl-4 opacity-0 transition-opacity duration-160'
 export const actionOverlayClass = `${actionOverlayBaseClass} gap-1 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100`
 export const projectActionOverlayClass = `${actionOverlayBaseClass} gap-px group-hover:pointer-events-auto group-hover:opacity-100`

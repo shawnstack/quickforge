@@ -48,6 +48,12 @@ Self control (own session by default):
   model <modelRef> [--sessionId ID]
   thinking <off|low|medium|high|xhigh> [--sessionId ID]
   goal <action> [--objective TEXT]   action: confirm/pause/resume/cancel/revise/accept
+  compact [--sessionId ID] [--reason TEXT]
+        Ask the server to compact THIS session's context. Idle -> compacts now
+        and returns the summary text; running (which is what happens when I
+        call it on myself) -> queues ONE forced compaction that lands before
+        the next model request, so the same turn carries on with the summary.
+        Response field scheduled=true means "queued, not done yet".
   wait [--sessionId ID] [--timeout S] [--interval S]
 
 Other sessions:
@@ -146,10 +152,14 @@ function sameDirectory(left, right) {
   try { return path.resolve(left) === path.resolve(right) } catch { return false }
 }
 
-async function request(baseUrl, method, apiPath, body, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS) {
+async function request(baseUrl, method, apiPath, body, timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS, extraHeaders = null) {
+  const headers = body === undefined
+    ? { accept: 'application/json' }
+    : { accept: 'application/json', 'content-type': 'application/json' }
+  if (extraHeaders && typeof extraHeaders === 'object') Object.assign(headers, extraHeaders)
   const response = await fetch(`${baseUrl}${apiPath}`, {
     method,
-    headers: body === undefined ? { accept: 'application/json' } : { accept: 'application/json', 'content-type': 'application/json' },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   })
@@ -233,6 +243,7 @@ function createClient(baseUrl) {
   return {
     get: (apiPath, timeoutMs) => request(baseUrl, 'GET', apiPath, undefined, timeoutMs),
     post: (apiPath, body, timeoutMs) => request(baseUrl, 'POST', apiPath, body ?? {}, timeoutMs),
+    postWithHeaders: (apiPath, body, headers, timeoutMs) => request(baseUrl, 'POST', apiPath, body ?? {}, timeoutMs, headers),
     delete: (apiPath, timeoutMs) => request(baseUrl, 'DELETE', apiPath, undefined, timeoutMs),
   }
 }
@@ -304,6 +315,40 @@ async function commandContext(client, options) {
     isCompacted: Boolean(usage?.isCompacted),
     messageCount: budget?.messageCount ?? 0,
     breakdown: usage?.breakdown ?? null,
+  }
+}
+
+async function commandCompact(client, options) {
+  const sessionId = optionString(options, 'sessionId') || process.env.QUICKFORGE_SESSION_ID || null
+  if (!sessionId) {
+    throw new Error('compact needs a session id: no QUICKFORGE_SESSION_ID in this process, pass --sessionId ID')
+  }
+  // 报「我是哪个会话」。服务端只在它等于目标会话时把请求认作「会话压自己」，
+  // 从而允许在运行中排队压缩（那条分支只写内存标记，不落库）；压别人的会话
+  // 时值不匹配，照旧受目标会话的写租约约束。
+  const selfSessionId = process.env.QUICKFORGE_SESSION_ID
+  const headers = selfSessionId ? { 'x-quickforge-agent-session': selfSessionId } : {}
+  const result = await client.postWithHeaders(`/api/agents/${encodeURIComponent(sessionId)}/compact`, {
+    reason: optionString(options, 'reason') || 'agent_request',
+  }, headers)
+
+  const usageBefore = result?.usageBefore ?? null
+  const usageAfter = result?.usageAfter ?? null
+  return {
+    sessionId: result?.sessionId ?? sessionId,
+    // scheduled=true：服务端把它排到下一次模型请求之前。这一轮此刻还没压，
+    // 下一次工具调用之后模型看到的历史就已经是摘要版了。
+    scheduled: Boolean(result?.scheduled),
+    compacted: Boolean(result?.compacted),
+    // 没压成时这里是原因：session_not_found / generation_running /
+    // not_enough_history / not_enough_new_messages / disabled / error
+    reason: result?.reason ?? null,
+    error: result?.error ?? null,
+    summary: result?.summary ?? null,
+    percentBefore: usageBefore?.percent ?? null,
+    percentAfter: usageAfter?.percent ?? null,
+    messageCountBefore: usageBefore?.effectiveMessageCount ?? null,
+    messageCountAfter: usageAfter?.effectiveMessageCount ?? null,
   }
 }
 
@@ -844,6 +889,7 @@ async function main() {
   switch (command) {
     case 'whoami': result = await commandWhoami(client, baseUrl, options); break
     case 'context': result = await commandContext(client, options); break
+    case 'compact': result = await commandCompact(client, options); break
     case 'agents': result = await commandAgents(client); break
     case 'sessions': result = await commandSessions(client, options); break
     case 'show': result = await commandShow(client, positional, options); break

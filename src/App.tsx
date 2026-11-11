@@ -11,6 +11,17 @@ import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills-dialog'
+import { BotSettingsDialog, NewBotDialog } from '@/components/bots/BotDialogs'
+import { BotMascot } from '@/components/bots/mascot/BotMascot'
+import { useMascotStroll } from '@/components/bots/mascot/use-mascot-stroll'
+import { useMascotState } from '@/components/bots/mascot/use-mascot-state'
+import {
+  createBot as createBotRequest,
+  deleteBot as deleteBotRequest,
+  ensureBotSessionOpen,
+  fetchBots,
+  type BotSummary,
+} from '@/components/bots/bots-data'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
 import { PluginUiToasts } from '@/components/plugins/PluginSlot'
 import { ConversationHeader } from '@/components/app/ConversationHeader'
@@ -21,6 +32,8 @@ import {
   initializePiStorage,
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { isBotProject } from '@/lib/bot-project'
+import { BOT_CHAT_CAPABILITIES, QUICKFORGE_CHAT_CAPABILITIES } from '@/lib/chat-capabilities'
 import { pickNewChatGreetingKey } from '@/lib/new-chat-greeting'
 import { cn } from '@/lib/utils'
 import {
@@ -913,6 +926,15 @@ function MainApp() {
     }
   }, [ready, expandedProjectIds, projectLoaded, projectLoading, loadProjectSessions])
 
+  // bot 的会话就是它的长期记忆：能力位里关掉 fork / 回滚 / 重试（文件回滚
+  // `/rollback-turn` 不在此列，照常可用），服务端 `rollbackSessionMessages`
+  // 另有无条件 403 兜底。判据用「侧栏在 bot 模式」或「当前会话落在 bot 项目」：
+  // 后者是数据真相，前者覆盖刚切模式、项目还没切过来的那一瞬。
+  const botMode = useUIStore((s) => s.botMode)
+  const chatCapabilities = botMode || isBotProject(agentManager.currentToolProject)
+    ? BOT_CHAT_CAPABILITIES
+    : QUICKFORGE_CHAT_CAPABILITIES
+
   const {
     startNewGlobalChat,
     startNewProjectChat,
@@ -933,6 +955,7 @@ function MainApp() {
     syncSessionUI,
     setChatPanelRevision,
     refreshSessions,
+    capabilities: chatCapabilities,
     needsModelSetup,
     setNeedsModelSetup,
     switchActiveProject,
@@ -991,7 +1014,7 @@ function MainApp() {
   useEffect(() => {
     const recovery = getDeletedProjectRecoveryDecision({
       ready,
-      currentToolProjectId: agentManager.currentToolProject?.id,
+      currentToolProject: agentManager.currentToolProject,
       projects,
       activeProject,
       recoveringProjectId: recoveringDeletedToolProjectIdRef.current,
@@ -1019,7 +1042,7 @@ function MainApp() {
         recoveringDeletedToolProjectIdRef.current = undefined
         logger.error('Failed to recover after the current project was deleted:', error)
       })
-  }, [activeProject, agentManager.currentToolProject?.id, projects, ready, setArtifactPreviewOpen, setPendingTerminalCommand, setTerminalDockOpen, setWorkspaceInspectorRequest, startDeferredSession])
+  }, [activeProject, agentManager.currentToolProject, projects, ready, setArtifactPreviewOpen, setPendingTerminalCommand, setTerminalDockOpen, setWorkspaceInspectorRequest, startDeferredSession])
 
   const { setAccessMode } = useAgentAccessActions({
     storageRef,
@@ -1099,9 +1122,10 @@ function MainApp() {
   // 定时任务历史「查看对话」与系统通知点击共用的跳转：预检会话存在性，
   // 不存在时留在当前页提示；存在时关闭设置页再加载会话（加载失败兜底提示）。
   const handleOpenSessionFromSettings = useCallback(
-    (sessionId: string) => {
+    (sessionId: string, options?: { skipMetadataPrecheck?: boolean }) => {
       void openSessionFromSettings({
         sessionId,
+        skipMetadataPrecheck: options?.skipMetadataPrecheck === true,
         closeSettingsPage,
         scheduleSessionLoad,
         loadSession: loadAgentSession,
@@ -1119,7 +1143,9 @@ function MainApp() {
   useEffect(() => {
     const request = openSessionRequest
     if (!request) return
-    handleOpenSessionFromSettings(request.sessionId)
+    handleOpenSessionFromSettings(request.sessionId, {
+      skipMetadataPrecheck: request.skipMetadataPrecheck === true,
+    })
     useUIStore.getState().clearOpenSessionRequest()
   }, [openSessionRequest, handleOpenSessionFromSettings])
 
@@ -1225,7 +1251,7 @@ function MainApp() {
 
   // 默认项目必须进入真实会话状态，不能只在选择器中显示为已选。
   useEffect(() => {
-    if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || agentManager.chatScope !== 'global') return
+    if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || isBotProject(activeProject) || agentManager.chatScope !== 'global') return
     if (taskLauncherAgent && taskLauncherAgent === agentManager.agent) {
       void runNewChatWithLauncher(() => startNewProjectChat(activeProject))
     } else {
@@ -1235,7 +1261,9 @@ function MainApp() {
 
   const startNewDefaultSession = useCallback(() => {
     setEmptyStateProjectDismissed(false)
-    if (activeProject) {
+    // bot 目录也注册成了项目，但它不是用户可以「新建对话到这儿」的项目：
+    // 否则打开过一次 bot，之后每次点新对话都会落进 bot 的目录里。
+    if (activeProject && !isBotProject(activeProject)) {
       void startNewProjectChatWithInspectorReset(activeProject)
       return
     }
@@ -1317,6 +1345,179 @@ function MainApp() {
   const openScheduledTasks = useCallback(() => {
     openSettingsPage('scheduledTasks')
   }, [openSettingsPage])
+
+  // ---------------------------------------------------------------- bot 模式
+  // 一个 bot = 一条持久会话 + 一个独占目录。侧栏换成 bot 列表，主区仍然复用
+  // 普通会话视图 —— 所以「bot 的对话界面和普通对话一样」是零成本的。
+  // bot 模式的状态在文件上方读（历史动作的能力表要用），这里只取写入口。
+  const setBotMode = useUIStore((s) => s.setBotMode)
+  const [bots, setBots] = useState<BotSummary[]>([])
+  const [botsLoading, setBotsLoading] = useState(true)
+  const [botsError, setBotsError] = useState<string | null>(null)
+  const [newBotOpen, setNewBotOpen] = useState(false)
+  const [newBotPending, setNewBotPending] = useState(false)
+  const [newBotError, setNewBotError] = useState<string | null>(null)
+  const [botSettings, setBotSettings] = useState<BotSummary | null>(null)
+
+  // effect 里不能同步 setState（会级联渲染），所以这里所有状态更新都发生在 await 之后。
+  // 返回拿到的列表：切进 bot 模式时要立刻用它挑第一个 bot，不能只依赖 state。
+  const refreshBots = useCallback(async (): Promise<BotSummary[]> => {
+    try {
+      const list = await fetchBots()
+      setBots(list)
+      setBotsError(null)
+      return list
+    } catch (error) {
+      setBotsError(error instanceof Error ? error.message : String(error))
+      return []
+    } finally {
+      setBotsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!botMode) return
+    // 放到下一个任务里跑：effect 体内同步 setState 会触发级联渲染，
+    // 而这个加载本身不依赖任何 DOM 测量结果，延后一帧没有副作用。
+    const timer = setTimeout(() => { void refreshBots() }, 0)
+    return () => clearTimeout(timer)
+  }, [botMode, refreshBots])
+
+  const openBotSession = useCallback(async (bot: BotSummary) => {
+    try {
+      // 不能直接拿 bot.sessionId 去开会话：空会话不落盘，那个 id 只保证「永远是同一个」。
+      const sessionId = await ensureBotSessionOpen(bot.id)
+      // bot 的会话在第一次发言前只有内存态、没有存储记录，所以跳过 metadata 预检；
+      // 真正能不能打开由随后的 loadSession 决定。
+      useUIStore.getState().requestOpenSession(sessionId, { skipMetadataPrecheck: true })
+    } catch (error) {
+      void showAlert(error instanceof Error ? error.message : t('sessionNotFound'))
+    }
+  }, [])
+
+  const toggleBotMode = useCallback(async () => {
+    const next = !useUIStore.getState().botMode
+    setBotMode(next)
+    if (!next) return
+    // 刚切进 bot 模式时列表可能还没加载完（刷新放在 effect 里）。这里先等一次，
+    // 否则 `bots` 还是空的，什么都打不开，主区会继续停在刚才那条普通会话上。
+    const list = bots.length > 0 ? bots : await refreshBots()
+    // 当前这条会话不属于任何 bot，就顺手打开第一个 bot，免得用户对着一堆
+    // 普通对话发呆（bot 模式下主区不显示项目/分支，停在普通会话上会自相矛盾）。
+    const currentSessionId = agentManager.currentSessionId
+    const belongsToBot = list.some((bot) => bot.sessionId && bot.sessionId === currentSessionId)
+    const first = list.find((bot) => bot.sessionId)
+    if (!belongsToBot && first) await openBotSession(first)
+  }, [setBotMode, bots, refreshBots, openBotSession, agentManager.currentSessionId])
+
+  // 退出 bot 模式的反向补偿：进 bot 模式会自动打开一个 bot，退出时主区却可能还停在
+  // 那个 bot 的会话上。继续显示它的历史对话不只是观感问题 —— 此时 chatCapabilities
+  // 仍按 bot 项目判定，顶栏、吉祥物、消息落点都还挂在 bot 上，用户看到的是「人还在
+  // bot 里」。所以落到新对话空态，由用户自己选要进哪条对话。
+  // 放在 effect 里而不是 toggleBotMode 里：在那里读 agentManager.currentSessionId
+  // 会被 react-hooks/refs 判成「render 期间读 ref」。
+  const previousBotModeRef = useRef(botMode)
+  useEffect(() => {
+    const wasBotMode = previousBotModeRef.current
+    previousBotModeRef.current = botMode
+    if (!wasBotMode || botMode || needsModelSetup) return
+    // 和上面的 refreshBots 同理：effect 体内同步 setState 会触发级联渲染，
+    // 而这里只是「换一条会话」，延后到下一个任务没有副作用。
+    const timer = setTimeout(() => {
+      const currentBotSessionId = agentManager.currentSessionId
+      if (bots.some((bot) => bot.sessionId === currentBotSessionId)) startNewDefaultSession()
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [botMode, needsModelSetup, bots, agentManager.currentSessionId, startNewDefaultSession])
+
+  const openNewBotDialog = useCallback(() => {
+    setNewBotError(null)
+    setNewBotOpen(true)
+  }, [])
+
+  const handleCreateBot = useCallback(async (name: string) => {
+    setNewBotPending(true)
+    setNewBotError(null)
+    try {
+      const bot = await createBotRequest(name)
+      setBots((previous) => [...previous, bot])
+      setNewBotOpen(false)
+      setBotMode(true)
+      void openBotSession(bot)
+    } catch (error) {
+      setNewBotError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setNewBotPending(false)
+    }
+  }, [setBotMode, openBotSession])
+
+  const handleBotChanged = useCallback((bot: BotSummary) => {
+    setBotSettings(bot)
+    setBots((previous) => previous.map((item) => (item.id === bot.id ? { ...item, ...bot } : item)))
+  }, [])
+
+  const handleDeleteBot = useCallback(async (botId: string) => {
+    try {
+      await deleteBotRequest(botId)
+      setBots((previous) => previous.filter((bot) => bot.id !== botId))
+      setBotSettings(null)
+    } catch (error) {
+      setBotsError(error instanceof Error ? error.message : String(error))
+    }
+  }, [])
+
+  const botShell = useMemo(() => ({
+    mode: botMode,
+    bots,
+    activeBotId: bots.find((bot) => bot.sessionId && bot.sessionId === agentManager.currentSessionId)?.id,
+    loading: botsLoading,
+    error: botsError,
+    onSelect: openBotSession,
+    onOpenSettings: setBotSettings,
+    onToggleMode: toggleBotMode,
+    onStartNew: openNewBotDialog,
+  }), [
+    botMode,
+    bots,
+    botsLoading,
+    botsError,
+    openBotSession,
+    toggleBotMode,
+    openNewBotDialog,
+    agentManager.currentSessionId,
+  ])
+
+  // bot 主区的吉祥物：用会话的细粒度状态驱动动作（思考 / 干活 / 等审批 / 出错 / 刚完成）。
+  const activeBot = useMemo(
+    () => bots.find((bot) => bot.id === botShell.activeBotId) ?? null,
+    [bots, botShell.activeBotId],
+  )
+  const activeBotSessionId = agentManager.agent?.sessionId ?? null
+  // agent.state 的静态类型比运行时窄（审批/追问是可选字段，待执行工具是 Set），
+  // 这里按运行时实际形状收窄一次，别在下面到处 as。
+  const agentState = agentManager.agent?.state as
+    | {
+        isStreaming?: boolean
+        errorMessage?: string | null
+        pendingToolCalls?: Set<string> | string[]
+        pendingToolApproval?: unknown
+        pendingAsk?: unknown
+      }
+    | undefined
+  const pendingToolCalls = agentState?.pendingToolCalls
+  const pendingToolCount = pendingToolCalls instanceof Set
+    ? pendingToolCalls.size
+    : (pendingToolCalls?.length ?? 0)
+  const mascotState = useMascotState({
+    error: agentState?.errorMessage ?? activeBot?.heartbeat?.lastError ?? null,
+    waitingForUser: Boolean(agentState?.pendingToolApproval) || Boolean(agentState?.pendingAsk),
+    toolRunning: pendingToolCount > 0,
+    streaming: Boolean(agentState?.isStreaming),
+    justCompleted: Boolean(activeBotSessionId && completedSessionIds.has(activeBotSessionId)),
+    paused: activeBot?.heartbeat?.enabled === false,
+  })
+  // 只有「闲着」才偶尔溜达一下；有状态时吉祥物演状态，不走路。
+  const mascotStrolling = useMascotStroll(botMode && mascotState === 'idle')
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })
@@ -1402,6 +1603,7 @@ function MainApp() {
   // callbacks differ (mobile closes the drawer first). Shared here so the two
   // prop lists cannot drift apart.
   const sidebarCommonProps = {
+    botShell,
     projects,
     expandedProjectIds,
     activeProject,
@@ -1443,6 +1645,21 @@ function MainApp() {
     onDismissUpdate: updateCheck.dismissUpdate,
     currentSessionHoverInfo,
   }
+
+  // bot 目录是注册项目（工具要它的 path 当 workspaceRoot），但它不是「用户的
+  // 项目」：顶栏项目胶囊、分支菜单和空态项目胶囊都不该把它当项目显示。
+  // bot 模式下连普通项目也不显示——那时主区属于 bot，项目/分支是另一套语境的控件。
+  const headerProject = botMode || isBotProject(agentManager.currentToolProject)
+    ? undefined
+    : agentManager.currentToolProject
+  const headerGitRepository = !botMode && Boolean(titleGitStatus?.isGitRepository)
+  const headerGitBranch = headerGitRepository ? titleGitStatus?.branch : undefined
+  const headerGitDirtyCount = headerGitRepository ? (titleGitStatus?.counts?.total ?? 0) : 0
+  // 空态胶囊同理：只在「普通项目会话」里成立。
+  const emptyStateProject = agentManager.chatScope === 'project' && !botMode && !isBotProject(agentManager.currentToolProject)
+    ? agentManager.currentToolProject
+    : undefined
+  const emptyStateBranch = emptyStateProject && titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined
 
   return (
     <>
@@ -1676,11 +1893,11 @@ function MainApp() {
         <ConversationHeader
           headerRef={conversationHeaderRef}
           title={agentManager.currentTitle}
-          projectName={agentManager.currentToolProject?.name}
-          projectId={agentManager.currentToolProject?.id}
-          gitRepository={Boolean(titleGitStatus?.isGitRepository)}
-          gitBranch={titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined}
-          gitDirtyCount={titleGitStatus?.counts?.total ?? 0}
+          projectName={headerProject?.name}
+          projectId={headerProject?.id}
+          gitRepository={headerGitRepository}
+          gitBranch={headerGitBranch}
+          gitDirtyCount={headerGitDirtyCount}
           branchMenuOpen={branchMenuOpen}
           onBranchMenuToggle={() => setBranchMenuOpen((value) => !value)}
           onCheckout={handleCheckoutTitleBranch}
@@ -1759,10 +1976,30 @@ function MainApp() {
                       activeView={(
                     <ChatPanelHost
                       agent={agentManager.agent}
+                      capabilities={chatCapabilities}
                       // 稳定 key：Deferred→Real 提升不重挂载 ChatSurface，
                       // 会话切换（scope id 变化）时由外层 SessionViewPool 决定
                       // 是复用已保活的子树还是新建。
                       agentRuntimeScopeId={agentManager.currentRuntimeScopeId}
+                      // bot 模式下把吉祥物贴在输入框顶上：闲着的时候偶尔走一小段，
+                      // 其余时间安静站着；有状态就演思考/干活/提醒。
+                      // bot 模式下一定渲染：拿不到 activeBot 时用默认外观，
+                      // 免得「看不见」被误读成「坏了」。
+                      composerMascot={botMode
+                        ? (
+                          <BotMascot
+                            state={mascotStrolling ? 'walk' : mascotState}
+                            // 画布 512 里球只占 300（余量留给跳跃），所以尺寸不等于球径：
+                            // 104 画布的实际球径约 61px。给过 64（球径 37px），设计稿里的
+                            // 压扁拉伸落在那上面只有 3px，看着「不动」；提到 104 才接近设计稿
+                            // 220 画布（球径 129px）的观感。>64 会自动用原始关键帧（非增强版），
+                            // 比例与设计稿一致。
+                            size={104}
+                            look={activeBot?.mascot}
+                            stroll={mascotStrolling}
+                          />
+                        )
+                        : undefined}
                       onModelSelect={openCustomModelSelector}
                       revision={agentManager.chatPanelRevision}
                       agentAccessMode={agentAccessMode}
@@ -1815,14 +2052,14 @@ function MainApp() {
                     />
                     </Suspense>
                   </ErrorBoundary>
-                  {showNewChatEmptyState ? (
+                  {showNewChatEmptyState && !botMode ? (
                     <NewChatProjectPicker
                       projects={projects}
-                      selectedProject={agentManager.chatScope === 'project' ? agentManager.currentToolProject : undefined}
-                      branch={agentManager.chatScope === 'project' && titleGitStatus?.isGitRepository ? titleGitStatus.branch : undefined}
-                      branchMenu={agentManager.chatScope === 'project' && agentManager.currentToolProject?.id && titleGitStatus?.isGitRepository && titleGitStatus.branch ? {
-                        projectId: agentManager.currentToolProject.id,
-                        dirtyCount: titleGitStatus.counts?.total ?? 0,
+                      selectedProject={emptyStateProject}
+                      branch={emptyStateBranch}
+                      branchMenu={emptyStateProject?.id && emptyStateBranch ? {
+                        projectId: emptyStateProject.id,
+                        dirtyCount: titleGitStatus?.counts?.total ?? 0,
                         onCheckout: handleCheckoutTitleBranch,
                         onCreated: handleBranchCreated,
                         onOpenGraph: () => setGitGraphOpen(true),
@@ -1959,6 +2196,21 @@ function MainApp() {
         if (!open) ui.setSkillsDialog(undefined)
       }}
       onSaved={handleSkillsSaved}
+    />
+    <NewBotDialog
+      key={newBotOpen ? 'new-bot-open' : 'new-bot-closed'}
+      open={newBotOpen}
+      pending={newBotPending}
+      error={newBotError}
+      onCancel={() => setNewBotOpen(false)}
+      onCreate={(name) => { void handleCreateBot(name) }}
+    />
+    <BotSettingsDialog
+      key={botSettings?.id ?? 'no-bot'}
+      bot={botSettings}
+      onClose={() => setBotSettings(null)}
+      onChanged={handleBotChanged}
+      onDeleted={(botId) => { void handleDeleteBot(botId) }}
     />
     <ShareConversationDialog
       open={ui.shareDialogOpen}

@@ -35,6 +35,7 @@
 | POST | `/api/agents/:id` | `spawn` | `{ title, scope, projectId, thinkingLevel, accessMode?, modelRef? }`，**sessionId 由调用方生成**；`accessMode` 只允许 `default` / `full-access` |
 | POST | `/api/agents/:id/prompt` | `spawn` / `prompt` | `{ message }`，正在跑时 409 |
 | POST | `/api/agents/:id/abort` | `abort` | `{}` |
+| POST | `/api/agents/:id/compact` | `compact` | `{ reason? }`。**时机由服务端判定**：空闲 → 同步压完，回 `{ compacted: true, summary, usageBefore, usageAfter }`；在跑 → 只登记一次 `session.forceCompaction`，回 `{ scheduled: true, reason: 'deferred_to_next_model_request' }`，由下一次模型请求前的 `transformSessionContext` 消费。**写租约不在入口**：守卫作为回调沉到 running 判定之后，脚本额外带 `x-quickforge-agent-session: <自己的 sessionId>`，于是「正在跑 + 压自己」跳过租约（该分支不落库）；空闲分支会写库，仍须持有租约。压缩可逆（原文保留在会话与备份里，摘要本身是一条 `quickforgeCompaction` 消息），所以放进白名单 |
 
 ## 定时任务
 
@@ -64,6 +65,7 @@
 | `DELETE /api/scheduled-tasks/:id?selfScheduledOnly=1` 且 `createdBy` 不是 `'agent'` | 删任务会**先删掉它的全部运行历史**再删本体，不可逆。所以脚本只能收自己 `--self-scheduled` 排的班，服务端 403 兜底；界面删除不带这个参数，用户删自己的日程不受影响 |
 | `PUT` / `PATCH /api/scheduled-tasks/:id` | 覆盖用户排好的日程属破坏性操作；要改让用户自己在「定时任务」页改 |
 | `/api/agents/:id/access-mode`、`/yolo-mode` | 等于自我提升权限 |
+| `/api/agents/:id/prompt` 里的 `/compact` 命令 | 那是**别人**的会话入口：要求目标会话空闲，请求方是它自己时必然 409。自己压缩走 `POST /api/agents/:id/compact` |
 | `/api/lan-access/*` | 决定谁能从局域网进来 |
 | `/api/terminal/*` | 直接执行命令，绕过工具审批 |
 | `/api/backup/*` | 覆盖存储 |

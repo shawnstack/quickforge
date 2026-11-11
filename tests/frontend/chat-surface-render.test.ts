@@ -207,7 +207,7 @@ describe('chat surface rendering', () => {
     expect(renderToStaticMarkup(createElement(ChatSurface, {}))).toContain('未设置会话')
   })
 
-  it('renders messages, composer and usage bar for an agent session', () => {
+  it('renders messages, composer and assistant usage line for an agent session', () => {
     const messages: AgentMessage[] = [
       { role: 'user', content: 'user asks something', timestamp: 1 },
       assistantMessage(),
@@ -226,8 +226,10 @@ describe('chat surface rendering', () => {
     expect(markup).toContain('assistant reply body')
     expect(markup).toContain('qf-message-editor')
     expect(markup).toContain('claude-test')
-    expect(markup).toContain('qf-usage-bar')
     expect(markup).toContain('↑10 ↓20')
+    // 布局占位：用量统计行删了，但 composer dock 底部那 20px（h-5）留白必须还在，
+    // 否则输入框会贴底——用户明确要求「只不要显示，不要动布局」。
+    expect(markup).toContain('qf-usage-spacer h-5')
   })
 
   it('renders the streaming container with the pulsing cursor while streaming', () => {

@@ -8,9 +8,8 @@ import type { Attachment } from './ChatTypes'
  * Why an external store: composer text in a top-level `useState` re-renders the
  * whole surface on every keystroke. The message list is fenced off with `memo`
  * (`MessageArea`), but everything that neighbours the editor still re-ran per
- * keystroke — `UsageBar`'s `aggregateUsage` (a full `filter`/`reduce` over every
- * assistant message) and `TodoWriteSummary`'s backwards scan being the
- * O(messages) ones. Cost grew with the conversation, which is exactly the
+ * keystroke — `TodoWriteSummary`'s backwards scan over every message being the
+ * O(messages) one. Cost grew with the conversation, which is exactly the
  * "typing gets slower the longer the chat is" report.
  *
  * The split follows the render cost of each slice, and each slice notifies

@@ -148,12 +148,9 @@ describe('SQLite storage foundation', () => {
     // the version number in the test.
     expect(rowsAfter).toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
 
-    // Exactly the baseline business tables. The memories* tables are gone (v17:
-    // Dreaming keeps only its run log in SQLite), and the compat-era
-    // *_v10_backup / *_storage_state / *_json_mirror_queue / scheduled_runs_state
-    // tables were retired together with the v1..v18 chain.
+    // Exactly the tables the migration list leaves behind: the run log, the
+    // session store and the per-feature lock/state tables.
     expect(tables.map((row) => row.name)).toEqual([
-      'dreaming_note_stats',
       'dreaming_runs',
       'lan_access_maintenance_lock',
       'lan_access_state',
@@ -170,9 +167,8 @@ describe('SQLite storage foundation', () => {
       'share_tokens',
     ])
 
-    // The 13 indexes declared by BASELINE_SQL.
+    // The 12 indexes declared by the migration list.
     expect(indexes.map((row) => row.name)).toEqual([
-      'idx_dreaming_note_stats_recall',
       'idx_dreaming_runs_started',
       'idx_session_messages_session_id',
       'idx_sessions_list',
@@ -244,7 +240,7 @@ describe('SQLite storage foundation', () => {
     const database = new DatabaseSync(databasePath)
     const baselineMigration = SQLITE_MIGRATIONS[0]
     const failingMigration = {
-      version: NEXT_SCHEMA_VERSION,
+      version: BASE_SCHEMA_VERSION + 1,
       name: 'failing_migration',
       up(db) {
         db.exec('CREATE TABLE must_rollback (id INTEGER PRIMARY KEY)')
@@ -259,7 +255,7 @@ describe('SQLite storage foundation', () => {
       expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASE_SCHEMA_VERSION)
 
       expect(() => applySqliteMigrations(database, { migrations: [baselineMigration, failingMigration] }))
-        .toThrow(new RegExp(`migration ${NEXT_SCHEMA_VERSION}.*deliberate failure`))
+        .toThrow(new RegExp(`migration ${BASE_SCHEMA_VERSION + 1}.*deliberate failure`))
 
       expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASE_SCHEMA_VERSION)
       expect(database.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name = 'must_rollback'").all()).toEqual([])
@@ -292,7 +288,7 @@ describe('SQLite storage foundation', () => {
       mismatchedRows.prepare('INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)')
         .run(NEXT_SCHEMA_VERSION, 'phantom_migration', '2026-01-01T00:00:00.000Z')
       expect(() => inspectSqliteMigrationState(mismatchedRows))
-        .toThrow(new RegExp(`user_version is ${BASE_SCHEMA_VERSION} but 2 migration rows exist`))
+        .toThrow(new RegExp(`user_version is ${LATEST_SCHEMA_VERSION} but ${SQLITE_MIGRATIONS.length + 1} migration rows exist`))
     } finally {
       closeDatabase(tooNew)
       closeDatabase(missingTable)
@@ -362,7 +358,7 @@ describe('SQLite storage foundation', () => {
       // migration (the baseline), with a user_version that agrees with it.
       const applied = database.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version)
       expect(applied).toEqual(SQLITE_MIGRATIONS.map((migration) => migration.version))
-      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(BASE_SCHEMA_VERSION)
+      expect(database.prepare('PRAGMA user_version').get().user_version).toBe(LATEST_SCHEMA_VERSION)
     } finally {
       closeDatabase(database)
     }

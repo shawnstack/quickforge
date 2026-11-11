@@ -2,6 +2,7 @@ import { useCallback } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { invalidateApiCache, readApiCache, writeApiCache } from '@/lib/api-cache'
+import { isBotProject } from '@/lib/bot-project'
 import { pruneExpandedProjectIds } from '@/lib/project-expanded-ids'
 import { useProjectStore } from '@/stores/project-store'
 
@@ -42,9 +43,22 @@ export function useProject() {
   const setSelectingProject = useProjectStore((s) => s.setSelectingProject)
   const setProjectPickerOpen = useProjectStore((s) => s.setProjectPickerOpen)
 
+  /** 写「当前项目」的唯一出口：bot 目录永远不进来。
+   *
+   *  bot 目录是注册项目，会话和文件工具需要它；但它是「某个 bot 的家」，
+   *  不是用户待会儿要新建对话的地方。服务端对 bot 项目也不再改写
+   *  activeProjectId（见 `server/routes/project.mjs`），这里是同一约束的前端半边。
+   */
+  const applyActiveProject = useCallback(
+    (project: ProjectInfo | undefined) => {
+      setActiveProject((current) => (isBotProject(project) ? current : project))
+    },
+    [setActiveProject],
+  )
+
   const applyProjectListPayload = useCallback(
     (payload: ProjectListPayload) => {
-      setActiveProject(payload.project)
+      applyActiveProject(payload.project)
       setProjects(Array.isArray(payload.projects) ? payload.projects : [])
       // Default workspace used as the synthetic project for global conversations.
       setDefaultWorkspace(
@@ -59,7 +73,7 @@ export function useProject() {
         ),
       )
     },
-    [setActiveProject, setDefaultWorkspace, setExpandedProjectIds, setProjects],
+    [applyActiveProject, setDefaultWorkspace, setExpandedProjectIds, setProjects],
   )
 
   const loadProject = useCallback(
@@ -94,13 +108,15 @@ export function useProject() {
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || `Project switch failed with HTTP ${response.status}`)
 
-      setActiveProject(payload.project)
+      // 服务端对 bot 项目只返回项目本身、不改写 activeProjectId；前端同样不能
+      // 把它当「当前项目」——返回值的用途是当这条会话的 project（工具工作空间）。
+      applyActiveProject(payload.project)
       setProjects(Array.isArray(payload.projects) ? payload.projects : [])
       setExpandedProjectIds(new Set([projectId]))
       invalidateApiCache(PROJECT_LIST_CACHE_KEY)
       return payload.project as ProjectInfo
     },
-    [setActiveProject, setExpandedProjectIds, setProjects],
+    [applyActiveProject, setExpandedProjectIds, setProjects],
   )
 
   const handleSelectProjectPath = useCallback(
@@ -115,7 +131,7 @@ export function useProject() {
         const payload = await response.json().catch(() => null)
         if (!response.ok) throw new Error(payload?.error || `Project selection failed with HTTP ${response.status}`)
         if (payload?.project) {
-          setActiveProject(payload.project)
+          applyActiveProject(payload.project)
           setProjects(Array.isArray(payload.projects) ? payload.projects : [])
           invalidateApiCache(PROJECT_LIST_CACHE_KEY)
           setExpandedProjectIds((current) =>
@@ -132,7 +148,7 @@ export function useProject() {
         setSelectingProject(false)
       }
     },
-    [setActiveProject, setExpandedProjectIds, setProjects, setSelectingProject],
+    [applyActiveProject, setExpandedProjectIds, setProjects, setSelectingProject],
   )
 
   const selectProjectDirectory = useCallback(() => {
@@ -157,7 +173,7 @@ export function useProject() {
           throw error
         }
         if (payload?.project) {
-          setActiveProject(payload.project)
+          applyActiveProject(payload.project)
           setProjects(Array.isArray(payload.projects) ? payload.projects : [])
           invalidateApiCache(PROJECT_LIST_CACHE_KEY)
           setExpandedProjectIds((current) =>
@@ -172,7 +188,7 @@ export function useProject() {
         setSelectingProject(false)
       }
     },
-    [setActiveProject, setExpandedProjectIds, setProjects, setSelectingProject],
+    [applyActiveProject, setExpandedProjectIds, setProjects, setSelectingProject],
   )
 
   const toggleProjectExpanded = useCallback(

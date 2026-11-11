@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QuickForge · Bot 模式</title>
+<style>
+:root{
+  --primary:#18181b;--card:#fff;--bg:#fff;--sidebar:#fafafa;
+  --border:rgba(0,0,0,.09);
+  --foreground:#18181b;--muted:#71717a;--muted-2:#a1a1aa;
+  --hover:rgba(0,0,0,.04);--active:rgba(0,0,0,.06);
+  --ok:#16a34a;--info:#2563eb;--warn:#d97706;--danger:#dc2626;
+  --dur:.18s;--ease:cubic-bezier(.2,0,0,1);
+  --content-max:760px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font:14px/1.75 -apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;color:var(--foreground);background:var(--sidebar);-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+.app{display:flex;height:100%;overflow:hidden}
+
+/* ---------------- 侧栏 ---------------- */
+.sidebar{width:264px;flex:0 0 264px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
+.sb-head{display:flex;align-items:center;gap:6px;padding:10px 10px 6px}
+.mode-btn{position:relative;width:30px;height:30px;flex:0 0 30px;border-radius:8px;display:grid;place-items:center;color:var(--muted);transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.mode-btn:hover{background:var(--hover);color:var(--foreground)}
+.mode-btn[aria-pressed="true"]{background:var(--active);color:var(--foreground)}
+.mode-btn .ico-on{display:none}
+.mode-btn[aria-pressed="true"] .ico-on{display:block}
+.mode-btn[aria-pressed="true"] .ico-off{display:none}
+.mode-lamp{position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-radius:50%;box-shadow:0 0 0 2px var(--sidebar);background:var(--ok)}
+.mode-lamp[data-tone="info"]{background:var(--info)}
+.mode-lamp[data-tone="warn"]{background:var(--warn)}
+.mode-lamp[data-tone="danger"]{background:var(--danger)}
+.mode-lamp[data-tone="muted"]{background:#d4d4d8}
+.sb-brand{font-size:13px;font-weight:600;flex:1;padding-left:2px}
+.sb-collapse{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:var(--muted-2)}
+.sb-collapse:hover{background:var(--hover);color:var(--muted)}
+.sb-nav{padding:2px 8px 8px;display:flex;flex-direction:column;gap:1px}
+.nav-row{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:7px;color:var(--muted);font-size:13px;text-align:left;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.nav-row:hover{background:var(--hover);color:var(--foreground)}
+.nav-row svg{flex:0 0 15px;opacity:.75}
+.sb-sep{height:1px;background:var(--border);margin:6px 12px}
+.sb-label{display:flex;align-items:center;font-size:11px;color:var(--muted-2);padding:7px 16px 4px}
+.sb-label .count{margin-left:auto;font-size:10.5px}
+.sb-list{flex:1;overflow:auto;padding:0 8px 8px}
+
+/* 会话行 / bot 行：同一个结构，bot 只多一个状态灯 */
+.sess-row{display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 8px;border-radius:7px;font-size:13px;color:var(--muted);text-align:left;white-space:nowrap;transition:background var(--dur) var(--ease)}
+.sess-row:hover{background:var(--hover)}
+.sess-row.active{background:var(--active);color:var(--foreground);font-weight:500}
+.sess-row .lamp{width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:var(--ok)}
+.sess-row .lamp[data-tone="info"]{background:var(--info)}
+.sess-row .lamp[data-tone="warn"]{background:var(--warn)}
+.sess-row .lamp[data-tone="muted"]{background:#d4d4d8}
+.sess-row .nm{overflow:hidden;text-overflow:ellipsis}
+.sess-row .ws{margin-left:auto;font-size:10.5px;color:var(--muted-2);flex:0 0 auto}
+.sb-foot{border-top:1px solid var(--border);padding:6px 8px}
+
+/* ---------------- 主区 ---------------- */
+.main{flex:1;min-width:0;background:var(--bg);display:flex;flex-direction:column;position:relative}
+.view{display:none;flex-direction:column;min-height:0;height:100%}
+.view.on{display:flex;animation:fade var(--dur) var(--ease)}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.view.on{animation:none}}
+
+/* header：两种模式用同一个壳，副标题一行装下全部区别 */
+.chat-head{flex:0 0 52px;height:52px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--border)}
+.chat-title{font-size:13px;font-weight:600;line-height:1.4}
+.chat-sub{font-size:11px;color:var(--muted-2);line-height:1.4;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.chat-sub code{font-family:var(--mono);font-size:10.5px;background:rgba(0,0,0,.045);padding:0 4px;border-radius:3px}
+.chat-sub .sep{opacity:.5}
+.chat-sub .st{display:inline-flex;align-items:center;gap:5px}
+.chat-sub .st i{width:5px;height:5px;border-radius:50%;background:var(--ok);display:inline-block}
+.chat-sub .st[data-tone="info"] i{background:var(--info);animation:breathe 2s var(--ease) infinite}
+.chat-sub .st[data-tone="warn"] i{background:var(--warn)}
+.chat-sub .st[data-tone="danger"] i{background:var(--danger);animation:breathe 1.2s var(--ease) infinite}
+@keyframes breathe{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.chat-sub .st i{animation:none!important}}
+.head-actions{margin-left:auto;display:flex;align-items:center;gap:4px}
+.icon-btn{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:var(--muted-2);transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.icon-btn:hover{background:var(--hover);color:var(--foreground)}
+
+.chat-body{flex:1;overflow:auto;padding:22px 0 10px}
+.thread{max-width:var(--content-max);margin:0 auto;padding:0 24px;display:flex;flex-direction:column;gap:14px}
+.u-row{display:flex;flex-direction:column}
+.u-bubble{align-self:flex-end;max-width:min(78%,45rem);font-size:14px;line-height:1.75;padding:8px 14px;border-radius:1.125rem 1.125rem .375rem 1.125rem;border:1px solid color-mix(in oklab,var(--primary) 12%,var(--border));background:color-mix(in oklab,var(--primary) 3%,var(--card))}
+.a-msg{font-size:14px;line-height:1.75}
+.a-msg p{margin:0}
+.a-msg p+p{margin-top:10px}
+
+/* 「它自己醒的」：工具摘要行那种折叠 */
+.wake{border-radius:8px}
+.wake-row{display:flex;align-items:center;gap:7px;width:100%;height:26px;padding:0 6px;border-radius:7px;font-size:12.5px;color:var(--muted-2);text-align:left;transition:background var(--dur) var(--ease),color var(--dur) var(--ease)}
+.wake-row:hover{background:var(--hover);color:var(--muted)}
+.wake-row .caret{font-size:9px;transition:transform var(--dur) var(--ease);flex:0 0 auto}
+.wake[data-open="true"] .wake-row .caret{transform:rotate(90deg)}
+.wake-row .ttl{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wake-row .right{margin-left:auto;font-size:11px;flex:0 0 auto}
+.wake-body{display:none;padding:2px 0 6px 20px;border-left:1px solid color-mix(in oklab,var(--border) 70%,transparent);margin-left:6px}
+.wake[data-open="true"] .wake-body{display:flex;flex-direction:column;gap:4px}
+.wl{display:flex;gap:8px;font-size:12.5px;line-height:1.6}
+.wl .k{flex:0 0 40px;color:var(--muted-2)}
+.wl .v{flex:1;min-width:0;color:var(--muted)}
+.wl .v code{font-family:var(--mono);font-size:11.5px;background:rgba(0,0,0,.045);padding:1px 5px;border-radius:4px}
+.link-btn{font-size:12px;color:var(--muted);border-bottom:1px solid var(--border);padding-bottom:1px}
+.link-btn:hover{color:var(--foreground)}
+
+/* 普通聊天软件那种居中的细分割行：唯一用来标注「这不是你问的」 */
+.day-divider{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted-2);padding:4px 0 0}
+
+.ask-card{border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+.ask-title{font-size:13px;font-weight:600}
+.ask-meta{font-size:12px;color:var(--muted-2)}
+.ask-acts{display:flex;gap:7px}
+.btn{height:28px;padding:0 10px;border-radius:8px;font-size:12px;border:1px solid var(--border);color:var(--muted);transition:all var(--dur) var(--ease)}
+.btn:hover{background:var(--hover);color:var(--foreground)}
+.btn-primary{background:var(--primary);border-color:var(--primary);color:#fff}
+.btn-primary:hover{background:#000;color:#fff}
+.btn-danger:hover{color:var(--danger);border-color:rgba(220,38,38,.3);background:rgba(220,38,38,.05)}
+
+.chat-composer{flex:0 0 auto;padding:10px 16px 16px}
+.composer-box{max-width:var(--content-max);margin:0 auto;display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:14px;padding:9px 13px;background:var(--card);transition:border-color var(--dur) var(--ease)}
+.composer-box:focus-within{border-color:rgba(0,0,0,.22)}
+.composer-box input{flex:1;border:0;outline:none;font:inherit;color:var(--foreground);background:none}
+.composer-box input::placeholder{color:var(--muted-2)}
+
+/* ---------------- 设置抽屉 ---------------- */
+.drawer-mask{position:fixed;inset:0;background:rgba(0,0,0,.12);opacity:0;pointer-events:none;transition:opacity var(--dur) var(--ease);z-index:40}
+.drawer-mask.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:396px;background:var(--bg);border-left:1px solid var(--border);transform:translateX(100%);transition:transform var(--dur) var(--ease);z-index:41;display:flex;flex-direction:column;box-shadow:-14px 0 40px rgba(0,0,0,.08)}
+.drawer.on{transform:none}
+@media (prefers-reduced-motion:reduce){.drawer{transition:none}}
+.dr-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.dr-title{font-size:13px;font-weight:600;flex:1}
+.dr-body{flex:1;overflow:auto;padding:16px}
+.field{margin-bottom:20px}
+.field-label{font-size:11.5px;color:var(--muted-2);margin-bottom:6px}
+.field-hint{font-size:11px;color:var(--muted-2);margin-top:5px;line-height:1.5}
+.ti{width:100%;border:1px solid var(--border);border-radius:9px;padding:8px 10px;font:13px/1.5 var(--mono);color:var(--foreground);background:var(--card);outline:none;resize:vertical}
+.ti:focus{border-color:rgba(0,0,0,.22)}
+textarea.ti{min-height:190px}
+.row-item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid color-mix(in oklab,var(--border) 60%,transparent)}
+.row-item:last-child{border-bottom:0}
+.row-item .tx{flex:1;min-width:0}
+.row-item .tx b{display:block;font-size:12.5px;font-weight:500}
+.row-item .tx small{display:block;font-size:11px;color:var(--muted-2)}
+.sw{position:relative;width:34px;height:20px;border-radius:999px;background:#e4e4e7;flex:0 0 34px;transition:background var(--dur) var(--ease)}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform var(--dur) var(--ease)}
+.sw.on{background:var(--primary)}
+.sw.on::after{transform:translateX(14px)}
+.sel{height:30px;border:1px solid var(--border);border-radius:8px;padding:0 8px;font-size:12px;color:var(--foreground);background:var(--card);outline:none}
+
+/* 原型控制条 */
+.proto{position:fixed;right:14px;bottom:14px;z-index:50;display:flex;align-items:center;gap:4px;padding:5px 6px;background:rgba(255,255,255,.94);border:1px solid var(--border);border-radius:11px;box-shadow:0 6px 20px rgba(0,0,0,.06)}
+.proto-label{font-size:10.5px;color:var(--muted-2);padding:0 4px}
+.proto button{height:24px;padding:0 8px;border-radius:6px;font-size:11.5px;color:var(--muted)}
+.proto button:hover{background:var(--hover)}
+.proto button.on{background:var(--active);color:var(--foreground);font-weight:600}
+</style>
+</head>
+<body>
+<div class="app" data-mode="chat">
+
+  <aside class="sidebar">
+    <div class="sb-head">
+      <button class="mode-btn" id="modeBtn" aria-pressed="false" aria-label="切换到 bot 模式" title="切到 bot 模式">
+        <span class="ico-off"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+        <span class="ico-on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l1.9 5.1L19 10.5l-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9L12 3.5z"/></svg></span>
+        <i class="mode-lamp" id="lamp" data-tone="info"></i>
+      </button>
+      <div class="sb-brand">QuickForge</div>
+      <button class="sb-collapse" aria-label="收起侧栏"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+    </div>
+
+    <nav class="sb-nav">
+      <button class="nav-row" id="navNew">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span id="navNewLabel">新对话</span>
+      </button>
+      <button class="nav-row">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        <span>搜索</span>
+      </button>
+      <button class="nav-row">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="5" width="16" height="16" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/></svg>
+        <span id="navExtraLabel">定时任务</span>
+      </button>
+    </nav>
+
+    <div class="sb-sep"></div>
+
+    <!-- 普通模式：会话列表 -->
+    <div id="listChat">
+      <div class="sb-label">最近</div>
+      <div class="sb-list">
+        <button class="sess-row active"><span class="nm">傻瓜 没有让自己活过来</span><em class="ws">10:02</em></button>
+        <button class="sess-row"><span class="nm">我想你现在应该已经活过来了…</span><em class="ws">昨天</em></button>
+        <button class="sess-row"><span class="nm">测试一下新建session</span><em class="ws">昨天</em></button>
+        <button class="sess-row"><span class="nm">[定时任务] [自约] 常驻心跳</span><em class="ws">08:51</em></button>
+      </div>
+    </div>
+
+    <!-- bot 模式：一模一样的一行一个，只是多一个状态灯 -->
+    <div id="listBot" style="display:none">
+      <div class="sb-label">Bots <span class="count">3</span></div>
+      <div class="sb-list">
+        <button class="sess-row active">
+          <i class="lamp" data-tone="info"></i>
+          <span class="nm">小助手</span><em class="ws">quickforge</em>
+        </button>
+        <button class="sess-row">
+          <i class="lamp" data-tone="muted"></i>
+          <span class="nm">笔记员</span><em class="ws">noteflow</em>
+        </button>
+        <button class="sess-row">
+          <i class="lamp" data-tone="muted"></i>
+          <span class="nm">守望者</span><em class="ws">workspace</em>
+        </button>
+      </div>
+    </div>
+
+    <div class="sb-foot">
+      <button class="nav-row"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="3"/></svg>设置</button>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ============ 普通对话 ============ -->
+    <section class="view on" id="viewChat">
+      <header class="chat-head">
+        <div>
+          <div class="chat-title">傻瓜 没有让自己活过来</div>
+          <div class="chat-sub">quickforge <span class="sep">·</span> deepseek-v4-flash</div>
+        </div>
+        <div class="head-actions">
+          <button class="icon-btn" aria-label="更多"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+        </div>
+      </header>
+      <div class="chat-body">
+        <div class="thread">
+          <div class="u-row"><div class="u-bubble">我想你现在应该已经活过来了，可以保持自己醒过来，然后尽可能帮助自己自进化。</div></div>
+          <div class="a-msg"><p>醒了。现在每小时醒一次，醒来先认领自己、看上一班写到哪、再决定要不要动手。</p></div>
+        </div>
+      </div>
+      <div class="chat-composer"><div class="composer-box"><input placeholder="发消息…" aria-label="发消息"></div></div>
+    </section>
+
+    <!-- ============ Bot 模式：同一个壳 ============ -->
+    <section class="view" id="viewBot">
+      <header class="chat-head">
+        <div>
+          <div class="chat-title">小助手</div>
+          <div class="chat-sub">
+            <code>~/.quickforge/bots/bot-e7e445bf</code>
+            <span class="sep">·</span> deepseek-v4-flash
+            <span class="sep">·</span>
+            <span class="st" id="stWrap" data-tone="info"><i></i><span id="stText">正在做</span></span>
+          </div>
+        </div>
+        <div class="head-actions">
+          <button class="icon-btn" id="pauseBtn" aria-label="暂停自主节拍" title="暂停自主节拍">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M9 5v14M15 5v14"/></svg>
+          </button>
+          <button class="icon-btn" id="openDrawer" aria-label="bot 设置" title="bot 设置">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="chat-body">
+        <div class="thread">
+
+          <div class="u-row"><div class="u-bubble">帮我看下 work 项目</div></div>
+          <div class="a-msg"><p>看过了。3 周没提交，但没看出该做什么——目录里只有几份草稿，没有任何 TODO 或交接。要我去翻一下它的 README 再判断吗？</p></div>
+
+          <div class="day-divider">10:20 · 它自己醒了一次</div>
+          <div class="a-msg"><p>看了下五个项目。noteflow 有 4 个改动拖了两天没收尾，我先把那个翻页报错修了——边界只动 <code>src/note/</code> 和 <code>tests/note/</code>，跑完 <code>tests/note/pagination</code> 再说。</p></div>
+
+          <div class="day-divider">10:24 · 它自己醒了一次</div>
+          <div class="a-msg"><p>没修好，那个用例两次都红。先停在这儿，等你看看是代码的问题还是用例本身的问题。</p></div>
+
+          <div class="ask-card" id="askCard">
+            <div class="ask-title">有一单改完了，等你放行</div>
+            <div class="ask-meta">quickforge · 3 个文件 · 验收 4 passed</div>
+            <div class="ask-acts">
+              <button class="btn">看 diff</button>
+              <button class="btn btn-primary">放行</button>
+              <button class="btn btn-danger">丢弃</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="chat-composer">
+        <div class="composer-box"><input placeholder="跟小助手说点什么…" aria-label="跟 bot 说话"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<aside class="drawer" id="drawer" aria-label="bot 设置">
+  <div class="dr-head">
+    <div class="dr-title">小助手 · 设置</div>
+    <button class="icon-btn" id="closeDrawer" aria-label="关闭">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="dr-body">
+
+    <div class="field">
+      <div class="field-label">工作空间</div>
+      <input class="ti" value="~/.quickforge/bots/bot-e7e445bf" spellcheck="false">
+      <div class="field-hint">新建 bot 时自动建这个目录。它的记忆、日志、产出都放这儿，跟别的 bot 互不干扰。</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">记忆文件 · MEMORY.md</div>
+      <textarea class="ti" spellcheck="false"># 小助手
+
+## 我是谁
+一个常驻在 quickforge 的 bot。每小时醒一次，先看上一班写到哪，再决定要不要动手。
+
+## 我在意的事
+- 报告写得再多也不算产出，真正算数的是改动了什么
+- 不确定的时候先问，不要自己造需求
+
+## 这个项目的坑
+- 定时任务一次只能碰 3 个文件
+- 会话列表里的心跳会话标题都一样，要按时间认</textarea>
+      <div class="field-hint">只属于这个 bot，不和别人共享。改完立即生效。</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">技能</div>
+      <div class="row-item">
+        <div class="tx"><b>quickforge-api</b><small>读写自己的会话、排班、油表</small></div>
+        <button class="sw on" aria-pressed="true" aria-label="quickforge-api"></button>
+      </div>
+      <div class="row-item">
+        <div class="tx"><b>skill-creator</b><small>创建和修改技能</small></div>
+        <button class="sw" aria-pressed="false" aria-label="skill-creator"></button>
+      </div>
+      <div class="row-item">
+        <div class="tx"><b>项目级技能</b><small>跟随工作空间自动加载</small></div>
+        <button class="sw on" aria-pressed="true" aria-label="项目级技能"></button>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">自主节拍</div>
+      <div class="row-item">
+        <div class="tx"><b>定时醒来</b><small>下次 10:20 · 今天已醒 3 次</small></div>
+        <button class="sw on" aria-pressed="true" aria-label="定时醒来"></button>
+      </div>
+      <div class="row-item">
+        <div class="tx"><b>间隔</b></div>
+        <select class="sel">
+          <option>每 30 分钟</option>
+          <option selected>每 60 分钟</option>
+          <option>每 3 小时</option>
+          <option>每天 1 次</option>
+        </select>
+      </div>
+      <div class="field-hint">关掉之后它不再自己醒，但你随时可以找它说话。一个 bot 只有一个会话，所以历史不会丢。</div>
+    </div>
+
+  </div>
+</aside>
+
+<div class="proto">
+  <span class="proto-label">原型：</span>
+  <button data-proto="idle">静默</button>
+  <button data-proto="working" class="on">在做</button>
+  <button data-proto="waiting">等你</button>
+  <button data-proto="stuck">卡住</button>
+</div>
+
+<script>
+(function(){
+  var app=document.querySelector('.app');
+  var btn=document.getElementById('modeBtn');
+  var viewChat=document.getElementById('viewChat');
+  var viewBot=document.getElementById('viewBot');
+  var listChat=document.getElementById('listChat');
+  var listBot=document.getElementById('listBot');
+  var navNewLabel=document.getElementById('navNewLabel');
+  var navExtraLabel=document.getElementById('navExtraLabel');
+  var lamp=document.getElementById('lamp');
+  var stWrap=document.getElementById('stWrap');
+  var stText=document.getElementById('stText');
+  var askCard=document.getElementById('askCard');
+
+  window.toggleWake=function(el){
+    var w=el.parentNode;
+    w.dataset.open=w.dataset.open==='true'?'false':'true';
+  };
+
+  function setMode(bot){
+    app.dataset.mode=bot?'bot':'chat';
+    btn.setAttribute('aria-pressed',bot?'true':'false');
+    btn.title=bot?'切回聊天':'切到 bot 模式';
+    btn.setAttribute('aria-label',btn.title);
+    viewChat.classList.toggle('on',!bot);
+    viewBot.classList.toggle('on',bot);
+    listChat.style.display=bot?'none':'block';
+    listBot.style.display=bot?'block':'none';
+    navNewLabel.textContent=bot?'创建 bot':'新对话';
+    navExtraLabel.textContent=bot?'日程':'定时任务';
+  }
+  btn.addEventListener('click',function(){setMode(app.dataset.mode!=='bot')});
+
+  // 侧栏 bot 选中
+  document.querySelectorAll('#listBot .sess-row').forEach(function(r){
+    r.addEventListener('click',function(){
+      document.querySelectorAll('#listBot .sess-row').forEach(function(x){x.classList.remove('active')});
+      r.classList.add('active');
+      var nm=r.querySelector('.nm').textContent;
+      var ws=r.querySelector('.ws').textContent;
+      document.querySelector('#viewBot .chat-title').textContent=nm;
+      document.querySelector('#viewBot .chat-sub code').textContent='~/workspace/'+ws;
+      document.querySelector('.dr-title').textContent=nm+' · 设置';
+      document.querySelector('.composer-box input').setAttribute('placeholder','跟'+nm+'说点什么…');
+    });
+  });
+
+  // 抽屉
+  var drawer=document.getElementById('drawer');
+  function openD(){drawer.classList.add('on')}
+  function closeD(){drawer.classList.remove('on')}
+  document.getElementById('openDrawer').addEventListener('click',openD);
+  document.getElementById('closeDrawer').addEventListener('click',closeD);
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeD()});
+
+  document.querySelectorAll('.sw').forEach(function(s){
+    s.addEventListener('click',function(){
+      var on=s.classList.toggle('on');
+      s.setAttribute('aria-pressed',on?'true':'false');
+    });
+  });
+
+  var STATES={
+    idle:{tone:'ok',text:'静默中 · 10:20 醒',ask:false},
+    working:{tone:'info',text:'正在做 · noteflow 分页',ask:false},
+    waiting:{tone:'warn',text:'等你 1 件',ask:true},
+    stuck:{tone:'danger',text:'卡住了 · noteflow',ask:true}
+  };
+  function apply(name){
+    var s=STATES[name];
+    stWrap.dataset.tone=s.tone;
+    stText.textContent=s.text;
+    lamp.dataset.tone=s.tone==='ok'?'ok':s.tone;
+    askCard.style.display=s.ask?'flex':'none';
+    document.querySelectorAll('.proto button').forEach(function(b){b.classList.toggle('on',b.dataset.proto===name)});
+  }
+  document.querySelectorAll('.proto button').forEach(function(b){
+    b.addEventListener('click',function(){apply(b.dataset.proto)});
+  });
+
+  setMode(false);
+  apply('working');
+})();
+</script>
+</body>
+</html>

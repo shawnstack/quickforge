@@ -19,10 +19,9 @@ import { CURATOR_SYSTEM_PROMPT, buildCuratorUserPrompt } from './prompt.mjs'
  * This deliberately does not go through `AgentManager`. The manager exists for
  * conversations a human is watching: it persists sessions, generates titles, and
  * asks for approval on writes. A background curator needs the opposite of all
- * three, and `run_subagent` already established that a bare `Agent` with
- * `beforeToolCall` is the supported way to get it. The tools are the four memory
- * tools and nothing else — with no shell, "it can only touch the two folders" is
- * enforced by the tool list rather than by a prompt asking nicely.
+ * three, so it builds a bare `Agent` with `beforeToolCall`. The tools are the four
+ * memory tools and nothing else — with no shell, "it can only touch the two
+ * folders" is enforced by the tool list rather than by a prompt asking nicely.
  */
 
 export const CURATOR_MAX_TOOL_CALLS = 60

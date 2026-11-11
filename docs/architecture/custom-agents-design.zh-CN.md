@@ -488,7 +488,7 @@ allowedTools -> createServerTools({ allowedToolNames }) -> Agent tools
 | `edit_file` | 高风险 | 默认关闭 |
 | `run_command` | 高风险 | 默认关闭 |
 
-笔记的两个读工具在 workspace 之外（`~/.quickforge/working-memory`、`~/.quickforge/experiences`），但接口只接受 `scope` 和笔记名，路径由服务端拼，且没有删除；因此它们对任何策略都是安全的，`code-edit` 也不例外——「能不能改代码」和「能不能记住这段代码为什么长这样」是两件事。`write_memory_note` / `move_memory_note` 刻意不在白名单内，见 [记忆体系](memory-system.zh-CN.md#谁能拿到哪几个)。
+笔记的两个读工具在 workspace 之外（`~/.quickforge/memory/notes`、`~/.quickforge/memory/experiences`），但接口只接受 `scope` 和笔记名，路径由服务端拼，且没有删除；因此它们对任何策略都是安全的，`code-edit` 也不例外——「能不能改代码」和「能不能记住这段代码为什么长这样」是两件事。`write_memory_note` / `move_memory_note` 刻意不在白名单内，见 [记忆体系](memory-system.zh-CN.md#谁能拿到哪几个)。
 
 暂不开放：
 

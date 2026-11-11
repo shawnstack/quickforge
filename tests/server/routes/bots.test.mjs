@@ -1,0 +1,184 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
+
+function mockResponse() {
+  return {
+    status: null,
+    body: null,
+    writeHead(status) {
+      this.status = status
+    },
+    end(body) {
+      this.body = body ? JSON.parse(body) : null
+    },
+  }
+}
+
+function mockRequest(method, body) {
+  if (body === undefined) return { method }
+  return {
+    method,
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(JSON.stringify(body))
+    },
+  }
+}
+
+async function callBots(method, url, body) {
+  const { handleBotsApi } = await import('../../../server/routes/bots.mjs')
+  const res = mockResponse()
+  await handleBotsApi(mockRequest(method, body), res, new URL(url))
+  return res
+}
+
+async function expectRejection(promise, statusCode) {
+  await expect(promise).rejects.toMatchObject({ statusCode })
+}
+
+describe('bots API', () => {
+  let tmpDir
+  let previousDataDir
+  let previousHome
+  let previousUserProfile
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qf-bots-route-'))
+    previousDataDir = process.env.QUICKFORGE_DATA_DIR
+    previousHome = process.env.HOME
+    previousUserProfile = process.env.USERPROFILE
+    process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
+    process.env.HOME = tmpDir
+    process.env.USERPROFILE = tmpDir
+    vi.resetModules()
+  })
+
+  afterEach(async () => {
+    if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
+    else process.env.QUICKFORGE_DATA_DIR = previousDataDir
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+    vi.resetModules()
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('creates a bot with its own folder, memory file and project registration', async () => {
+    const res = await callBots('POST', 'http://localhost/api/bots', { name: '小助手' })
+
+    expect(res.status).toBe(201)
+    const bot = res.body.bot
+    expect(bot.name).toBe('小助手')
+    expect(bot.heartbeat.enabled).toBe(true)
+    expect(bot.heartbeat.intervalMinutes).toBe(60)
+    expect(bot.heartbeat.nextRunAt).toEqual(expect.any(String))
+    expect(bot).not.toHaveProperty('skills')
+    // 目录名由 id 派生，与显示名无关：名字可以是中文，路径里不会出现它
+    expect(bot.workspacePath.endsWith(path.join('bots', `bot-${bot.id.replace(/-/g, '').slice(0, 8)}`))).toBe(true)
+    expect(bot.workspacePath).not.toContain('小助手')
+
+    // 目录和记忆文件都真实存在
+    await expect(access(bot.workspacePath)).resolves.toBeUndefined()
+    const memory = await readFile(path.join(bot.workspacePath, 'MEMORY.md'), 'utf8')
+    expect(memory).toContain('小助手')
+
+    // 目录被注册成一个 kind: 'bot' 的项目，工具才能落在它里面
+    const { readProjectConfig } = await import('../../../server/project-config.mjs')
+    const config = await readProjectConfig()
+    const project = config.projects.find((item) => item.id === bot.projectId)
+    expect(project).toMatchObject({ kind: 'bot', name: '小助手' })
+    expect(path.resolve(project.path)).toBe(path.resolve(bot.workspacePath))
+  })
+
+  it('lists bots and reports heartbeat state', async () => {
+    await callBots('POST', 'http://localhost/api/bots', { name: 'one' })
+    const res = await callBots('GET', 'http://localhost/api/bots')
+    expect(res.status).toBe(200)
+    expect(res.body.bots).toHaveLength(1)
+    expect(res.body.bots[0].name).toBe('one')
+    expect(res.body.bots[0]).toHaveProperty('busy')
+  })
+
+  it('rejects a duplicate name and an unusable name', async () => {
+    await callBots('POST', 'http://localhost/api/bots', { name: 'twin' })
+    await expectRejection(callBots('POST', 'http://localhost/api/bots', { name: 'twin' }), 409)
+    await expectRejection(callBots('POST', 'http://localhost/api/bots', { name: 'a/b' }), 400)
+  })
+
+  it('reads and writes the bot memory file', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'writer' })
+    const botId = created.body.bot.id
+
+    const before = await callBots('GET', `http://localhost/api/bots/${encodeURIComponent(botId)}/memory`)
+    expect(before.status).toBe(200)
+    expect(before.body.content).toContain('writer')
+
+    const saved = await callBots(
+      'PUT',
+      `http://localhost/api/bots/${encodeURIComponent(botId)}/memory`,
+      { content: '# rewritten\n' },
+    )
+    expect(saved.status).toBe(200)
+
+    const after = await callBots('GET', `http://localhost/api/bots/${encodeURIComponent(botId)}/memory`)
+    expect(after.body.content).toBe('# rewritten\n')
+  })
+
+  it('recomputes the next heartbeat when the interval changes, and clears it when disabled', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'pacer' })
+    const botId = created.body.bot.id
+
+    const faster = await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(botId)}`,
+      { heartbeat: { intervalMinutes: 15 } },
+    )
+    expect(faster.body.bot.heartbeat.intervalMinutes).toBe(15)
+    expect(faster.body.bot.heartbeat.nextRunAt).toEqual(expect.any(String))
+
+    const paused = await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(botId)}`,
+      { heartbeat: { enabled: false } },
+    )
+    expect(paused.body.bot.heartbeat.enabled).toBe(false)
+    expect(paused.body.bot.heartbeat.nextRunAt).toBeNull()
+  })
+
+  it('deletes the bot and its project registration but keeps the folder', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'gone' })
+    const bot = created.body.bot
+
+    const deleted = await callBots('DELETE', `http://localhost/api/bots/${encodeURIComponent(bot.id)}`)
+    expect(deleted.status).toBe(200)
+
+    const list = await callBots('GET', 'http://localhost/api/bots')
+    expect(list.body.bots).toHaveLength(0)
+
+    const { readProjectConfig } = await import('../../../server/project-config.mjs')
+    const config = await readProjectConfig()
+    expect(config.projects.some((item) => item.id === bot.projectId)).toBe(false)
+
+    // 目录留下来，不删用户的文件
+    await expect(access(bot.workspacePath)).resolves.toBeUndefined()
+  })
+
+  it('ensures the bot session before opening it', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'opener' })
+    const bot = created.body.bot
+
+    const first = await callBots('POST', `http://localhost/api/bots/${encodeURIComponent(bot.id)}/session`, {})
+    expect(first.status).toBe(200)
+    expect(first.body.sessionId).toBe(bot.sessionId)
+
+    // 再要一次必须还是同一条 —— 「一个 bot 只有一条会话」靠的就是这个不变性。
+    const second = await callBots('POST', `http://localhost/api/bots/${encodeURIComponent(bot.id)}/session`, {})
+    expect(second.body.sessionId).toBe(bot.sessionId)
+  })
+
+  it('404s an unknown bot', async () => {
+    await expectRejection(callBots('GET', 'http://localhost/api/bots/nope'), 404)
+  })
+})

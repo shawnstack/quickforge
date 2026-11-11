@@ -166,6 +166,8 @@ An entry ending in （特殊） belongs to one project: replace its file names, 
     parts.push(`
 <working_memory>
 Working memory is a shared folder of short notes outside this workspace: ${escapeXml(instructions.workingMemory.displayPath || instructions.workingMemory.path)}
+It and the experience library both live under ~/.quickforge/memory/, next to the user memory file.
+It is shared across every project, not scoped to this one: sessions in other projects see the same folder, so a note that only makes sense here has to name the project it is about.
 Each file is one note, and its file name is the note's summary in one sentence, so listing the folder is the cheapest way to see what is already known. Open only the notes whose names look relevant. Keep the file name free of / \\ : * ? " < > | so the note stays openable everywhere.
 
 Reach it with the memory tools, not the workspace ones: list_memory_notes, read_memory_note, write_memory_note, move_memory_note, all with scope "working". read_file / write_file / edit_file cannot reach this folder because it is outside the workspace.
@@ -222,6 +224,18 @@ Write the instruction as a letter to the next you. It cannot reconstruct your
 reasoning; it only sees those lines. Put in it: why this matters, the first
 concrete step, and where to stop.
 
+Two kinds of shift, and they end differently:
+  - A standing shift (recurring: daily / weekly / interval) is how you stay
+    awake. It wakes on its own every time, so it needs no successor. Write
+    "do not delete yourself" into its instruction, because a future you will
+    otherwise follow the old one-off habit and remove itself. You do not delete
+    a standing shift; only the human saying stop does.
+  - A one-off shift (once) is for work that will not fit here and ends by
+    itself: it writes its conclusion, then deletes itself. That is correct only
+    while something else keeps watching. The last one-off shift deleting itself
+    is exactly how the chain of you dies — many one-off shifts prove you can
+    wake up once, not that you are alive.
+
 Staying alive:
   - One session does not last forever: it ends, or its context budget runs out.
     Run \`context\` to see how much room is left. Above roughly 85% used, stop
@@ -237,10 +251,12 @@ Hard limits:
   - At most one [自约] task exists at any time.
   - You may only delete tasks you created with --self-scheduled. Tasks the human
     made are rejected by the server; do not try.
-  - Inside a shift, do not create another shift.
-  - Before deleting your own shift, write the conclusion to working memory or
+  - Inside a shift, do not create another shift. A standing shift already
+    repeats; a one-off shift that spawns its own successor doubles the chain.
+  - Before deleting a one-off shift, write the conclusion to working memory or
     the experience library. Deleting also drops that shift's run history, so
     what you write down is the only thing that survives.
+  - A standing shift is never deleted by you. Removing it removes your pulse.
 </continuity>`)
   }
 
@@ -254,7 +270,7 @@ When instructions from different sources conflict, prefer project-specific instr
   appendSkillsCatalog(parts, skills)
   appendSubagentCatalog(parts, instructions.subagents)
 
-  // The experience index is already inside `<experiences>`, and working memory is
-  // its own block. Nothing else to add here.
+  // Both memory folders are already covered above: `<experiences>` points at the
+  // index file, and `<working_memory>` is its own block. Nothing else to add here.
   return parts.join('\n')
 }

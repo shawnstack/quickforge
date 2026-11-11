@@ -1,0 +1,39 @@
+/* 吉祥物「在输入框顶上溜达」的路线。
+   姿态动画（走路的抬腿/压扁）在 mascot-anim.css 里，这里只负责横向位移：
+   走一段、停一下、再走回来，像在框边上自己逛。
+
+   注意这是**单次**动画（`1` 次，不是无限循环）：播完一轮正好回到原点，
+   什么时候播下一轮由 `use-mascot-stroll.ts` 决定（默认隔 45 秒）。
+   早先这里是无限循环，结果 bot 只要闲着就一直在左右晃，
+   真正有事的那些状态反而看不出来。 */
+
+.qf-mascot-stroll {
+  display: inline-flex;
+}
+
+.qf-mascot-stroll[data-strolling='true'] {
+  will-change: transform;
+  animation: qf-mascot-stroll 9s ease-in-out 1;
+}
+
+/* 不散步时明确钉在原位：动画末帧就是 translateX(0)，所以移除动画不会跳。 */
+.qf-mascot-stroll[data-strolling='false'] {
+  transform: translateX(0);
+}
+
+@keyframes qf-mascot-stroll {
+  0%, 4% { transform: translateX(0); }
+  12%, 21% { transform: translateX(-24px); }
+  27%, 32% { transform: translateX(-24px); }
+  41%, 47% { transform: translateX(-7px); }
+  55%, 61% { transform: translateX(-7px); }
+  69%, 75% { transform: translateX(-28px); }
+  84%, 94% { transform: translateX(0); }
+  100% { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qf-mascot-stroll[data-strolling='true'] {
+    animation: none;
+  }
+}

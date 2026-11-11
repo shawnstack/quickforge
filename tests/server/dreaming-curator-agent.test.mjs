@@ -99,7 +99,7 @@ describe('curator turn with the real Agent', () => {
     expect(result.actions).toEqual([
       expect.objectContaining({ kind: 'write', scope: 'working', title: '构建失败先清 dist' }),
     ])
-    const written = await readFile(path.join(directory, 'working-memory', '构建失败先清 dist.md'), 'utf8')
+    const written = await readFile(path.join(directory, 'memory', 'notes', '构建失败先清 dist.md'), 'utf8')
     expect(written).toContain('删掉 dist 再 build 就好')
     expect(result.reply).toBe('写了一条笔记。')
   })
@@ -124,7 +124,7 @@ candidate_skill: true
     expect(result.actions).toEqual([
       expect.objectContaining({ kind: 'write', scope: 'experience', title: '改配置前先备份' }),
     ])
-    const index = await readFile(path.join(directory, 'experiences', 'index.md'), 'utf8')
+    const index = await readFile(path.join(directory, 'memory', 'experiences', 'index.md'), 'utf8')
     expect(index).toContain('- ★ 改配置前先备份')
   })
 

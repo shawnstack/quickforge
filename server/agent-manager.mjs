@@ -40,6 +40,7 @@ import {
   buildAutoCompactLoopMessages,
   lastCompactionMessageIndex,
   maybeAutoCompactSession,
+  requestForceCompaction,
   syncCompactionIndex,
 } from './auto-compaction.mjs'
 import {
@@ -89,7 +90,7 @@ import {
   createAskUserPromise,
 } from './agent-approval-orchestrator.mjs'
 import { resolveCommandState } from './agent-prompt-commands.mjs'
-import { resetSessionCompaction, summarySession, compactSession, clearSession } from './agent-compaction.mjs'
+import { resetSessionCompaction, summarySession, compactSession, compactSessionNow, clearSession } from './agent-compaction.mjs'
 import {
   beginGoalRun,
   clearTerminalGoal,
@@ -1224,6 +1225,27 @@ export async function rollbackSessionMessages(sessionId, rollbackMessageIndex) {
       errorCode: 'GOAL_ACTIVE',
     })
   }
+  // bot 的会话是它的长期记忆。截断会让记忆和压缩指针脱钩：压缩把前半段换成
+  // 一条真消息（摘要），`contextCompaction.summaryMessage` 指着数组里那一条，
+  // 回滚到压缩点之前指针悬空、回滚到之后摘要描述的那段已不存在，此后每轮喂给
+  // 模型的都是幻象；没压过的 bot 被剪一刀同样是挖走一块记忆。所以无条件拒绝，
+  // 不看「有没有压缩过」。文件回滚（/rollback-turn）不碰 messages，照常可用。
+  //
+  // 判据读项目配置本身，不读「项目上下文」：kind 就是配置里的一个字段，而
+  // projectContextFromId 找不到项目会静默回退 global（kind 读成 undefined，
+  // bot 直接漏过去）；registeredProjectContextFromId 虽不回落，却要
+  // assertDirectory 并建缓存——bot 目录一时不可用就会把 403 变成放行。
+  // 全局会话在配置里查不到，`undefined` 即「不是 bot」，行为与改动前一致。
+  if (session.projectId) {
+    const sessionProject = (await readProjectConfig()).projects
+      .find((item) => item.id === session.projectId)
+    if (sessionProject?.kind === 'bot') {
+      throw Object.assign(new Error('bot 的会话是它的长期记忆，不能回滚。'), {
+        statusCode: 403,
+        errorCode: 'BOT_SESSION_IMMUTABLE',
+      })
+    }
+  }
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
   // 回滚不再有「没有可回滚的对话轮次」的拒绝路径：索引已由
@@ -1521,6 +1543,56 @@ function normalizeRetryAppendMessage(message) {
  *    already completed stay in the model transcript and the model does not redo
  *    its side effects.
  */
+/**
+ * 会话主动请求压缩（`POST /api/agents/:sessionId/compact`）。
+ *
+ * 两条路径，取决于请求到达时这个会话是否正在跑：
+ *  - **空闲**：同步压完，返回压缩前后用量与摘要正文。效果等同 `/compact`，
+ *    但不往对话里插系统文本——调用方是脚本，回执走响应体。
+ *  - **在跑**（会话给自己请求时必然命中这条）：不抢正在进行的生成，只登记
+ *    一次性的强制压缩标记，由下一次模型请求前的 transformSessionContext
+ *    消费。压缩完成后这一轮继续跑，摘要就是它下一眼看到的历史。
+ *
+ * 「在跑就排队」不是妥协：一个会话不可能在自己 streaming 的同时同步压掉
+ * 自己的上下文，那条路只会撞上 409 或撕裂正在写的消息数组。
+ *
+ * 写权限（会话写入租约）由调用方以 `assertWriteAccess` 回调注入，检查点放在
+ * running 判定**之后**、两条分支各自的入口，原因有二：
+ *  - 在跑的分支只写内存里的 forceCompaction 标记（不落库、不广播），租约没有
+ *    需要保护的东西；而会话给自己请求压缩时必然命中这条分支，此刻租约几乎必然
+ *    被正在查看该会话的浏览器窗口持有。放在路由入口拦，等于让这条能力永远 409。
+ *  - 空闲分支会往消息数组里插摘要并持久化，那是真正的写，必须继续受租约约束。
+ * 回调而非直接判定，是因为租约身份来自请求头（浏览器窗口），只有路由层看得见。
+ */
+export async function requestSessionCompaction(sessionId, options = {}) {
+  let session = agentSessions.get(sessionId)
+  if (!session) session = await restoreAgent(sessionId)
+  if (!session) {
+    throw Object.assign(new Error('Session not found'), { statusCode: 404, errorCode: 'SESSION_NOT_FOUND' })
+  }
+
+  const assertWriteAccess = typeof options.assertWriteAccess === 'function' ? options.assertWriteAccess : null
+  const usageBefore = getSessionContextUsage(session)
+  const running = Boolean(session.agent.state.isStreaming || session.abortPending)
+  if (running) {
+    // selfRequest 只由路由层按「自我请求头」判定，用来收窄这条豁免：非自我
+    // 调用方在会话运行中依然要持有租约，行为与豁免前一致。
+    if (!options.selfRequest) assertWriteAccess?.()
+    requestForceCompaction(session, { reason: options.reason || 'agent_request' })
+    return {
+      sessionId,
+      scheduled: true,
+      compacted: false,
+      reason: 'deferred_to_next_model_request',
+      usageBefore,
+    }
+  }
+
+  assertWriteAccess?.()
+  const result = await compactSessionNow(session, { usage: usageBefore })
+  return { sessionId, scheduled: false, usageBefore, ...result }
+}
+
 export async function continueSession(sessionId, modelAccessContext = null, appendMessage = null) {
   let session = agentSessions.get(sessionId)
   if (!session) session = await restoreAgent(sessionId)

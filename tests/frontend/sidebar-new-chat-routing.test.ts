@@ -31,7 +31,7 @@ describe('sidebar new chat routing', () => {
     )
 
     expect(defaultHandler).toContain('setEmptyStateProjectDismissed(false)')
-    expect(defaultHandler).toContain('if (activeProject)')
+    expect(defaultHandler).toContain('if (activeProject && !isBotProject(activeProject))')
     expect(defaultHandler).toContain('startNewProjectChatWithInspectorReset(activeProject)')
     expect(defaultHandler).toContain('runNewChatWithLauncher(startNewGlobalChat)')
     expect(topEntry).toContain('onClick={onStartNewDefaultChat}')
@@ -60,7 +60,7 @@ describe('sidebar new chat routing', () => {
     expect(explicitGlobalHandler.indexOf('setEmptyStateProjectDismissed(true)')).toBeLessThan(
       explicitGlobalHandler.indexOf('runNewChatWithLauncher(startNewGlobalChat)'),
     )
-    expect(appSource).toContain("if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || agentManager.chatScope !== 'global') return")
+    expect(appSource).toContain("if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || isBotProject(activeProject) || agentManager.chatScope !== 'global') return")
     expect(appSource).toContain('if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current)')
     expect(agentManagerSource).toContain("const project = scope === 'project' ? options.project : (options.project ?? defaultWorkspaceRef.current)")
   })

@@ -3,8 +3,12 @@ import type { Dispatch, SetStateAction } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import { loadExpandedProjectIds, saveExpandedProjectIds } from '@/lib/project-expanded-ids'
 
-interface ProjectStore {
-  activeProject: ProjectInfo | undefined
+/** bot 的专属目录也是注册项目，但对用户不可见——它只服务于那个 bot 的文件工具。 */
+function visibleProjects(projects: ProjectInfo[]): ProjectInfo[] {
+  return projects.filter((project) => project.kind !== 'bot')
+}
+
+interface ProjectStore {  activeProject: ProjectInfo | undefined
   projects: ProjectInfo[]
   /** 全局对话默认工作目录的合成 project（id=`default`），由 useProject 依据
    *  /api/project 的 defaultWorkspaceRoot 构造后写入。 */
@@ -44,8 +48,12 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   setActiveProject: (value) =>
     set((s) => ({ activeProject: typeof value === 'function' ? value(s.activeProject) : value })),
+  // bot 目录也是注册过的项目（文件工具要靠它），但它不该出现在项目切换器里。
+  // 在这里一次过滤掉：useProject 里有 6 处 setProjects 调用点，分散过滤必然会漏。
   setProjects: (value) =>
-    set((s) => ({ projects: typeof value === 'function' ? value(s.projects) : value })),
+    set((s) => ({
+      projects: visibleProjects(typeof value === 'function' ? value(s.projects) : value),
+    })),
   setDefaultWorkspace: (value) =>
     set((s) => ({ defaultWorkspace: typeof value === 'function' ? value(s.defaultWorkspace) : value })),
   setExpandedProjectIds: (value) => {

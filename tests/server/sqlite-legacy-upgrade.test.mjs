@@ -4,11 +4,11 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
-import { applySqliteMigrations, BASELINE_VERSION } from '../../server/sqlite/migrations.mjs'
+import { applySqliteMigrations, SQLITE_MIGRATIONS } from '../../server/sqlite/migrations.mjs'
+import { LATEST_SCHEMA_VERSION } from '../helpers/sqlite-schema.mjs'
 import { LEGACY_MIGRATIONS } from '../../server/sqlite/legacy-migrations.mjs'
 
 const BASELINE_TABLES = [
-  'dreaming_note_stats',
   'dreaming_runs',
   'lan_access_maintenance_lock',
   'lan_access_state',
@@ -26,7 +26,6 @@ const BASELINE_TABLES = [
 ]
 
 const BASELINE_INDEXES = [
-  'idx_dreaming_note_stats_recall',
   'idx_dreaming_runs_started',
   'idx_session_messages_session_id',
   'idx_sessions_list',
@@ -116,10 +115,10 @@ describe('legacy SQLite auto-upgrade', () => {
       const database = new DatabaseSync(databasePath)
       try {
         const state = applySqliteMigrations(database)
-        expect(state.userVersion).toBe(BASELINE_VERSION)
+        expect(state.userVersion).toBe(LATEST_SCHEMA_VERSION)
         expect(state.legacy).toBe(false)
         expect(database.prepare('SELECT version, name FROM schema_migrations').all())
-          .toEqual([{ version: BASELINE_VERSION, name: 'baseline' }])
+          .toEqual(SQLITE_MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name })))
         expect(schemaNames(database, 'table')).toEqual(BASELINE_TABLES)
         expect(indexNames(database)).toEqual(BASELINE_INDEXES)
         expect(database.prepare('PRAGMA quick_check').get().quick_check).toBe('ok')
@@ -151,12 +150,12 @@ describe('legacy SQLite auto-upgrade', () => {
     seedSessionState(databasePath)
 
     const storage = await initializeSqliteStorage({ databasePath })
-    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: BASELINE_VERSION, migrationCount: 1 })
+    expect(storage.health()).toMatchObject({ ok: true, schemaVersion: LATEST_SCHEMA_VERSION, migrationCount: SQLITE_MIGRATIONS.length })
     expect(storage.prepare('SELECT title FROM sessions WHERE session_id = ?').get('legacy-session').title).toBe('legacy title')
     expect(Number(storage.prepare('PRAGMA auto_vacuum').get().auto_vacuum)).toBe(2)
 
     const backups = (await readdir(temporaryDirectory))
-      .filter((name) => name.startsWith('legacy-init.sqlite3.pre-v19-from-v12-') && name.endsWith('.bak'))
+      .filter((name) => name.startsWith('legacy-init.sqlite3.pre-v20-from-v12-') && name.endsWith('.bak'))
     expect(backups).toHaveLength(1)
 
     const backup = new DatabaseSync(path.join(temporaryDirectory, backups[0]), { readOnly: true })

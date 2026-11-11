@@ -21,7 +21,9 @@ import {
 import {
   compactSessionInPlace,
   DEFAULT_AUTO_COMPACT_SETTINGS,
+  FORCE_COMPACT_SUMMARY_INTRO,
   clearCompactionNotice,
+  estimateSessionContextUsage,
   readAutoCompactSettings,
 } from './auto-compaction.mjs'
 import { generateAiTitle } from './session-utils.mjs'
@@ -191,6 +193,77 @@ export async function summarySession(session, initialUserMessage, summaryOptions
     emitSessionEvent(session, { type: 'error', error: errorMessage })
     emitSessionEvent(session, { type: 'agent_end', messages, errorMessage })
     return { sessionId: session.sessionId, status: session.status }
+  }
+}
+
+/**
+ * 同步压缩：会话空闲时由 `POST /api/agents/:id/compact` 触发。
+ *
+ * 和 `/compact` 斜杠命令的区别在**失败怎么表达**：斜杠命令的唯一回执是对话
+ * 本身，所以它必须往消息里插一条 assistant 文本；这里的调用方是脚本，结论
+ * 走 HTTP 响应，会话不该被一条「历史不够」的系统提示污染。
+ *
+ * 摘要会作为一条 `quickforgeCompaction` 消息插在压缩点，调用方拿到的是
+ * 结构化结果（压缩前后用量 + 摘要正文），可以直接转述给人。
+ */
+export async function compactSessionNow(session, { usage: usageHint, reason = 'agent_compact' } = {}) {
+  if (!session?.agent?.state) return { compacted: false, reason: 'session_not_found' }
+  if (session.agent.state.isStreaming || session.abortPending) {
+    return { compacted: false, reason: 'generation_running', usage: getSessionContextUsage(session) }
+  }
+
+  const messages = session.agent.state.messages.slice()
+  const usage = usageHint ?? getSessionContextUsage(session)
+  const settings = await readAutoCompactSettings().catch(() => DEFAULT_AUTO_COMPACT_SETTINGS)
+
+  resetIdleTimer(session)
+  session.status = 'running'
+  session.startedAt = session.startedAt ?? new Date().toISOString()
+  session.finishedAt = null
+  session.agent.state.isStreaming = true
+  session.agent.state.errorMessage = undefined
+  emitSessionEvent(session, { type: 'agent_start' })
+
+  try {
+    const result = await compactSessionInPlace({
+      session,
+      messages,
+      usage,
+      thresholdPercent: settings.thresholdPercent,
+      emitSessionEvent,
+      persistSession,
+      reason,
+      summaryIntro: FORCE_COMPACT_SUMMARY_INTRO,
+      onBeforePersist: () => finishManualSessionRun(session, 'idle'),
+    })
+
+    if (!result.compacted) {
+      finishManualSessionRun(session, 'idle')
+      await persistSession(session)
+      const unchanged = session.agent.state.messages
+      emitSessionEvent(session, { type: 'message_end', messages: unchanged })
+      emitSessionEvent(session, { type: 'agent_end', messages: unchanged })
+      return { compacted: false, reason: result.reason || 'skipped', usage }
+    }
+
+    const nextMessages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'message_end', messages: nextMessages })
+    emitSessionEvent(session, { type: 'agent_end', messages: nextMessages })
+    return {
+      compacted: true,
+      reason,
+      summary: result.result?.summary ?? null,
+      usageBefore: usage,
+      usageAfter: estimateSessionContextUsage(session, nextMessages),
+    }
+  } catch (error) {
+    const errorMessage = error?.message || 'Conversation compaction failed'
+    finishManualSessionRun(session, 'error', errorMessage)
+    await persistSession(session)
+    const nextMessages = session.agent.state.messages
+    emitSessionEvent(session, { type: 'error', error: errorMessage })
+    emitSessionEvent(session, { type: 'agent_end', messages: nextMessages, errorMessage })
+    return { compacted: false, reason: 'error', error: errorMessage }
   }
 }
 

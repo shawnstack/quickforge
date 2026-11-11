@@ -176,7 +176,7 @@ body:has(.quickforge-chat-panel-host[data-turn-navigation='hidden']) .quickforge
   }
 }
 
-/* Hide the token/cost usage lines, e.g. "↑3.6k ↓246 R...".
+/* Hide the per-message token/cost usage line, e.g. "↑3.6k ↓246 R...".
  * Keep message.usage data intact for context usage, metadata, and debugging.
  *
  * DOM 契约（React 聊天面板）：用量行是 assistant 消息根的直接子级并带
@@ -185,18 +185,11 @@ body:has(.quickforge-chat-panel-host[data-turn-navigation='hidden']) .quickforge
  * `.quickforge-assistant-message` 不需要再写一份孪生选择器。
  * subagent 过程列表（`.quickforge-subagent-trace[data-quickforge-subagent-process="true"]`
  * 里的 `.qf-message-list`）复用同一套消息组件，用后代形式覆盖其包裹层级。
- * 第三段锚定 composer 紧随的汇总行（React: 装饰层挂 `quickforge-composer` 的
- * `.qf-message-editor` + 紧随的 `.qf-usage-bar` hook class，不再依赖
- * Tailwind utility 链式选择器），只隐藏该行的 token/cost 文本
- * （span，宿主传 onCostClick 时为 button），保留 `quickforge-context-usage[-label]`
- * 与 `quickforge-git-branch-inline`
- * （context-usage.ts 把 git 分支徽标插进该行的 `.ml-auto.items-center`）。
+ *
+ * composer 下方的汇总统计行（原 usage 行节点）已整体移除，不再需要锚定它。
  */
 .qf-assistant-message > .qf-usage-line,
-[data-quickforge-subagent-process="true"] .qf-assistant-message .qf-usage-line,
-.quickforge-composer + .qf-usage-bar
-  > .ml-auto.items-center
-  > :is(span, button):not(.quickforge-context-usage):not(.quickforge-context-usage-label):not(.quickforge-git-branch-inline) {
+[data-quickforge-subagent-process="true"] .qf-assistant-message .qf-usage-line {
   display: none !important;
 }
 

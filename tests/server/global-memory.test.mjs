@@ -35,7 +35,7 @@ describe('global memory', () => {
     await expect(readGlobalMemoryDocument({ dataDir, enabled: false })).resolves.toMatchObject({
       enabled: false,
       markdown: '',
-      path: '~/.quickforge/MEMORY.md',
+      path: '~/.quickforge/memory/MEMORY.md',
     })
   })
 

@@ -27,6 +27,8 @@ interface UIStore {
   settingsInitialTab: SettingsInitialTab
   settingsCustomProvider: string | undefined
   conversationViewScope: ConversationViewScope | null
+  /** Bot 模式：侧栏切成 bot 列表，新建按钮变成「创建 bot」。 */
+  botMode: boolean
 
   setSidebarOpen: Dispatch<SetStateAction<boolean>>
   setMobileSidebarOpen: Dispatch<SetStateAction<boolean>>
@@ -44,6 +46,7 @@ interface UIStore {
   setSettingsInitialTab: Dispatch<SetStateAction<SettingsInitialTab>>
   setSettingsCustomProvider: Dispatch<SetStateAction<string | undefined>>
   setConversationViewScope: Dispatch<SetStateAction<ConversationViewScope | null>>
+  setBotMode: Dispatch<SetStateAction<boolean>>
 
   toggleProjectsCollapsed: () => void
   togglePinnedCollapsed: () => void
@@ -62,8 +65,9 @@ interface UIStore {
   requestArtifactPreview: (path: string, kind?: ArtifactPreviewKind) => void
   clearArtifactPreviewRequest: () => void
 
-  openSessionRequest: { sessionId: string; nonce: number } | null
-  requestOpenSession: (sessionId: string) => void
+  openSessionRequest: { sessionId: string; nonce: number; skipMetadataPrecheck?: boolean } | null
+  /** skipMetadataPrecheck：打开一个还没落盘的空会话（bot 的会话在第一次发言前就是这样）。 */
+  requestOpenSession: (sessionId: string, options?: { skipMetadataPrecheck?: boolean }) => void
   clearOpenSessionRequest: () => void
 }
 
@@ -92,6 +96,7 @@ export const useUIStore = create<UIStore>((set) => ({
   settingsInitialTab: 'defaults',
   settingsCustomProvider: undefined,
   conversationViewScope: null,
+  botMode: false,
 
   setSidebarOpen: (value) =>
     set((s) => ({ sidebarOpen: typeof value === 'function' ? value(s.sidebarOpen) : value })),
@@ -128,6 +133,8 @@ export const useUIStore = create<UIStore>((set) => ({
     set((s) => ({ settingsCustomProvider: typeof value === 'function' ? value(s.settingsCustomProvider) : value })),
   setConversationViewScope: (value) =>
     set((s) => ({ conversationViewScope: typeof value === 'function' ? value(s.conversationViewScope) : value })),
+  setBotMode: (value) =>
+    set((s) => ({ botMode: typeof value === 'function' ? value(s.botMode) : value })),
 
   toggleProjectsCollapsed: () => set((s) => ({ projectsCollapsed: !s.projectsCollapsed })),
   togglePinnedCollapsed: () => set((s) => ({ pinnedCollapsed: !s.pinnedCollapsed })),
@@ -143,6 +150,13 @@ export const useUIStore = create<UIStore>((set) => ({
   clearArtifactPreviewRequest: () => set({ artifactPreviewRequest: null }),
 
   openSessionRequest: null,
-  requestOpenSession: (sessionId) => set({ openSessionRequest: { sessionId, nonce: ++requestNonce } }),
+  requestOpenSession: (sessionId, options) =>
+    set({
+      openSessionRequest: {
+        sessionId,
+        nonce: ++requestNonce,
+        skipMetadataPrecheck: options?.skipMetadataPrecheck === true,
+      },
+    }),
   clearOpenSessionRequest: () => set({ openSessionRequest: null }),
 }))

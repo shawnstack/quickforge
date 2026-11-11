@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { logger } from '../utils/logger.mjs'
-import { applySqliteMigrations, BASELINE_VERSION, inspectSqliteMigrationState, SQLITE_MIGRATIONS } from './migrations.mjs'
+import { applySqliteMigrations, inspectSqliteMigrationState, SQLITE_MIGRATIONS } from './migrations.mjs'
 
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000
 export const SQLITE_JOURNAL_MODE = 'wal'
@@ -311,9 +311,9 @@ function createHandle(state) {
   })
 }
 
-function createPreUpgradeBackup(database, databasePath, schemaVersion) {
+function createPreUpgradeBackup(database, databasePath, schemaVersion, targetVersion) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const backupPath = `${databasePath}.pre-v${BASELINE_VERSION}-from-v${schemaVersion}-${stamp}.bak`
+  const backupPath = `${databasePath}.pre-v${targetVersion}-from-v${schemaVersion}-${stamp}.bak`
   try {
     database.prepare('VACUUM INTO ?').run(backupPath)
   } catch (error) {
@@ -351,10 +351,10 @@ export function initializeSqliteStorage({ dataDir, databasePath, migrations = SQ
       const startingState = inspectSqliteMigrationState(database, { migrations })
       let preUpgradeBackupPath = null
       if (startingState.legacy) {
-        preUpgradeBackupPath = createPreUpgradeBackup(database, resolvedPath, startingState.userVersion)
+        preUpgradeBackupPath = createPreUpgradeBackup(database, resolvedPath, startingState.userVersion, migrations[migrations.length - 1].version)
         sqliteLogger.warn('Legacy SQLite schema detected; upgrading in place', {
           fromVersion: startingState.userVersion,
-          toVersion: BASELINE_VERSION,
+          toVersion: migrations[migrations.length - 1].version,
           backupPath: preUpgradeBackupPath,
         })
       }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyChatPagePolicy,
+  BOT_CHAT_CAPABILITIES,
   QUICKFORGE_CHAT_CAPABILITIES,
   SIDE_CHAT_UI_CAPABILITIES,
   shouldSendComposerInput,
@@ -30,6 +31,21 @@ describe('chat capabilities', () => {
     expect(SIDE_CHAT_UI_CAPABILITIES).toEqual(Object.fromEntries(
       Object.keys(QUICKFORGE_CHAT_CAPABILITIES).map((key) => [key, false]),
     ))
+  })
+
+  it('narrows bot sessions to "history is memory": no fork, rollback or retry', () => {
+    expect(BOT_CHAT_CAPABILITIES).toMatchObject({
+      forkFromMessage: false,
+      rollback: false,
+      retry: false,
+    })
+    // 它自己要压上下文，压缩必须留着。
+    expect(BOT_CHAT_CAPABILITIES.compaction).toBe(true)
+    // 除了这三项，其余与主会话一致：bot 只是不能剪历史，不是只读页面。
+    const narrowed = Object.keys(QUICKFORGE_CHAT_CAPABILITIES)
+      .filter((key) => BOT_CHAT_CAPABILITIES[key] !== QUICKFORGE_CHAT_CAPABILITIES[key])
+      .sort()
+    expect(narrowed).toEqual(['forkFromMessage', 'retry', 'rollback'])
   })
 
   it('stacks shared/read-only page policy without changing the default table', () => {

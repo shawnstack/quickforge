@@ -8,8 +8,10 @@ const mocks = vi.hoisted(() => ({
   tryAcquireSse: vi.fn(),
   touchSession: vi.fn(),
   runPrompt: vi.fn(),
+  requestSessionCompaction: vi.fn(async () => ({ sessionId: 'session-1', scheduled: true, compacted: false })),
   isSessionFileRollbackBusy: vi.fn(() => false),
   releaseSse: vi.fn(),
+  rollbackSessionMessages: vi.fn(),
   acquireSessionLease: vi.fn(() => ({ ok: true, lease: { clientId: 'client-a' }, acquired: true })),
   takeOverSessionLease: vi.fn(() => ({ ok: true, lease: { clientId: 'client-a' }, acquired: true })),
   releaseSessionLease: vi.fn(() => ({ ok: true, released: true })),
@@ -72,8 +74,9 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   listSessions: vi.fn(() => []),
   rejectToolCall: vi.fn(),
   releaseSse: mocks.releaseSse,
+  requestSessionCompaction: mocks.requestSessionCompaction,
   restoreAgent: mocks.restoreAgent,
-  rollbackSessionMessages: vi.fn(),
+  rollbackSessionMessages: mocks.rollbackSessionMessages,
   runPrompt: mocks.runPrompt,
   steerAgent: vi.fn(),
   touchSession: mocks.touchSession,
@@ -241,6 +244,30 @@ describe('agent asynchronous setters and restore failures', () => {
     const res = response()
     await expect(handleAgentApi(req, res, new URL(`http://localhost/api/agents/session-1/${subPath}`))).rejects.toBe(error)
     expect(res.status).toBe(0)
+  })
+})
+
+describe('agent message rollback route', () => {
+  beforeEach(() => {
+    mocks.rollbackSessionMessages.mockReset()
+  })
+
+  it('surfaces the bot immutability 403 instead of rolling the transcript back', async () => {
+    const error = Object.assign(new Error('bot 的会话是它的长期记忆，不能回滚。'), {
+      statusCode: 403,
+      errorCode: 'BOT_SESSION_IMMUTABLE',
+    })
+    mocks.rollbackSessionMessages.mockRejectedValueOnce(error)
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+
+    await expect(handleAgentApi(
+      request({ messageIndex: 3 }),
+      res,
+      new URL('http://localhost/api/agents/session-1/rollback'),
+    )).rejects.toMatchObject({ statusCode: 403, errorCode: 'BOT_SESSION_IMMUTABLE' })
+    expect(res.status).toBe(0)
+    expect(mocks.rollbackSessionMessages).toHaveBeenCalledWith('session-1', 3)
   })
 })
 
@@ -1116,6 +1143,58 @@ describe('session lease routes', () => {
     }
 
     expect(mocks.canWriteSession).toHaveBeenCalledTimes(10)
+  })
+
+  // compact 是唯一不把租约守卫放在入口的写路由：它在 running 判定之后才检查，
+  // 因为「会话在跑时压自己」那条分支只写内存标记、不落库，而此刻租约几乎必然
+  // 被正在浏览该会话的窗口持有。路由层的职责只有两件：认出这是自我请求，以及
+  // 把守卫作为回调交下去。
+  describe('compact route lease handoff', () => {
+    beforeEach(() => {
+      mocks.requestSessionCompaction.mockClear()
+      mocks.requestSessionCompaction.mockResolvedValue({ sessionId: 'session-1', scheduled: true, compacted: false })
+    })
+
+    it('marks a request as self when the self-session header matches the target', async () => {
+      const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+      const req = request({ reason: 'agent_request' })
+      req.headers = { 'x-quickforge-agent-session': 'session-1' }
+
+      await handleAgentApi(req, response(), new URL('http://localhost/api/agents/session-1/compact'), { isLocalRequest: true })
+
+      const [, options] = mocks.requestSessionCompaction.mock.calls[0]
+      expect(options.selfRequest).toBe(true)
+      expect(typeof options.assertWriteAccess).toBe('function')
+    })
+
+    it('does not mark a request as self when the header names another session', async () => {
+      const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+      const req = request({})
+      req.headers = { 'x-quickforge-agent-session': 'session-2' }
+
+      await handleAgentApi(req, response(), new URL('http://localhost/api/agents/session-1/compact'), { isLocalRequest: true })
+
+      const [, options] = mocks.requestSessionCompaction.mock.calls[0]
+      expect(options.selfRequest).toBe(false)
+    })
+
+    it('hands a guard that raises the lease conflict for the caller to decide when to run it', async () => {
+      mocks.canWriteSession.mockReturnValue({ ok: false, holder: 'client-b' })
+      mocks.requestSessionCompaction.mockImplementationOnce(async (sessionId, options) => {
+        options.assertWriteAccess()
+        return { sessionId, scheduled: false }
+      })
+      const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+      const req = request({})
+      req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+      await expect(handleAgentApi(
+        req,
+        response(),
+        new URL('http://localhost/api/agents/session-1/compact'),
+        { isLocalRequest: true },
+      )).rejects.toMatchObject({ statusCode: 409, errorCode: 'SESSION_LEASE_HELD', holder: 'client-b' })
+    })
   })
 
   it('lets the owner write through', async () => {

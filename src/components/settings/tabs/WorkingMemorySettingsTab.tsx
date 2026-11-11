@@ -25,7 +25,7 @@ type WorkingMemoryNotesPage = {
   total: number
 }
 
-const FALLBACK_PATH = '~/.quickforge/working-memory'
+const FALLBACK_PATH = '~/.quickforge/memory/notes'
 const PAGE_SIZE = 20
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {

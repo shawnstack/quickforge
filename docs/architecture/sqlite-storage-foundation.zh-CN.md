@@ -1,6 +1,6 @@
 # SQLite 存储基础层设计（F2）
 
-> 状态：F2 基础层已接入；F2 当时不迁移 JSON 业务数据且不创建业务表。F3 后续追加了空的 `scheduled_task_runs` 非权威表，详见 [`scheduled-task-runs-repository.zh-CN.md`](./scheduled-task-runs-repository.zh-CN.md)。**当前 schema 为单条 baseline v19**：F3–F11 的 migration 链已整体折叠，历史对象不再存在（见 §4）；仍停留在 v1..v18 的旧库会在启动时自动升级到 v19（见 §4.3）。
+> 状态：F2 基础层已接入；F2 当时不迁移 JSON 业务数据且不创建业务表。F3 后续追加了空的 `scheduled_task_runs` 非权威表，详见 [`scheduled-task-runs-repository.zh-CN.md`](./scheduled-task-runs-repository.zh-CN.md)。**当前 schema 为 baseline v19 加一条 append-only 的 v20 迁移**：F3–F11 的 migration 链已整体折叠（见 §4）；仍停留在 v1..v18 的旧库会在启动时自动升级（见 §4.3）。
 
 ## 1. 范围与稳定依赖方向
 
@@ -71,7 +71,7 @@ WAL 模式下两种取值的崩溃语义：
 
 ## 4. Migration 协议
 
-迁移是版本连续、名称唯一的 append-only 列表。当前只有一条 **baseline** 迁移，一次建出全部现役表：
+迁移是版本连续、名称唯一的 append-only 列表。baseline 一次建出现役表，之后的每次 schema 变更追加一条：
 
 ```js
 export const BASELINE_VERSION = 19
@@ -81,6 +81,11 @@ export const SQLITE_MIGRATIONS = Object.freeze([
     version: BASELINE_VERSION, // 19
     name: 'baseline',
     up(database) { database.exec(BASELINE_SQL) },
+  }),
+  Object.freeze({
+    version: BASELINE_VERSION + 1, // 20
+    name: 'drop_dreaming_note_stats',
+    up(database) { database.exec('DROP TABLE IF EXISTS dreaming_note_stats') },
   }),
 ])
 ```
@@ -95,7 +100,7 @@ CREATE TABLE schema_migrations (
 )
 ```
 
-baseline 建出 15 张表 + 13 个索引，按域归组：
+baseline 建出 14 张表 + 12 个索引，按域归组（v20 再删掉 `dreaming_note_stats`）：
 
 | 域 | 表 |
 |---|---|
@@ -104,9 +109,9 @@ baseline 建出 15 张表 + 13 个索引，按域归组：
 | 分享 | `share_sessions`、`share_tokens`、`share_maintenance_lock` |
 | LAN 访问 | `lan_access_state`、`lan_access_tokens`、`lan_access_maintenance_lock` |
 | 定时任务运行 | `scheduled_task_runs`、`scheduled_runs_maintenance_lock` |
-| Dreaming | `dreaming_note_stats`、`dreaming_runs` |
+| Dreaming | `dreaming_runs` |
 
-索引：`idx_sessions_list`、`idx_sessions_pinned`、`idx_sessions_session_id`、`idx_session_messages_session_id`、`share_sessions_session_id_idx`、`lan_access_tokens_issued_idx`、`lan_access_tokens_seq_idx`、`scheduled_task_runs_started_idx`、`scheduled_task_runs_status_started_idx`、`scheduled_task_runs_task_started_idx`、`scheduled_task_runs_trigger_started_idx`、`idx_dreaming_note_stats_recall`、`idx_dreaming_runs_started`。
+索引：`idx_sessions_list`、`idx_sessions_pinned`、`idx_sessions_session_id`、`idx_session_messages_session_id`、`share_sessions_session_id_idx`、`lan_access_tokens_issued_idx`、`lan_access_tokens_seq_idx`、`scheduled_task_runs_started_idx`、`scheduled_task_runs_status_started_idx`、`scheduled_task_runs_task_started_idx`、`scheduled_task_runs_trigger_started_idx`、`idx_dreaming_runs_started`。
 
 兼容期对象全部不存在：`session_index_v10_backup`、`session_json_mirror_queue(_v10_backup)`、`session_messages_v10_backup`、`session_state_tombstones_v10_backup`、`session_states_v10_backup`、`session_storage_state(_v10_backup)`、`share_storage_state`、`lan_access_storage_state`、`share_json_mirror_queue`、`lan_access_json_mirror_queue`、`scheduled_runs_state`。四域（session / share / lan-access / scheduled-runs）都是单路径 SQLite 权威，JSON 只作为一次性导入源与导出逃生通道存在。
 

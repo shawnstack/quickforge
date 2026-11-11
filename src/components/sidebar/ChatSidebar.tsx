@@ -81,6 +81,8 @@ import { ProjectMenu } from './chat-sidebar/ProjectMenu'
 import { SidebarSearchDialog } from './chat-sidebar/SidebarSearchDialog'
 import { SidebarHeaderNav } from './chat-sidebar/SidebarHeaderNav'
 import { SidebarFooter } from './chat-sidebar/SidebarFooter'
+import { BotSidebarList } from '../bots/BotSidebarList'
+import type { BotSidebarProps } from '../bots/bots-data'
 import { useSidebarResize } from './chat-sidebar/useSidebarResize'
 import { useSidebarSessionDisplay } from './chat-sidebar/useSidebarSessionDisplay'
 
@@ -151,6 +153,8 @@ type ChatSidebarProps = {
       title: string
     }
   }
+  /** bot 模式：侧栏整块换成 bot 列表（一个 bot 一条会话，所以不需要展开层级）。 */
+  botShell?: BotSidebarProps
 }
 
 // Session delete exit duration; matches the --quickforge-dur-exit motion token.
@@ -214,6 +218,7 @@ export const ChatSidebar = memo(function ChatSidebar({
   currentVersion,
   onWidthChange,
   currentSessionHoverInfo,
+  botShell,
 }: ChatSidebarProps) {
   const isMobile = variant === 'mobile'
 
@@ -690,10 +695,25 @@ export const ChatSidebar = memo(function ChatSidebar({
         onOpenGlobalSkills={onOpenGlobalSkills}
         onOpenMcp={onOpenMcp}
         onOpenAgents={onOpenAgents}
+        botMode={botShell?.mode ?? false}
+        onToggleBotMode={botShell?.onToggleMode ?? (() => {})}
+        onStartNewBot={botShell?.onStartNew ?? (() => {})}
       />
 
       {sidebarOpen ? (
         <div ref={sidebarScrollViewportRef} className="min-h-0 flex-1 overflow-y-auto">
+          {botShell?.mode ? (
+            <BotSidebarList
+              sidebarOpen={sidebarOpen}
+              bots={botShell.bots}
+              activeBotId={botShell.activeBotId}
+              loading={botShell.loading}
+              error={botShell.error}
+              onSelectBot={botShell.onSelect}
+              onOpenBotSettings={botShell.onOpenSettings}
+            />
+          ) : (
+          <>
           {/* Content-driven mount: loading alone must not mount this section — refocus
               refreshes (visibilitychange → loadPinnedSessions sets loading:true while items
               stay empty) would flash an empty Pinned block and shove the sections below. */}
@@ -1096,6 +1116,8 @@ export const ChatSidebar = memo(function ChatSidebar({
               </div>
             </SortableContext>
           </DndContext>
+          </>
+          )}
         </div>
       ) : null}
 

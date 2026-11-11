@@ -9,7 +9,7 @@ import { t } from '@/lib/i18n'
 import { MarkdownBlock } from './Markdown'
 import { ThinkingBlock } from './ThinkingBlock'
 import { ToolMessage } from './ToolMessage'
-import { formatUsage } from './UsageBar'
+import { formatUsage } from './usage-format'
 import { assistantContentParts } from './content-parts'
 import { AssistantStreamingContext, useAssistantStreaming } from './surface-context'
 

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { atomicUpdate, dataDir, readStore } from './storage.mjs'
+import { atomicUpdate, dataDir, memoryDirOf, readStore } from './storage.mjs'
 import {
   ARCHIVE_DIR_NAME,
   copyNoteDir,
@@ -21,9 +21,9 @@ import { openPathInFileManager } from './utils/platform.mjs'
 // the note-writing prompt injected into the system prompt, the folder path, and
 // the thin wrapper over the shared note-store operations.
 
-export const WORKING_MEMORY_SETTINGS_KEY = 'working-memory-settings'
-export const WORKING_MEMORY_DIR_NAME = 'working-memory'
-export const WORKING_MEMORY_DISPLAY_PATH = '~/.quickforge/working-memory'
+export const NOTES_SETTINGS_KEY = 'notes-settings'
+export const WORKING_MEMORY_DIR_NAME = 'notes'
+export const WORKING_MEMORY_DISPLAY_PATH = '~/.quickforge/memory/notes'
 export const MAX_WORKING_MEMORY_PROMPT_CHARS = 4000
 
 // Deliberately a plain-language rewrite of COMPACT_SYSTEM_PROMPT: same intent
@@ -58,9 +58,30 @@ export function normalizeWorkingMemorySettings(value) {
   }
 }
 
+/**
+ * Move the notes settings off the old storage key once, then drop that key.
+ *
+ * No read-side fallback: one key is the current design, and leaving the old one
+ * readable is how two spellings survive for years.
+ */
+export async function migrateNotesSettingsKey({
+  readSettings = () => readStore('settings'),
+  writeSettings = (updater) => atomicUpdate('settings', updater),
+} = {}) {
+  const settings = await readSettings()
+  const previous = settings?.['working-memory-settings']
+  if (previous === undefined) return false
+  await writeSettings((data) => {
+    const next = { ...data, [NOTES_SETTINGS_KEY]: previous }
+    delete next['working-memory-settings']
+    return next
+  })
+  return true
+}
+
 export async function readWorkingMemorySettings() {
   const settings = await readStore('settings')
-  return normalizeWorkingMemorySettings(settings?.[WORKING_MEMORY_SETTINGS_KEY])
+  return normalizeWorkingMemorySettings(settings?.[NOTES_SETTINGS_KEY])
 }
 
 export async function isWorkingMemoryEnabled() {
@@ -68,7 +89,7 @@ export async function isWorkingMemoryEnabled() {
 }
 
 export function workingMemoryDir(options = {}) {
-  return path.join(options.dataDir || dataDir, WORKING_MEMORY_DIR_NAME)
+  return path.join(memoryDirOf(options.dataDir || dataDir), WORKING_MEMORY_DIR_NAME)
 }
 
 export async function ensureWorkingMemoryDir(options = {}) {
@@ -88,7 +109,7 @@ export async function saveWorkingMemorySettings(patch = {}, options = {}) {
   if (typeof options.writeSettings === 'function') {
     await options.writeSettings(next)
   } else {
-    await atomicUpdate('settings', (data) => ({ ...data, [WORKING_MEMORY_SETTINGS_KEY]: next }))
+    await atomicUpdate('settings', (data) => ({ ...data, [NOTES_SETTINGS_KEY]: next }))
   }
   if (next.enabled) await ensureWorkingMemoryDir(options)
   return next

@@ -19,7 +19,7 @@ export function MemorySettingsTab() {
   const [loadingDocument, setLoadingDocument] = useState(false)
   const [markdown, setMarkdown] = useState('')
   const [savedMarkdown, setSavedMarkdown] = useState('')
-  const [memoryPath, setMemoryPath] = useState('~/.quickforge/MEMORY.md')
+  const [memoryPath, setMemoryPath] = useState('~/.quickforge/memory/MEMORY.md')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   // The experience library lives in its own folder; this only decides whether to
@@ -38,7 +38,7 @@ export function MemorySettingsTab() {
       setMarkdown(editable)
       setSavedMarkdown(editable)
       setHasExperiences((payload.count ?? 0) > 0)
-      setMemoryPath(payload.path || '~/.quickforge/MEMORY.md')
+      setMemoryPath(payload.path || '~/.quickforge/memory/MEMORY.md')
       if (showMessage) setMessage(t('memoryReloaded'))
     } finally {
       setLoadingDocument(false)
@@ -110,7 +110,7 @@ export function MemorySettingsTab() {
       setMarkdown(editable)
       setSavedMarkdown(editable)
       setHasExperiences((payload.count ?? 0) > 0)
-      setMemoryPath(payload.path || '~/.quickforge/MEMORY.md')
+      setMemoryPath(payload.path || '~/.quickforge/memory/MEMORY.md')
       setMessage(t('memoryContentSaved'))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))

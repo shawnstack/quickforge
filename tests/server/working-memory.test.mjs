@@ -7,9 +7,10 @@ import {
   DEFAULT_WORKING_MEMORY_SETTINGS,
   MAX_WORKING_MEMORY_PROMPT_CHARS,
   WORKING_MEMORY_DISPLAY_PATH,
-  WORKING_MEMORY_SETTINGS_KEY,
+  NOTES_SETTINGS_KEY,
   ensureWorkingMemoryDir,
   getWorkingMemoryRevision,
+  migrateNotesSettingsKey,
   normalizeWorkingMemorySettings,
   readWorkingMemoryDocument,
   readWorkingMemoryPrompt,
@@ -61,8 +62,18 @@ describe('working memory settings', () => {
   })
 
   it('exposes the shared settings key and display path used by the settings tab', () => {
-    expect(WORKING_MEMORY_SETTINGS_KEY).toBe('working-memory-settings')
-    expect(WORKING_MEMORY_DISPLAY_PATH).toBe('~/.quickforge/working-memory')
+    expect(NOTES_SETTINGS_KEY).toBe('notes-settings')
+    expect(WORKING_MEMORY_DISPLAY_PATH).toBe('~/.quickforge/memory/notes')
+  })
+
+  it('moves the settings off the old key once and removes it', async () => {
+    let store = { 'working-memory-settings': { enabled: true, prompt: '写短点' }, unrelated: 1 }
+    const writeSettings = async (updater) => { store = updater(store) }
+
+    expect(await migrateNotesSettingsKey({ readSettings: async () => store, writeSettings })).toBe(true)
+    expect(store).toEqual({ 'notes-settings': { enabled: true, prompt: '写短点' }, unrelated: 1 })
+    // Second run is a no-op: the old key is gone, not read as a fallback.
+    expect(await migrateNotesSettingsKey({ readSettings: async () => store, writeSettings })).toBe(false)
   })
 })
 
@@ -125,7 +136,7 @@ describe('working memory folder', () => {
     const dataDir = await createTempDir()
     const dir = await ensureWorkingMemoryDir({ dataDir })
 
-    expect(dir).toBe(path.join(dataDir, 'working-memory'))
+    expect(dir).toBe(path.join(dataDir, 'memory', 'notes'))
     await expect(fs.stat(dir)).resolves.toMatchObject({ isDirectory: expect.any(Function) })
   })
 })

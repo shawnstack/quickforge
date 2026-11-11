@@ -61,11 +61,6 @@ export function nextScheduledRunAt(executeTime, base = new Date()) {
 /**
  * Which model a run should use, and why.
  *
- * The previous fallback was `resolveImplicitModelPreference(null)`, which returns
- * the *first* model in the catalog. On a machine with several providers that is
- * arbitrary: the worker silently picked whichever model happened to be
- * configured first and the settings page had no way to see or change it.
- *
  * Resolution order:
  *   1. the model pinned for Dreaming (`dreaming-settings.modelRef`);
  *   2. otherwise the model the user last used in chat (`active-model`);
@@ -103,12 +98,11 @@ export function modelLabelOf(model) {
 /**
  * One Dreaming pass.
  *
- * The shape changed when memory became two folders: instead of one model call
- * that rewrites a bullet list, every session in the window gets its own agent turn
- * that edits the working-memory folder and, when warranted, promotes something
- * into the experience library. Sessions are processed serially and in
- * chronological order — parallel turns would race on the same notes, and the
- * chronological order is what lets a later session correct an earlier one.
+ * Every session in the window gets its own agent turn that edits the
+ * notes folder and, when warranted, promotes something into the
+ * experience library. Sessions are processed serially and in chronological order
+ * — parallel turns would race on the same notes, and the chronological order is
+ * what lets a later session correct an earlier one.
  *
  * Single-flight by design: two concurrent passes would both read the same
  * watermark and both edit the same folders. Callers get `{ skipped: true }`

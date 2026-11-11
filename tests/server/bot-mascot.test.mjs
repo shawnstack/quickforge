@@ -11,9 +11,9 @@ import { DEFAULT_MASCOT, normalizeBotRecord, normalizeMascot } from '../../serve
  */
 
 describe('normalizeMascot', () => {
-  it('defaults to ink colours with motion on', () => {
+  it('defaults to ink colours with motion and composer display on', () => {
     expect(normalizeMascot(undefined)).toEqual(DEFAULT_MASCOT)
-    expect(normalizeMascot({})).toEqual({ body: '#0B0B0C', eye: '#FFFFFF', animated: true })
+    expect(normalizeMascot({})).toEqual({ body: '#0B0B0C', eye: '#FFFFFF', animated: true, showOnComposer: true })
   })
 
   it('uppercases hex colours so the UI and the record agree', () => {
@@ -24,16 +24,17 @@ describe('normalizeMascot', () => {
   })
 
   it('merges a partial patch with the previous value', () => {
-    const previous = { body: '#EF8A3C', eye: '#FFFFFF', animated: true }
+    const previous = { body: '#EF8A3C', eye: '#FFFFFF', animated: true, showOnComposer: true }
     expect(normalizeMascot({ eye: '#101010' }, previous)).toEqual({
       body: '#EF8A3C',
       eye: '#101010',
       animated: true,
+      showOnComposer: true,
     })
   })
 
   it('falls back to the previous colour instead of accepting junk', () => {
-    const previous = { body: '#57C2A6', eye: '#FFFFFF', animated: true }
+    const previous = { body: '#57C2A6', eye: '#FFFFFF', animated: true, showOnComposer: true }
     expect(normalizeMascot({ body: 'red' }, previous).body).toBe('#57C2A6')
     expect(normalizeMascot({ body: '#GGGGGG' }, previous).body).toBe('#57C2A6')
     expect(normalizeMascot({ eye: '#fff' }, previous).eye).toBe('#FFFFFF')
@@ -44,6 +45,15 @@ describe('normalizeMascot', () => {
     expect(normalizeMascot({ animated: 'yes' }).animated).toBe(false)
     expect(normalizeMascot({ animated: false }, { ...DEFAULT_MASCOT, animated: false }).animated).toBe(false)
     expect(normalizeMascot({}, { ...DEFAULT_MASCOT, animated: false }).animated).toBe(false)
+  })
+
+  it('treats the composer switch like the animation switch', () => {
+    expect(normalizeMascot({ showOnComposer: false }).showOnComposer).toBe(false)
+    expect(normalizeMascot({ showOnComposer: 'yes' }).showOnComposer).toBe(false)
+    // 只改颜色/动画时不得把显示开关重置回默认。
+    expect(normalizeMascot({ body: '#EF8A3C' }, { ...DEFAULT_MASCOT, showOnComposer: false }).showOnComposer).toBe(false)
+    // 存量记录没有这个字段（老进程写出来的），回落到默认显示。
+    expect(normalizeMascot({}, { body: '#101010', eye: '#F5F5F5', animated: true }).showOnComposer).toBe(true)
   })
 })
 
@@ -139,14 +149,17 @@ describe('bots API exposes the mascot', () => {
 
     const coloured = await call('PATCH', url, { mascot: { body: '#EF8A3C' } })
     expect(coloured.status).toBe(200)
-    expect(coloured.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: true })
+    expect(coloured.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: true, showOnComposer: true })
 
     const switched = await call('PATCH', url, { mascot: { animated: false } })
-    expect(switched.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: false })
+    expect(switched.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: false, showOnComposer: true })
+
+    const hidden = await call('PATCH', url, { mascot: { showOnComposer: false } })
+    expect(hidden.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: false, showOnComposer: false })
 
     // 回读一次：路径不同但数据要一致（防止只改了内存里的那份）
     const reread = await call('GET', url)
-    expect(reread.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: false })
+    expect(reread.body.bot.mascot).toEqual({ body: '#EF8A3C', eye: '#FFFFFF', animated: false, showOnComposer: false })
   })
 
   it('rejects junk colours without breaking the record', async () => {

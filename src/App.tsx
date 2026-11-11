@@ -1518,6 +1518,10 @@ function MainApp() {
   })
   // 只有「闲着」才偶尔溜达一下；有状态时吉祥物演状态，不走路。
   const mascotStrolling = useMascotStroll(botMode && mascotState === 'idle')
+  // 「在输入框上方显示」由 bot 设置控制（默认开，见 server/bots.mjs 的 DEFAULT_MASCOT）。
+  // 拿不到 activeBot 时保持显示 —— 和「拿不到就用默认外观」同一语义，免得加载竞态
+  // 被误读成「坏了」；列表到了之后才按用户的选择真正隐藏。侧栏行首的小吉祥物不受它管。
+  const composerMascotVisible = activeBot ? activeBot.mascot.showOnComposer !== false : true
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })
@@ -1983,17 +1987,18 @@ function MainApp() {
                       agentRuntimeScopeId={agentManager.currentRuntimeScopeId}
                       // bot 模式下把吉祥物贴在输入框顶上：闲着的时候偶尔走一小段，
                       // 其余时间安静站着；有状态就演思考/干活/提醒。
-                      // bot 模式下一定渲染：拿不到 activeBot 时用默认外观，
-                      // 免得「看不见」被误读成「坏了」。
-                      composerMascot={botMode
+                      // bot 模式下默认渲染（拿不到 activeBot 时用默认外观，免得「看不见」
+                      // 被误读成「坏了」）；bot 设置里关掉「在输入框上方显示」才不渲染。
+                      composerMascot={botMode && composerMascotVisible
                         ? (
                           <BotMascot
                             state={mascotStrolling ? 'walk' : mascotState}
                             // 画布 512 里球只占 300（余量留给跳跃），所以尺寸不等于球径：
-                            // size=84 的实际球径约 49px。给过 64（球径 37px）被说「没在动」，
-                            // 又给过 104（球径 61px）被说「太大了」—— 84 是两头都能接受的值；
-                            // 球顶往上探约 49px，压不到最后一条消息。
-                            size={84}
+                            // size=79 的实际球径约 46.3px。给过 64（球径 37px）被说「没在动」，
+                            // 又给过 104（球径 61px）被说「太大了」—— 79 是球径下限 46px
+                            // （bot-mascot.test.ts 锁的）之上能取到的最小整数；
+                            // 球顶往上探约 46px，压不到最后一条消息。
+                            size={79}
                             look={activeBot?.mascot}
                             stroll={mascotStrolling}
                           />

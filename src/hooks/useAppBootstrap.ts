@@ -22,6 +22,9 @@ import { readAppSettingSnapshotValue, writeAppSettingSnapshotValue } from '@/lib
 import { resolveServerCacheKey } from '@/lib/server-cache-key'
 import type { AgentAccessMode } from '@/lib/types'
 import { chooseStartupModel } from '@/lib/startup-model'
+import { isBotProject } from '@/lib/bot-project'
+import { useAgentSessionStore } from '@/stores/agent-session-store'
+import { useUIStore } from '@/stores/ui-store'
 import { logger } from '@/lib/logger'
 import { randomId } from '@/lib/random-id'
 import { disposeAllAgentTasks } from '@/lib/agent-task-retention'
@@ -198,6 +201,14 @@ export function useAppBootstrap({
             if (startupModel) await createStartupSession()
           } else {
             setModelSetup(false)
+            // 刷新后 URL ?session= 恢复的可能是 bot 的会话：会话内容回来了，
+            // 但 botMode 是纯内存状态、刷新即归零，侧栏会错亮「对话」。恢复
+            // 完成就按会话的真实项目把模式拨回 bot，主区与侧栏保持一致
+            // （bot 列表由 App 侧监听 botMode 的 effect 自行加载）。只在启动
+            // 路径做这一次，不与「退出 bot 模式」的补偿逻辑冲突。
+            if (isBotProject(useAgentSessionStore.getState().currentToolProject)) {
+              useUIStore.getState().setBotMode(true)
+            }
           }
         } else {
           setModelSetup(!initialModel)

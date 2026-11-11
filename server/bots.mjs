@@ -23,7 +23,7 @@ export const MIN_HEARTBEAT_MINUTES = 5
 export const MAX_IDLE_WAKE_MINUTES = 180
 
 /** 吉祥物的默认外观：一个墨黑圆球 + 白色眼睛，动作开着。 */
-export const DEFAULT_MASCOT = { body: '#0B0B0C', eye: '#FFFFFF', animated: true }
+export const DEFAULT_MASCOT = { body: '#0B0B0C', eye: '#FFFFFF', animated: true, showOnComposer: true }
 /** 颜色只收 `#RRGGBB` —— 前端 `<input type="color">` 给的就是这个格式。 */
 const MASCOT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
@@ -126,7 +126,7 @@ function defaultMemoryTemplate(name, workspacePath) {
 }
 
 /**
- * 吉祥物外观：身体色 + 眼睛色 + 一个动画开关。
+ * 吉祥物外观：身体色 + 眼睛色 + 动画开关 + 「在输入框上方显示」开关。
  * 非法颜色退回上一次的值，再退回默认值 —— 坏数据不该把形象变成透明。
  */
 export function normalizeMascot(input, previous = null) {
@@ -138,12 +138,14 @@ export function normalizeMascot(input, previous = null) {
     }
     return previous?.[key] ?? DEFAULT_MASCOT[key]
   }
+  const flag = (key) => (
+    source[key] === undefined ? (previous?.[key] ?? DEFAULT_MASCOT[key]) : source[key] === true
+  )
   return {
     body: pick('body'),
     eye: pick('eye'),
-    animated: source.animated === undefined
-      ? (previous?.animated ?? DEFAULT_MASCOT.animated)
-      : source.animated === true,
+    animated: flag('animated'),
+    showOnComposer: flag('showOnComposer'),
   }
 }
 

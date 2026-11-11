@@ -34,7 +34,7 @@
     lastWakeAt, lastSessionId, wakeCount, idleCount,
     lastIdleReason, lastError,
   },
-  mascot: { body, eye, animated },   // 吉祥物外观，见 §7.2
+  mascot: { body, eye, animated, showOnComposer },   // 吉祥物外观；showOnComposer 控制输入框上方那只（默认 true），见 §7.2
   createdAt, updatedAt,
 }
 ```
@@ -94,6 +94,7 @@
 
 - 侧栏左上角「对话 / BOT」分段切换 bot 模式（`ui-store.botMode`）：logo 行下方独占一行、两个等宽选项，选中项浮起（`SidebarHeaderNav.tsx` + `sidebar-classes.ts` 的 `modeSwitcher*`）。这段分段控件**只在侧栏展开时渲染**；侧栏折叠后左上角只留「展开侧栏」一枚按钮（平时显示 favicon，hover / 聚焦换成 `PanelLeftOpen`），折叠态不再单独放模式切换图标，切模式要先摊开侧栏。点当前已选中的那一项不会再触发一次切换。
 - 两个方向的补偿不对称，都值得知道：**进 bot 模式**时若当前会话不属于任何 bot，会自动打开第一个 bot（否则主区会停在普通会话上自相矛盾）；**退出 bot 模式**时若当前会话属于某个 bot，则落回新对话空态。后半条不是洁癖——不改的话主区会继续显示那个 bot 的历史对话，而 `chatCapabilities` 仍按 bot 项目判定，顶栏、吉祥物、消息落点全都还挂在 bot 上。实现在 `App.tsx` 的 `previousBotModeRef` effect 里（不能塞进 `toggleBotMode`：那里读 `agentManager.currentSessionId` 会被 `react-hooks/refs` 判成 render 期间读 ref）。
+- **`botMode` 不持久化，刷新即归零**：会话内容却能经 URL `?session=` 恢复回来（点开 bot 时 `attachTaskToView` 会把它写进地址栏）。所以启动链里要做第三次对齐——`useAppBootstrap` 在恢复成功后若会话项目是 bot（`isBotProject`），把 `botMode` 拨回 true，侧栏才不会错亮「对话」。只挂在启动恢复成功的分支上，不与退出补偿冲突。bot 会话还没落过盘（从没发过消息）时恢复必然失败，落到新对话空态是数据本身不存在，不属于此列。
 - bot 模式下侧栏换成 bot 列表（`BotSidebarList`），一行一个，与会话行同一套样式。
 - 「新对话」按钮在 bot 模式下变成「创建 bot」。
 - **主区复用普通对话视图**：bot 就是一条会话，点开走 `requestOpenSession(sessionId)`。但「项目 + 分支」是普通对话语境的控件，这里有两处收敛：
@@ -102,7 +103,7 @@
 - 切进 bot 模式时若当前会话不属于任何 bot，会先刷新一次列表、再自动打开第一个 bot（`toggleBotMode`）。没有 bot 时主区保持原样，用侧栏「创建 bot」创建。
 - **「项目被删除」的恢复逻辑必须跳过 bot 项目**：`getDeletedProjectRecoveryDecision` 的判据是「当前项目不在 `projects` 列表里」，而 bot 项目按设计永远不在（`project-store` 过滤 `kind: 'bot'`）。不跳过的话，每次点开 bot 都会被判成「项目已删除」，随即新建一条空会话顶掉 bot 的对话——表现就是「bot 的历史对话不见了」。所以判据收整个 `currentToolProject`、先看 `kind`，而不是只收 id。
 - **它的会话不能 fork、也不能回滚对话**：能力矩阵 `src/lib/chat-capabilities.ts` 的 `BOT_CHAT_CAPABILITIES` 关掉 `forkFromMessage` / `rollback` / `retry`（`compaction` 保留，它自己要压上下文），`App.tsx` 在 bot 语境把它注入 `ChatPanelHost`，消息行因此**不渲染**这些图标；服务端 `rollbackSessionMessages` 另有一道无条件闸门——会话落在 `kind: 'bot'` 的项目里就 403 `BOT_SESSION_IMMUTABLE`，绕过 UI 直接打 API 同样拒。理由：会话就是它的记忆，压缩后的摘要本身是数组里的一条消息，剪短会让 `contextCompaction.summaryMessage` 悬空，之后每轮喂给模型的都是幻象。**文件回滚（`/rollback-turn`）不碰 messages，照常可用。**
-- 设置弹窗（`BotSettingsDialog`）放吉祥物外观、工作空间路径、`MEMORY.md` 编辑、心跳开关与间隔。
+- 设置弹窗（`BotSettingsDialog`）：header 是「44px 吉祥物预览 + bot 名」的身份行（预览跟形象草稿联动）；正文顺序 形象（调色盘、身体/眼睛色、显示动作、在输入框上方显示）→ 心跳 → `MEMORY.md` 编辑 → 工作空间路径（只读信息放最后）；三处开关共用 `SwitchRow`；footer 左下删除、右上关闭。
 
 **技能不归 bot 管。** 会话能激活哪些技能由全局技能与项目技能决定（和普通会话一致），bot 记录里没有 `skills` 字段——早先有过一个 per-bot 开关，但它从来没传给会话，等于装饰品，已删除。
 
@@ -119,9 +120,11 @@
 
 ### 7.2 吉祥物：界面里的动作与设计稿 mascot-v3 逐字一致
 
-两处：**输入框右上角**（bot 模式下有当前 bot 时，`size={84}`，约 49px 球径，贴在输入框上边缘，闲着时偶尔走一小段）和**侧栏 bot 行首**（24px，替换原来的状态圆点），都在 `src/components/bots/mascot/`。设置面板里另有 44px 的预览。
+两处：**输入框右上角**（bot 模式下有当前 bot 时，`size={79}`，约 46px 球径，贴在输入框上边缘，闲着时偶尔走一小段）和**侧栏 bot 行首**（24px，替换原来的状态圆点），都在 `src/components/bots/mascot/`。设置弹窗的 header 里另有 44px 的预览（跟形象草稿联动，拖色盘时它跟着变色）。
 
-> **尺寸不是随便给的**：画布 512 里球只占 300（余量留给跳跃），所以只要 `size` 的 58.6% 才是球径。设计稿 `mascot-v3.html` 用 `width=220` → 球径 129px；产品里给过 64（球径 37px）嫌「没在动」，104（球径 61px）又被否「太大了」，因为球会往上压住消息区，最终落在 84（球径 49px）。三处尺寸都不变，动作统一照搬设计稿、按 `size/220` 等比缩放；已去掉原先 `size <= 64` 时的 `-small` 增强关键帧。
+- 输入框那只可以整体关掉：bot 设置 → 形象 → 「在输入框上方显示」（`mascot.showOnComposer`，默认 `true`）。**只管输入框上那只**，侧栏行首的小吉祥物不受影响。前端判据是 `activeBot.mascot.showOnComposer !== false`——拿不到 `activeBot`（列表没加载完）时保持显示，和「拿不到就用默认外观」同一语义；存量记录没有这个字段（老服务端进程写出来的）也照样显示，字段只在 PATCH 归一化时补上。
+
+> **尺寸不是随便给的**：画布 512 里球只占 300（余量留给跳跃），所以只要 `size` 的 58.6% 才是球径。设计稿 `mascot-v3.html` 用 `width=220` → 球径 129px；产品里给过 64（球径 37px）嫌「没在动」，104（球径 61px）又被否「太大了」，因为球会往上压住消息区，84（球径 49px）之后用户又两次要求再小，最终落在 **79（球径 46.3px，即测试锁的 46px 球径下限之上能取到的最小整数）**。三处尺寸都不变，动作统一照搬设计稿、按 `size/220` 等比缩放；已去掉原先 `size <= 64` 时的 `-small` 增强关键帧。
 
 
 - `mascot-anim.css` 与 `mascot-geometry.ts` 是**生成文件**，来自 `docs/design/bot-mascot/generate-bot-gif.py` 的 `emit_web()`（`--emit-web`）。关键帧和缓动**逐字照搬设计稿 `mascot-v3.html`**（脚本里的 `V3_WEB`）：变换原点在球心 `(256,258)`，用设计稿原样的 `ease-in-out` / `cubic-bezier`，左右眼共用一套。GIF 仍由 `pose_*` 采样，是旧动作，两者暂不一致。
@@ -136,7 +139,8 @@
 ## 8. 测试
 
 - `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定。
-- `tests/server/bot-mascot.test.mjs`：吉祥物外观的归一化（默认值、大小写、部分合并、非法颜色退回、`animated` 只认显式 `true`）与接口往返（POST/GET/列表都带 `mascot`，PATCH 只改一色不影响另一色）。
+- `tests/server/bot-mascot.test.mjs`：吉祥物外观的归一化（默认值、大小写、部分合并、非法颜色退回、`animated` / `showOnComposer` 只认显式 `true`）与接口往返（POST/GET/列表都带 `mascot`，PATCH 只改一色不影响另一色、只改显示开关不重置动画）。
 - `tests/frontend/bot-mascot.test.ts`：状态映射优先级（纯函数）＋ 生成 CSS 的契约（6 状态 × 身体/左右眼关键帧、时长与几何数据一致、`prefers-reduced-motion` 与静态开关、弯月眼只在 `happy` 出现）＋ 组件用 CSS 变量换色 ＋ 溜达是单次动画而不是无限循环。
+- `tests/frontend/bot-mascot-composer-toggle.test.ts`：「在输入框上方显示」开关的接线契约（服务端默认值、前端类型、App 判据 `!== false`、弹窗里的开关与草稿默认值、三处开关共用 SwitchRow、双语文案）。
 - `tests/frontend/bot-status-summary.test.ts`：侧栏状态小字的优先级（出错 > 在忙 > 睡了 > 时间）与相对时间分段，两种语言的文案键都齐。
 - `tests/server/routes/bots.test.mjs`：建/列/改/删、记忆读写、项目注册与反注册、心跳的 `nextRunAt` 重算。

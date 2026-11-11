@@ -12,11 +12,15 @@ export type BotHeartbeat = {
   lastError: string | null
 }
 
-/** 吉祥物外观：与服务端 `bot.mascot` 一一对应。 */
+/**
+ * 吉祥物外观：与服务端 `bot.mascot` 一一对应。
+ * `showOnComposer` 控制主区输入框上方那只大吉祥物（侧栏行首的小吉祥物不受它管）。
+ */
 export type BotMascot = {
   body: string
   eye: string
   animated: boolean
+  showOnComposer: boolean
 }
 
 export type BotSummary = {

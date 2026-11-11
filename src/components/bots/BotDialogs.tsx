@@ -21,6 +21,52 @@ const GHOST = `${BUTTON} border border-border text-muted-foreground hover:text-f
 
 const INTERVAL_OPTIONS = [15, 30, 60, 180, 1440]
 
+/**
+ * 弹窗里的开关行：label 左、switch 右，hint 换行弱化。
+ * 形象/心跳三处开关共用同一配方，避免各写一份 drift 出不同样式。
+ */
+function SwitchRow({
+  label,
+  checked,
+  disabled,
+  onToggle,
+  hint,
+}: {
+  label: string
+  checked: boolean
+  disabled?: boolean
+  onToggle: () => void
+  hint?: string
+}) {
+  return (
+    <div className="border-b border-border py-2 last:border-b-0">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1 text-xs">{label}</div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          aria-label={label}
+          disabled={disabled}
+          className={cn(
+            'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+            checked ? 'bg-primary' : 'bg-muted',
+          )}
+          onClick={onToggle}
+        >
+          <span
+            className={cn(
+              'absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-[left] duration-160',
+              checked ? 'left-[1.125rem]' : 'left-0.5',
+            )}
+          />
+        </button>
+      </div>
+      {hint ? <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</div> : null}
+    </div>
+  )
+}
+
 function minutesLabel(minutes: number) {
   if (minutes >= 1440 && minutes % 1440 === 0) return t('everyDays').replace('{count}', String(minutes / 1440))
   if (minutes >= 60 && minutes % 60 === 0) return t('everyHours').replace('{count}', String(minutes / 60))
@@ -107,7 +153,7 @@ export function BotSettingsDialog({
   const [error, setError] = useState<string | null>(null)
   // 形象是拖色盘实时改的，先落草稿再防抖写回服务端，避免每拖一像素发一次 PATCH。
   const [mascotDraft, setMascotDraft] = useState<BotMascotSettings>(
-    bot?.mascot ?? { body: '#0B0B0C', eye: '#FFFFFF', animated: true },
+    bot?.mascot ?? { body: '#0B0B0C', eye: '#FFFFFF', animated: true, showOnComposer: true },
   )
   const mascotTimer = useRef<number | null>(null)
 
@@ -187,19 +233,20 @@ export function BotSettingsDialog({
     >
       <button type="button" className="absolute inset-0 cursor-default" aria-label={t('close')} onClick={onClose} />
       <div className={cn(CARD, 'relative max-w-xl')}>
-        <div className="flex items-center gap-2 border-b border-border px-5 py-3">
-          <div className="min-w-0 flex-1 truncate text-sm font-semibold">
-            {bot.name} · {t('botSettings')}
+        <div className="flex items-center gap-3 border-b border-border px-5 py-3">
+          {/* 预览放弹窗顶部：改色的实时反馈就在「这是谁的设置」这个身份位上，
+              比藏在形象区里直观；look 跟草稿联动，拖色盘时它跟着变。 */}
+          <BotMascot state="idle" size={44} look={mascotDraft} className="shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-semibold">{bot.name}</div>
+            <div className="text-[11px] leading-4 text-muted-foreground">{t('botSettings')}</div>
           </div>
           <button type="button" className={GHOST} onClick={onClose}>{t('close')}</button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <section className="mb-5">
-            <div className="mb-2 flex items-center gap-3">
-              <div className="min-w-0 flex-1 text-[11px] leading-4 text-muted-foreground">{t('botMascot')}</div>
-              <BotMascot state="idle" size={44} look={mascotDraft} />
-            </div>
+            <div className="mb-2 text-[11px] leading-4 text-muted-foreground">{t('botMascot')}</div>
             <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label={t('botMascotPalette')}>
               {MASCOT_PALETTES.map((palette) => {
                 const active = mascotDraft.body === palette.body && mascotDraft.eye === palette.eye
@@ -239,36 +286,43 @@ export function BotSettingsDialog({
                 />
               </div>
             ))}
-            <div className="flex items-center gap-3 py-2">
-              <div className="min-w-0 flex-1 text-xs">{t('botMascotAnimated')}</div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={mascotDraft.animated}
-                aria-label={t('botMascotAnimated')}
-                className={cn(
-                  'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-                  mascotDraft.animated ? 'bg-primary' : 'bg-muted',
-                )}
-                onClick={() => scheduleMascotSave({ ...mascotDraft, animated: !mascotDraft.animated })}
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-[left] duration-160',
-                    mascotDraft.animated ? 'left-[1.125rem]' : 'left-0.5',
-                  )}
-                />
-              </button>
-            </div>
-            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botMascotAnimatedHint')}</div>
+            <SwitchRow
+              label={t('botMascotAnimated')}
+              checked={mascotDraft.animated}
+              onToggle={() => scheduleMascotSave({ ...mascotDraft, animated: !mascotDraft.animated })}
+              hint={t('botMascotAnimatedHint')}
+            />
+            <SwitchRow
+              label={t('botMascotComposer')}
+              checked={mascotDraft.showOnComposer !== false}
+              onToggle={() => scheduleMascotSave({ ...mascotDraft, showOnComposer: mascotDraft.showOnComposer === false })}
+              hint={t('botMascotComposerHint')}
+            />
           </section>
 
           <section className="mb-5">
-            <div className="mb-1 text-[11px] leading-4 text-muted-foreground">{t('botWorkspace')}</div>
-            <div className="truncate rounded-lg border border-border px-3 py-2 font-mono text-xs leading-5 text-muted-foreground">
-              {bot.workspacePath}
+            <div className="mb-1 text-[11px] leading-4 text-muted-foreground">{t('botHeartbeat')}</div>
+            <SwitchRow
+              label={t('botHeartbeatEnabled')}
+              checked={heartbeat?.enabled !== false}
+              disabled={busy}
+              onToggle={() => void update({ heartbeat: { enabled: heartbeat?.enabled === false } })}
+            />
+            <div className="flex items-center gap-3 py-2">
+              <div className="min-w-0 flex-1 text-xs">{t('botHeartbeatInterval')}</div>
+              <select
+                className="h-7 rounded-lg border border-border bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                value={heartbeat?.intervalMinutes ?? 60}
+                disabled={busy}
+                aria-label={t('botHeartbeatInterval')}
+                onChange={(event) => void update({ heartbeat: { intervalMinutes: Number(event.target.value) } })}
+              >
+                {intervalOptions.map((minutes) => (
+                  <option key={minutes} value={minutes}>{minutesLabel(minutes)}</option>
+                ))}
+              </select>
             </div>
-            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botWorkspaceHint')}</div>
+            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botHeartbeatHint')}</div>
           </section>
 
           <section className="mb-5">
@@ -316,44 +370,11 @@ export function BotSettingsDialog({
           </section>
 
           <section>
-            <div className="mb-1 text-[11px] leading-4 text-muted-foreground">{t('botHeartbeat')}</div>
-            <div className="flex items-center gap-3 border-b border-border py-2">
-              <div className="min-w-0 flex-1 text-xs">{t('botHeartbeatEnabled')}</div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={heartbeat?.enabled !== false}
-                aria-label={t('botHeartbeatEnabled')}
-                disabled={busy}
-                className={cn(
-                  'relative h-5 w-9 shrink-0 rounded-full transition-colors',
-                  heartbeat?.enabled !== false ? 'bg-primary' : 'bg-muted',
-                )}
-                onClick={() => void update({ heartbeat: { enabled: heartbeat?.enabled === false } })}
-              >
-                <span
-                  className={cn(
-                    'absolute top-0.5 size-4 rounded-full bg-background shadow-sm transition-[left] duration-160',
-                    heartbeat?.enabled !== false ? 'left-[1.125rem]' : 'left-0.5',
-                  )}
-                />
-              </button>
+            <div className="mb-1 text-[11px] leading-4 text-muted-foreground">{t('botWorkspace')}</div>
+            <div className="truncate rounded-lg border border-border px-3 py-2 font-mono text-xs leading-5 text-muted-foreground">
+              {bot.workspacePath}
             </div>
-            <div className="flex items-center gap-3 py-2">
-              <div className="min-w-0 flex-1 text-xs">{t('botHeartbeatInterval')}</div>
-              <select
-                className="h-7 rounded-lg border border-border bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
-                value={heartbeat?.intervalMinutes ?? 60}
-                disabled={busy}
-                aria-label={t('botHeartbeatInterval')}
-                onChange={(event) => void update({ heartbeat: { intervalMinutes: Number(event.target.value) } })}
-              >
-                {intervalOptions.map((minutes) => (
-                  <option key={minutes} value={minutes}>{minutesLabel(minutes)}</option>
-                ))}
-              </select>
-            </div>
-            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botHeartbeatHint')}</div>
+            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botWorkspaceHint')}</div>
           </section>
 
           {error ? <div className="mt-4 text-xs leading-5 text-destructive">{error}</div> : null}

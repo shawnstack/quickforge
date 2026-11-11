@@ -15,6 +15,7 @@ import type { ProjectInfo } from '../../src/lib/types'
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 const useProjectSource = readFileSync(new URL('../../src/hooks/useProject.ts', import.meta.url), 'utf8')
 const recoverySource = readFileSync(new URL('../../src/lib/deleted-project-recovery.ts', import.meta.url), 'utf8')
+const bootstrapSource = readFileSync(new URL('../../src/hooks/useAppBootstrap.ts', import.meta.url), 'utf8')
 
 function project(id: string, patch: Partial<ProjectInfo> = {}): ProjectInfo {
   return { id, name: id, path: `/tmp/${id}`, lastOpenedAt: '', ...patch }
@@ -99,5 +100,26 @@ describe('「项目被删除」恢复不认 bot 目录', () => {
 
   it('恢复判据本身先排除 bot 项目', () => {
     expect(recoverySource).toContain('if (isBotProject(currentToolProject)) return { type: \'none\' }')
+  })
+})
+
+describe('刷新后恢复 bot 会话时把模式拨回 BOT', () => {
+  // botMode 是纯内存状态（ui-store 不持久化），刷新即归零；会话内容却能经
+  // URL ?session= 恢复回来。不在启动链里对齐的话，侧栏错亮「对话」，主区
+  // 却还是 bot 的会话——用户感知就是「刷新一下跑到对话里去了」。
+  it('启动恢复成功且会话项目是 bot 时 setBotMode(true)', () => {
+    expect(bootstrapSource).toContain('if (isBotProject(useAgentSessionStore.getState().currentToolProject)) {')
+    expect(bootstrapSource).toContain('useUIStore.getState().setBotMode(true)')
+  })
+
+  it('拨回动作只挂在启动的恢复成功分支，不挂到其他会话打开路径', () => {
+    const restoredAt = bootstrapSource.indexOf('const restored = await restoreSession(sessionId)')
+    const restoredBranchAt = bootstrapSource.indexOf('} else {', restoredAt)
+    const setBotModeAt = bootstrapSource.indexOf('useUIStore.getState().setBotMode(true)', restoredBranchAt)
+    expect(restoredAt).toBeGreaterThan(-1)
+    expect(restoredBranchAt).toBeGreaterThan(restoredAt)
+    // 必须出现在「恢复成功」分支内部，且全文件仅此一处。
+    expect(setBotModeAt).toBeGreaterThan(restoredBranchAt)
+    expect(bootstrapSource.split('setBotMode(true)').length - 1).toBe(1)
   })
 })

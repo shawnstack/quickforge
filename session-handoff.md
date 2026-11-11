@@ -3,17 +3,18 @@
 ## 本轮：吉祥物「不如设计稿生动」的定因与放大（2026-11-11 19:35）
 
 - 目标：用户问 `~/.quickforge/bots/bot-e7e445bf/mascot-v3.html` 是不是产品实现的那版，「这个非常生动，但对话框好像没这么生动，为什么」，并选定「尺寸 + 动作两件都做」、侧栏那只「放大一点（24～28px）」。
-- 一句话结论：**动作根本就是 v3 那套**（`generate-bot-gif.py` 的 `pose_*` 与 v3 手写 CSS 逐值相同，且现跑脚本的输出与仓库 `mascot-anim.css` / `mascot-geometry.ts` 逐字节相同），差的是**尺寸** —— 球径只有 `size` 的 58.6%，`size=64` 时球径 37px，10% 的压扁拉伸只剩 3px。所以这轮只改了尺寸：输入框那只 64 → 104、侧栏 18 → 24。
+- 一句话结论：**动作根本就是 v3 那套**（`generate-bot-gif.py` 的 `pose_*` 与 v3 手写 CSS 逐值相同，且现跑脚本的输出与仓库 `mascot-anim.css` / `mascot-geometry.ts` 逐字节相同），差的是**尺寸** —— 球径只有 `size` 的 58.6%，`size=64` 时球径 37px，10% 的压扁拉伸只剩 3px。所以这轮只改了尺寸：输入框那只 64 → 104 →（用户回「太大了」）→ **84**、侧栏 18 → 24。
 - 为什么不是「再调一版动作」：v3 的三段式（预备/发力/落地缓冲）、`back`/`snap` 缓动、二次回弹、落地横抖全已经在 `pose_*` 里了；再改就是换个动作，不是「更接近 v3」。
 - 改动文件：
-  - `src/App.tsx`（`composerMascot` 的 `size` 64 → 104 + 注释写明球径换算）
+  - `src/App.tsx`（`composerMascot` 的 `size` 64 → 84 + 注释写明球径换算与两次被否的历史）
   - `src/components/bots/BotSidebarList.tsx`（18 → 24，类注释与行内注释同步）
   - `tests/frontend/bot-mascot.test.ts`（+2 例：从源码读 `size` 换算球径，锁住下限）
   - `docs/wiki/server/bots.md` §7.2、`docs/architecture/single-bot-workspace-ui.zh-CN.md` §5、`docs/design/bot-mascot/README.md`
   - `progress.md`、`feature_list.json`、本文件
 - 验证：定向 24 passed；全量 `npm run test` → **520 files / 5741 passed、1 skipped、0 failed**；`npm run lint` 0 problems；`npm run build` 通过（`dist/` 已重建，5176 的产物已更新）。
 - 生效方式：纯前端，硬刷新（Cmd+Shift+R）即生效；无服务端改动，不用重启。
-- 未做 / 下一步（等用户肉眼看了再定）：① 104 是折中值，球顶会往消息区探约 61px，若盖住最后一条消息就往 96 调、想更接近设计稿往 112~120 调（只改 `App.tsx` 一个数字）；② 若还嫌不够「活」，可让输入框那只固定用 `-small` 增强关键帧（+35% 幅度），但那就不再是设计稿的比例；③ 侧栏行高从 32px 涨到 36px，bot 多时列表会长一点。
+- 尺寸的两次反馈（别再走回头路）：64（球径 37px）→「不如设计稿生动」；104（球径 61px）→「太大了」；现在 84（球径 49px）。测试只锁下限（球径 ≥ 46px），上界是人眼定的。
+- 未做 / 下一步：① 若用户还想更小，先想清楚「小到 46px 球径以下就是纯装饰」，别再一次次试；② 若还嫌不够「活」，可让输入框那只固定用 `-small` 增强关键帧（+35% 幅度），但那不再是设计稿的比例；③ 侧栏行高从 32px 涨到 36px，bot 多时列表会长一点；④ 真想让球大又不压消息，只能改挂载位置（例如塞进输入框内部右侧），那是设计改动，需要用户拍板。
 - 未提交：无 commit / tag / push。
 
 ## 本轮：退出 BOT 模式落回新对话空态（2026-11-11 18:35）

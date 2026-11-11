@@ -3056,18 +3056,18 @@
     },
     {
       "id": "bot-mascot-v3-visuality",
-      "title": "吉祥物按 v3 设计稿核对尺寸：输入框那只 64 → 104，侧栏 18 → 24",
+      "title": "吉祥物按 v3 设计稿核对尺寸：输入框那只 64 → 84（试过 104 被否「太大了」），侧栏 18 → 24",
       "status": "done",
-      "summary": "用户问「mascot-v3.html 是按这个版本实现的么？很生动，但对话框里没这么生动，为什么」。核对结论有两条，第二条推翻了假设：① 造型与动作其实就是 v3 —— `generate-bot-gif.py` 的 pose_* 关键帧与 v3 手写 CSS 逐值一致（idle 50% translateY(-30) scale(0.92,1.10)、happy 14% 18px 1.20/0.80、alert 10% -58px 0.80/1.22 加落地 dx ±16 rotate ±5、sleepy 68% -13deg 30px 1.12/0.85 …），并且把生成脚本的函数现跑一遍，`_web_css()` / `_web_ts()` 与仓库里的 mascot-anim.css / mascot-geometry.ts **逐字节相同**，说明 v3 早已进产品，只是没人用一句话说清楚。② 真正的差距是尺寸：512 画布里球只占 300（余量给跳跃），球径 = size × 58.6%。设计稿用 220 画布 → 球径 129px；产品给 size=64 → 球径 37px，10% 的压扁拉伸只有 3px，眼睛 rx=20 只有 2.5px，于是「变形」全塌成亚像素抖动。改法：输入框那只 size 64 → 104（球径 61px，且 >64 会自动用原始关键帧而非 -small 增强版，比例与设计稿一致）、侧栏行首 18 → 24（球径 14px，仍只当「在动」的指示，状态继续靠文字）。`-translate-y-[80%]` 不用改：(cy+r)/512 = 79.7%，球底边永远正好落在输入框上边缘。",
+      "summary": "用户问「mascot-v3.html 是按这个版本实现的么？很生动，但对话框里没这么生动，为什么」。核对结论有两条，第二条推翻了假设：① 造型与动作其实就是 v3 —— `generate-bot-gif.py` 的 pose_* 关键帧与 v3 手写 CSS 逐值一致（idle 50% translateY(-30) scale(0.92,1.10)、happy 14% 18px 1.20/0.80、alert 10% -58px 0.80/1.22 加落地 dx ±16 rotate ±5、sleepy 68% -13deg 30px 1.12/0.85 …），并且把生成脚本的函数现跑一遍，`_web_css()` / `_web_ts()` 与仓库里的 mascot-anim.css / mascot-geometry.ts **逐字节相同**，说明 v3 早已进产品，只是没人用一句话说清楚。② 真正的差距是尺寸：512 画布里球只占 300（余量给跳跃），球径 = size × 58.6%。设计稿用 220 画布 → 球径 129px；产品给 size=64 → 球径 37px，10% 的压扁拉伸只有 3px，眼睛 rx=20 只有 2.5px，于是「变形」全塌成亚像素抖动。改法：输入框那只 size 64 → 84（球径 49px，且 >64 会自动用原始关键帧而非 -small 增强版，比例与设计稿一致；中途试过 104/球径 61px，用户回「太大了」——球会往上侵占消息区，所以上界由人眼定，测试只锁下限 46px）、侧栏行首 18 → 24（球径 14px，仍只当「在动」的指示，状态继续靠文字）。`-translate-y-[80%]` 不用改：(cy+r)/512 = 79.7%，球底边永远正好落在输入框上边缘。",
       "files": [
-        "src/App.tsx（composerMascot 的 size 64 → 104 + 注释写明「球径只有 size 的 58.6%」）",
+        "src/App.tsx（composerMascot 的 size 64 → 84 + 注释写明「球径只有 size 的 58.6%」与两次被否的历史）",
         "src/components/bots/BotSidebarList.tsx（size 18 → 24，头注释与行内注释同步）",
-        "tests/frontend/bot-mascot.test.ts（新增 2 例：从源码里读 size 换算球径，锁住「输入框 ≥ 56px」「侧栏 10~20px」的下限）",
-        "docs/wiki/server/bots.md（§7.2 尺寸改成 104/24，补一段「尺寸不是随便给的」，顺带修掉三处过期数字：34px、隔 45 秒、-translate-y-[86%]）",
+        "tests/frontend/bot-mascot.test.ts（新增 2 例：从源码里读 size 换算球径，锁住下限（输入框 ≥ 46px、侧栏 10~20px））",
+        "docs/wiki/server/bots.md（§7.2 尺寸改成 84/24，补一段「尺寸不是随便给的」，顺带修掉三处过期数字：34px、隔 45 秒、-translate-y-[86%]）",
         "docs/architecture/single-bot-workspace-ui.zh-CN.md（§5 两处尺寸与理由）",
         "docs/design/bot-mascot/README.md（7 个状态、-small 增强版、尺寸下限一节）"
       ],
-      "boundaries": "① 纯前端，硬刷新即生效，无服务端改动，没重新生成 mascot-anim.css（也没有必要——生成脚本的输出与仓库文件逐字节相同，说明它没漂）。② 没改任何动作曲线：v3 的关键帧已经全在 pose_* 里，唯一差别是帧数取整带来的时长（happy 0.88 vs 0.9、alert 1.12 vs 1.1、working 0.72 vs 0.7），肉眼不可辨。③ 104 是折中值：球底边恒在输入框上边缘，但球顶会往上探到消息区约 61px，若盖住最后一条消息就往 96 调，想更接近设计稿往 112~120 调，改动只有 App.tsx 一个数字（测试上限是「球径 ≥ 56px」，往小改会先红）。④ 侧栏行高会从 32px 涨到 36px（py-1.5 + 内容 24px），bot 多时列表会长一点。⑤ 未创建 commit / tag / push。"
+      "boundaries": "① 纯前端，硬刷新即生效，无服务端改动，没重新生成 mascot-anim.css（也没有必要——生成脚本的输出与仓库文件逐字节相同，说明它没漂）。② 没改任何动作曲线：v3 的关键帧已经全在 pose_* 里，唯一差别是帧数取整带来的时长（happy 0.88 vs 0.9、alert 1.12 vs 1.1、working 0.72 vs 0.7），肉眼不可辨。③ 尺寸是两次反馈迭代出来的：64（球径 37px）「没在动」→ 104（球径 61px）「太大了」→ 84（球径 49px）。球底边恒在输入框上边缘（-translate-y-[80%] 与 size 无关），变化的是球顶往上探的高度（84 时约 49px）；测试锁下限（球径 ≥ 46px，往小改会先红），上界由用户的眼睛定。④ 侧栏行高会从 32px 涨到 36px（py-1.5 + 内容 24px），bot 多时列表会长一点。⑤ 未创建 commit / tag / push。"
     }
   ]
 }

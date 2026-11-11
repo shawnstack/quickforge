@@ -1990,11 +1990,10 @@ function MainApp() {
                           <BotMascot
                             state={mascotStrolling ? 'walk' : mascotState}
                             // 画布 512 里球只占 300（余量留给跳跃），所以尺寸不等于球径：
-                            // 104 画布的实际球径约 61px。给过 64（球径 37px），设计稿里的
-                            // 压扁拉伸落在那上面只有 3px，看着「不动」；提到 104 才接近设计稿
-                            // 220 画布（球径 129px）的观感。>64 会自动用原始关键帧（非增强版），
-                            // 比例与设计稿一致。
-                            size={104}
+                            // size=84 的实际球径约 49px。给过 64（球径 37px）被说「没在动」，
+                            // 又给过 104（球径 61px）被说「太大了」—— 84 是两头都能接受的值；
+                            // 球顶往上探约 49px，压不到最后一条消息。
+                            size={84}
                             look={activeBot?.mascot}
                             stroll={mascotStrolling}
                           />

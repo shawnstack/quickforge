@@ -95,9 +95,11 @@ describe('尺寸下限：球径太小就看不出 squash & stretch', () => {
     return size * BALL_RATIO
   }
 
-  it('输入框那只的球径不小于 56px（给过 64 → 37px，用户反馈「不如设计稿生动」）', () => {
+  it('输入框那只的球径不小于 46px（给过 64 → 37px，用户反馈「不如设计稿生动」）', () => {
     const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
-    expect(ballDiameter(appSource)).toBeGreaterThanOrEqual(56)
+    // 46px 是「10% 的压扁拉伸 ≈ 4.6px」的下限；再小就只剩抖动。
+    // 上界由用户的眼睛定：104（球径 61px）被否过「太大了」，别往那个方向加。
+    expect(ballDiameter(appSource)).toBeGreaterThanOrEqual(46)
   })
 
   it('侧栏行首那只比原来的状态圆点大，但仍只当「在动」的指示（球径 < 20px）', () => {

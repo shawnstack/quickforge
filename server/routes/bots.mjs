@@ -5,6 +5,7 @@ import { ensureBotSession } from '../bot-session.mjs'
 import {
   BOT_STORE,
   DEFAULT_MASCOT,
+  appendBotInbox,
   ensureBotProject,
   ensureBotWorkspace,
   listBotRecords,
@@ -228,6 +229,25 @@ export async function handleBotsApi(req, res, url) {
     const bot = await requireBotRecord(botId)
     const result = await runBotHeartbeat(bot, { manual: true })
     sendJson(res, 200, result)
+    return
+  }
+
+  if (sub === 'inbox') {
+    if (req.method !== 'POST') throw requestError('Method not allowed', 405)
+    const bot = await requireBotRecord(botId)
+    const body = await readJsonBody(req)
+    const text = typeof body?.text === 'string' ? body.text.trim() : ''
+    if (!text) throw requestError('text is required')
+    if (text.length > 20000) throw requestError('text is too long')
+    const file = await appendBotInbox(bot, text)
+    // 只提前节拍，不直接唤醒：保持单飞约束，下一轮 runner 扫描（≤30s）即醒。
+    if (bot.heartbeat?.enabled) {
+      await patchBotRecord(bot.id, {
+        heartbeat: { ...bot.heartbeat, nextRunAt: new Date().toISOString() },
+      })
+    }
+    logger.info(`Fed bot ${bot.name} (${bot.id})`, { chars: text.length })
+    sendJson(res, 200, { ok: true, file })
     return
   }
 

@@ -7,9 +7,9 @@ export const MASCOT_BODY_SHAPE = { cx: 256, cy: 258, r: 150 }
 
 export const MASCOT_EYE_SHAPE = {
   dx: 46,
-  cy: 267,
-  rx: 20,
-  ry: 26,
+  cy: 262,
+  rx: 18,
+  ry: 32,
 }
 
 export const MASCOT_ARC = { d: 'M -18 6 Q 0 -17 18 6', width: 11 }

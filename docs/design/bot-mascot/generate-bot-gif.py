@@ -139,8 +139,8 @@ def build_svg_glow(t: float, size: int) -> str:
 # 只有一个实心圆和两只眼睛：没有渐变、高光、描边、天线和嘴。
 # 可爱感全靠三件事撑住：正圆轮廓、眼睛的尺寸和位置、动作节奏。
 BW_BODY_CX, BW_BODY_CY, BW_BODY_R = 256, 258, 150
-BW_EYE_DX, BW_EYE_CY = 46, 267      # 眼睛略低于圆心（婴儿比例，越靠下越幼）
-BW_EYE_RX, BW_EYE_RY = 20, 26
+BW_EYE_DX, BW_EYE_CY = 46, 262      # 眼睛略低于圆心（婴儿比例，越靠下越幼）；262 是验收时上移后的定稿
+BW_EYE_RX, BW_EYE_RY = 18, 32       # 豆豆眼：上下拉长（expressions-preview.html 验收定稿）
 BW_ARC = "M -18 6 Q 0 -17 18 6"     # 弯月眼路径
 BW_ARC_WIDTH = 11
 
@@ -601,6 +601,250 @@ V3_WEB: dict[str, tuple[float, str, str, str, str | None]] = {
 }
 
 
+# ---- 界面互动：hover / poke / dizzy ------------------------------------------
+# 设计稿见 interactions-preview.html（已验收）。绑定在 data-interact 上，
+# 与状态规则同特异度但写在后面，所以互动期间会盖住状态动画；
+# 组件只在 idle / sleepy 且开启动画时置 data-interact（见 use-mascot-interactions.ts）。
+# 语义：hover=抬眼看人（悬停期间定住）；hover-exit=0.3s 落回；
+#       poke=被戳瘪再弹起（0.6s，播放中的点击只计数不重开）；
+#       dizzy=1.6s 内点满 5 下的彩蛋（1.5s，身体左右晃、双眼反向绕圈）。
+V3_INTERACT_RULES = """\
+/* 互动（hover / poke / dizzy）：只把球本体设为可点，空白处继续穿透 */
+.qf-mascot.qf-mascot--interactive { pointer-events: none; }
+.qf-mascot.qf-mascot--interactive .qf-mascot__ball { pointer-events: auto; cursor: pointer; }
+
+.qf-mascot[data-interact='hover'] .qf-mascot__body { animation: qf-mascot-body-hover 0.45s ease-out forwards; }
+.qf-mascot[data-interact='hover'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='hover'] .qf-mascot__eye-r { animation: qf-mascot-eye-hover 0.45s ease-out forwards; }
+.qf-mascot[data-interact='hover-exit'] .qf-mascot__body { animation: qf-mascot-body-hover-exit 0.30s ease-in forwards; }
+.qf-mascot[data-interact='hover-exit'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='hover-exit'] .qf-mascot__eye-r { animation: qf-mascot-eye-hover-exit 0.30s ease-in forwards; }
+
+.qf-mascot[data-interact='poke'] .qf-mascot__body { animation: qf-mascot-body-poke 0.60s cubic-bezier(.3,0,.4,1) 1; }
+.qf-mascot[data-interact='poke'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='poke'] .qf-mascot__eye-r { animation: qf-mascot-eye-poke 0.60s linear 1; }
+
+.qf-mascot[data-interact='dizzy'] .qf-mascot__body { animation: qf-mascot-body-dizzy 1.50s ease-in-out 1; }
+.qf-mascot[data-interact='dizzy'] .qf-mascot__eye-l { animation: qf-mascot-dizzy-eye-l 1.50s linear 1; }
+.qf-mascot[data-interact='dizzy'] .qf-mascot__eye-r { animation: qf-mascot-dizzy-eye-r 1.50s linear 1; }"""
+
+V3_INTERACT_KEYFRAMES = """\
+@keyframes qf-mascot-body-hover {
+  0%        { transform: translateY(0)    scale(1, 1); }
+  100%      { transform: translateY(-10px) scale(0.97, 1.04); }
+}
+@keyframes qf-mascot-eye-hover {
+  0%        { transform: translateY(0); }
+  100%      { transform: translateY(-10px); }
+}
+@keyframes qf-mascot-body-hover-exit {
+  0%        { transform: translateY(-10px) scale(0.97, 1.04); }
+  100%      { transform: translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-eye-hover-exit {
+  0%        { transform: translateY(-10px); }
+  100%      { transform: translateY(0); }
+}
+@keyframes qf-mascot-body-poke {
+  0%        { transform: translateY(0)    scale(1, 1); }
+  18%       { transform: translateY(14px) scale(1.26, 0.72); }
+  34%       { transform: translateY(-34px) scale(0.90, 1.10); }
+  48%       { transform: translateY(4px)  scale(1.10, 0.90); }
+  62%       { transform: translateY(-12px) scale(0.98, 1.03); }
+  78%       { transform: translateY(0)    scale(1, 1); }
+  88%       { transform: translateY(3px)  scale(1.04, 0.96); }
+  100%      { transform: translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-eye-poke {
+  0%, 14%   { transform: scaleY(1); }
+  20%, 44%  { transform: scaleY(0.08); }
+  56%       { transform: scaleY(1.15); }
+  100%      { transform: scaleY(1); }
+}
+@keyframes qf-mascot-body-dizzy {
+  0%        { transform: rotate(0)     translateY(0)    scale(1, 1); }
+  10%       { transform: rotate(-10deg) translateY(4px)  scale(1.06, 0.94); }
+  22%       { transform: rotate(12deg) translateY(-6px) scale(0.96, 1.05); }
+  34%       { transform: rotate(-13deg) translateY(6px)  scale(1.07, 0.93); }
+  46%       { transform: rotate(14deg) translateY(-4px) scale(0.95, 1.05); }
+  58%       { transform: rotate(-12deg) translateY(4px)  scale(1.06, 0.94); }
+  70%       { transform: rotate(9deg)  translateY(-2px) scale(0.97, 1.03); }
+  82%       { transform: rotate(-5deg) translateY(0)    scale(1, 1); }
+  100%      { transform: rotate(0)     translateY(0)    scale(1, 1); }
+}"""
+
+
+def _dizzy_eye_keyframes(name: str, sign: float) -> str:
+    """转晕的眼睛：半径 8 绕 3 圈（每圈 8 个采样点），末尾眯一下眼再睁开。"""
+    stops = []
+    for i in range(25):
+        angle = sign * i * math.pi / 4.0
+        x = 8 * math.cos(angle)
+        y = 8 * math.sin(angle)
+        if abs(x) < 0.05:
+            x = 0.0
+        if abs(y) < 0.05:
+            y = 0.0
+        stops.append(
+            f"  {i * 3.0:.1f}%  {{ transform: translate({x:.1f}px, {y:.1f}px) scale(0.9, 0.8); }}"
+        )
+    stops.append("  86%   { transform: translate(0, 0) scale(1.1, 0.5); }")
+    stops.append("  100%  { transform: translate(0, 0) scale(1, 1); }")
+    return f"@keyframes {name} {{\n" + "\n".join(stops) + "\n}"
+
+
+# ---- 界面氛围：待机东张西望（data-ambient='look'）--------------------------
+# 设计稿见 expressions-preview.html（已验收）。不由 CSS 无限循环，而是 JS 控制器
+# 随机间隔触发（待机 5~9s 一段，见 mascot-interactions.ts），一次性 3.3s：
+# 眼睛拉长往左上斜看、停一下，甩到右上停一下，眨眼收尾；球体保持呼吸
+# （不动 data-state 的身体动画），通过两个附加图层实现：
+#   __tilt：球体反向微歪头（眼看左上时头往右歪）
+#   __gaze：双眼整体斜移 + 拉长（平时的眨眼仍由眼睛自己的 idle 动画负责）
+# 悬停 / 点击会立即打断（控制器里 stopLook），忙状态不触发。
+V3_LOOK_RULES = """\
+/* 东张西望（data-ambient='look'）：一次性 3.3s，待机时由 JS 随机间隔触发 */
+.qf-mascot__tilt,
+.qf-mascot__gaze { transform-box: fill-box; transform-origin: center; }
+
+.qf-mascot[data-ambient='look'] .qf-mascot__tilt { animation: qf-mascot-tilt-look 3.30s ease-in-out 1; }
+.qf-mascot[data-ambient='look'] .qf-mascot__gaze { animation: qf-mascot-gaze-look 3.30s ease-in-out 1; }
+.qf-mascot[data-ambient='look'] .qf-mascot__sym-quest { display: block; animation: qf-mascot-quest-look 3.30s linear 1; }"""
+
+V3_LOOK_KEYFRAMES = """\
+@keyframes qf-mascot-tilt-look {
+  0%        { transform: rotate(0); }
+  9.1%      { transform: rotate(3.5deg); }   /* 眼往左上，头往右歪（反向） */
+  39.4%     { transform: rotate(3.5deg); }
+  48.5%     { transform: rotate(-3.5deg); }  /* 眼甩到右上，头往左歪 */
+  78.8%     { transform: rotate(-3.5deg); }
+  87.9%     { transform: rotate(0); }
+  100%      { transform: rotate(0); }
+}
+@keyframes qf-mascot-gaze-look {
+  0%        { transform: translate(0,0) rotate(0) scale(1,1); }
+  9.1%      { transform: translate(-15px,-11px) rotate(-8deg) scale(1.05,1.15); }
+  39.4%     { transform: translate(-15px,-11px) rotate(-8deg) scale(1.05,1.15); }
+  48.5%     { transform: translate(15px,-11px) rotate(8deg) scale(1.05,1.15); }
+  78.8%     { transform: translate(15px,-11px) rotate(8deg) scale(1.05,1.15); }
+  87.9%     { transform: translate(0,0) rotate(0) scale(1,1); }
+  91%, 97%  { transform: translate(0,0) rotate(0) scale(1,0.12); }  /* 眨眼收尾 */
+  100%      { transform: translate(0,0) rotate(0) scale(1,1); }
+}
+@keyframes qf-mascot-quest-look {
+  0%, 50%   { opacity: 0; transform: translateY(0) rotate(0); }
+  55%       { opacity: 1; transform: translateY(-5px) rotate(-8deg); }
+  76%       { opacity: 1; transform: translateY(-5px) rotate(-8deg); }
+  80%, 100% { opacity: 0; transform: translateY(0) rotate(0); }
+}"""
+
+
+# ---- 界面状态小符号（qf-mascot__sym-*）--------------------------------------
+# 设计稿见 expressions-preview.html（已验收，符号整体再放大一档）。八个：
+#   思考 …（三分钟性省略号）／犯困 zZ／提醒 !!／开心 ♡／干活汗滴（球上、眼色）／
+#   被戳 !（随 poke）／转晕星星（随 dizzy）／张望 ?（随 look，规则在 V3_LOOK_RULES）。
+# 配色规则：球外符号用球身色、球上符号（汗滴）用眼色——深浅主题都与底色拉开。
+# 结构规则：定位靠外层 transform 属性，动画作用在里层元素——CSS transform 动画
+# 会整个顶掉 transform 属性，同一个元素上两者不能并存（expressions-preview 踩过）。
+# 跟着球跳的符号（!! ♡ 汗滴 !）画在 __tilt 里随球动；飘在空中的（… zZ 星星 ?）画在球外。
+# 只渲染在开互动的那只上（BotMascot 的 showSymbols），侧栏 / 设置预览不加。
+V3_SYMBOL_RULES = """\
+/* 状态小符号：默认藏起来，各自的 data 属性到了才显示 */
+.qf-mascot__sym { display: none; }
+.qf-mascot__sym-z,
+.qf-mascot__sym-bang,
+.qf-mascot__sym-heart,
+.qf-mascot__sym-sweat,
+.qf-mascot__sym-poke,
+.qf-mascot__sym-quest { transform-box: fill-box; transform-origin: center; }
+.qf-mascot__sym-dizzy-orbit { transform-box: view-box; transform-origin: 256px 88px; }
+
+/* 思考 …：三个点从小到大、由近到远错开冒（1.8s，跟思考同拍） */
+.qf-mascot[data-state='thinking'] .qf-mascot__sym-dots { display: block; }
+.qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle { animation: qf-mascot-sym-dot 1.80s ease-in-out infinite; }
+.qf-mascot__sym-dots circle:nth-child(2) { animation-delay: .22s; }
+.qf-mascot__sym-dots circle:nth-child(3) { animation-delay: .44s; }
+
+/* 犯困 zZ：小 z 先起、大 Z 随后，飘着淡出（3.2s，跟犯困同拍） */
+.qf-mascot[data-state='sleepy'] .qf-mascot__sym-zz { display: block; }
+.qf-mascot[data-state='sleepy'] .qf-mascot__sym-z { animation: qf-mascot-sym-z 3.20s ease-in-out infinite; }
+.qf-mascot__sym-zz g:nth-child(2) .qf-mascot__sym-z { animation-delay: .45s; }
+
+/* 提醒 !!：弹出 + 微抖（1.1s，跟提醒同拍；画在球体图层里跟着球跳） */
+.qf-mascot[data-state='alert'] .qf-mascot__sym-bang { display: block; animation: qf-mascot-sym-bang 1.10s ease-out infinite; }
+
+/* 开心 ♡：弹出 + 心跳一下（0.9s，跟开心同拍；跟着球跳） */
+.qf-mascot[data-state='happy'] .qf-mascot__sym-heart { display: block; animation: qf-mascot-sym-heart 0.90s ease-out infinite; }
+
+/* 干活汗滴：球上往下滑、淡出（眼色；干活 0.7s 一拍，汗滴两拍一滴） */
+.qf-mascot[data-state='working'] .qf-mascot__sym-sweat { display: block; animation: qf-mascot-sym-sweat 1.40s ease-in infinite; }
+
+/* 被戳 !：弹一下晃一下（只在 poke 播放期间出现；forwards 防播完闪回静态） */
+.qf-mascot[data-interact='poke'] .qf-mascot__sym-poke { display: block; animation: qf-mascot-sym-poke 0.60s ease-out 1 forwards; }
+
+/* 转晕星星：两颗小星绕头顶一圈（只在 dizzy 播放期间出现） */
+.qf-mascot[data-interact='dizzy'] .qf-mascot__sym-dizzy { display: block; }
+.qf-mascot[data-interact='dizzy'] .qf-mascot__sym-dizzy-orbit { animation: qf-mascot-sym-star-orbit 1.50s linear 1 forwards; }"""
+
+V3_SYMBOL_KEYFRAMES = """\
+@keyframes qf-mascot-sym-dot {
+  0%        { opacity: 0; transform: translateY(6px); }
+  18%       { opacity: 1; transform: translateY(0); }
+  70%       { opacity: 1; transform: translateY(-3px); }
+  85%, 100% { opacity: 0; }
+}
+@keyframes qf-mascot-sym-z {
+  0%        { opacity: 0; transform: translateY(12px) scale(.8); }
+  12%       { opacity: 1; transform: translateY(0) scale(1); }
+  62%       { opacity: 1; transform: translateY(-16px); }
+  78%       { opacity: 0; transform: translateY(-22px); }
+  100%      { opacity: 0; }
+}
+@keyframes qf-mascot-sym-bang {
+  0%        { opacity: 0; transform: scale(.3); }
+  10%       { opacity: 1; transform: scale(1.25); }
+  18%       { transform: scale(1); }
+  24%       { transform: rotate(5deg); }
+  32%       { transform: rotate(-5deg); }
+  40%       { transform: rotate(3deg); }
+  46%       { transform: rotate(0); }
+  80%       { opacity: 1; }
+  92%, 100% { opacity: 0; }
+}
+@keyframes qf-mascot-sym-heart {
+  0%        { opacity: 0; transform: scale(0); }
+  18%       { opacity: 1; transform: scale(1.25); }
+  30%       { transform: scale(1); }
+  48%       { transform: scale(1.18); }
+  62%       { transform: scale(1); }
+  78%       { opacity: 1; transform: translateY(0); }
+  92%, 100% { opacity: 0; transform: translateY(-12px); }
+}
+@keyframes qf-mascot-sym-sweat {
+  0%        { opacity: 0; transform: translateY(0); }
+  12%       { opacity: 1; }
+  55%       { opacity: 1; transform: translateY(46px); }
+  68%       { opacity: 0; transform: translateY(52px); }
+  100%      { opacity: 0; transform: translateY(0); }
+}
+@keyframes qf-mascot-sym-poke {
+  0%        { opacity: 0; transform: scale(.4); }
+  12%       { opacity: 1; transform: scale(1.2); }
+  20%       { transform: scale(1); }
+  35%       { transform: translateX(-5px); }
+  45%       { transform: translateX(5px); }
+  55%       { transform: translateX(-3px); }
+  62%       { transform: translateX(0); }
+  85%       { opacity: 1; }
+  100%      { opacity: 0; }
+}
+@keyframes qf-mascot-sym-star-orbit {
+  0%        { opacity: 0; transform: rotate(0); }
+  8%        { opacity: 1; }
+  92%       { opacity: 1; }
+  100%      { opacity: 0; transform: rotate(360deg); }
+}"""
+
+
 def _web_css() -> str:
     ink_body, ink_eye = PALETTES["ink"]
     inv_body, inv_eye = PALETTES["inverse"]
@@ -635,21 +879,45 @@ def _web_css() -> str:
             blocks.append(f"@keyframes qf-mascot-eye-{state} {{\n{eye_kf}\n}}")
         rules.append("")
 
+    rules.append(V3_INTERACT_RULES)
+    rules.append("")
+    blocks.append(V3_INTERACT_KEYFRAMES)
+    blocks.append(_dizzy_eye_keyframes("qf-mascot-dizzy-eye-l", 1.0))
+    blocks.append(_dizzy_eye_keyframes("qf-mascot-dizzy-eye-r", -1.0))
+
+    rules.append(V3_LOOK_RULES)
+    rules.append("")
+    blocks.append(V3_LOOK_KEYFRAMES)
+
+    rules.append(V3_SYMBOL_RULES)
+    rules.append("")
+    blocks.append(V3_SYMBOL_KEYFRAMES)
+
     # 注意：状态规则是 `.qf-mascot[data-state=...] .qf-mascot__body`（0,3,0），
     # 关动画的规则必须更高或加 !important —— 否则「关掉动画」和「减弱动效」
-    # 都会输给状态规则，等于开关无效。
+    # 都会输给状态规则，等于开关无效。互动规则同特异度但写在状态之后。
     rules.append("/* 设置里关掉动画、或系统要求减弱动效时：停在初始姿态 */")
     rules.append(
         ".qf-mascot.qf-mascot--static .qf-mascot__body,\n"
-        ".qf-mascot.qf-mascot--static .qf-mascot__part "
-        "{ animation: none !important; transform: none !important; }"
+        ".qf-mascot.qf-mascot--static .qf-mascot__part,\n"
+        ".qf-mascot.qf-mascot--static .qf-mascot__tilt,\n"
+        ".qf-mascot.qf-mascot--static .qf-mascot__gaze "
+        "{ animation: none !important; transform: none !important; }\n"
+        ".qf-mascot.qf-mascot--static .qf-mascot__sym { display: none !important; }"
     )
     rules.append("")
     rules.append("@media (prefers-reduced-motion: reduce) {")
     rules.append(
         "  .qf-mascot[data-state] .qf-mascot__body,\n"
         "  .qf-mascot[data-state] .qf-mascot__part,\n"
-        "  .qf-mascot-stroll { animation: none !important; transform: none !important; }"
+        "  .qf-mascot[data-interact] .qf-mascot__body,\n"
+        "  .qf-mascot[data-interact] .qf-mascot__part,\n"
+        "  .qf-mascot[data-ambient] .qf-mascot__tilt,\n"
+        "  .qf-mascot[data-ambient] .qf-mascot__gaze,\n"
+        "  .qf-mascot-stroll { animation: none !important; transform: none !important; }\n"
+        "  /* 符号只停动画不清 transform（星星等的定位是 transform 属性，清了会飞走） */\n"
+        "  .qf-mascot .qf-mascot__sym,\n"
+        "  .qf-mascot .qf-mascot__sym * { animation: none !important; }"
     )
     rules.append("}")
     return _WEB_BANNER + "\n".join(rules) + "\n\n" + "\n".join(blocks) + "\n"

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Settings2 } from 'lucide-react'
+import { AlarmClock, Loader2, Settings2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
@@ -54,6 +54,7 @@ export function BotSidebarList({
   error,
   onSelectBot,
   onOpenBotSettings,
+  onWakeBot,
 }: {
   sidebarOpen: boolean
   bots: BotSummary[]
@@ -62,6 +63,7 @@ export function BotSidebarList({
   error?: string | null
   onSelectBot: (bot: BotSummary) => void
   onOpenBotSettings: (bot: BotSummary) => void
+  onWakeBot: (bot: BotSummary) => void
 }) {
   const rowClass = sidebarRowClass(sidebarOpen)
   // 状态文字里带相对时间，隔一分钟刷新一次（列表很短，这点重渲染不值一提）。
@@ -123,6 +125,18 @@ export function BotSidebarList({
               >
                 {status.text}
               </span>
+            </button>
+            {/* 催一下：跳过判活立刻跑一跳。在忙（busy）时禁用——上一跳还没收尾，
+                再催也只是被单飞约束挡掉。 */}
+            <button
+              type="button"
+              className={cn(iconButtonClass, 'pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100')}
+              disabled={bot.busy || bot.status === 'running'}
+              onClick={() => onWakeBot(bot)}
+              aria-label={bot.busy || bot.status === 'running' ? t('botWakeBusy') : t('botWake')}
+              title={bot.busy || bot.status === 'running' ? t('botWakeBusy') : t('botWake')}
+            >
+              <AlarmClock className="size-3.5" />
             </button>
             <button
               type="button"

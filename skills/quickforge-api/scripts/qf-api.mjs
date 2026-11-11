@@ -84,6 +84,19 @@ Scheduled tasks (create, reversible actions, plus deleting your own shift):
   task-delete <taskId>              ONLY tasks created with --self-scheduled
   Editing an existing task is NOT exposed; do that in the UI.
 
+Bots (persistent companion sessions; list/detail/create/read/wake):
+  bots                            List every bot: busy/status/heartbeat summary
+  bot <name|id>                   One bot: session, thinking level, heartbeat detail
+  bot-create --name N [--thinking LEVEL] [--model ID]
+         [--heartbeat-minutes N] [--no-heartbeat]
+         Heartbeat defaults to ON; --no-heartbeat creates it asleep.
+  bot-messages <name|id> [--tail N]
+         Read its conversation tail (read-only, does not wake the session)
+  bot-memory <name|id>            Read its MEMORY.md (read-only)
+  bot-wake <name|id>              Fire one heartbeat now (a real model run, costs tokens)
+  Names are globally unique, so name or id both work.
+  Deleting/editing a bot and writing its memory are NOT exposed; do that in the UI.
+
 Global options:
   --api <baseUrl>   override detected API base (default: $QUICKFORGE_API_BASE or probe)
   --pretty          pretty-print JSON
@@ -870,6 +883,210 @@ async function commandTaskParse(client, options) {
   }
 }
 
+// --- bots ---------------------------------------------------------------
+//
+// bot = 一条持久会话 + 自己的目录 + MEMORY.md + 可开关的心跳（docs/wiki/server/bots.md）。
+// 放开：列表、详情、创建（加法，界面里可删）、读消息/记忆（只读，view 不唤醒会话）、
+// 催醒（跑一轮心跳，真实消耗 token——返回里带 hint）。
+// 不放开：删除（DELETE 不可逆）、改设置（PATCH，用户在界面上改，与定时任务同例）、
+// 写记忆（PUT 是整体覆盖别人的记忆；投喂按设计文档留给用户动作）。
+// 所有按名字定位的命令都先拉一次 GET /api/bots 做名字→id 解析（名字全局唯一）。
+
+async function listBots(client) {
+  const payload = await client.get('/api/bots')
+  return Array.isArray(payload.bots) ? payload.bots : []
+}
+
+async function resolveBot(client, nameOrId) {
+  const bots = await listBots(client)
+  const bot = bots.find((item) => item?.id === nameOrId || item?.name === nameOrId)
+  if (!bot) {
+    const known = bots.length ? bots.map((item) => item.name).join(', ') : 'none yet'
+    throw new Error(`No bot matches "${nameOrId}" (known bots: ${known}). Run "bots" first.`)
+  }
+  return bot
+}
+
+function summarizeBotListItem(bot) {
+  const heartbeat = bot?.heartbeat ?? {}
+  return {
+    id: bot.id ?? null,
+    name: bot.name ?? null,
+    busy: bot.busy ?? null,
+    status: bot.status ?? null,
+    heartbeatEnabled: heartbeat.enabled ?? null,
+    nextRunAt: heartbeat.nextRunAt ?? null,
+    lastWakeAt: heartbeat.lastWakeAt ?? null,
+    lastError: heartbeat.lastError ?? null,
+  }
+}
+
+function summarizeBotDetail(bot, extra = {}) {
+  const heartbeat = bot?.heartbeat ?? {}
+  return {
+    id: bot.id ?? null,
+    name: bot.name ?? null,
+    sessionId: bot.sessionId ?? null,
+    busy: bot.busy ?? null,
+    status: bot.status ?? null,
+    thinkingLevel: bot.thinkingLevel ?? null,
+    accessMode: bot.accessMode ?? null,
+    heartbeat: {
+      enabled: heartbeat.enabled ?? null,
+      intervalMinutes: heartbeat.intervalMinutes ?? null,
+      nextRunAt: heartbeat.nextRunAt ?? null,
+      lastWakeAt: heartbeat.lastWakeAt ?? null,
+      wakeCount: heartbeat.wakeCount ?? null,
+      idleCount: heartbeat.idleCount ?? null,
+      lastIdleReason: heartbeat.lastIdleReason ?? null,
+      lastError: heartbeat.lastError ?? null,
+    },
+    createdAt: bot.createdAt ?? null,
+    updatedAt: bot.updatedAt ?? null,
+    ...extra,
+  }
+}
+
+async function commandBots(client) {
+  const bots = await listBots(client)
+  return { count: bots.length, bots: bots.map(summarizeBotListItem) }
+}
+
+async function commandBot(client, positional) {
+  const nameOrId = positional[0]
+  if (!nameOrId) throw new Error('bot needs a bot name or id (see "bots")')
+  const resolved = await resolveBot(client, nameOrId)
+  const payload = await client.get(`/api/bots/${encodeURIComponent(resolved.id)}`)
+  const bot = payload?.bot ?? payload
+  return summarizeBotDetail(bot, {
+    busy: payload?.busy ?? resolved.busy ?? null,
+    status: payload?.status ?? resolved.status ?? null,
+  })
+}
+
+async function commandBotCreate(client, options) {
+  const name = requiredOption(options, 'name', '--name "bot 名字（≤40 字符，全局唯一）"')
+  const body = { name }
+
+  const thinkingLevel = optionString(options, 'thinking')
+  if (thinkingLevel) {
+    if (!ALLOWED_THINKING_LEVELS.includes(thinkingLevel)) {
+      throw new Error(`--thinking needs one of: ${ALLOWED_THINKING_LEVELS.join(', ')}`)
+    }
+    body.thinkingLevel = thinkingLevel
+  }
+
+  const modelHint = optionString(options, 'model')
+  if (modelHint) {
+    const catalog = await readModelCatalog(client)
+    const match = catalog.find((entry) => entry?.id === modelHint
+      || entry?.name === modelHint
+      || entry?.quickforgeModelRef?.modelId === modelHint)
+    if (!match) {
+      throw new Error(`--model "${modelHint}" is not in /api/models/catalog (pass the model id, e.g. deepseek-v4-flash)`)
+    }
+    body.modelRef = modelRefFromCatalogEntry(match)
+  }
+
+  // 服务端默认 heartbeat.enabled = true。不传这两个选项就是「默认心跳」；
+  // --heartbeat-minutes N 设间隔；--no-heartbeat 建完就是睡着的。
+  const heartbeatMinutes = positiveInt(options['heartbeat-minutes'], 0)
+  if (options['no-heartbeat'] === true) {
+    body.heartbeat = { enabled: false }
+  } else if (heartbeatMinutes > 0) {
+    body.heartbeat = { enabled: true, intervalMinutes: heartbeatMinutes }
+  }
+
+  const created = await client.post('/api/bots', body)
+  return {
+    ...summarizeBotDetail(created?.bot ?? created),
+    hint: 'Chat with it in the UI (sidebar → BOT), or run "bot-wake <name>" to give it a first heartbeat now.',
+  }
+}
+
+// view 返回的消息 content 有两种形状：string（user）或 parts 数组
+// （assistant 的 [{type:'text'|'thinking'|'toolCall',...}]）。只拼 text 段做预览。
+function messagePreview(message, maxChars) {
+  const content = message?.content
+  if (typeof content === 'string') {
+    return { chars: content.length, preview: content.slice(0, maxChars) }
+  }
+  if (Array.isArray(content)) {
+    let text = ''
+    for (const part of content) {
+      if (part?.type === 'text' && typeof part.text === 'string') text += part.text
+    }
+    if (text) return { chars: text.length, preview: text.slice(0, maxChars) }
+  }
+  return { chars: null, preview: null }
+}
+
+async function commandBotMessages(client, positional, options) {
+  const nameOrId = positional[0]
+  if (!nameOrId) throw new Error('bot-messages needs a bot name or id (see "bots")')
+  const bot = await resolveBot(client, nameOrId)
+  if (!bot.sessionId) {
+    throw new Error(`Bot "${bot.name}" has no session yet. Run "bot-wake ${bot.name}" or open it once in the UI.`)
+  }
+  const tail = positiveInt(options.tail, 8)
+  let view
+  try {
+    view = await client.get(`/api/sessions/${encodeURIComponent(bot.sessionId)}/view?tail=${tail}`)
+  } catch (error) {
+    if (error?.status === 404) {
+      return {
+        botId: bot.id,
+        name: bot.name,
+        sessionId: bot.sessionId,
+        empty: true,
+        note: 'Session not stored yet: a bot session only lands in storage after its first message. Wake it first, or chat with it in the UI.',
+      }
+    }
+    throw error
+  }
+  const messages = Array.isArray(view.messages) ? view.messages : []
+  return {
+    botId: bot.id,
+    name: bot.name,
+    sessionId: bot.sessionId,
+    status: view.status ?? null,
+    totalMessages: view.messagesSummary?.count ?? messages.length,
+    messages: messages.map((message) => ({
+      role: message.role ?? null,
+      at: message.timestamp ?? null,
+      ...messagePreview(message, 200),
+    })),
+  }
+}
+
+async function commandBotMemory(client, positional) {
+  const nameOrId = positional[0]
+  if (!nameOrId) throw new Error('bot-memory needs a bot name or id (see "bots")')
+  const bot = await resolveBot(client, nameOrId)
+  const payload = await client.get(`/api/bots/${encodeURIComponent(bot.id)}/memory`)
+  // payload.file 是服务端绝对路径，不回（红线：别倒路径）。
+  return { botId: bot.id, name: bot.name, content: payload?.content ?? '' }
+}
+
+async function commandBotWake(client, positional) {
+  const nameOrId = positional[0]
+  if (!nameOrId) throw new Error('bot-wake needs a bot name or id (see "bots")')
+  const bot = await resolveBot(client, nameOrId)
+  const result = await client.post(`/api/bots/${encodeURIComponent(bot.id)}/wake`, {})
+  const woke = result?.woke === true
+  return {
+    botId: bot.id,
+    name: bot.name,
+    woke,
+    // woke=false 的 reason：already-waking / no-session / busy / generating / error
+    reason: result?.reason ?? null,
+    nextRunAt: result?.nextRunAt ?? null,
+    hint: woke
+      ? 'Heartbeat fired: one real model run. Check "bot-messages" in a moment for what it said.'
+      : 'Nothing ran this time (see reason). busy/generating means someone is already talking to it.',
+  }
+}
+
 // --- main ---------------------------------------------------------------
 
 async function main() {
@@ -912,6 +1129,12 @@ async function main() {
     case 'task-delete': result = await commandTaskDelete(client, positional); break
     case 'task-runs': result = await commandTaskRuns(client, options); break
     case 'task-parse': result = await commandTaskParse(client, options); break
+    case 'bots': result = await commandBots(client); break
+    case 'bot': result = await commandBot(client, positional); break
+    case 'bot-create': result = await commandBotCreate(client, options); break
+    case 'bot-messages': result = await commandBotMessages(client, positional, options); break
+    case 'bot-memory': result = await commandBotMemory(client, positional); break
+    case 'bot-wake': result = await commandBotWake(client, positional); break
     default:
       throw new Error(`Unknown command: ${command}. Run "node qf-api.mjs --help".`)
   }

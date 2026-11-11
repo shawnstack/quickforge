@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>吉祥物 v3 · 互动动作预览</title>
+<style>
+/* ============================================================
+   互动动作草案：hover（抬眼看人）/ poke（被戳瘪再弹起）/ dizzy（连戳转晕）
+   规则：只在 idle / sleepy 时响应；思考、干活、提醒、开心时不理人。
+   上半部分 CSS 与 src/components/bots/mascot/mascot-anim.css 同源（v3 关键帧）。
+   验收后互动部分并入 generate-bot-gif.py 的 emit_web()，再接进 App。
+   ============================================================ */
+
+/* ---- 与产品同源：状态动画（逐字来自 mascot-anim.css） ---- */
+.qf-mascot { display: inline-block; overflow: visible; vertical-align: middle; }
+.qf-mascot__body { transform-box: view-box; transform-origin: 256px 258px; }
+.qf-mascot__part { transform-box: fill-box; transform-origin: center; }
+
+.qf-mascot__arc { display: none; }
+.qf-mascot[data-state='happy'] .qf-mascot__eye { display: none; }
+.qf-mascot[data-state='happy'] .qf-mascot__arc { display: block; }
+
+.qf-mascot[data-state='idle'] .qf-mascot__body { animation: qf-mascot-body-idle 1.60s ease-in-out infinite; }
+.qf-mascot[data-state='idle'] .qf-mascot__eye-l,
+.qf-mascot[data-state='idle'] .qf-mascot__eye-r { animation: qf-mascot-eye-idle 1.60s linear infinite; }
+
+.qf-mascot[data-state='thinking'] .qf-mascot__body { animation: qf-mascot-body-thinking 1.80s cubic-bezier(.4,0,.2,1) infinite; }
+.qf-mascot[data-state='thinking'] .qf-mascot__eye-l,
+.qf-mascot[data-state='thinking'] .qf-mascot__eye-r { animation: qf-mascot-eye-thinking 1.80s ease-in-out infinite; }
+
+.qf-mascot[data-state='working'] .qf-mascot__body { animation: qf-mascot-body-working 0.70s cubic-bezier(.3,0,.4,1) infinite; }
+.qf-mascot[data-state='working'] .qf-mascot__eye-l,
+.qf-mascot[data-state='working'] .qf-mascot__eye-r { animation: qf-mascot-eye-working 0.70s linear infinite; }
+
+.qf-mascot[data-state='happy'] .qf-mascot__body { animation: qf-mascot-body-happy 0.90s cubic-bezier(.3,0,.2,1) infinite; }
+
+.qf-mascot[data-state='sleepy'] .qf-mascot__body { animation: qf-mascot-body-sleepy 3.20s ease-in-out infinite; }
+.qf-mascot[data-state='sleepy'] .qf-mascot__eye-l,
+.qf-mascot[data-state='sleepy'] .qf-mascot__eye-r { animation: qf-mascot-eye-sleepy 3.20s ease-in-out infinite; }
+
+.qf-mascot[data-state='alert'] .qf-mascot__body { animation: qf-mascot-body-alert 1.10s cubic-bezier(.2,0,.3,1) infinite; }
+.qf-mascot[data-state='alert'] .qf-mascot__eye-l,
+.qf-mascot[data-state='alert'] .qf-mascot__eye-r { animation: qf-mascot-eye-alert 1.10s linear infinite; }
+
+.qf-mascot[data-state='walk'] .qf-mascot__body { animation: qf-mascot-body-walk 0.80s ease-in-out infinite; }
+
+@keyframes qf-mascot-body-idle {
+  0%        { transform: translateY(0)     scale(1, 1); }
+  50%       { transform: translateY(-30px) scale(0.92, 1.10); }
+  100%      { transform: translateY(0)     scale(1, 1); }
+}
+@keyframes qf-mascot-eye-idle {
+  0%, 60%   { transform: scaleY(1); }
+  62%       { transform: scaleY(0.06); }
+  68%       { transform: scaleY(1); }
+  80%       { transform: scaleY(1); }
+  82%       { transform: scaleY(0.06); }
+  88%,100%  { transform: scaleY(1); }
+}
+@keyframes qf-mascot-body-thinking {
+  0%        { transform: rotate(0)      translateY(0); }
+  12%       { transform: rotate(-14deg) translateY(-8px); }
+  38%       { transform: rotate(-11deg) translateY(-5px); }
+  48%       { transform: rotate(13deg)  translateY(-9px); }
+  70%       { transform: rotate(9deg)   translateY(-6px); }
+  78%       { transform: rotate(0)      translateY(0) scale(1,1); }
+  84%       { transform: rotate(0)      translateY(-10px) scale(1.12, 0.88); }
+  92%       { transform: rotate(0)      translateY(2px)  scale(0.96, 1.06); }
+  100%      { transform: rotate(0)      translateY(0) scale(1,1); }
+}
+@keyframes qf-mascot-eye-thinking {
+  0%        { transform: translateX(0); }
+  16%       { transform: translateX(30px); }
+  40%       { transform: translateX(8px); }
+  46%       { transform: translateX(32px); }
+  68%       { transform: translateX(0); }
+  84%       { transform: translateX(-10px); }
+  100%      { transform: translateX(0); }
+}
+@keyframes qf-mascot-body-working {
+  0%        { transform: rotate(-6deg) translateY(0)     scale(1, 1); }
+  30%       { transform: rotate(-6deg) translateY(-26px) scale(0.93, 1.09); }
+  55%       { transform: rotate(-6deg) translateY(2px)   scale(1.14, 0.86); }
+  80%,100%  { transform: rotate(-6deg) translateY(0)     scale(1, 1); }
+}
+@keyframes qf-mascot-eye-working {
+  0%,100%   { transform: translateY(9px) scaleY(0.92); }
+}
+@keyframes qf-mascot-body-happy {
+  0%        { transform: translateY(0)    scale(1, 1); }
+  14%       { transform: translateY(18px) scale(1.20, 0.80); }
+  38%       { transform: translateY(-68px) scale(0.86, 1.16); }
+  58%       { transform: translateY(0)    scale(1, 1); }
+  66%       { transform: translateY(10px) scale(1.30, 0.70); }
+  80%       { transform: translateY(-24px) scale(0.95, 1.06); }
+  92%,100%  { transform: translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-body-sleepy {
+  0%        { transform: rotate(0)     translateY(0)    scale(1, 1); }
+  28%       { transform: rotate(-7deg) translateY(20px) scale(1.07, 0.90); }
+  42%       { transform: rotate(-2deg) translateY(7px)  scale(1.02, 0.97); }
+  68%       { transform: rotate(-13deg) translateY(30px) scale(1.12, 0.85); }
+  86%       { transform: rotate(-4deg) translateY(9px)  scale(1.03, 0.96); }
+  100%      { transform: rotate(0)     translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-eye-sleepy {
+  0%, 18%   { transform: scaleY(1); }
+  52%       { transform: scaleY(0.10); }
+  60%       { transform: scaleY(0.55); }
+  70%       { transform: scaleY(0.08); }
+  88%       { transform: scaleY(0.5); }
+  100%      { transform: scaleY(0.8); }
+}
+@keyframes qf-mascot-body-alert {
+  0%        { transform: translateY(0) scale(1,1); }
+  10%       { transform: translateY(-58px) scale(0.80, 1.22); }
+  26%       { transform: translateY(0) scale(1.32, 0.68); }
+  34%       { transform: translateX(-16px) rotate(-5deg) scale(1.06,0.94); }
+  44%       { transform: translateX(16px)  rotate(5deg)  scale(1.06,0.94); }
+  54%       { transform: translateX(-9px)  rotate(-3deg); }
+  62%       { transform: translateX(0)     rotate(0); }
+  100%      { transform: translateY(0) scale(1,1); }
+}
+@keyframes qf-mascot-eye-alert {
+  0%, 8%    { transform: scale(1); }
+  14%, 100% { transform: scale(1.3, 1.35); }
+}
+@keyframes qf-mascot-body-walk {
+  0%        { transform: translateY(0)   scale(1, 1); }
+  22%       { transform: translateY(-30px) scale(0.94, 1.08); }
+  48%       { transform: translateY(2px) scale(1.10, 0.90); }
+  72%       { transform: translateY(-16px) scale(0.97, 1.05); }
+  100%      { transform: translateY(0)   scale(1, 1); }
+}
+
+/* ---- 互动动作（草案）--------------------------------------------------
+   绑定在 data-interact 上，权重高于同特异度的状态规则（写在后面）。
+   hover：抬起 10、缩腰、眼睛上移，悬停期间定住看人（呼吸暂停）；
+   hover-exit：0.3s 落回原位，避免跳变；
+   poke：0.6s 一次性，戳瘪 → 眯眼弹起 → 落地压扁 → 小回弹；
+   dizzy：1.5s 一次性，1.6s 内点满 5 下触发，身体左右晃、双眼反向绕圈。
+   ---- */
+.m-live { cursor: pointer; }
+
+.qf-mascot[data-interact='hover'] .qf-mascot__body { animation: qf-mascot-body-hover 0.45s ease-out forwards; }
+.qf-mascot[data-interact='hover'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='hover'] .qf-mascot__eye-r { animation: qf-mascot-eye-hover 0.45s ease-out forwards; }
+.qf-mascot[data-interact='hover-exit'] .qf-mascot__body { animation: qf-mascot-body-hover-exit 0.30s ease-in forwards; }
+.qf-mascot[data-interact='hover-exit'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='hover-exit'] .qf-mascot__eye-r { animation: qf-mascot-eye-hover-exit 0.30s ease-in forwards; }
+
+.qf-mascot[data-interact='poke'] .qf-mascot__body { animation: qf-mascot-body-poke 0.60s cubic-bezier(.3,0,.4,1) 1; }
+.qf-mascot[data-interact='poke'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='poke'] .qf-mascot__eye-r { animation: qf-mascot-eye-poke 0.60s linear 1; }
+
+.qf-mascot[data-interact='dizzy'] .qf-mascot__body { animation: qf-mascot-body-dizzy 1.50s ease-in-out 1; }
+.qf-mascot[data-interact='dizzy'] .qf-mascot__eye-l { animation: qf-mascot-dizzy-eye-l 1.50s linear 1; }
+.qf-mascot[data-interact='dizzy'] .qf-mascot__eye-r { animation: qf-mascot-dizzy-eye-r 1.50s linear 1; }
+
+@keyframes qf-mascot-body-hover {
+  0%        { transform: translateY(0)    scale(1, 1); }
+  100%      { transform: translateY(-10px) scale(0.97, 1.04); }
+}
+@keyframes qf-mascot-eye-hover {
+  0%        { transform: translateY(0); }
+  100%      { transform: translateY(-10px); }
+}
+@keyframes qf-mascot-body-hover-exit {
+  0%        { transform: translateY(-10px) scale(0.97, 1.04); }
+  100%      { transform: translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-eye-hover-exit {
+  0%        { transform: translateY(-10px); }
+  100%      { transform: translateY(0); }
+}
+@keyframes qf-mascot-body-poke {
+  0%        { transform: translateY(0)    scale(1, 1); }
+  18%       { transform: translateY(14px) scale(1.26, 0.72); }
+  34%       { transform: translateY(-34px) scale(0.90, 1.10); }
+  48%       { transform: translateY(4px)  scale(1.10, 0.90); }
+  62%       { transform: translateY(-12px) scale(0.98, 1.03); }
+  78%       { transform: translateY(0)    scale(1, 1); }
+  88%       { transform: translateY(3px)  scale(1.04, 0.96); }
+  100%      { transform: translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-eye-poke {
+  0%, 14%   { transform: scaleY(1); }
+  20%, 44%  { transform: scaleY(0.08); }
+  56%       { transform: scaleY(1.15); }
+  100%      { transform: scaleY(1); }
+}
+@keyframes qf-mascot-body-dizzy {
+  0%        { transform: rotate(0)     translateY(0)    scale(1, 1); }
+  10%       { transform: rotate(-10deg) translateY(4px)  scale(1.06, 0.94); }
+  22%       { transform: rotate(12deg) translateY(-6px) scale(0.96, 1.05); }
+  34%       { transform: rotate(-13deg) translateY(6px)  scale(1.07, 0.93); }
+  46%       { transform: rotate(14deg) translateY(-4px) scale(0.95, 1.05); }
+  58%       { transform: rotate(-12deg) translateY(4px)  scale(1.06, 0.94); }
+  70%       { transform: rotate(9deg)  translateY(-2px) scale(0.97, 1.03); }
+  82%       { transform: rotate(-5deg) translateY(0)    scale(1, 1); }
+  100%      { transform: rotate(0)     translateY(0)    scale(1, 1); }
+}
+@keyframes qf-mascot-dizzy-eye-l {
+  0.0%  { transform: translate(8.0px, 0.0px) scale(0.9, 0.8); }
+  3.0%  { transform: translate(5.7px, 5.7px) scale(0.9, 0.8); }
+  6.0%  { transform: translate(0.0px, 8.0px) scale(0.9, 0.8); }
+  9.0%  { transform: translate(-5.7px, 5.7px) scale(0.9, 0.8); }
+  12.0% { transform: translate(-8.0px, 0.0px) scale(0.9, 0.8); }
+  15.0% { transform: translate(-5.7px, -5.7px) scale(0.9, 0.8); }
+  18.0% { transform: translate(-0.0px, -8.0px) scale(0.9, 0.8); }
+  21.0% { transform: translate(5.7px, -5.7px) scale(0.9, 0.8); }
+  24.0% { transform: translate(8.0px, -0.0px) scale(0.9, 0.8); }
+  27.0% { transform: translate(5.7px, 5.7px) scale(0.9, 0.8); }
+  30.0% { transform: translate(0.0px, 8.0px) scale(0.9, 0.8); }
+  33.0% { transform: translate(-5.7px, 5.7px) scale(0.9, 0.8); }
+  36.0% { transform: translate(-8.0px, 0.0px) scale(0.9, 0.8); }
+  39.0% { transform: translate(-5.7px, -5.7px) scale(0.9, 0.8); }
+  42.0% { transform: translate(-0.0px, -8.0px) scale(0.9, 0.8); }
+  45.0% { transform: translate(5.7px, -5.7px) scale(0.9, 0.8); }
+  48.0% { transform: translate(8.0px, -0.0px) scale(0.9, 0.8); }
+  51.0% { transform: translate(5.7px, 5.7px) scale(0.9, 0.8); }
+  54.0% { transform: translate(0.0px, 8.0px) scale(0.9, 0.8); }
+  57.0% { transform: translate(-5.7px, 5.7px) scale(0.9, 0.8); }
+  60.0% { transform: translate(-8.0px, 0.0px) scale(0.9, 0.8); }
+  63.0% { transform: translate(-5.7px, -5.7px) scale(0.9, 0.8); }
+  66.0% { transform: translate(-0.0px, -8.0px) scale(0.9, 0.8); }
+  69.0% { transform: translate(5.7px, -5.7px) scale(0.9, 0.8); }
+  72.0% { transform: translate(8.0px, 0.0px) scale(0.9, 0.8); }
+  86%   { transform: translate(0, 0) scale(1.1, 0.5); }
+  100%  { transform: translate(0, 0) scale(1, 1); }
+}
+@keyframes qf-mascot-dizzy-eye-r {
+  0.0%  { transform: translate(8.0px, 0.0px) scale(0.9, 0.8); }
+  3.0%  { transform: translate(5.7px, -5.7px) scale(0.9, 0.8); }
+  6.0%  { transform: translate(0.0px, -8.0px) scale(0.9, 0.8); }
+  9.0%  { transform: translate(-5.7px, -5.7px) scale(0.9, 0.8); }
+  12.0% { transform: translate(-8.0px, -0.0px) scale(0.9, 0.8); }
+  15.0% { transform: translate(-5.7px, 5.7px) scale(0.9, 0.8); }
+  18.0% { transform: translate(-0.0px, 8.0px) scale(0.9, 0.8); }
+  21.0% { transform: translate(5.7px, 5.7px) scale(0.9, 0.8); }
+  24.0% { transform: translate(8.0px, 0.0px) scale(0.9, 0.8); }
+  27.0% { transform: translate(5.7px, -5.7px) scale(0.9, 0.8); }
+  30.0% { transform: translate(0.0px, -8.0px) scale(0.9, 0.8); }
+  33.0% { transform: translate(-5.7px, -5.7px) scale(0.9, 0.8); }
+  36.0% { transform: translate(-8.0px, -0.0px) scale(0.9, 0.8); }
+  39.0% { transform: translate(-5.7px, 5.7px) scale(0.9, 0.8); }
+  42.0% { transform: translate(-0.0px, 8.0px) scale(0.9, 0.8); }
+  45.0% { transform: translate(5.7px, 5.7px) scale(0.9, 0.8); }
+  48.0% { transform: translate(8.0px, 0.0px) scale(0.9, 0.8); }
+  51.0% { transform: translate(5.7px, -5.7px) scale(0.9, 0.8); }
+  54.0% { transform: translate(0.0px, -8.0px) scale(0.9, 0.8); }
+  57.0% { transform: translate(-5.7px, -5.7px) scale(0.9, 0.8); }
+  60.0% { transform: translate(-8.0px, 0.0px) scale(0.9, 0.8); }
+  63.0% { transform: translate(-5.7px, 5.7px) scale(0.9, 0.8); }
+  66.0% { transform: translate(-0.0px, 8.0px) scale(0.9, 0.8); }
+  69.0% { transform: translate(5.7px, 5.7px) scale(0.9, 0.8); }
+  72.0% { transform: translate(8.0px, 0.0px) scale(0.9, 0.8); }
+  86%   { transform: translate(0, 0) scale(1.1, 0.5); }
+  100%  { transform: translate(0, 0) scale(1, 1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qf-mascot[data-state] .qf-mascot__body,
+  .qf-mascot[data-state] .qf-mascot__part,
+  .qf-mascot[data-interact] .qf-mascot__body,
+  .qf-mascot[data-interact] .qf-mascot__part { animation: none !important; transform: none !important; }
+}
+
+/* ---- 页面 ---- */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin:0; padding:28px 22px 70px; background:#f7f7f8; color:#111;
+  font:14px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif; }
+header { max-width:1080px; margin:0 auto 16px; }
+h1 { font-size:21px; margin:0 0 6px; }
+.stamp { font-size:11px; color:#8a5a00; background:#fdf1dd; border-radius:999px; padding:2px 10px; margin-left:8px; vertical-align:2px; }
+.sub { color:#5c5c63; margin:0; max-width:80ch; }
+.sub b { color:#111; }
+.grid { max-width:1080px; margin:20px auto 0; display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+.card { background:#fff; border:1px solid #e6e6ea; border-radius:16px; padding:14px 14px 12px; }
+.stage { height:240px; display:grid; place-items:center; border-radius:12px;
+  background:radial-gradient(circle at 50% 46%, #fff 0, #fafafa 60%, #f1f1f4 100%); overflow:hidden; }
+h3 { font-size:15px; margin:10px 0 2px; }
+h3 code { font-size:11px; color:#9a9aa2; font-weight:400; margin-left:5px; }
+.card p { margin:0; font-size:12.5px; color:#5c5c63; }
+.ro { font:11px/1.5 ui-monospace,Consolas,monospace; color:#0a6b4f; background:#e2f3ec; border-radius:6px;
+  padding:2px 8px; display:inline-block; margin-top:6px; }
+.note { max-width:1080px; margin:18px auto 0; background:#fff; border:1px solid #e6e6ea; border-left:3px solid #d5d5dc;
+  border-radius:12px; padding:13px 16px; font-size:12.5px; color:#5c5c63; }
+.note b { color:#111; }
+</style>
+</head>
+<body>
+<header>
+<h1>吉祥物 v3 · 互动动作预览 <span class="stamp">草案 · 待验收</span></h1>
+<p class="sub">延续 v3「预备 - 发力 - 落地缓冲」的手法加了三个互动：<b>悬停</b>=抬眼看人（定住，移开落回）、
+<b>点一下</b>=被戳瘪再弹起（0.6s，播放中的点击只计数）、<b>1.6 秒内连点 5 下</b>=转晕彩蛋（1.5s）。
+规则：<b>只在待机 / 犯困时响应</b>，思考、干活、提醒、开心时不理人——状态信息优先于卖萌。</p>
+</header>
+<div class="grid">
+
+<section class="card"><div class="stage"><svg id="m-main" class="qf-mascot m-live" data-state="idle" width="220" height="220" viewBox="0 0 512 512" style="--qf-mascot-body:#0B0B0C;--qf-mascot-eye:#FFFFFF"><g class="qf-mascot__body"><circle cx="256" cy="258" r="150" fill="var(--qf-mascot-body)"/><g transform="translate(210 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-l" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-l" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g><g transform="translate(302 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-r" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-r" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g></g></svg></div>
+<h3>先来逗逗它 <code>idle</code></h3>
+<p>鼠标放上去：抬眼看人；点一下：被戳瘪再弹起；快速连点 5 下：转晕（眼冒金星版没有，是眼绕圈）。</p>
+<span class="ro" id="m-main-ro">state=idle · interact=—</span></section>
+
+<section class="card"><div class="stage"><svg id="m-84" class="qf-mascot m-live" data-state="idle" width="84" height="84" viewBox="0 0 512 512" style="--qf-mascot-body:#0B0B0C;--qf-mascot-eye:#FFFFFF"><g class="qf-mascot__body"><circle cx="256" cy="258" r="150" fill="var(--qf-mascot-body)"/><g transform="translate(210 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-l" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-l" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g><g transform="translate(302 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-r" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-r" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g></g></svg></div>
+<h3>产品实际大小 <code>84px</code></h3>
+<p>装进 App 输入框上方就是这个比例。动作幅度够不够看、戳的点准不准，以这只为准。</p>
+<span class="ro" id="m-84-ro">state=idle · interact=—</span></section>
+
+<section class="card"><div class="stage"><svg id="m-busy" class="qf-mascot m-live" data-state="thinking" width="140" height="140" viewBox="0 0 512 512" style="--qf-mascot-body:#0B0B0C;--qf-mascot-eye:#FFFFFF"><g class="qf-mascot__body"><circle cx="256" cy="258" r="150" fill="var(--qf-mascot-body)"/><g transform="translate(210 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-l" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-l" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g><g transform="translate(302 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-r" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-r" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g></g></svg></div>
+<h3>忙的时候不理人 <code>thinking</code></h3>
+<p>思考、干活、提醒、开心四种状态下悬停和点击都没有反应——你得先看得出它在干什么。</p>
+<span class="ro" id="m-busy-ro">state=thinking · interact=—</span></section>
+
+<section class="card"><div class="stage"><svg id="m-sleepy" class="qf-mascot m-live" data-state="sleepy" width="140" height="140" viewBox="0 0 512 512" style="--qf-mascot-body:#0B0B0C;--qf-mascot-eye:#FFFFFF"><g class="qf-mascot__body"><circle cx="256" cy="258" r="150" fill="var(--qf-mascot-body)"/><g transform="translate(210 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-l" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-l" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g><g transform="translate(302 267)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-r" rx="20" ry="26" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-r" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g></g></svg></div>
+<h3>犯困时能被戳醒 <code>sleepy</code></h3>
+<p>睡着的 bot 也能逗：点它会被惊一下（眯眼弹起）。悬停同样有效，但不会真吵醒它。</p>
+<span class="ro" id="m-sleepy-ro">state=sleepy · interact=—</span></section>
+
+</div>
+<p class="note"><b>验收要点：</b>① 三个动作的幅度和节奏是否自然；② 84px 那只的动作能否看清；
+③ 悬停时「定住看你」（呼吸暂停）和「继续呼吸」哪个更好，现在实现的是前者；
+④ 连点彩蛋的触发难度（1.6 秒 5 下）是否合适。<br>
+<b>落地方式：</b>验收通过后，互动关键帧并入 <code>generate-bot-gif.py</code>（加一套 V3_INTERACT），
+生成的 CSS 仍保持「勿手改」；App 里只给输入框上方那只加互动，并把球本体设为可点、
+空白处继续穿透。侧栏和设置预览不加。</p>
+
+<script>
+const BUSY = ['thinking', 'working', 'alert', 'happy'];
+
+function wire(id) {
+  const svg = document.getElementById(id);
+  const readout = document.getElementById(id + '-ro');
+  const body = svg.querySelector('.qf-mascot__body');
+  let clicks = [];
+  let acting = false;      // poke / dizzy 播放中
+  let hovering = false;
+
+  const sync = () => {
+    readout.textContent =
+      'state=' + svg.dataset.state + ' · interact=' + (svg.getAttribute('data-interact') ?? '—');
+  };
+  const set = (v) => { svg.setAttribute('data-interact', v); sync(); };
+  const clear = () => { svg.removeAttribute('data-interact'); sync(); };
+  const isBusy = () => BUSY.includes(svg.dataset.state);
+
+  svg.addEventListener('pointerenter', () => {
+    hovering = true;
+    if (!acting && !isBusy()) set('hover');
+  });
+  svg.addEventListener('pointerleave', () => {
+    hovering = false;
+    const cur = svg.getAttribute('data-interact');
+    if (cur === 'hover') { set('hover-exit'); setTimeout(() => {
+      if (!hovering && svg.getAttribute('data-interact') === 'hover-exit') clear();
+    }, 320); }
+    else if (!acting) clear();
+  });
+  svg.addEventListener('pointerdown', () => {
+    if (isBusy()) return;
+    const cur = svg.getAttribute('data-interact');
+    if (cur === 'dizzy') return;               // 转晕播完前不理会
+    const now = performance.now();
+    clicks = clicks.filter((t) => now - t < 1600);
+    clicks.push(now);
+    if (clicks.length >= 5) { clicks = []; acting = true; set('dizzy'); return; }
+    if (acting) return;                        // poke 播放中的点击只计数
+    acting = true; set('poke');
+  });
+  body.addEventListener('animationend', (e) => {
+    if (e.target !== body) return;
+    const cur = svg.getAttribute('data-interact');
+    if (cur === 'poke' || cur === 'dizzy') {
+      acting = false;
+      if (hovering && !isBusy()) set('hover'); else clear();
+    }
+  });
+  sync();
+}
+
+wire('m-main'); wire('m-84'); wire('m-busy'); wire('m-sleepy');
+</script>
+</body>
+</html>

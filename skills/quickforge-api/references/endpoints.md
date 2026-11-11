@@ -23,6 +23,10 @@
 | GET | `/api/agents/:id/state` | `whoami` / `spawn` / `task-add` | 读**自己**的 `modelRef` / `thinkingLevel`：`spawn` 靠它继承思考档，`task-add` 靠它把任务绑到同一个模型上。会话被驱逐或未建好时 404，调用方必须能接受 |
 | GET | `/api/agents/:id/context-usage` | `context` | 上下文预算「油表」：`usage.inputTokens` / `contextWindow` / `percent` / `remainingTokens` / `breakdown` / `inputTokenSource`。轻量，不返回消息体；会话被驱逐时先尝试恢复，仍无则 404 |
 | GET | `/api/models/catalog` | `task-add` | 模型目录。只在 `--model` 显式指定、或读不到自己状态时用；`task-add --model` 收的是目录里的模型 id，不是引用对象 |
+| GET | `/api/bots` | `bots` / `bot` / `bot-create` / `bot-messages` / `bot-memory` / `bot-wake` | bot 列表（每项含 `busy` / `status`）。也是所有按名字定位的命令共享的**名字→id 解析前置**（名字全局唯一） |
+| GET | `/api/bots/:id` | `bot` | 单个 bot 详情：`publicBot` + `busy` + `status` |
+| GET | `/api/bots/:id/memory` | `bot-memory` | `{ content, file }`；脚本只回 `content`（`file` 是服务端绝对路径） |
+| GET | `/api/sessions/:id/view?tail=N` | `show` / `bot-messages` | `bot-messages` 用 bot 记录里的 `sessionId` 调它（纯只读，不唤醒）；空会话（未落盘）返回 404 时脚本转成 `empty: true` 提示 |
 
 ## 写（默认只作用于自己）
 
@@ -36,6 +40,15 @@
 | POST | `/api/agents/:id/prompt` | `spawn` / `prompt` | `{ message }`，正在跑时 409 |
 | POST | `/api/agents/:id/abort` | `abort` | `{}` |
 | POST | `/api/agents/:id/compact` | `compact` | `{ reason? }`。**时机由服务端判定**：空闲 → 同步压完，回 `{ compacted: true, summary, usageBefore, usageAfter }`；在跑 → 只登记一次 `session.forceCompaction`，回 `{ scheduled: true, reason: 'deferred_to_next_model_request' }`，由下一次模型请求前的 `transformSessionContext` 消费。**写租约不在入口**：守卫作为回调沉到 running 判定之后，脚本额外带 `x-quickforge-agent-session: <自己的 sessionId>`，于是「正在跑 + 压自己」跳过租约（该分支不落库）；空闲分支会写库，仍须持有租约。压缩可逆（原文保留在会话与备份里，摘要本身是一条 `quickforgeCompaction` 消息），所以放进白名单 |
+
+## Bot
+
+bot 的服务端路由在 `server/routes/bots.mjs`（详见 `docs/wiki/server/bots.md`）。放开的能力与定时任务同一裁法：读全放开，创建放开（加法、界面里可删），**催醒单独说明**——`POST /api/bots/:id/wake` 跳过判活立刻跑一轮心跳，是一次真实的模型调用（花钱），所以 `bot-wake` 返回里带 hint，SKILL.md 要求先问用户再催。
+
+| 方法 | 路径 | 子命令 | 请求体 / 备注 |
+|---|---|---|---|
+| POST | `/api/bots` | `bot-create` | `{ name, thinkingLevel?, modelRef?, heartbeat?{enabled,intervalMinutes} }`。服务端默认 `heartbeat.enabled = true`；脚本 `--no-heartbeat` 映射 `enabled:false`，`--heartbeat-minutes N` 映射间隔。`--model` 收模型 id（从 `/api/models/catalog` 解析成 `modelRef`，与 `task-add` 同款）。创建是加法：建目录、MEMORY.md、注册项目、尽力建会话，全部可被界面上的删除回收 |
+| POST | `/api/bots/:id/wake` | `bot-wake` | `{}`。manual 心跳：`{ woke:true, reason:'manual', nextRunAt }` 或 `{ woke:false, reason:'already-walking'\|'no-session'\|'busy'\|'generating'\|'error' }`。HTTP 响应在 `runPrompt` 派发后即回（异步收跳），不等模型跑完 |
 
 ## 定时任务
 
@@ -62,6 +75,9 @@
 | 前缀 | 为什么禁止 |
 |---|---|
 | `DELETE /api/agents/:id`、`DELETE /api/storage/sessions/*` | 删会话不可逆 |
+| `DELETE /api/bots/:id` | 删 bot 记录与项目注册，不可逆；用户在界面上删 |
+| `PUT` / `PATCH /api/bots/:id` | 覆盖用户配好的 bot（名字/心跳/外观/模型），要改让用户在界面上改——与「改已有定时任务」同一先例 |
+| `PUT` / `PATCH /api/bots/:id/memory` | 整体覆盖 bot 的 MEMORY.md，等于替它重写记忆；投喂（inbox）按 bot-proactivity 设计也是用户动作，不走命令行 |
 | `DELETE /api/scheduled-tasks/:id?selfScheduledOnly=1` 且 `createdBy` 不是 `'agent'` | 删任务会**先删掉它的全部运行历史**再删本体，不可逆。所以脚本只能收自己 `--self-scheduled` 排的班，服务端 403 兜底；界面删除不带这个参数，用户删自己的日程不受影响 |
 | `PUT` / `PATCH /api/scheduled-tasks/:id` | 覆盖用户排好的日程属破坏性操作；要改让用户自己在「定时任务」页改 |
 | `/api/agents/:id/access-mode`、`/yolo-mode` | 等于自我提升权限 |

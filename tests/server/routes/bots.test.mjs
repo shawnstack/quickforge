@@ -165,6 +165,53 @@ describe('bots API', () => {
     await expect(access(bot.workspacePath)).resolves.toBeUndefined()
   })
 
+  it('feeds the inbox: appends text, pulls nextRunAt forward only when enabled', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'feeder' })
+    const bot = created.body.bot
+
+    // 先把节拍推远，投喂后应被拉回到当前时间附近（下一轮扫描即醒）。
+    await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(bot.id)}`,
+      { heartbeat: { intervalMinutes: 60 } },
+    )
+    const fed = await callBots(
+      'POST',
+      `http://localhost/api/bots/${encodeURIComponent(bot.id)}/inbox`,
+      { text: '帮我看一下 demo 分支为什么挂了' },
+    )
+    expect(fed.status).toBe(200)
+    expect(fed.body.ok).toBe(true)
+    const inbox = await readFile(`${bot.workspacePath}/.bot/inbox.md`, 'utf8')
+    expect(inbox).toContain('帮我看一下 demo 分支为什么挂了')
+
+    const after = await callBots('GET', `http://localhost/api/bots/${encodeURIComponent(bot.id)}`)
+    const nextRunAt = Date.parse(after.body.bot.heartbeat.nextRunAt)
+    expect(Number.isFinite(nextRunAt)).toBe(true)
+    expect(nextRunAt - Date.now()).toBeLessThan(5 * 60 * 1000)
+
+    // 空文本拒绝；心跳关着时只落盘、不动节拍。
+    await expectRejection(
+      callBots('POST', `http://localhost/api/bots/${encodeURIComponent(bot.id)}/inbox`, { text: '   ' }),
+      400,
+    )
+    await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(bot.id)}`,
+      { heartbeat: { enabled: false } },
+    )
+    const stillFed = await callBots(
+      'POST',
+      `http://localhost/api/bots/${encodeURIComponent(bot.id)}/inbox`,
+      { text: '第二条投喂' },
+    )
+    expect(stillFed.status).toBe(200)
+    const paused = await callBots('GET', `http://localhost/api/bots/${encodeURIComponent(bot.id)}`)
+    expect(paused.body.bot.heartbeat.nextRunAt).toBeNull()
+    const inboxAgain = await readFile(`${bot.workspacePath}/.bot/inbox.md`, 'utf8')
+    expect(inboxAgain).toContain('第二条投喂')
+  })
+
   it('ensures the bot session before opening it', async () => {
     const created = await callBots('POST', 'http://localhost/api/bots', { name: 'opener' })
     const bot = created.body.bot

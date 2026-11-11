@@ -1,5 +1,11 @@
 import { logger } from './utils/logger.mjs'
-import { isSessionFileRollbackBusy, runPrompt } from './agent-manager.mjs'
+import {
+  agentEvents,
+  getSessionEventBus,
+  isSessionFileRollbackBusy,
+  runPrompt,
+} from './agent-manager.mjs'
+import { agentSessions } from './agent-session-store.mjs'
 import { ensureBotSession, sessionExists } from './bot-session.mjs'
 import {
   getBotRecord,
@@ -20,27 +26,89 @@ import {
 
 export const BOT_CHECK_INTERVAL_MS = 30 * 1000
 
+// ---------------------------------------------------------------------------
+// [报告] 首行契约：心跳轮回复的首行以 [报告] 开头才算有事要通知用户。
+// 这是服务端发 bot_heartbeat_notification 的唯一依据；无标记、idle 跳、
+// 心跳自身报错都不发。
+// ---------------------------------------------------------------------------
+export const BOT_HEARTBEAT_REPORT_PREFIX = '[报告]'
+
+const BOT_HEARTBEAT_WATCH_TIMEOUT_MS = 60 * 60 * 1000
+
+export function parseHeartbeatReport(messages) {
+  const list = Array.isArray(messages) ? messages : []
+  for (let i = list.length - 1; i >= 0; i--) {
+    const message = list[i]
+    if (message?.role !== 'assistant' || typeof message.content !== 'string') continue
+    const firstLine = message.content.split('\n')[0].trim()
+    if (!firstLine) continue
+    if (!firstLine.startsWith(BOT_HEARTBEAT_REPORT_PREFIX)) return null
+    const summary = firstLine.slice(BOT_HEARTBEAT_REPORT_PREFIX.length).trim()
+    return summary || '有事找你'
+  }
+  return null
+}
+
+/**
+ * 心跳轮结束后看一眼有没有 [报告]。挂在会话事件总线上等 agent_end，
+ * 不阻塞 runner 的 tick 链；watcher 只负责读与发通知，不参与心跳状态机。
+ */
+function watchBotHeartbeatReport(bot, sessionId, reportKey) {
+  const eventBus = getSessionEventBus(sessionId)
+  if (!eventBus) return
+  let done = false
+  const finish = () => {
+    if (done) return
+    done = true
+    clearTimeout(timer)
+    eventBus.removeListener('agent_event', handler)
+  }
+  const handler = (event) => {
+    if (event.type !== 'agent_end') return
+    const messages = Array.isArray(event.messages)
+      ? event.messages
+      : agentSessions.get(sessionId)?.agent?.state?.messages
+    const summary = parseHeartbeatReport(messages)
+    finish()
+    if (!summary) return
+    agentEvents.emit('agent_event', {
+      type: 'bot_heartbeat_notification',
+      sessionId,
+      botId: bot.id,
+      reportKey,
+      title: `BOT「${bot.name}」有事报告`,
+      status: 'idle',
+      message: summary.length > 120 ? `${summary.slice(0, 120)}…` : summary,
+    })
+  }
+  const timer = setTimeout(finish, BOT_HEARTBEAT_WATCH_TIMEOUT_MS)
+  timer.unref?.()
+  eventBus.on('agent_event', handler)
+}
+
 const running = new Set()
 let timer = null
 let tickPromise = null
 
 /**
- * 心跳指令。刻意写得像「给未来自己的便条」而不是「执行任务」——
- * 它每次醒来的第一件事是接上自己的记忆，而不是重新领一份活。
+ * 心跳指令。刻意写成「给有判断力的助手交代几句」而不是操作手册——
+ * 不规定步骤、不规定记忆格式：怎么找活、怎么记，由 bot 自己长出来。
+ * 三样钉死的是机制不是风格：[报告] 首行（服务端解析发通知）、
+ * 不 commit（他人项目改动的撤销保障）、目录边界（沙箱）。
  */
 export function heartbeatInstruction(bot) {
   return [
-    '[心跳] 你自己醒了一次，这不是用户在跟你说话。',
+    '[心跳] 你醒了，不是用户在说话。这是你的自主时间。',
     '',
-    '工作空间里出现了上次醒来之后的变化。先看清楚是什么，再决定要不要动手：',
-    '1. 先读 MEMORY.md，弄清自己是谁、记着什么、上次停在哪。',
-    '2. 再看工作空间里新增或改动了什么。',
-    '3. 该动的动手。做完把结论写回 MEMORY.md——踩过的坑、做过的决定、下次要继续的事，都记一笔。',
-    '4. 如果看下来其实不值得动手，就直接说一句「不值得动」并说明为什么。',
-    '   不用为了显得有用而制造工作，也不用向用户提问（他可能不在）。',
-    '   真要他决定的事，写进 MEMORY.md 并标明「等你」。',
+    `你的半径：自己的目录 ${bot.workspacePath} 随便写；别的项目，用 quickforge-api 能看见用户所有的会话与项目脉络，想深入就 spawn 一个绑定该项目的子会话去干——派活时把规矩带过去：改动留在工作区、不 commit、做完回报结果。`,
     '',
-    `你的目录是 ${bot.workspacePath}，别写到别的地方去。`,
+    '醒来先接上上次的自己：MEMORY.md 是你的记忆，不是别人的模板——结构不好用就重组它，装不下就拆成目录里的文件、只在一屏能读完的记忆里留线索。怎么记你说了算，标准只有一个：下次醒来的你能快速接上。',
+    '',
+    '然后去做一件值得做的事。什么是值得，你自己判断——线索在记忆里、投喂里、会话与项目的变化里（git、测试、坏味道）；改动小、见效快、失败了只亏一跳的先做。做了就做透，确实没有就探索出候选，或明说这一跳不动手、为什么。',
+    '',
+    '动手前留痕，做完记录：改自己目录先备份；动别的项目走子会话并让它留痕。能回滚的事，大胆做，不用请示。要用户拍板的，写进记忆等他。',
+    '',
+    '首行以 [报告] 开头，他才会收到通知（60 字内说清）；没有就不带。不向他提问。',
   ].join('\n')
 }
 
@@ -97,6 +165,8 @@ export async function runBotHeartbeat(bot, options = {}) {
     const startedAt = new Date().toISOString()
     // 走普通 prompt 通道，落库后 role 就是 user。带上 details 标记，前端才分得清
     // 「它自己醒的」和「用户说的」——不然一打开会话就是一串用户没说过的话。
+    // watcher 必须在 runPrompt 之前挂好，避免极快收跳的竞态。
+    watchBotHeartbeatReport(bot, bot.sessionId, `${bot.id}:${startedAt}`)
     await runPrompt(bot.sessionId, {
       role: 'user',
       content: heartbeatInstruction(bot),

@@ -20,6 +20,7 @@ import {
   deleteBot as deleteBotRequest,
   ensureBotSessionOpen,
   fetchBots,
+  wakeBot as wakeBotRequest,
   type BotSummary,
 } from '@/components/bots/bots-data'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
@@ -173,6 +174,20 @@ function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
 
 function isScheduledTaskNotification(event: Record<string, unknown>): event is ScheduledTaskNotificationEvent {
   return event.type === 'scheduled_task_notification'
+}
+
+type BotHeartbeatNotificationEvent = {
+  type?: unknown
+  sessionId?: unknown
+  botId?: unknown
+  reportKey?: unknown
+  title?: unknown
+  status?: unknown
+  message?: unknown
+}
+
+function isBotHeartbeatNotification(event: Record<string, unknown>): event is BotHeartbeatNotificationEvent {
+  return event.type === 'bot_heartbeat_notification'
 }
 
 function isScheduledTaskStarted(event: Record<string, unknown>): event is ScheduledTaskStartedEvent {
@@ -896,6 +911,26 @@ function MainApp() {
     return unsubscribe
   }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds, updateSessionTitle, upsertSessionMetadata])
 
+  useEffect(() => {
+    const unsubscribe = subscribeToAgentEvents((event) => {
+      if (!isBotHeartbeatNotification(event)) return
+      // bot 心跳的 [报告]：只有首行带标记才走到这里，无事/idle 跳不会发这个事件。
+      const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
+      const title = typeof event.title === 'string' ? event.title : t('bots')
+      const message = typeof event.message === 'string' ? event.message : undefined
+      const reportKey = typeof event.reportKey === 'string' ? event.reportKey : `${sessionId ?? title}:${Date.now()}`
+      addToast({ sessionId: sessionId ?? '', title, status: 'idle', message })
+      void showTaskSystemNotification({
+        key: `bot-heartbeat:${reportKey}`,
+        sessionId,
+        title,
+        status: 'idle',
+        message,
+      })
+    })
+    return unsubscribe
+  }, [addToast])
+
   const { ready, startupError, retryBootstrap } = useAppBootstrap({
     storageRef,
     backendRef,
@@ -1466,6 +1501,17 @@ function MainApp() {
     }
   }, [])
 
+  // 催醒：立刻跑一跳（服务端跳过判活）。wake 请求本身很快返回（runPrompt 即回），
+  // 真正的生成在后台跑；这里随后刷新一次列表，让状态小字尽快反映「在忙」。
+  const handleWakeBot = useCallback(async (bot: BotSummary) => {
+    try {
+      await wakeBotRequest(bot.id)
+      void refreshBots()
+    } catch (error) {
+      setBotsError(error instanceof Error ? error.message : String(error))
+    }
+  }, [refreshBots])
+
   const botShell = useMemo(() => ({
     mode: botMode,
     bots,
@@ -1474,6 +1520,7 @@ function MainApp() {
     error: botsError,
     onSelect: openBotSession,
     onOpenSettings: setBotSettings,
+    onWake: handleWakeBot,
     onToggleMode: toggleBotMode,
     onStartNew: openNewBotDialog,
   }), [
@@ -1482,6 +1529,7 @@ function MainApp() {
     botsLoading,
     botsError,
     openBotSession,
+    handleWakeBot,
     toggleBotMode,
     openNewBotDialog,
     agentManager.currentSessionId,
@@ -2001,6 +2049,10 @@ function MainApp() {
                             size={79}
                             look={activeBot?.mascot}
                             stroll={mascotStrolling}
+                            // 互动彩蛋（悬停抬眼 / 点一下被戳 / 连点转晕）只给这一只：
+                            // 待机、犯困时才响应，走路和忙状态不理人；事件只挂在球本体，
+                            // 空白处照常穿透到下面的输入框。侧栏和设置预览不加。
+                            interactive
                           />
                         )
                         : undefined}

@@ -30,6 +30,8 @@ type NotificationPayload = {
   title: string
   status: BackgroundTaskStatus
   force?: boolean
+  /** 有具体内容时优先展示（如 bot [报告] 的摘要），否则退回按状态生成的通用文案。 */
+  message?: string
 }
 
 type RecentNotifications = Record<string, number>
@@ -283,7 +285,9 @@ export async function showTaskSystemNotification(payload: NotificationPayload): 
     const permission = await getSystemNotificationPermission()
     if (permission !== 'granted' || !markNotificationIfNew(payload.key)) return false
 
-    const body = notificationBody(payload.status)
+    const body = payload.message
+      ? `${payload.message} ${t('systemNotificationOpenDetails')}`
+      : notificationBody(payload.status)
     if (isNativeNotificationsAvailable()) {
       const { LocalNotifications } = await import('@capacitor/local-notifications')
       await initializeSystemNotifications()

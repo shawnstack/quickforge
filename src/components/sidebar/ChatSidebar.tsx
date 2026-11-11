@@ -711,6 +711,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               error={botShell.error}
               onSelectBot={botShell.onSelect}
               onOpenBotSettings={botShell.onOpenSettings}
+              onWakeBot={botShell.onWake}
             />
           ) : (
           <>

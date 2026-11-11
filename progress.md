@@ -3,20 +3,12 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## bot 设置弹窗：文案「吉祥物」改「助手形象」（2026-11-12 00:50）
+## quickforge-api skill 增加 bot 六件套子命令（2026-11-12 02:20）
 
-- 需求（用户原话）：「不要叫吉祥物 应该叫 助手形象吧」。属上一条 `bot-settings-composer-toggle`（已归档）的文案追加。
-- 改动（纯 i18n 值，两处）：`botMascot` 中文 `形象` → `助手形象`（设置弹窗形象区标题，即 botMascotComposer 开关所在区）；`botMascotComposerHint` 的「这只吉祥物 / 小吉祥物」→「助手形象 / 小头像」。全 i18n 仅这两处用户可见文案含该词。
-- 不动：英文文案仍用 Mascot；代码注释 / wiki 的内部术语「吉祥物」、`mascot` 命名未改（用户诉求是界面叫法，内部术语另议）。
-- Evidence：定向 `i18n-language-snapshot` + `bot-mascot-composer-toggle` + `bot-status-summary` → 3 files / 24 passed；`npx eslint src/lib/i18n.ts` 0 problems；`npm run build` 通过（`dist/` 已重建，硬刷新即生效，无服务端改动）。
-- Notes：上一条弹窗改动的生效前提不变——**服务端要重启 QuickForge** 才认识 `showOnComposer` 字段。
-
-## harness 状态文件归档机制（2026-11-12）
-
-- 需求：三个状态文件只增不减（`feature_list.json` 373KB/139 条、`progress.md` 506KB、`session-handoff.md` 349KB），AGENTS.md 还要求每个新会话全量读取；用户要求优化堆积、且每次提交代码时归档。方案经用户拍板：仓库内归档目录 + 三个触发时机。
-- 改动：新增 `scripts/archive-harness.mjs`（无依赖、幂等、支持 `--dry-run`）；`AGENTS.md` 新增「归档」一节并同步 Startup Workflow / End of Session；新建 `docs/archive/{features,progress,handoffs}/` 按月分文件 + README。
-- 规则：`feature_list.json` 只留未完成 feature（done/superseded 移走）；`progress.md` 只留日期最新一段 + Notes 段；`session-handoff.md` 只留最近一轮；归档按 feature id / md 标题去重保证幂等。
-- 首次归档结果：138 条 feature → `features/2026-10.json`(64) + `2026-11.json`(74)；progress 152 段、handoff 145 轮分别按月归档；三个活文件合计约 1.2MB → 约 5KB。
-- 验证：`--dry-run` 预览与实跑一致；归档前后各 JSON 均可解析、条数守恒（64+74+1=139）；重复执行报「无需归档」；`node --check` 通过。
-- Notes：① 归档执行时有并行会话在写 harness 文件（bot-mode-restore-on-refresh 当轮登记），脚本幂等，内容被写回旧态时重跑即可收敛，无需手工干预。② `scripts/*.mjs` 不在 eslint flat config 覆盖内（只配了 ts/tsx 与 server、desktop），故用 `node --check` 校验语法。③ 提交代码前先跑归档再 commit，规则已写入 AGENTS.md。
+- 需求（用户原话）：「bot 的创建 api skills 有么」「也可以读取其他的bot的状态和消息 的功能我希望」→ 范围经确认：六件套（含催醒 wake），名字和 id 都能定位。
+- 改动：`skills/quickforge-api/scripts/qf-api.mjs` 新增 bots 段——`bots`（列表）/ `bot`（详情）/ `bot-create`（创建，`--thinking` `--model` `--heartbeat-minutes` `--no-heartbeat`）/ `bot-messages`（读对话尾部，复用只读 session view 不唤醒，content 为 parts 数组时拼 text 段做 preview，空会话 404 转 `empty: true` 提示）/ `bot-memory`（只读，不回 `file` 绝对路径）/ `bot-wake`（催醒，返回带花钱提示）；名字→id 解析先拉一次 `GET /api/bots`（名字全局唯一）。
+- 白名单裁决（记入架构文档 §4.1）：读全放开；`bot-create` 放开（加法、界面可删）；`bot-wake` 放开但 SKILL.md 要求先问用户（真实模型调用）；`DELETE` / `PATCH /api/bots/:id` 与 `PUT /api/bots/:id/memory` 不进白名单（不可逆 / 改用户配置 / 覆盖他人记忆）。
+- 文档：SKILL.md（description、命令表、bot 小节、红线 3、报错表 BOT_NAME_TAKEN、典型用法）；references/endpoints.md（只读表 4 行 + Bot 段 + 禁止表 3 行）；docs/architecture/quickforge-api-skill.zh-CN.md §4.1 裁决；docs/architecture/bot-proactivity.zh-CN.md §4.3 表述修正（「不做 bots 子命令」→「不做投喂子命令」+ 追注）；docs/wiki/server/bots.md §6 加 skill 入口说明。
+- Evidence：`node --check` 通过；`npx eslint skills/quickforge-api/` 0 problems；vitest `runtime-info`（10 例，脚本黑名单断言未破）+ `skills`（5 例）全过；本机实测 5/6 命令全通过（含建测试 bot「qf-api自测」验证 `--no-heartbeat` 生效与空会话分支）；`bot-wake` 未实测——真实跑一轮模型花钱，POST 链路与其余命令一致。
+- Notes：①同一窗口的并行会话已落地 bot-proactivity 阶段 1+2（inbox 端点、催醒按钮、[报告] 通知），与本 feature 无代码交集，三处文档交叠已核对共存；②测试 bot「qf-api自测」留在 BOT 列表（心跳关、睡着、零 token），用户可在 BOT 分栏设置里删；③skill 脚本即时生效（每次 run_command 都从磁盘起进程），但 SKILL.md 说明文本要新会话激活 skill 才拿到新版，无需重启 QuickForge。
 

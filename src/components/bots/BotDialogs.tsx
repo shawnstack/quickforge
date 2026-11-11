@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
+  feedBot,
   fetchBotMemory,
   patchBot,
   saveBotMemory,
@@ -151,6 +152,10 @@ export function BotSettingsDialog({
   const [memorySaved, setMemorySaved] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 投喂：写进 .bot/inbox.md，不进会话消息流；投完清空，fedFlash 短暂提示。
+  const [feedDraft, setFeedDraft] = useState('')
+  const [feeding, setFeeding] = useState(false)
+  const [fedFlash, setFedFlash] = useState(false)
   // 形象是拖色盘实时改的，先落草稿再防抖写回服务端，避免每拖一像素发一次 PATCH。
   const [mascotDraft, setMascotDraft] = useState<BotMascotSettings>(
     bot?.mascot ?? { body: '#0B0B0C', eye: '#FFFFFF', animated: true, showOnComposer: true },
@@ -323,6 +328,45 @@ export function BotSettingsDialog({
               </select>
             </div>
             <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botHeartbeatHint')}</div>
+          </section>
+
+          <section className="mb-5">
+            <div className="mb-1 text-[11px] leading-4 text-muted-foreground">{t('botFeed')}</div>
+            <textarea
+              className={cn(FIELD, 'min-h-20 resize-y text-xs leading-5')}
+              value={feedDraft}
+              placeholder={t('botFeed')}
+              onChange={(event) => {
+                setFeedDraft(event.target.value)
+                setFedFlash(false)
+              }}
+              aria-label={t('botFeed')}
+            />
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                className={GHOST}
+                disabled={feeding || !feedDraft.trim()}
+                onClick={async () => {
+                  if (!botId || !feedDraft.trim()) return
+                  setFeeding(true)
+                  setError(null)
+                  try {
+                    await feedBot(botId, feedDraft)
+                    setFeedDraft('')
+                    setFedFlash(true)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err))
+                  } finally {
+                    setFeeding(false)
+                  }
+                }}
+              >
+                {feeding ? <Loader2 className="size-4 animate-spin" /> : t('botFeed')}
+              </button>
+              {fedFlash ? <span className="text-[11px] text-muted-foreground">{t('botFed')}</span> : null}
+            </div>
+            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botFeedHint')}</div>
           </section>
 
           <section className="mb-5">

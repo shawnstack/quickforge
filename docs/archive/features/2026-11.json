@@ -1659,5 +1659,86 @@
     "verification": "node scripts/archive-harness.mjs --dry-run 预览与实跑条数一致；归档前后 feature_list.json 与两个 features 归档 JSON 均可解析，条数守恒（64 + 74 + 活文件 1 = 139）；重复执行输出「无需归档」（幂等）；node --check 语法通过；scripts/*.mjs 不在 eslint flat config 覆盖范围（仅 ts/tsx 与 server、desktop），故未跑 eslint。",
     "updatedAt": "2026-11-12",
     "boundaries": "归档只搬移不删改内容；进度历史仍可通过 git 与 docs/archive/ 双通道追溯。归档执行时有并行会话正在写 harness 文件（bot-mode-restore-on-refresh），脚本幂等可收敛，未为此加锁。未改动 init.sh（其文案仍指向三个状态文件，语义不变）。未创建 commit / tag / push。"
+  },
+  {
+    "id": "bot-mascot-interactions",
+    "title": "吉祥物互动动作：悬停抬眼、点击被戳、连点 5 下转晕彩蛋（仅输入框上方那只，待机/犯困时响应）",
+    "status": "done",
+    "summary": "预览页验收后落地：互动 CSS 并入生成脚本（V3_INTERACT_RULES/KEYFRAMES + _dizzy_eye_keyframes），mascot-interactions.ts 纯控制器 + use-mascot-interactions.ts 接线，BotMascot 加 interactive（事件只挂球本体、空白穿透、不进 Tab 序列）。",
+    "files": [
+      "docs/design/bot-mascot/generate-bot-gif.py",
+      "docs/design/bot-mascot/interactions-preview.html",
+      "src/components/bots/mascot/mascot-anim.css（生成）",
+      "src/components/bots/mascot/mascot-interactions.ts",
+      "src/components/bots/mascot/use-mascot-interactions.ts",
+      "src/components/bots/mascot/BotMascot.tsx",
+      "src/App.tsx",
+      "tests/frontend/mascot-interactions.test.ts",
+      "tests/frontend/bot-mascot.test.ts",
+      "docs/design/bot-mascot/README.md",
+      "docs/wiki/server/bots.md"
+    ],
+    "boundaries": "只给输入框上方那只；侧栏/设置预览不加；忙碌与走路状态不理人；未 commit。"
+  },
+  {
+    "id": "mascot-expression-pack",
+    "title": "吉祥物表情增强：豆豆眼、待机东张西望、八个状态小符号",
+    "status": "done",
+    "summary": "用户要求眼睛上下加长、能斜着东张西望、加状态小符号；预览页 expressions-preview.html 验收后定稿：豆豆眼 18×32（cy 267→262）、八个符号全要且整体加大一档、张望待机 5~9s 随机一段。三处尺寸不变（79/24/44），符号与张望只给输入框上方开 interactive 的那只。",
+    "dependencies": [],
+    "approach": "全部并进生成脚本再导出：generate-bot-gif.py 改 BW_EYE_*，新增 V3_LOOK_RULES/KEYFRAMES（data-ambient='look'，3.3s 一次性，只动 __tilt（反向歪头）/__gaze（双眼斜移）两层，不碰身体动画）与 V3_SYMBOL_RULES/KEYFRAMES（八符号随 data-state/data-interact/data-ambient 显隐；球外用球身色、球上（汗滴）用眼色；跟球跳的画在 tilt 里随球动）。mascot-interactions.ts 同一控制器加张望调度（MASCOT_LOOK_STATES=['idle']，间隔随机 5~9s，悬停/点击立即打断）；BotMascot 常驻 tilt/gaze 图层 + showSymbols 渲染符号层并挂 data-ambient；App.tsx 无需改。",
+    "files": [
+      "docs/design/bot-mascot/generate-bot-gif.py（眼型常量 + V3_LOOK_*/V3_SYMBOL_*）",
+      "src/components/bots/mascot/mascot-anim.css、mascot-geometry.ts（生成产物，emit_web 重导）",
+      "src/components/bots/mascot/BotMascot.tsx、mascot-interactions.ts、use-mascot-interactions.ts",
+      "docs/design/bot-mascot/expressions-preview.html、README.md",
+      "docs/wiki/server/bots.md（§7.2/§8）",
+      "tests/frontend/bot-mascot.test.ts、tests/frontend/mascot-interactions.test.ts"
+    ],
+    "verification": "针对性 2 文件 49 例通过；全量 npm run lint（0 问题）+ npm run build（通过）+ npm run test（522 文件 / 5775 通过 / 2 跳过 / 0 失败）。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "眼型是第一处按验收稿偏离 mascot-v3 的几何（动作关键帧仍逐字一致，新基准已写进 wiki §7.2）；符号与张望不给侧栏 24px / 设置预览 44px（符号认不出来）；GIF 与 series/palette.html 仍是旧动作旧眼型（需 rsvg-convert/ffmpeg 环境重出，未做）；三条实现纪律（外层定位/内层动画、跟球符号进 tilt、reduced-motion 不清 transform）已写进 README 与测试。"
+  },
+  {
+    "id": "bot-proactivity",
+    "title": "Bot 主动性：提示词驱动 + 最小 harness 补口",
+    "status": "done",
+    "summary": "用户反馈 bot 主动性不够（主动干活/主动汇报/自我改进三缺），方向经确认：提示词驱动为主、harness 只补硬缺口、一次做完阶段 1+2。调研结论：bot 现状是「等投喂」——判活只看自己目录、心跳指令防守型、干完不发通知（全局通知两个触发源都不含 bot 心跳）、催醒接口无 UI、inbox 只有读侧。设计文档 docs/architecture/bot-proactivity.zh-CN.md 已定稿。",
+    "dependencies": [],
+    "approach": "阶段 1（纯提示词，文案已定稿见设计文档 §3.2 v4 / §3.3 v2）：重写 heartbeatInstruction（server/bot-runner.mjs）——引导式而非操作手册，气质反转（删「不值得动就明说」「不要制造工作」），记忆自我迭代（MEMORY.md 结构由 bot 自己定）+ 渐进披露（一屏读完、细节拆目录文件只留线索）；defaultMemoryTemplate（server/bots.mjs）改为种子式（「在做的事/等用户/踩过的坑」+ 尾部渐进披露自约定），删「不确定先问」；项目半径如实写入指令（自己目录直接写、全局经 qf-api sessions 自发现、他项目经 spawn 绑定项目的子会话并带去「不 commit/留痕/回报」规矩）；钉死三项：[报告] 首行契约（摘要 ≤60 字）、不 commit、留痕（自己目录备份 + .bot/worklog.md）。阶段 2（小代码）：①runBotHeartbeat 正常结束后解析首行标记，emit bot_heartbeat_notification（复用 scheduled_task_notification 扇出模式），前端全局 SSE 监听走现有 showTaskSystemNotification，点击跳 bot 会话；idle/无标记/心跳自身报错不 emit；②侧栏 bot 行「催一下」按钮接已有 wakeBot()，running 禁用；③新增 POST /api/bots/:id/inbox 追加写 .bot/inbox.md 并把 nextRunAt 提前到当前时间，前端加投喂口（不进会话消息流）。原阶段 2b（watchProjectIds + workspace extraRoots 多根沙箱）已废弃：qf-api 既有通道（sessions 自发现 + spawn 子会话，子会话沙箱即目标项目）零代码达到同等效果；watchProjectIds 降级为阶段 3 可选。",
+    "files": [
+      "server/bot-runner.mjs（heartbeatInstruction v4、watchBotHeartbeatReport、parseHeartbeatReport）",
+      "server/bots.mjs（defaultMemoryTemplate 种子式、appendBotInbox）",
+      "server/routes/bots.mjs（POST /api/bots/:id/inbox）",
+      "src/App.tsx（bot_heartbeat_notification SSE 监听、handleWakeBot/botShell.onWake）",
+      "src/lib/system-notifications.ts（NotificationPayload.message 可选字段）",
+      "src/lib/i18n.ts（botWake/botFeed 等词条双语）",
+      "src/components/bots/{BotSidebarList.tsx（催醒按钮）,BotDialogs.tsx（投喂区）,bots-data.ts（feedBot/onWake prop）}",
+      "src/components/sidebar/ChatSidebar.tsx（onWakeBot 接线）",
+      "tests/server/bots.test.mjs、tests/server/routes/bots.test.mjs",
+      "docs/wiki/server/bots.md（§4.1–4.3 主动性契约）、docs/architecture/bot-proactivity.zh-CN.md"
+    ],
+    "verification": "阶段 1：更新 tests/server/bots.test.mjs 指令/模板断言，routes 测试不回归；阶段 2：标记解析、inbox 端点、前端心跳消息标记识别各有测试，npx eslint 0 problems，npm run build 通过，收尾全量 npm run test。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "不做（阶段 3 可选、按需另立项）：判活半径扩展（项目变化自动唤醒 bot）、watchProjectIds/workspace 多根沙箱（spawn 路径实测体验不佳时的替代）、心跳单跳超时+abort、每 bot 通知频率上限、Android 通知文案 bot 化。明确不做：多 bot 编排、qf-api 白名单改动与 bots 子命令、bot 会话与定时任务双节拍合并、「不 commit」的服务端强制（提示词约束 + git 兜底）、读写分级与文件类型白名单。"
+  },
+  {
+    "id": "qf-api-bots-subcommands",
+    "title": "quickforge-api skill：bot 子命令六件套（列表/详情/创建/读消息/读记忆/催醒）",
+    "status": "done",
+    "summary": "用户要求 qf-api 能创建 bot、读取其他 bot 的状态和消息。服务端 /api/bots 端点已齐（bot 模式 v2 已落地），缺的只是 skill 入口。范围经确认：六件套 + 名字/id 双定位；wake 单列（真实跑一轮心跳模型调用，花钱，SKILL.md 要求先问用户）。",
+    "dependencies": [],
+    "approach": "qf-api.mjs 新增 bots 段：listBots/resolveBot（名字→id 解析，先拉一次列表，名字全局唯一）+ 六个 command 函数；bot-messages 复用只读 session view（不唤醒会话），content 为 parts 数组时拼 text 段做 preview，空会话（未落盘）404 转 empty:true 提示；bot-create 支持 --thinking/--model（catalog id 解析成 modelRef）/--heartbeat-minutes/--no-heartbeat。白名单裁决：读全放开、创建放开（加法、界面可删）、wake 放开但先问用户；DELETE/PATCH /api/bots/:id 与 PUT /api/bots/:id/memory 不进白名单（不可逆/改用户配置/覆盖他人记忆；投喂 inbox 按 bot-proactivity 设计留给用户动作）。文档四处同步：SKILL.md、references/endpoints.md、架构文档 §4.1 裁决记录、bots wiki §6。",
+    "files": [
+      "skills/quickforge-api/scripts/qf-api.mjs",
+      "skills/quickforge-api/SKILL.md",
+      "skills/quickforge-api/references/endpoints.md",
+      "docs/architecture/quickforge-api-skill.zh-CN.md",
+      "docs/architecture/bot-proactivity.zh-CN.md",
+      "docs/wiki/server/bots.md"
+    ],
+    "verification": "node --check 通过；npx eslint skills/quickforge-api/ 0 problems；vitest runtime-info（10 例，脚本正文黑名单断言未破）+ skills（5 例）全过；本机实测 bots/bot/bot-messages/bot-memory/bot-create（建「qf-api自测」验证 --no-heartbeat 与空会话分支）；bot-wake 未实测——真实模型调用，POST 链路与其余命令一致。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "不做：投喂（inbox）子命令、删/改 bot 与写 MEMORY.md 的子命令、mascot 外观参数（界面专属）、bot-messages 分页翻阅（tail 窗口够用，翻旧消息走 UI）。"
   }
 ]

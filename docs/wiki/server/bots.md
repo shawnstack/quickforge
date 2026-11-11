@@ -73,6 +73,24 @@
 
 醒来时用的是 `runPrompt(bot.sessionId, ...)`，推进同一条会话；会话忙（用户正在跟它说话）时这一班直接跳过，不排队、不抢上下文。
 
+### 4.1 心跳指令：引导式（主动性契约）
+
+`heartbeatInstruction()` 是引导式交代，不是操作手册：不规定步骤、不规定记忆格式。要点（文案见 [Bot 主动性设计](../../architecture/bot-proactivity.zh-CN.md) §3.2）：
+
+- **半径三层**：自己目录直接写；全局经 quickforge-api 只读自发现（`sessions`）；动别人的项目走 `spawn` 绑定该项目的子会话，派活时带去「改动留工作区、不 commit、做完回报」。
+- **记忆自我迭代 + 渐进披露**：MEMORY.md 结构由 bot 自己定；保持一屏读完，细节拆成目录里的文件、只留线索。
+- **留痕可回滚**：改自己目录先备份；`.bot/worklog.md` 记一行（判活扫描忽略 `.bot/`，记录增长不会误触发醒来）。
+- **钉死三项**（机制不是风格）：`[报告]` 首行（服务端解析发通知）、不 commit（他人项目的撤销保障）、目录边界。
+
+### 4.2 `[报告]` 首行契约与通知
+
+心跳轮回复的**首行以 `[报告]` 开头**才算有事要通知用户。`runBotHeartbeat` 发出 prompt 前先挂一个不阻塞 tick 链的 watcher（`watchBotHeartbeatReport`）：等 `agent_end`，解析最后一条 assistant 回复的首行（`parseHeartbeatReport`），带标记才经全局事件通道 emit `bot_heartbeat_notification`（payload 带 `reportKey` 去重）。无标记、idle 跳、心跳自身报错都不发。前端 App 层全局 SSE 收到后走现有 toast + `showTaskSystemNotification`（摘要进通知正文，点击打开 bot 会话）。
+
+### 4.3 投喂与催醒
+
+- **投喂**：`POST /api/bots/:id/inbox`（`appendBotInbox`）把文本带时间戳追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间——只提前节拍不直接唤醒（保持单飞约束），下一轮扫描（≤30 秒）自然醒。入口在 bot 设置弹窗，投喂内容不进会话消息流。
+- **催醒**：侧栏 bot 行 hover 出「催它一下」（`AlarmClock`），调既有 `POST /api/bots/:id/wake` 跳过判活立刻跑一跳；busy 时禁用。
+
 ## 5. 上下文预算
 
 系统不做特殊处理：bot 可以由 `quickforge-api` 技能自己读油表（`qf-api context`）、自己触发压缩、自己把结论写回 `MEMORY.md`。会话之所以能一直活着，靠的是这套自我管理，而不是服务端替它裁剪。
@@ -89,6 +107,9 @@
 | GET | `/api/bots/:id/memory` | 读 `MEMORY.md` |
 | PUT | `/api/bots/:id/memory` | 写 `MEMORY.md` |
 | POST | `/api/bots/:id/wake` | 立刻催醒一次（跳过「有没有活」的判断） |
+
+内置 `quickforge-api` skill 为上表提供命令行入口：`bots`（列表）、`bot`（详情）、`bot-create`（创建，心跳默认开，`--no-heartbeat` 建完即睡）、`bot-messages`（读会话尾部，只读不唤醒）、`bot-memory`（读记忆）、`bot-wake`（催醒）。删/改/写记忆没有子命令，界面专属（白名单裁决见 `docs/architecture/quickforge-api-skill.zh-CN.md` §4.1）。
+| POST | `/api/bots/:id/inbox` | 投喂：`{ text }` 追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间 |
 
 ## 7. 前端
 
@@ -127,20 +148,23 @@
 > **尺寸不是随便给的**：画布 512 里球只占 300（余量留给跳跃），所以只要 `size` 的 58.6% 才是球径。设计稿 `mascot-v3.html` 用 `width=220` → 球径 129px；产品里给过 64（球径 37px）嫌「没在动」，104（球径 61px）又被否「太大了」，因为球会往上压住消息区，84（球径 49px）之后用户又两次要求再小，最终落在 **79（球径 46.3px，即测试锁的 46px 球径下限之上能取到的最小整数）**。三处尺寸都不变，动作统一照搬设计稿、按 `size/220` 等比缩放；已去掉原先 `size <= 64` 时的 `-small` 增强关键帧。
 
 
-- `mascot-anim.css` 与 `mascot-geometry.ts` 是**生成文件**，来自 `docs/design/bot-mascot/generate-bot-gif.py` 的 `emit_web()`（`--emit-web`）。关键帧和缓动**逐字照搬设计稿 `mascot-v3.html`**（脚本里的 `V3_WEB`）：变换原点在球心 `(256,258)`，用设计稿原样的 `ease-in-out` / `cubic-bezier`，左右眼共用一套。GIF 仍由 `pose_*` 采样，是旧动作，两者暂不一致。
+- `mascot-anim.css` 与 `mascot-geometry.ts` 是**生成文件**，来自 `docs/design/bot-mascot/generate-bot-gif.py` 的 `emit_web()`（`--emit-web`）。关键帧和缓动**逐字照搬设计稿 `mascot-v3.html`**（脚本里的 `V3_WEB`）：变换原点在球心 `(256,258)`，用设计稿原样的 `ease-in-out` / `cubic-bezier`，左右眼共用一套。眼型是唯一按验收稿（`expressions-preview.html`）偏离的一处：豆豆眼 `18×32`、中心上移到 `y=262`。同文件还输出互动（`V3_INTERACT_*`）、张望（`V3_LOOK_*`）与状态小符号（`V3_SYMBOL_*`）三段。GIF 仍由 `pose_*` 采样，是旧动作，两者暂不一致。
 - 换色只改两个 CSS 变量（`--qf-mascot-body` / `--qf-mascot-eye`），不重新生成任何素材；这就是没用 GIF 当界面素材的原因。用的是默认墨黑配色（`#0B0B0C` / `#FFFFFF`）时组件不写内联颜色、只标 `data-look='default'`，由 CSS 按主题取色：深色主题下换成白身黑眼，否则黑球和背景几乎同色。代价是深色主题下特意选了墨黑也会显示成白色。
 - 动作由 `resolveMascotState()`（纯函数，`mascot-state.ts`）从现有信号推导，优先级：出错 / 等审批 → `alert`，工具执行 → `working`，流式 → `thinking`，刚完成 → `happy`（`useMascotState` 只对这一种保持 1.8s），心跳关掉 → `sleepy`，其余 `idle`。
 - 侧栏行没有当前会话的细粒度状态，只用 bot 自身字段拼：`heartbeat.lastError` → `alert`、`busy` → `working`、心跳关 → `sleepy`。原来那个 1.5px 状态圆点已被吉祥物取代。
 - 侧栏 24px 的尺寸（球径 14px）只够看出「在动」，眼睛动作演不出来，所以**状态靠文字讲**：行右侧那截小字由 `botStatusSummary()`（`bots-data.ts`）算，优先级 出错 > 在忙 > 睡了 > 上次醒来多久前 > 还没醒过，隔一分钟重算一次；`hover` 时让位给设置按钮。设计规范里「运行状态应保留文字」说的就是这件事。
 - 关掉动画（设置里的开关）或系统 `prefers-reduced-motion: reduce` 时，动画整体停住、停在初始姿态。
 - 输入框那只**默认安静**：只有 `mascotState === 'idle'` 时才可能散步，由 `useMascotStroll` 控制节奏（隔 20 秒走一轮 9 秒，其余时间站定），横向路线在 `mascot-stroll.css`（手写，播 1 次不是无限循环，末帧回到原点所以不会跳）。有状态（思考/干活/提醒/完成）时**不走路**，站定演那个状态。
+- 输入框那只还有**互动彩蛋**（`BotMascot` 的 `interactive`，其余调用点不传）：悬停抬眼看人、点一下被戳瘪再弹起、1.6s 内点满 5 下转晕。设计稿是 `docs/design/bot-mascot/interactions-preview.html`，CSS 同样由生成脚本输出（`V3_INTERACT_RULES`），时机逻辑在 `mascot-interactions.ts`（纯控制器，可注入假时钟）+ `use-mascot-interactions.ts`。规则：只在待机 / 犯困时响应，走路和忙状态不理人；事件只挂在球本体（`pointer-events: auto`），空白处穿透到输入框；纯装饰彩蛋，不进 Tab 序列。
+- 同一只还有**表情增强**（设计稿 `docs/design/bot-mascot/expressions-preview.html`，已验收）：① 眼型改为豆豆眼 `18×32`、中心上移到 `y=262`，三个尺寸全局生效；② 待机时每隔 5~9s 随机来一段 3.3s 的**东张西望**（`data-ambient='look'`）：眼睛拉长左上斜看 → 甩到右上（冒个「?」）→ 眨眼收尾，头反向微歪、呼吸照常，由 `__tilt` / `__gaze` 两个附加图层演，不碰身体动画；只在待机来（犯困在打瞌睡不张望），悬停 / 点击立即打断；③ **状态小符号**八个：思考「…」、犯困「zZ」、提醒「!!」、开心「♡」、干活汗滴、被戳「!」、转晕星星、张望「?」，跟随 `data-state` / `data-interact` / `data-ambient` 由 CSS 显隐。配色规则：球外符号用球身色、球上符号（汗滴）用眼色，深浅主题都与底色拉开；跟着球跳的符号画在球体图层里随球动（球外的同色符号会被蹦上来的球吞掉）。符号与张望只给输入框那只——侧栏 24px / 设置预览 44px 上符号认不出来。
 - 挂载点走 React 属性而不是 DOM 注入：`App.tsx` → `ChatPanelHost` 的 `composerMascot` → `ChatSurface` 把它排在输入框卡片的右上角（`-translate-y-[80%]`；`(cy+r)/512 = 79.7%`，所以不管 `size` 多大，球底边都正好落在输入框上边缘，看起来像站在框上）。
 
 ## 8. 测试
 
-- `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定。
+- `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定、心跳指令的主动性契约（`[报告]`/spawn/不 commit/引导式）、种子模板（结构由我定 + 渐进披露约定）、`parseHeartbeatReport` 的首行契约。
 - `tests/server/bot-mascot.test.mjs`：吉祥物外观的归一化（默认值、大小写、部分合并、非法颜色退回、`animated` / `showOnComposer` 只认显式 `true`）与接口往返（POST/GET/列表都带 `mascot`，PATCH 只改一色不影响另一色、只改显示开关不重置动画）。
-- `tests/frontend/bot-mascot.test.ts`：状态映射优先级（纯函数）＋ 生成 CSS 的契约（6 状态 × 身体/左右眼关键帧、时长与几何数据一致、`prefers-reduced-motion` 与静态开关、弯月眼只在 `happy` 出现）＋ 组件用 CSS 变量换色 ＋ 溜达是单次动画而不是无限循环。
+- `tests/frontend/bot-mascot.test.ts`：状态映射优先级（纯函数）＋ 生成 CSS 的契约（6 状态 × 身体/左右眼关键帧、时长与几何数据一致、`prefers-reduced-motion` 与静态开关、弯月眼只在 `happy` 出现）＋ 组件用 CSS 变量换色 ＋ 溜达是单次动画而不是无限循环 ＋ 表情增强（豆豆眼几何、张望挂 `data-ambient`、八个符号的关键帧与绑定、关动画/减弱动效的降级）。
+- `tests/frontend/mascot-interactions.test.ts`：悬停 / 戳 / 连点转晕与东张西望的时机逻辑（纯控制器 + 假时钟：随机间隔 5~9s、一段 3.3s、悬停/点击立即打断、忙状态不张望）。
 - `tests/frontend/bot-mascot-composer-toggle.test.ts`：「在输入框上方显示」开关的接线契约（服务端默认值、前端类型、App 判据 `!== false`、弹窗里的开关与草稿默认值、三处开关共用 SwitchRow、双语文案）。
 - `tests/frontend/bot-status-summary.test.ts`：侧栏状态小字的优先级（出错 > 在忙 > 睡了 > 时间）与相对时间分段，两种语言的文案键都齐。
-- `tests/server/routes/bots.test.mjs`：建/列/改/删、记忆读写、项目注册与反注册、心跳的 `nextRunAt` 重算。
+- `tests/server/routes/bots.test.mjs`：建/列/改/删、记忆读写、项目注册与反注册、心跳的 `nextRunAt` 重算、投喂端点（追加落盘 + 只在心跳开着时提前节拍）。

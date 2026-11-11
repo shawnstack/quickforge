@@ -1,6 +1,6 @@
 ---
 name: quickforge-api
-description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档、派生并驱动子会话，以及创建/暂停/恢复/立即执行定时任务。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, prompt, or scheduled tasks), or asks to list/observe running agents, spawn a sub session, rename the current chat, inspect the prompt you actually received, or schedule a recurring task.
+description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档、派生并驱动子会话、创建/暂停/恢复/立即执行定时任务，以及查看/创建/催醒 bot。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, prompt, bots, or scheduled tasks), or asks to list/observe running agents, spawn a sub session, rename the current chat, inspect the prompt you actually received, create or check on a bot, or schedule a recurring task.
 ---
 
 # QuickForge 本地 API
@@ -74,6 +74,17 @@ node <skill-dir>/scripts/qf-api.mjs whoami
 | `task-runs [--taskId ID] [--status S]` | 运行历史 |
 | `task-parse --instruction "..."` | 自然语言 → 排期草稿（**不落库**） |
 | `task-delete <id>` | 删掉**自己**用 `--self-scheduled` 建的班；用户建的任务服务端 403 |
+
+bot：
+
+| 命令 | 作用 |
+|---|---|
+| `bots` | 列出所有 bot：忙不忙、心跳开关、下次醒来、上次出错 |
+| `bot <名字或id>` | 单个 bot 详情（会话、思考档、心跳全量字段） |
+| `bot-create --name "名字"` | 建 bot（详见下节；心跳默认开） |
+| `bot-messages <名字或id> --tail 8` | 读它的对话尾部（只读，**不会唤醒**） |
+| `bot-memory <名字或id>` | 读它的 MEMORY.md（只读） |
+| `bot-wake <名字或id>` | 立刻催醒一轮心跳（真实跑一次模型，花钱） |
 
 ### `spawn` 的默认值（用户已授权）
 
@@ -175,6 +186,32 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 
 要长期活着还有一条：常驻班的**沉睡间隔**决定了你多久看一次世界。间隔越短越灵敏，也越吵越贵（每醒一次就是一次真实模型调用，还会在会话列表里留一条记录）。常见取法：`interval` 每 1–2 小时做轻量心跳，`daily` 做完整巡检。
 
+### bot：名字和 id 都能定位，能读也能建，删改留给界面
+
+bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自己的目录 + 一份 MEMORY.md + 可开关的心跳。**bot 名字全局唯一**，所以定位时名字或 id 都行（脚本先拉一次列表做解析，找不到会把现有 bot 名字列给你）。
+
+```bash
+# 建一个（心跳默认开启，30 分钟一班）
+node <skill-dir>/scripts/qf-api.mjs bot-create --name "巡检员"
+
+# 建完先睡着，等用户在界面上打开它
+node <skill-dir>/scripts/qf-api.mjs bot-create --name "巡检员" --thinking off --no-heartbeat
+
+# 看看它在忙什么（只读，不会唤醒它）
+node <skill-dir>/scripts/qf-api.mjs bots
+node <skill-dir>/scripts/qf-api.mjs bot-messages 巡检员 --tail 5
+```
+
+几个要踩的点：
+
+| 点 | 说明 |
+|---|---|
+| 心跳默认开 | 不传参数 `enabled` 就是 `true`；`--heartbeat-minutes 120` 设间隔，`--no-heartbeat` 建完就睡 |
+| `bot-wake` 是真花钱 | 它跳过「有没有活」的判断，立刻跑一轮心跳模型调用。`woke: false` + `busy` / `generating` 表示有人正跟它说话，这轮没跑 |
+| 空会话不落盘 | bot 会话在第一条消息之前不在存储里，`bot-messages` 会回 `empty: true` 和一句说明；先 `bot-wake` 或让用户在界面上跟它聊一句 |
+| 删 / 改 / 写记忆没有子命令 | 删 bot（不可逆）、改名字/心跳/外观、覆盖它的 MEMORY.md，都让用户在界面上做——和定时任务同一先例。给 bot 投喂（写 inbox）也是用户动作，不走命令行 |
+| 读到的是别的主体 | bot 的 MEMORY.md 和会话是**它自己**的记忆，引用时别当成你的；红线第 5 条同样适用，路径和 id 按需摘 |
+
 ## 别让自己死掉
 
 一个会话不会永远活着：它会被你关掉、被重启弄没、或者上下文塞满。你能做的不是「一直活着」，而是**每次要断的时候留一条能接上的线**。
@@ -252,6 +289,7 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 2. **不要给自己发 prompt。** 正在跑的时候发必然 409 `GENERATION_ALREADY_RUNNING`，脚本已经直接拒绝。要并行干活就 `spawn`。
 3. **不做破坏性操作。** 删会话、**改已存在会话的** `access-mode` / `yolo-mode`、局域网访问、终端、备份恢复、插件安装、MCP 配置，这些都没有子命令，也**不要**用 `curl` 绕过。
    定时任务：建 / 暂停 / 恢复 / 立即执行 / 读历史都可逆；**改已有任务没有子命令**；**删除只放开你自己 `--self-scheduled` 建的那一条**——服务端按 `createdBy === 'agent'` 判定，用户建的任务（以及加这个字段之前的存量任务）一律 403。
+   bot：列 / 详情 / 创建 / 读消息 / 读记忆 / 催醒可放开（读是只读，催醒虽花钱但可预期）；**删 bot、改 bot 设置、写它的 MEMORY.md 没有子命令**，用户在界面上做。
    另一处例外是 `spawn --access-mode`：它只作用于**新建**会话，取值写死 `default` / `full-access`，由用户显式授权（见上一节的默认值表）。
 4. **不要改写脚本的请求面。** 每个子命令对应一个写死的端点，是有意为之：通用 HTTP 出口等于把整套 API 交给模型。`spawn --access-mode` 是唯一被放开的口子，且只接受白名单里的两个值；不要把它做成「传任意字段进请求体」。
 5. **不要把响应内容原样倒进回答。** 里面有绝对路径、会话 id、可能还有配置；按需摘一句就够。读长会话先用 `--limit`。
@@ -268,6 +306,7 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 | `503` | 服务还在启动初始化 | 等几秒重试 |
 | `Cannot find a running QuickForge local API` | 端口不是默认值，或服务没起 | `--api http://127.0.0.1:<port>` |
 | `task-run gave up waiting after Ns` | 我这边等超时了，服务端那次运行可能还在继续 | `task-runs --taskId <id>` 看结果，**不要**重建任务 |
+| `409 BOT_NAME_TAKEN` | bot-create 的名字已被占用 | 换个名字，或先 `bots` 看现有名字 |
 
 ## 典型用法
 
@@ -305,6 +344,14 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 ```
 先把返回的 `scheduleRule` / `nextRunAt` 念给用户确认，确认后再 `task-resume <id>` 打开。
 他没说清时间（「早上」算说清还是没说清）就先问，别替他猜一个钟点。
+
+**用户说「帮我建个 bot」或「看看 bot 在干嘛」**
+```bash
+node <skill-dir>/scripts/qf-api.mjs bot-create --name "<用户给的名字>"
+node <skill-dir>/scripts/qf-api.mjs bots
+node <skill-dir>/scripts/qf-api.mjs bot-messages <名字> --tail 5
+```
+建完告诉用户去界面的 BOT 分栏跟它聊；`bot-wake` 会立刻花一次模型调用，先问过用户再催。
 
 ## 不要用它来做的事
 

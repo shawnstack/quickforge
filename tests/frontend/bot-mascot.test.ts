@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { MASCOT_DURATIONS, MASCOT_PALETTES } from '@/components/bots/mascot/mascot-geometry'
+import {
+  MASCOT_DURATIONS,
+  MASCOT_EYE_SHAPE,
+  MASCOT_PALETTES,
+} from '@/components/bots/mascot/mascot-geometry'
 import { resolveMascotState, type MascotSignals } from '@/components/bots/mascot/mascot-state'
 
 const css = readFileSync(
@@ -199,5 +203,109 @@ describe('BotMascot 组件', () => {
       expect(palette.body).toMatch(/^#[0-9A-F]{6}$/)
       expect(palette.eye).toMatch(/^#[0-9A-F]{6}$/)
     }
+  })
+})
+
+describe('互动动作（hover / poke / dizzy）', () => {
+  it('互动关键帧与绑定规则齐全，全部挂在 data-interact 上', () => {
+    for (const name of [
+      'body-hover', 'eye-hover', 'body-hover-exit', 'eye-hover-exit',
+      'body-poke', 'eye-poke', 'body-dizzy', 'dizzy-eye-l', 'dizzy-eye-r',
+    ]) {
+      expect(css).toContain(`@keyframes qf-mascot-${name}`)
+    }
+    expect(css).toContain("[data-interact='hover'] .qf-mascot__body { animation: qf-mascot-body-hover 0.45s ease-out forwards; }")
+    expect(css).toContain("[data-interact='poke'] .qf-mascot__body { animation: qf-mascot-body-poke 0.60s cubic-bezier(.3,0,.4,1) 1; }")
+    expect(css).toContain("[data-interact='dizzy'] .qf-mascot__eye-l { animation: qf-mascot-dizzy-eye-l 1.50s linear 1; }")
+  })
+
+  it('互动规则写在状态规则之后（同特异度，靠顺序在互动期间盖住状态动画）', () => {
+    expect(css.indexOf("[data-interact='hover'] .qf-mascot__body")).toBeGreaterThan(
+      css.indexOf("[data-state='idle'] .qf-mascot__body"),
+    )
+  })
+
+  it('事件只挂在球本体上（空白处穿透）；减弱动效时互动也停', () => {
+    expect(css).toContain('.qf-mascot.qf-mascot--interactive { pointer-events: none; }')
+    expect(css).toContain('.qf-mascot.qf-mascot--interactive .qf-mascot__ball { pointer-events: auto; cursor: pointer; }')
+    expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{[\s\S]*\[data-interact\] \.qf-mascot__body[\s\S]*animation: none/)
+  })
+
+  it('组件只在允许的状态（待机/犯困）响应互动，事件挂在球上', () => {
+    expect(componentSource).toContain('MASCOT_INTERACTIVE_STATES.includes(state)')
+    expect(componentSource).toContain('Boolean(interactive) && animated')
+    expect(componentSource).toContain("data-interact={interact ?? undefined}")
+    expect(componentSource).toContain("interactive && 'qf-mascot--interactive'")
+    expect(componentSource).toContain('className="qf-mascot__ball"')
+    expect(componentSource).toContain('{...(interactive ? handlers : {})}')
+  })
+
+  it('互动只给输入框上方那只；侧栏行和设置预览不加', () => {
+    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    expect(appSource).toMatch(/<BotMascot[\s\S]{0,900}?interactive/)
+    const listSource = readFileSync(
+      new URL('../../src/components/bots/BotSidebarList.tsx', import.meta.url),
+      'utf8',
+    )
+    expect(listSource).not.toContain('interactive')
+    const dialogsSource = readFileSync(
+      new URL('../../src/components/bots/BotDialogs.tsx', import.meta.url),
+      'utf8',
+    )
+    expect(dialogsSource).not.toContain('interactive')
+  })
+})
+
+describe('表情增强：豆豆眼 / 东张西望 / 状态小符号', () => {
+  it('眼型是验收定稿的豆豆眼：18×32，位置上移到 262', () => {
+    // 三个尺寸（输入框 79 / 侧栏 24 / 设置预览 44）共用这一份几何数据，全局生效。
+    expect(MASCOT_EYE_SHAPE).toEqual({ dx: 46, cy: 262, rx: 18, ry: 32 })
+  })
+
+  it('张望挂在 data-ambient 上：一次性 3.3s，只动 tilt/gaze 两个附加层', () => {
+    for (const name of ['tilt-look', 'gaze-look', 'quest-look']) {
+      expect(css).toContain(`@keyframes qf-mascot-${name}`)
+    }
+    expect(css).toContain(
+      "[data-ambient='look'] .qf-mascot__tilt { animation: qf-mascot-tilt-look 3.30s ease-in-out 1; }",
+    )
+    expect(css).toContain(
+      "[data-ambient='look'] .qf-mascot__gaze { animation: qf-mascot-gaze-look 3.30s ease-in-out 1; }",
+    )
+  })
+
+  it('八个状态符号的关键帧与绑定齐全（… zZ !! ♡ 汗滴 ! 星星 ?）', () => {
+    for (const name of [
+      'sym-dot', 'sym-z', 'sym-bang', 'sym-heart', 'sym-sweat', 'sym-poke', 'sym-star-orbit',
+    ]) {
+      expect(css).toContain(`@keyframes qf-mascot-${name}`)
+    }
+    expect(css).toContain('.qf-mascot__sym { display: none; }')
+    expect(css).toContain("[data-state='thinking'] .qf-mascot__sym-dots")
+    expect(css).toContain("[data-state='sleepy'] .qf-mascot__sym-zz")
+    expect(css).toContain("[data-state='alert'] .qf-mascot__sym-bang")
+    expect(css).toContain("[data-state='happy'] .qf-mascot__sym-heart")
+    expect(css).toContain("[data-state='working'] .qf-mascot__sym-sweat")
+    expect(css).toContain("[data-interact='poke'] .qf-mascot__sym-poke")
+    expect(css).toContain("[data-interact='dizzy'] .qf-mascot__sym-dizzy")
+    expect(css).toContain("[data-ambient='look'] .qf-mascot__sym-quest")
+  })
+
+  it('符号与张望遵守「关掉动画」和「减弱动效」', () => {
+    expect(css).toContain(
+      '.qf-mascot.qf-mascot--static .qf-mascot__sym { display: none !important; }',
+    )
+    expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{[\s\S]*\.qf-mascot__sym \* \{ animation: none/)
+  })
+
+  it('组件：tilt/gaze 常驻（普通图层不动画），符号只在开互动且开动画的那只上渲染', () => {
+    expect(componentSource).toContain('qf-mascot__tilt')
+    expect(componentSource).toContain('qf-mascot__gaze')
+    expect(componentSource).toContain('MASCOT_LOOK_STATES.includes(state)')
+    expect(componentSource).toContain('data-ambient={ambient ?? undefined}')
+    expect(componentSource).toContain('const showSymbols = Boolean(interactive) && animated')
+    expect(componentSource).toContain('{showSymbols && (')
+    // 配色规则：符号用球身色、汗滴用眼色（组件里眼色 fill 只该有两处：眼睛 + 汗滴）
+    expect(componentSource.match(/fill="var\(--qf-mascot-eye\)"/g)).toHaveLength(2)
   })
 })

@@ -112,6 +112,14 @@ export async function wakeBot(botId: string): Promise<{ woke: boolean; reason: s
   })
 }
 
+/** 投喂：写进 .bot/inbox.md。服务端只提前节拍不直接唤醒，30 秒内 runner 会叫醒它。 */
+export async function feedBot(botId: string, text: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/bots/${encodeURIComponent(botId)}/inbox`, {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  })
+}
+
 export type BotStatusTone = 'busy' | 'error' | 'asleep' | 'idle'
 
 export type BotStatusSummary = {
@@ -161,6 +169,8 @@ export type BotSidebarProps = {
   error?: string | null
   onSelect: (bot: BotSummary) => void
   onOpenSettings: (bot: BotSummary) => void
+  /** 催醒：立刻跑一跳（跳过判活）。在忙时按钮自己会禁用。 */
+  onWake: (bot: BotSummary) => void
   onToggleMode: () => void
   onStartNew: () => void
 }

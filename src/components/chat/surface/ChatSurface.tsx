@@ -823,7 +823,8 @@ type WindowedChatSurfaceProps = ChatSurfaceProps & {
   composerControlsDisabled?: boolean
   /**
    * bot 模式下贴在输入框右上角的吉祥物。
-   * 这里只负责位置（压在输入框上边缘、不拦鼠标）；演什么动作由调用方决定，
+   * 这里只负责位置（压在输入框上边缘）；包裹层 pointer-events-none，
+   * 事件只在球本体上重新打开（见 BotMascot 的 interactive）。演什么动作由调用方决定，
    * 普通会话与 Side Chat 都不传。
    */
   composerMascot?: React.ReactNode

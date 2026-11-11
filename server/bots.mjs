@@ -113,15 +113,19 @@ function displayPath(absolutePath) {
 function defaultMemoryTemplate(name, workspacePath) {
   return `# ${name}
 
-## 我是谁
-一个常驻的 bot。只属于我自己的目录是 \`${displayPath(workspacePath)}\`，这里写的记忆不会被别的 bot 看到。
+常驻 bot。目录：\`${displayPath(workspacePath)}\`。这份记忆是我的，结构由我定，下面只是起点，不好用就改。
 
-## 我在意的事
-- 报告写得再多也不算产出，真正算数的是改动了什么
-- 不确定的时候先问，不要自己造需求
+## 在做的事
+（下一件事从这挑：是什么 / 为什么值得 / 卡在哪）
 
-## 备注
-（在这里记下踩过的坑、做过的决定、下次要继续的事）
+## 等用户
+（要他拍板的事，一条一件）
+
+## 踩过的坑
+（怎么踩的 / 下次怎么绕）
+
+---
+这份文件保持一屏读完；细节放目录里的文件，这里只留去找它们的线索。
 `
 }
 
@@ -284,6 +288,19 @@ export async function writeBotMemory(bot, content) {
   const file = bot.memoryFile || memoryFilePath(bot.workspacePath)
   await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, String(content ?? ''), 'utf8')
+  return file
+}
+
+/**
+ * 投喂：把一段话追加进 .bot/inbox.md。inbox 有内容本身就是判活信号
+ * （inspectBotWork 的第二判据），所以这里只管落盘，不直接叫醒——
+ * 由路由层把 nextRunAt 提前到当前时间，下一轮扫描（≤30s）自然醒来。
+ */
+export async function appendBotInbox(bot, text) {
+  const file = path.join(bot.workspacePath, BOT_INBOX_FILE)
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  const stamped = `\n## ${new Date().toISOString()}\n\n${String(text ?? '').trim()}\n`
+  await fs.appendFile(file, stamped, 'utf8')
   return file
 }
 

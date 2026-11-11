@@ -44,6 +44,7 @@ quickforge/
 |------|------|
 | [工作流编排架构](../architecture/workflow-orchestration.zh-CN.md) | `run_workflow` 脚本编排 Agent 与工具（hook 契约、并发与审批、worker 隔离） |
 | [Bot 模式（已落地）](server/bots.md) | 一个 bot = 一条持久会话 + 独占目录 `~/.quickforge/bots/bot-<id 前 8 位>` + 独立 `MEMORY.md` + 可开关心跳；左上角「对话 / BOT」分段切换（仅侧栏展开时显示，折叠态只留展开侧栏按钮）。目录名跟显示名解耦：名字可随时改、可含中文。bot 目录是 `kind: 'bot'` 的注册项目，但不算「用户的当前项目」；bot 模式下主区不显示项目/分支 |
+| [Bot 主动性](../architecture/bot-proactivity.zh-CN.md) | 设计文档（**已立项待实施**）：提示词驱动为主轴——引导式心跳指令（自由探索、`[报告]` 首行契约、记忆自我迭代 + 渐进披露、不 commit 留痕可回滚）；harness 只补三个硬缺口（`[报告]` 事件 → 现有 toast/桌面通知、催醒按钮接线、`POST /api/bots/:id/inbox` 投喂口）；项目半径零代码复用 qf-api（`sessions` 自发现 + `spawn` 绑定项目的子会话读写），判活扩展/单跳超时等列为阶段 3 可选 |
 | [自进化回路](../architecture/self-evolution-loop.zh-CN.md) | 设计文档（**部分落地**）：把「让 AI 自己改进自己」拆成六环回路（目标→感知→诊断→生成→验证→准入 + 回滚/预算横切），给出三条架构约束（最弱环决定上限、验证者必须与生成者隔离、准入按影响半径而非对错分级）与 R0/R1/R2 三档半径闸门；§10 记录 2026-11-10 落地的 `<continuity>` 提示词块与自约任务删除边界，以及「服务端识别不了调用方时改用声明式校验」这条取舍 |
 | [会话消息实时一致性](../architecture/message-log-consistency.zh-CN.md) | 消息日志版本、连接级投递游标、SSE 续传与 `applyLog` 单一投影（双端一致契约） |
 | [会话存储 v2](../architecture/session-storage-v2.zh-CN.md) | 会话域存储的当前事实源（SQLite 单一权威、baseline v19 三表、写入/删除/空间回收、备份恢复入口） |

@@ -45,8 +45,8 @@ const NON_REPO_FILES = new Set(['xterm.js', 'highlight.js', 'jszip.min.js', 'ind
 // 用户在途 WIP 的已知漂移，显式豁免（打印提示、不计 bad）——落地后必须删除本条目，
 // 届时该声明会回到正常判定。文档bot 的底单：.bot/reports/table-cols-backlog.md（文档bot 侧）。
 const WIP_EXEMPT = new Map([
-  // [wiki 相对路径, 行号集合]：src/lib/README.md:117 slash-catalog.ts 写 113、实测 112（用户 slash-catalog 在途）
-  ['src/lib/README.md', new Set([117])],
+  // [wiki 相对路径, 行号集合]：用户 skills 刷新在途组——117 slash-catalog(113/112)、67+156 i18n(4487/4509)，落地后整组删除并复测
+  ['src/lib/README.md', new Set([67, 117, 156])],
 ])
 const MIN_MATCHED = 100
 

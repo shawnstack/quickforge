@@ -52,6 +52,7 @@
     "dev:web": "vite --host 127.0.0.1 --port 5176 --strictPort",
     "build": "tsc -b && vite build && node scripts/precompress-assets.mjs",
     "lint": "eslint .",
+    "check:wiki": "node scripts/check-wiki-line-claims.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

@@ -10,8 +10,18 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 210 |
-| [index.mjs](../../../../server/tools/index.mjs) | 工具执行 handler | 1182 |
+| [index.mjs](../../../../server/tools/index.mjs) | 工具注册表/装配薄层：装配 `toolHandlers` 并再导出各模块公开面，导入方仍统一 `import './tools/index.mjs'` | 52 |
+| [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 302 |
+| [file-search.mjs](../../../../server/tools/file-search.mjs) | `read_file` + `grep_files`：ripgrep 优先、Node 回退、limit 短路 | 452 |
+| [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一 | 139 |
+| [skill-resources.mjs](../../../../server/tools/skill-resources.mjs) | `activate_skill` / `read_skill_resource` / `loadSkillToolContext` | 69 |
+| [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 99 |
+| [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘、后台 detach | 502 |
+| [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 107 |
+| [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳（写 `writeGlobalMemory`） | 12 |
+| [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 65 |
+| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（grep_files / run_command 参数归一化） | 13 |
+| [memory-notes.mjs](../../../../server/tools/memory-notes.mjs) | 记忆笔记四工具（工作记忆 + 经验库，Dreaming curator 共用） | 193 |
 
 ---
 
@@ -65,9 +75,9 @@
 
 `agent-goal-runner.mjs` 以 `isGoalPlanning(session)`（包含当前与结算中的 planning run）或未确认 awaiting_confirmation 拒绝执行期报告。即使 plan 已把 goal 状态改为 awaiting_confirmation，同一规划轮也不能调用 `progress` / `blocked` / `needs_review` / `complete` 覆盖计划；重复 plan 仍由既有门禁拒绝。执行轮 `needs_review` 转 blocked 的契约不变。真正必要的 `ask_user` 继续等待用户回答，不由自动交接代答或跳过；取消、异常及持久化失败不启动执行。
 
-## index.mjs
+## index.mjs 与模块划分
 
-实现每个工具的 execute handler。
+index.mjs 只做注册表装配：`toolHandlers` 把工具名绑定到上表各职责模块的 handler，并再导出稳定公开面（工具 handler、`loadSkillToolContext`、`abortRunningCommand` / `listBackgroundCommandTasks` / `stopBackgroundCommandTasksForSession`），因此 agent-manager、routes/tools、tool-wiring、agent-prompt-commands 与测试的 `import './tools/index.mjs'` 不变。新增工具时：定义加 definitions.mjs，实现加对应职责模块，index.mjs 的注册表与再导出补一行。
 
 ### 工具处理器清单
 

@@ -477,7 +477,7 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 - SSE 流式加载分享对话消息
 - 密码验证
 
-### project-directory-picker.tsx (247 行)
+### project-directory-picker.tsx (323 行)
 
 - 文件系统目录选择器
 - 树形浏览，支持选择任意目录作为项目路径
@@ -502,7 +502,7 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 - confirm 对话框行为契约：同一时刻最多一个（互斥，并发请求按取消 resolve）；Tab 焦点循环（focus trap）；关闭后焦点恢复到触发元素；destructive 变体焦点初始落"取消"且 Enter 不触发确认
 - toast 按状态分级语义：error 用 `role="alert"`，success/running 用 `role="status"`（polite），支持自动消失和动画
 
-### plugins/PluginSlot.tsx (284 行) & plugins/PluginFrame.tsx (204 行)
+### plugins/PluginSlot.tsx (284 行) & plugins/PluginFrame.tsx (243 行)
 
 插件 UI 的两个宿主组件，配套 `src/lib/plugin-ui-{types,client,resolve}.ts`（共享类型 / 快照 store 与动作分发 / `$slot`·`$state` 引用替换）。
 
@@ -512,11 +512,11 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 
 挂载点：`ConversationHeader.tsx` → `session.header`，`ChatSurface.tsx` 的 `leadingControls` → `composer.actions`，`sidebar/chat-sidebar/SidebarFooter.tsx` → `sidebar.footer`，`App.tsx` 挂 `PluginUiToasts`。
 
-### ErrorBoundary.tsx (44 行)
+### ErrorBoundary.tsx (63 行)
 
 React 类组件实现的错误边界，捕获子组件渲染错误并显示降级 UI。
 
-### WindowGuardNotice.tsx (34 行)
+### WindowGuardNotice.tsx (33 行)
 
 Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` 渲染前抢锁失败时），不加载 App、不发任何 `/api` 请求。纯静态提示（无按钮、无 state、无 `window.close()`——浏览器不允许脚本关闭手动打开的标签页，实测关闭按钮无效后移除）：全屏居中卡片复用既有 token（`bg-background` / `border-border` / `shadow-quickforge` / `rounded-xl`）与内联 SVG 层叠窗口图标 + 双语标题/描述（`windowGuardTitle` / `windowGuardDescription`），文案引导用户关闭本窗口并回到已有窗口使用。
 

@@ -57,7 +57,7 @@
 
 ## 核心 Hooks 说明
 
-### useAppBootstrap.ts (257 行)
+### useAppBootstrap.ts (261 行)
 
 应用启动时执行的一次性初始化（含 Settings 快照 stale-while-revalidate 加速）:
 1. 发起本地 IndexedDB 设置快照读取（语言/外观/字号/工具展示，`app-settings-cache` store），命中即预应用；异步读取不阻塞后续序列
@@ -67,7 +67,7 @@
 5. 模型目录/active-model 与「最近一次选择的思考等级」（active-thinking-level）决策后创建启动会话；URL 携带 `?session=` 时统一委托 `useAgentManager.loadSession()` 走可取消的单次服务端恢复链路
 6. 校准后的 4 个设置值回写本地快照（成功路径 best-effort），随后标记 `ready`；标记模型是否已配置（`needsModelSetup`）
 
-### useAgentManager.ts (537 行)
+### useAgentManager.ts (754 行)
 
 核心 Agent 管理 Hook，封装了 Agent 的完整生命周期:
 - **创建/销毁 Agent**: `createAgent()`, `destroyAgent()`
@@ -81,7 +81,7 @@
 - **Deferred 交接**: 真实会话建成时先用 `createAgent` 的 `handoffMessages` 把用户已经看到的乐观消息装进真实 agent，再把它 attach 到视图——否则真实 agent 会以「0 条消息」的空会话形态上屏一帧，被空态规则判成全新空对话（自动落项目），把正在进行的会话顶掉、消息也发不出去
 - **全局会话默认工作目录**: 通过 `defaultWorkspaceRef`（来自 `useProject.defaultWorkspace`）为 global 作用域会话注入合成 project（id=`default`，指向 `~/.quickforge/workspace`），从而启用工作区面板/终端/Git；该合成 id 仅用于前端 UI 与 REST 端点，不会作为 `projectId` 发往后端创建 Agent
 
-### useChatActions.ts (389 行)
+### useChatActions.ts (362 行)
 
 聊天交互操作:
 - `startNewGlobalChat()` / `startNewProjectChat()` — 创建延迟会话，首条消息发送时才创建真实 Session
@@ -91,7 +91,7 @@
 - `copyAnswer(text)` — 复制回答到剪贴板
 - `performRollback`（内部）**不写消息数组**：服务的全量历史由 `ServerAgent.rollback()` 自己按「全量坐标（`messageBaseSeq` 归零）」采纳并广播，hook 只拿返回结果判断「截断后是否为空」以决定是否删除会话。重试的乐观截断同样走 agent 的 `trimTrailingMessages(n)`（前缀截断、起点不变），因此消息数组只剩 `ServerAgent.applyLog` 一个写入入口
 
-### useModelActions.ts (232 行)
+### useModelActions.ts (298 行)
 
 模型/供应商配置操作:
 - `openModelSetup()` — 打开设置对话框
@@ -99,13 +99,13 @@
 - 初始化/切换活动模型
 - Agent 访问模式与 workspace 工具的启用/禁用同步
 
-### useCrossTabSync.ts (104 行)
+### useCrossTabSync.ts (103 行)
 
 - 使用 `BroadcastChannel` API (`quickforge-sync`)
 - 同步事件: `sessions-changed`, `projects-changed`, `settings-changed`
 - 页面可见性变化时自动刷新 (`visibilitychange`)
 
-### useSessionPagination.ts (406 行)
+### useSessionPagination.ts (405 行)
 
 - 全局/项目会话分页 (每页 20 条)
 - 四路分页状态存于 `src/stores/sessions-store.ts`（zustand，action 引用恒定，set 同步应用）；hook 为兼容层，返回结构与签名不变，仅 App.tsx 消费
@@ -115,7 +115,7 @@
 - 展开/折叠项目时自动加载；启动阶段会等待 Storage backend 就绪后再刷新已恢复的展开项目，避免残留虚假的加载状态
 - 跟踪加载状态 (`hasMore`, `loading`)
 
-### useVisibleRuntimeStatuses.ts (100 行)
+### useVisibleRuntimeStatuses.ts (134 行)
 
 - 监听可见会话的后台任务运行状态
 - 通过 `fetchActiveAgentStatuses` 轮询 + SSE 订阅

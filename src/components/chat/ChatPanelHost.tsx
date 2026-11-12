@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { ChatSurface, promptApiKey } from './surface'
 import type { ChatSurfaceProps } from './surface'
 import type { WindowedChatSurfaceHandle } from './surface/ChatSurface'
-import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingAsk, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
+import type { ServerAgent, ServerAgentAskAnswer, ServerAgentContextCompaction, ServerAgentContextUsage, ServerAgentPendingToolApproval, FileContextReference } from '@/lib/server-agent'
 import type { SessionLeaseSnapshot } from '@/lib/session-lease-client'
 import type { GoalAction, GoalActionOptions, GoalState } from '@/lib/goal'
 import type { SharedServerAgent } from '@/lib/shared-server-agent'
@@ -722,8 +722,6 @@ export function ChatPanelHost({
   // the command-suggestions subsystem is created once per panel while the
   // project prop may change (same source as the /api/project/commands fetch).
   const slashCatalogProjectIdRef = useRef<string | undefined>(project?.id)
-  const pendingApprovalRef = useRef<{ toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource } | null>(null)
-  const pendingAskRef = useRef<(ServerAgentPendingAsk & { sessionId: string }) | null>(null)
 
   // Keep the slash-catalog project source in sync with the latest props.
   useEffect(() => {
@@ -1120,8 +1118,7 @@ export function ChatPanelHost({
       // A pending ask_user owns the composer while it waits: its text is the
       // answer to the card, not a steer message (steering is drained at the
       // next turn boundary, which the blocked tool call never reaches).
-      isAskPending: () => Boolean(pendingAskRef.current
-        ?? (agent as unknown as { state: { pendingAsk?: unknown } }).state.pendingAsk),
+      isAskPending: () => Boolean((agent as unknown as { state: { pendingAsk?: unknown } }).state.pendingAsk),
       submitAskText: (text) => submitAskTextToPendingAsk(panel, text),
       onComposerCleared: () => {
         taskLauncher?.cancel()
@@ -1373,14 +1370,14 @@ export function ChatPanelHost({
       // Pending approval / auto-compact / ask-user cards (see
       // `panel-wiring/approval-cards.ts`). The approval card is critical UI, so
       // it is reconciled every pass regardless of the message decorations.
+      // Pending state comes straight from `agent.state` — ServerAgent is the
+      // single authority (no host-side ref rebuild).
       syncPendingApprovalCards({
         panel,
         agent: agent as unknown as ApprovalCardsAgent,
         sideChatMode,
         props,
         propsRef,
-        pendingApprovalRef,
-        pendingAskRef,
       })
 
       if (props.capabilities.contextUsage) contextUsage.update()
@@ -1495,10 +1492,8 @@ export function ChatPanelHost({
         syncProcessStreamingState()
         scheduleDecorateRef.current?.()
         scrollSync.enable()
-        // A new run started — clear any pending approval for this session
-        if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
-          pendingApprovalRef.current = null
-        }
+        // A new run started — ServerAgent clears any pending approval/ask in
+        // its state machine; the decorate above re-renders without the card.
       }
       if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end' || event.type === 'agent_end') {
         syncProcessStreamingState()
@@ -1526,22 +1521,10 @@ export function ChatPanelHost({
         }
       }
       const eventType = (event as { type: string }).type
-      if (eventType === 'tool_execution_start') {
-        const toolEvent = event as unknown as { toolCallId?: string; sessionId?: string }
-        const pendingApproval = pendingApprovalRef.current
-        const eventSessionId = toolEvent.sessionId ?? agent.sessionId
-        if (pendingApproval
-          && pendingApproval.sessionId === agent.sessionId
-          && eventSessionId === agent.sessionId
-          && toolEvent.toolCallId === pendingApproval.toolCallId) {
-          pendingApprovalRef.current = null
-          const statePending = (agent as AgentWithContextCompaction).state.pendingToolApproval
-          if (statePending?.toolCallId === toolEvent.toolCallId) {
-            ;(agent as AgentWithContextCompaction).state.pendingToolApproval = null
-          }
-          scheduleDecorateRef.current?.()
-        }
-      }
+      // tool_execution_start also settles a matched pending approval: the
+      // authoritative clear happens in ServerAgent's state machine (CAS by
+      // toolCallId); the tool-interface update below re-decorates so the card
+      // is removed in the same pass.
       if (eventType === 'tool_execution_update') {
         // 高频工具输出（长命令、流式工具日志）与 token 增量同量级：只对账过程
         // 折叠/摘要，不跑行级动作、产物卡、轮次导航与 editor 绑定。
@@ -1590,15 +1573,9 @@ export function ChatPanelHost({
         setModelRetryInfo(null)
         syncProcessStreamingState()
         decoratePipeline.scheduleProcessHandoff()
-        // Run finished (or aborted) — clear pending approval for this session
-        if (pendingApprovalRef.current?.sessionId === agent.sessionId) {
-          pendingApprovalRef.current = null
-          scheduleDecorateRef.current?.()
-        }
-        if (pendingAskRef.current?.sessionId === agent.sessionId) {
-          pendingAskRef.current = null
-          scheduleDecorateRef.current?.()
-        }
+        // Run finished (or aborted) — ServerAgent clears the pending approval
+        // and ask in its state machine; the decorate scheduled above (message
+        // event branch) re-renders without the cards.
         // Queue drain: a settled turn auto-sends the next queued message;
         // aborted / errored turns pause the queue so the user stays in control.
         messageQueueWiring.onAgentEnd((event as { status?: string }).status)
@@ -1619,25 +1596,17 @@ export function ChatPanelHost({
         // Keep the failure visible in diagnostics without interrupting the current answer.
         logger.warn(t('autoCompactFailed'))
       }
-      // Store pending approval and trigger re-decoration
+      // Pending approval / ask cards render from `agent.state` (ServerAgent
+      // adopts the event into its state machine before forwarding it here), so
+      // these branches only need to trigger a re-decoration for the cards.
       if (!sideChatMode && (event as Record<string, unknown>).type === 'tool_approval_required') {
-        const approvalEvent = event as unknown as { toolCallId: string; toolName: string; args: Record<string, unknown>; sessionId: string; source?: import('./panel-decoration').ToolApprovalSource }
-        pendingApprovalRef.current = { toolCallId: approvalEvent.toolCallId, toolName: approvalEvent.toolName, args: approvalEvent.args, sessionId: approvalEvent.sessionId, source: approvalEvent.source }
         scheduleDecorateRef.current?.()
       }
       if (!sideChatMode && (event as Record<string, unknown>).type === 'ask_user_required') {
-        const askEvent = event as unknown as ServerAgentPendingAsk & { sessionId: string }
-        if (typeof askEvent.askId === 'string' && Array.isArray(askEvent.questions)) {
-          pendingAskRef.current = { ...askEvent, sessionId: askEvent.sessionId ?? agent.sessionId }
-          scheduleDecorateRef.current?.()
-        }
+        scheduleDecorateRef.current?.()
       }
       if ((event as Record<string, unknown>).type === 'ask_user_answered') {
-        const answeredEvent = event as unknown as { askId?: string }
-        if (!answeredEvent.askId || pendingAskRef.current?.askId === answeredEvent.askId) {
-          pendingAskRef.current = null
-          scheduleDecorateRef.current?.()
-        }
+        scheduleDecorateRef.current?.()
       }
     })
 

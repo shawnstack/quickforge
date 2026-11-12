@@ -104,6 +104,8 @@ export type ServerAgentPendingToolApproval = {
   }
   requestedAt?: number
   expiresAt?: number
+  /** 事件归属会话（服务端 `tool_approval_required` 恒带）；快照来源可能缺省，读取方回退 `agent.sessionId`。 */
+  sessionId?: string
 }
 
 /**
@@ -134,6 +136,8 @@ export type ServerAgentPendingAsk = {
   }>
   requestedAt?: number
   expiresAt?: number
+  /** 事件归属会话（服务端 `ask_user_required` 恒带）；快照来源可能缺省，读取方回退 `agent.sessionId`。 */
+  sessionId?: string
 }
 
 export type ServerAgentAskAnswer = {

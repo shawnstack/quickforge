@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const uiStoreSource = readFileSync(new URL('../../src/stores/ui-store.ts', import.meta.url), 'utf8')
 
 /**
  * 切换 session 必须把右侧 workspace 面板恢复成「收起」。
@@ -13,11 +14,17 @@ const source = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8
  *
  * 此外开合不做任何跨会话记忆：scope 变化的渲染里同步清空「打开者」记录，
  * 切走再切回曾展开面板的会话也不会重新弹开，一律默认收起。
+ *
+ * 2026-11-12 god-module③：开合状态的权威在 ui-store（App 级纯 UI 状态单一
+ * 数据源），App.tsx 经 selector 只读消费；断言同步指向 store 形式，且禁止
+ * 回退成本地 useState 重建第二份。
  */
 describe('workspace inspector closes when the session changes', () => {
   it('derives the open flag from the scope that opened it', () => {
-    expect(source).toMatch(/const \[workspaceInspectorOpenScopeId, setWorkspaceInspectorOpenScopeId\] = useState<string \| null>\(null\)/)
+    expect(uiStoreSource).toMatch(/workspaceInspectorOpenScopeId: string \| null/)
+    expect(source).toMatch(/const workspaceInspectorOpenScopeId = useUIStore\(\(s\) => s\.workspaceInspectorOpenScopeId\)/)
     expect(source).toMatch(/const workspaceInspectorOpen = workspaceInspectorOpenScopeId === workspaceInspectorRuntimeScopeId/)
+    expect(source).not.toMatch(/const \[workspaceInspectorOpenScopeId, setWorkspaceInspectorOpenScopeId\] = useState/)
   })
 
   it('never opens the panel without binding it to the current scope', () => {

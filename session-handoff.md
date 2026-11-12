@@ -3,12 +3,12 @@
 只保留最近一轮交接；更早轮次由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/handoffs/`（按月分文件）。
 新一轮的「本轮」段落加在最上面。
 
-## 本轮：吉祥物符号观感微调（思考点外移 + 感叹号柔化）（2026-11-12 09:05）
+## 本轮：Bot 心跳指令模板化（自进化 + 防过拟合）（2026-11-12 09:35）
 
-- 目标：用户实机反馈两条：①「thinking 的点像插在头上」；②感叹号太突兀。均已修完。
-- 结论：①思考「…」三点整体外移成 45° 直线（(398,136)/(424,110)/(452,82)，大小不变），第一颗点离球边从约 5 → 约 28 单位，thinking 旋转/上浮/压扁与动画下探的最坏间隙都核过 ≥15——几何改在 `BotMascot.tsx`（dots 坐标在组件、不在生成 CSS）；②感叹号柔化在 08:45 轮完成（! 条 13×44→10×36、!! 13×40→10×32，动效去弹射去猛晃改「轻浮出→停住→轻飘走」，改在 `generate-bot-gif.py` + `emit_web()` 重导）。评审板 `docs/design/bot-mascot/self-review-board.html`（直连产品 CSS 定格帧 + Chrome 无头截图 `%TEMP%\mascot-self-review.png`）两次复查均通过。
-- 改动文件：`src/components/bots/mascot/BotMascot.tsx`、生成产物 `src/components/bots/mascot/mascot-anim.css`（感叹号轮）、`docs/design/bot-mascot/{generate-bot-gif.py, self-review-board.html}`、`progress.md`、本文件。
-- 验证：两轮均为针对性 `bot-mascot*.test.ts`（49 例）+ `npm run lint`（0 问题）+ `npm run build`（通过）。
-- 未完 / 下一步：①用户硬刷新确认思考点新位置；②两个待拍板项：张望「?」从系统字体改几何 path、79px 下 zZ/星星加大——用户点头即照同一路径（改生成脚本/组件 → 重导 → 评审板重截核查 → 针对性验证）；③纯前端 CSS/几何改动，无需重启服务端；④未 commit。
-- 注意：与 god-module-decomposition ②（skills-dialog 拆分）并行，状态三件套基于其最新内容插入。
+- 目标：心跳指令从硬编码改为 bot 可自我修改的模板文件，同时种子保持引导式（防场景过拟合）。
+- 结论：`heartbeatInstruction` = 固定头（处境 + botPath + 自进化授权）+ `.bot/heartbeat.md` 模板（创建时播种、可自我修改、缺失回退种子）+ 固定尾（`[报告]`/不 commit/不提问）。bot 改得掉工作方式，改不掉契约。
+- 改动文件：server/bot-runner.mjs、server/bots.mjs、tests/server/bots.test.mjs、docs/architecture/bot-proactivity.zh-CN.md（§3.2 重写为模板化）、docs/wiki/server/bots.md（§1 表 + §4.1 + 测试清单）、docs/wiki/README.md、feature_list.json、progress.md、本文件。
+- 验证：定向 3 files / 43 passed；eslint 0；tsc -b 通过；build 通过；全量 npm run test 后台运行中。
+- 未完 / 下一步：①等全量结果（如失败跟进修复）；②重启 QuickForge 后实测：新建 bot 应有 `.bot/heartbeat.md`；让某 bot 改自己的模板，看下一跳是否生效；③`.bot/heartbeat.md` 无独立 UI 查看入口（走设置弹窗的记忆编辑或文件管理器），暂不做。
+- 未提交，无 commit / tag / push。
 

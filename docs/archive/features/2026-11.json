@@ -1764,5 +1764,22 @@
     "verification": "全量 npm run test 523/523 文件全绿（新增 server reorder/rename 两例 + frontend bot-reorder-rename 9 例）；npm run lint 通过；npm run build 通过；npx tsc -b 通过；改动文件单独 eslint 0 problems。过程中修过一处自查发现的问题：改名输入分支排在前面会把 bot-mascot-composer-toggle 的头部 900 字符窗口断言挤出界，已把「非编辑态」分支换到前面（常路先行）。",
     "updatedAt": "2026-11-12",
     "boundaries": "不动目录名（目录与名字解耦是既有设计）；不搬 MEMORY.md 首行旧名（内容性问题，留给 bot 自进化）；不加新依赖（dnd-kit 已在用）；不做实机 UI 目验（无人值守，明早用户可验）。"
+  },
+  {
+    "id": "bot-heartbeat-template",
+    "title": "Bot 心跳指令模板化：可自我修改的操作模板 + 契约钉死",
+    "status": "done",
+    "summary": "bot-proactivity 的后续增强（用户追加需求）：心跳指令从硬编码改为三段拼装——固定头（处境 + botPath + 自进化授权：模板与记忆都可自己改）+ `.bot/heartbeat.md`（bot 创建时播种的操作模板，可自我修改，缺失/空白回退种子）+ 固定尾（[报告] 首行契约、不 commit、不提问）。分界口诀：每次醒来都一样的放指令、会变的放记忆；丢了会坏机制的钉服务端、丢了只是忘了的让 bot 自己记。种子刻意引导式（给判断标准，无场景化步骤），防过拟合。",
+    "dependencies": [
+      "bot-proactivity"
+    ],
+    "approach": "①server/bots.mjs：BOT_HEARTBEAT_TEMPLATE_FILE 常量（.bot/heartbeat.md）+ defaultHeartbeatTemplate() 四节引导式种子（半径/接上自己/做一件值得做的事/留痕回滚）；ensureBotWorkspace 只在不存在时播种不覆盖。②server/bot-runner.mjs：heartbeatInstruction 改 async，读模板（try/catch 回退）+ 头尾固定段拼装；调用处 await。③测试三分支：有模板用模板且契约在场、无模板回退种子、bot 重写模板后 [报告]/不 commit 仍存活；种子无场景化步骤断言。",
+    "files": [
+      "server/bot-runner.mjs、server/bots.mjs、tests/server/bots.test.mjs",
+      "docs/architecture/bot-proactivity.zh-CN.md（§3.2 重写）、docs/wiki/server/bots.md、docs/wiki/README.md"
+    ],
+    "verification": "定向 3 files / 43 passed；npx eslint 0 problems；npx tsc -b 通过；npm run build 通过；全量 npm run test（后台运行中，完成后如失败跟进）。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "不做：.bot/heartbeat.md 的独立 UI 查看入口（走现有文件途径）；模板版本管理/回滚（bot 自己留痕即可）；契约（[报告]/不 commit/自进化授权入口）的任何可配置化。"
   }
 ]

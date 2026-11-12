@@ -406,9 +406,14 @@ function MainApp() {
   // scope 一变派生值就是 false。但只按 scope 记仍会记住每个会话的开合——切走再切回
   // 曾展开的会话会重新弹开；因此下方在 scope 变化的渲染里同步清空记录，切换会话后
   // 一律默认收起，开合不做任何记忆。
-  const [workspaceInspectorOpenScopeId, setWorkspaceInspectorOpenScopeId] = useState<string | null>(null)
+  // 「打开者」scope 与左栏宽度均为 App 级 UI 状态，权威源在 ui-store（zustand
+  // 迁移守则：selector 订阅、Dispatch 兼容 setter）；App 只读消费，不再本地
+  // useState 重建第二份。
+  const workspaceInspectorOpenScopeId = useUIStore((s) => s.workspaceInspectorOpenScopeId)
+  const setWorkspaceInspectorOpenScopeId = useUIStore((s) => s.setWorkspaceInspectorOpenScopeId)
   // scope 变化时在渲染期同步清空「打开者」记录（React 官方的 render 期调态模式，
-  // 避免 effect 级联渲染，也绕开 react-hooks/set-state-in-effect）。
+  // 避免 effect 级联渲染，也绕开 react-hooks/set-state-in-effect）。observed 记录
+  // 只是「上次见到的 scope」派生辅助量（非权威状态），留在本地；清空写入 store。
   const [workspaceInspectorObservedScopeId, setWorkspaceInspectorObservedScopeId] = useState(workspaceInspectorRuntimeScopeId)
   if (workspaceInspectorObservedScopeId !== workspaceInspectorRuntimeScopeId) {
     setWorkspaceInspectorObservedScopeId(workspaceInspectorRuntimeScopeId)
@@ -416,8 +421,9 @@ function MainApp() {
   }
   const workspaceInspectorOpen = workspaceInspectorOpenScopeId === workspaceInspectorRuntimeScopeId
   const [desktopInspectorViewport, setDesktopInspectorViewport] = useState(false)
-  const [sidebarWidth, setSidebarWidth] = useState(320)
-  const handleSidebarWidthChange = useCallback((width: number) => setSidebarWidth(width), [])
+  const sidebarWidth = useUIStore((s) => s.sidebarWidth)
+  const setSidebarWidth = useUIStore((s) => s.setSidebarWidth)
+  const handleSidebarWidthChange = useCallback((width: number) => setSidebarWidth(width), [setSidebarWidth])
 
   // 1024px 对应 Tailwind lg 断点，与 WorkspaceInspector 的窄视口判定保持一致。
   // 不用 lazy initializer 读取 window.matchMedia：渲染期调用全局/有副作用的 API 会让

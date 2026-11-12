@@ -1903,6 +1903,12 @@ export class ServerAgent {
         if (toolEvent.toolCallId) {
           this.state.messages = upsertToolResult(this.state.messages, toolStartEventWithPartialResult(toolEvent, this.sessionId), true)
           this.state.pendingToolCalls = new Set([...this.state.pendingToolCalls, toolEvent.toolCallId])
+          // 工具开始执行意味着对应审批已落定：权威清除审批态（CAS 同
+          // approveToolCall/rejectToolCall，避免误杀期间到达的新审批）。
+          const settledApproval = this.state.pendingToolApproval
+          if (settledApproval && settledApproval.toolCallId === toolEvent.toolCallId) {
+            this.state.pendingToolApproval = null
+          }
           this.stateVersion++
           this.subagentRunPublisher.handleToolStart(toolEvent)
           this.workflowAgentRunPublisher.handleToolStart(toolEvent)
@@ -1997,7 +2003,9 @@ export class ServerAgent {
       case 'tool_approval_required': {
         const approvalEvent = event as unknown as ServerAgentPendingToolApproval
         if (typeof approvalEvent.toolCallId === 'string' && typeof approvalEvent.toolName === 'string') {
-          this.state.pendingToolApproval = approvalEvent
+          // 写入时保留事件归属（缺省视为本会话）：state 是 pending 审批的单一
+          // 权威，UI 只消费这里，不再在组件里用 ref 重建。
+          this.state.pendingToolApproval = { ...approvalEvent, sessionId: approvalEvent.sessionId ?? this.sessionId }
         }
         break
       }
@@ -2005,7 +2013,8 @@ export class ServerAgent {
       case 'ask_user_required': {
         const askEvent = event as unknown as ServerAgentPendingAsk
         if (typeof askEvent.askId === 'string' && Array.isArray(askEvent.questions)) {
-          this.state.pendingAsk = askEvent
+          // 同 tool_approval_required：归属随事件一起进权威状态。
+          this.state.pendingAsk = { ...askEvent, sessionId: askEvent.sessionId ?? this.sessionId }
         }
         break
       }

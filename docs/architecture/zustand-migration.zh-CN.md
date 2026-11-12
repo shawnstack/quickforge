@@ -22,7 +22,7 @@
 |---|---|---|---|
 | P1 | `task-toasts-store.ts` | toasts[] + addToast/dismiss | 非 React 代码可 `getState().addToast()` |
 | P1 | `sidebar-ordering-store.ts` | 区块顺序 + 视图/排序模式 | localStorage 持久化（action 内直写） |
-| P2 | `ui-store.ts` | useUIState 全部 16 项 UI 状态 + 3 toggle | 另含请求信号（见下） |
+| P2 | `ui-store.ts` | useUIState 全部 16 项 UI 状态 + 3 toggle | 另含请求信号（见下）；2026-11-12 god-module③ 追加 `sidebarWidth` 与 `workspaceInspectorOpenScopeId`（原 App.tsx 本地 useState，属 App 级纯 UI 状态，收敛后 App 只读消费，render 期 scope 清空模式保留、写入 store） |
 | P3 | `runtime-statuses-store.ts` | statuses / completedSessionIds | 轮询+SSE 副作用留 hook |
 | P3 | `update-check-store.ts` | result | fetch/持久化留 hook |
 | P3 | `agent-access-mode-store.ts` | agentAccessMode | initialize 留 hook |

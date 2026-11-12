@@ -13,6 +13,8 @@ export type ArtifactPreviewKind = ArtifactKind
 interface UIStore {
   sidebarOpen: boolean
   mobileSidebarOpen: boolean
+  /** 左侧栏实测宽度（ChatSidebar 经 ResizeObserver 上报的影子值的唯一权威源）。 */
+  sidebarWidth: number
   projectsCollapsed: boolean
   pinnedCollapsed: boolean
   conversationsCollapsed: boolean
@@ -20,6 +22,8 @@ interface UIStore {
   shareDialogOpen: boolean
   conversationMenuOpen: boolean
   workspaceInspectorRequest: WorkspaceInspectorOpenRequest | undefined
+  /** 工作区检查器的「打开者」scope（在哪个 runtimeScope 里打开的）；派生 open = scopeId 与当前 scope 相等。 */
+  workspaceInspectorOpenScopeId: string | null
   artifactPreviewOpen: boolean
   activeArtifactPath: string | undefined
   firstUseGuideDismissed: boolean
@@ -32,6 +36,7 @@ interface UIStore {
 
   setSidebarOpen: Dispatch<SetStateAction<boolean>>
   setMobileSidebarOpen: Dispatch<SetStateAction<boolean>>
+  setSidebarWidth: Dispatch<SetStateAction<number>>
   setProjectsCollapsed: Dispatch<SetStateAction<boolean>>
   setPinnedCollapsed: Dispatch<SetStateAction<boolean>>
   setConversationsCollapsed: Dispatch<SetStateAction<boolean>>
@@ -39,6 +44,7 @@ interface UIStore {
   setShareDialogOpen: Dispatch<SetStateAction<boolean>>
   setConversationMenuOpen: Dispatch<SetStateAction<boolean>>
   setWorkspaceInspectorRequest: Dispatch<SetStateAction<WorkspaceInspectorOpenRequest | undefined>>
+  setWorkspaceInspectorOpenScopeId: Dispatch<SetStateAction<string | null>>
   setArtifactPreviewOpen: Dispatch<SetStateAction<boolean>>
   setActiveArtifactPath: Dispatch<SetStateAction<string | undefined>>
   setFirstUseGuideDismissed: Dispatch<SetStateAction<boolean>>
@@ -82,6 +88,7 @@ let requestNonce = 0
 export const useUIStore = create<UIStore>((set) => ({
   sidebarOpen: true,
   mobileSidebarOpen: false,
+  sidebarWidth: 320,
   projectsCollapsed: false,
   pinnedCollapsed: false,
   conversationsCollapsed: false,
@@ -89,6 +96,7 @@ export const useUIStore = create<UIStore>((set) => ({
   shareDialogOpen: false,
   conversationMenuOpen: false,
   workspaceInspectorRequest: undefined,
+  workspaceInspectorOpenScopeId: null,
   artifactPreviewOpen: false,
   activeArtifactPath: undefined,
   firstUseGuideDismissed: false,
@@ -102,6 +110,8 @@ export const useUIStore = create<UIStore>((set) => ({
     set((s) => ({ sidebarOpen: typeof value === 'function' ? value(s.sidebarOpen) : value })),
   setMobileSidebarOpen: (value) =>
     set((s) => ({ mobileSidebarOpen: typeof value === 'function' ? value(s.mobileSidebarOpen) : value })),
+  setSidebarWidth: (value) =>
+    set((s) => ({ sidebarWidth: typeof value === 'function' ? value(s.sidebarWidth) : value })),
   setProjectsCollapsed: (value) =>
     set((s) => ({ projectsCollapsed: typeof value === 'function' ? value(s.projectsCollapsed) : value })),
   setPinnedCollapsed: (value) =>
@@ -118,6 +128,11 @@ export const useUIStore = create<UIStore>((set) => ({
     set((s) => ({
       workspaceInspectorRequest:
         typeof value === 'function' ? value(s.workspaceInspectorRequest) : value,
+    })),
+  setWorkspaceInspectorOpenScopeId: (value) =>
+    set((s) => ({
+      workspaceInspectorOpenScopeId:
+        typeof value === 'function' ? value(s.workspaceInspectorOpenScopeId) : value,
     })),
   setArtifactPreviewOpen: (value) =>
     set((s) => ({ artifactPreviewOpen: typeof value === 'function' ? value(s.artifactPreviewOpen) : value })),

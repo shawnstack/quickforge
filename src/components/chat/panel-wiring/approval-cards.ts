@@ -1,10 +1,14 @@
 /**
  * Pending tool-approval / ask-user card subsystem for `ChatPanelHost`.
  *
- * Cards render from pending state that arrives both through agent state and
- * through SSE events (the host stores event payloads in refs). This module
- * reconciles those pending sources into the DOM on every decoration pass, with
- * the same session guards as before.
+ * Single source of truth: `agent.state.pendingToolApproval` / `agent.state.pendingAsk`
+ * (the ServerAgent state machine). Pending payloads arrive through SSE events
+ * which ServerAgent adopts into its state (tagged with the owning sessionId);
+ * this module just reconciles that authoritative state into the DOM on every
+ * decoration pass, with the same session guards as before. Settling the card
+ * (approve / reject / answer / skip) clears the state inside ServerAgent's own
+ * approveToolCall / rejectToolCall / answerAsk (CAS by id), so no second copy
+ * of pending state exists on the panel side.
  *
  * Auto-compaction used to live here too (an `info`-toned approval card). It is a
  * React row inside the message list now (`surface/ContextCompactionStatusRow`)
@@ -15,31 +19,14 @@
  * decorate pass.
  */
 
-import type { ServerAgentAskAnswer, ServerAgentPendingAsk } from '@/lib/server-agent'
-import { injectApprovalCard, removeApprovalCard, type ToolApprovalSource } from '../panel-decoration/approval-card'
+import type { ServerAgentAskAnswer, ServerAgentPendingAsk, ServerAgentPendingToolApproval } from '@/lib/server-agent'
+import { injectApprovalCard, removeApprovalCard } from '../panel-decoration/approval-card'
 import { injectAskUserCard, removeAskUserCard } from '../panel-decoration/ask-user-card'
-
-export type PendingToolApproval = {
-  toolCallId: string
-  toolName: string
-  args: Record<string, unknown>
-  sessionId: string
-  source?: ToolApprovalSource
-}
-
-export type PendingAutoCompactApproval = {
-  approvalId: string
-  usage?: { percent?: number }
-  thresholdPercent?: number
-  sessionId: string
-}
-
-export type PendingAsk = ServerAgentPendingAsk & { sessionId: string }
 
 export type ApprovalCardsAgent = {
   sessionId: string
   state: {
-    pendingToolApproval?: PendingToolApproval | null
+    pendingToolApproval?: ServerAgentPendingToolApproval | null
     pendingAsk?: ServerAgentPendingAsk | null
   }
 }
@@ -63,8 +50,12 @@ export type ApprovalCardsDeps = {
   sideChatMode: boolean
   props: ApprovalCardsProps
   propsRef: { current: ApprovalCardCallbacks }
-  pendingApprovalRef: { current: PendingToolApproval | null }
-  pendingAskRef: { current: PendingAsk | null }
+}
+
+/** Session guard: a pending state without an owning sessionId (snapshot-sourced)
+ *  is treated as local — same fallback the host-side ref rebuild used to apply. */
+function belongsToSession(pending: { sessionId?: string } | null, sessionId: string): boolean {
+  return (pending?.sessionId ?? sessionId) === sessionId
 }
 
 export function syncPendingApprovalCards({
@@ -73,8 +64,6 @@ export function syncPendingApprovalCards({
   sideChatMode,
   props,
   propsRef,
-  pendingApprovalRef,
-  pendingAskRef,
 }: ApprovalCardsDeps) {
   if (sideChatMode) {
     removeApprovalCard(panel)
@@ -82,14 +71,11 @@ export function syncPendingApprovalCards({
     return
   }
 
-  // Render or remove approval card based on pending state.
+  // Render or remove approval card based on the authoritative pending state.
   // Must match the current session — otherwise a pending approval from a
   // different session would leak into this panel.
-  const pending = pendingApprovalRef.current ?? (() => {
-    const statePending = agent.state.pendingToolApproval
-    return statePending ? { ...statePending, sessionId: agent.sessionId } : null
-  })()
-  if (pending && pending.sessionId === agent.sessionId && typeof pending.toolCallId === 'string' && typeof pending.toolName === 'string') {
+  const pending = agent.state.pendingToolApproval ?? null
+  if (pending && belongsToSession(pending, agent.sessionId) && typeof pending.toolCallId === 'string' && typeof pending.toolName === 'string') {
     // Capture the toolCallId now — propsRef.current may change by click time
     const capturedToolCallId = pending.toolCallId
     injectApprovalCard(
@@ -97,8 +83,11 @@ export function syncPendingApprovalCards({
         panel,
         disabled: props.approvalReadOnly,
         disabledReason: props.approvalReadOnlyMessage,
-        onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); pendingApprovalRef.current = null; agent.state.pendingToolApproval = null; removeApprovalCard(panel) },
-        onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); pendingApprovalRef.current = null; agent.state.pendingToolApproval = null; removeApprovalCard(panel) },
+        // ServerAgent.approveToolCall / rejectToolCall settle the state (CAS
+        // by toolCallId) once the request succeeds; removing the card here is
+        // the optimistic UI, not a second authority.
+        onApprove: async () => { await propsRef.current.onApproveToolCall(capturedToolCallId); removeApprovalCard(panel) },
+        onReject: async () => { await propsRef.current.onRejectToolCall(capturedToolCallId); removeApprovalCard(panel) },
       },
       pending.toolName,
       capturedToolCallId,
@@ -109,13 +98,10 @@ export function syncPendingApprovalCards({
     removeApprovalCard(panel)
   }
 
-  // Render or remove the ask-user card based on pending state. Same
-  // session guard as the approval card.
-  const pendingAsk = pendingAskRef.current ?? (() => {
-    const statePending = agent.state.pendingAsk
-    return statePending ? { ...statePending, sessionId: agent.sessionId } : null
-  })()
-  if (pendingAsk && pendingAsk.sessionId === agent.sessionId && typeof pendingAsk.askId === 'string' && Array.isArray(pendingAsk.questions) && pendingAsk.questions.length > 0) {
+  // Render or remove the ask-user card based on the authoritative pending
+  // state. Same session guard as the approval card.
+  const pendingAsk = agent.state.pendingAsk ?? null
+  if (pendingAsk && belongsToSession(pendingAsk, agent.sessionId) && typeof pendingAsk.askId === 'string' && Array.isArray(pendingAsk.questions) && pendingAsk.questions.length > 0) {
     const capturedAskId = pendingAsk.askId
     const askDisabled = props.approvalReadOnly || !propsRef.current.onAnswerAsk
     injectAskUserCard(
@@ -123,14 +109,14 @@ export function syncPendingApprovalCards({
         panel,
         disabled: askDisabled,
         disabledReason: props.approvalReadOnly ? props.approvalReadOnlyMessage : undefined,
+        // ServerAgent.answerAsk clears the pending state (CAS by askId) after
+        // the request succeeds; the card removal below is the optimistic UI.
         onSubmit: async (answers, remark) => {
           await propsRef.current.onAnswerAsk?.(capturedAskId, answers, false, remark)
-          pendingAskRef.current = null
           removeAskUserCard(panel)
         },
         onSkip: async () => {
           await propsRef.current.onAnswerAsk?.(capturedAskId, [], true)
-          pendingAskRef.current = null
           removeAskUserCard(panel)
         },
       },

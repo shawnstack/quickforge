@@ -10,6 +10,7 @@
 | bot 记录 | `bots` store → `<dataDir>/storage/conversations/global/bots.json` |
 | bot 目录 | `<dataDir>/bots/bot-<id 前 8 位>/` |
 | 记忆 | `<bot 目录>/MEMORY.md` |
+| 心跳操作模板（可自我修改） | `<bot 目录>/.bot/heartbeat.md` |
 | 收件箱（可选） | `<bot 目录>/.bot/inbox.md` |
 | 会话 | 一条，id 记在 `bot.sessionId`，`idleRetention: 'always'` |
 
@@ -74,14 +75,9 @@
 
 醒来时用的是 `runPrompt(bot.sessionId, ...)`，推进同一条会话；会话忙（用户正在跟它说话）时这一班直接跳过，不排队、不抢上下文。
 
-### 4.1 心跳指令：引导式（主动性契约）
+### 4.1 心跳指令:固定头 + 可自我修改的操作模板 + 固定尾
 
-`heartbeatInstruction()` 是引导式交代，不是操作手册：不规定步骤、不规定记忆格式。要点（文案见 [Bot 主动性设计](../../architecture/bot-proactivity.zh-CN.md) §3.2）：
-
-- **半径三层**：自己目录直接写；全局经 quickforge-api 只读自发现（`sessions`）；动别人的项目走 `spawn` 绑定该项目的子会话，派活时带去「改动留工作区、不 commit、做完回报」。
-- **记忆自我迭代 + 渐进披露**：MEMORY.md 结构由 bot 自己定；保持一屏读完，细节拆成目录里的文件、只留线索。
-- **留痕可回滚**：改自己目录先备份；`.bot/worklog.md` 记一行（判活扫描忽略 `.bot/`，记录增长不会误触发醒来）。
-- **钉死三项**（机制不是风格）：`[报告]` 首行（服务端解析发通知）、不 commit（他人项目的撤销保障）、目录边界。
+指令 = 服务端拼的固定头(处境 + botPath + **自进化授权**:模板和记忆都可以自己改) + `.bot/heartbeat.md`(bot 的操作模板,创建时播种、可自我修改、缺失回退种子) + 固定尾(`[报告]` 契约、不 commit、不提问)。分界口诀:每次醒来都一样的放指令模板,每次醒来会变的放记忆;丢了会坏机制([报告]/不 commit/授权入口)的钉在服务端。种子保持引导式给判断标准,不写场景化步骤(防过拟合)。文案全文见 [Bot 主动性设计](../../architecture/bot-proactivity.zh-CN.md) §3.2。
 
 ### 4.2 `[报告]` 首行契约与通知
 
@@ -163,7 +159,7 @@
 
 ## 8. 测试
 
-- `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定、心跳指令的主动性契约（`[报告]`/spawn/不 commit/引导式）、种子模板（结构由我定 + 渐进披露约定）、`parseHeartbeatReport` 的首行契约。
+- `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定、心跳指令契约（固定头自进化授权 / 模板三分支：存在用模板、缺失回退种子、bot 重写后 `[报告]` 与不 commit 仍在场）、种子模板引导式（无场景化步骤）与播种不覆盖、`parseHeartbeatReport` 的首行契约。
 - `tests/server/bot-mascot.test.mjs`：吉祥物外观的归一化（默认值、大小写、部分合并、非法颜色退回、`animated` / `showOnComposer` 只认显式 `true`）与接口往返（POST/GET/列表都带 `mascot`，PATCH 只改一色不影响另一色、只改显示开关不重置动画）。
 - `tests/frontend/bot-mascot.test.ts`：状态映射优先级（纯函数）＋ 生成 CSS 的契约（6 状态 × 身体/左右眼关键帧、时长与几何数据一致、`prefers-reduced-motion` 与静态开关、弯月眼只在 `happy` 出现）＋ 组件用 CSS 变量换色 ＋ 溜达是单次动画而不是无限循环 ＋ 表情增强（豆豆眼几何、张望挂 `data-ambient`、八个符号的关键帧与绑定、关动画/减弱动效的降级）。
 - `tests/frontend/mascot-interactions.test.ts`：悬停 / 戳 / 连点转晕与东张西望的时机逻辑（纯控制器 + 假时钟：随机间隔 5~9s、一段 3.3s、悬停/点击立即打断、忙状态不张望）。

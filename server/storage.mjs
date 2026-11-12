@@ -5,6 +5,12 @@ import os from 'node:os'
 // --- Log retention ---
 const LOG_RETENTION_DAYS = 7
 const LOG_MAX_TOTAL_SIZE_MB = 100
+// 命令输出日志（logs/commands/）：每条命令一个文件，历史上单条能写出 GB 级
+// （2026-10-30 一次 1.8GB），目录曾积累 7.46GB。写入侧已加单文件 8MB 上限
+// （run-command.mjs 的 COMMAND_LOG_MAX_BYTES）；这里是目录级守门——保留期与
+// 总量双闸，随 cleanOldLogs 一起在启动时跑，不再依赖外部脚本兜底。
+const COMMAND_LOG_RETENTION_DAYS = 14
+const COMMAND_LOG_MAX_TOTAL_SIZE_MB = 512
 
 export async function cleanOldLogs() {
   try {
@@ -36,6 +42,40 @@ export async function cleanOldLogs() {
       const remaining = fileStats.filter((f) => f.mtime >= cutoff).sort((a, b) => a.mtime - b.mtime)
       for (const f of remaining) {
         if (totalSize <= LOG_MAX_TOTAL_SIZE_MB * 1024 * 1024) break
+        try { await fs.unlink(f.path); totalSize -= f.size } catch { /* ignore */ }
+      }
+    }
+    await cleanOldCommandLogs()
+  } catch {
+    // ignore cleanup errors
+  }
+}
+
+// Exported for tests：commands 目录「14 天保留 + 512MB 总量」双闸（见 tests/server/run-command-log-cap.test.mjs）。
+export async function cleanOldCommandLogs() {
+  try {
+    const dir = path.join(logsDir, 'commands')
+    const entries = await fs.readdir(dir).catch(() => [])
+    const cutoff = Date.now() - COMMAND_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    let totalSize = 0
+    const fileStats = []
+    for (const name of entries) {
+      const filePath = path.join(dir, name)
+      try {
+        const stat = await fs.stat(filePath)
+        totalSize += stat.size
+        fileStats.push({ path: filePath, mtime: stat.mtimeMs, size: stat.size })
+      } catch { /* file may have been removed */ }
+    }
+    for (const f of fileStats) {
+      if (f.mtime < cutoff) {
+        try { await fs.unlink(f.path); totalSize -= f.size } catch { /* ignore */ }
+      }
+    }
+    if (totalSize > COMMAND_LOG_MAX_TOTAL_SIZE_MB * 1024 * 1024) {
+      const remaining = fileStats.filter((f) => f.mtime >= cutoff).sort((a, b) => a.mtime - b.mtime)
+      for (const f of remaining) {
+        if (totalSize <= COMMAND_LOG_MAX_TOTAL_SIZE_MB * 1024 * 1024) break
         try { await fs.unlink(f.path); totalSize -= f.size } catch { /* ignore */ }
       }
     }

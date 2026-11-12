@@ -16,7 +16,7 @@
 | [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一 | 138 |
 | [skill-resources.mjs](../../../../server/tools/skill-resources.mjs) | `activate_skill` / `read_skill_resource` / `loadSkillToolContext` | 68 |
 | [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 98 |
-| [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘、后台 detach | 501 |
+| [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘（单文件 8MB 封顶）、后台 detach | 543 |
 | [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 106 |
 | [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳（写 `writeGlobalMemory`） | 11 |
 | [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 64 |

@@ -80,7 +80,7 @@ server/
 ├── dreaming/                 # 记忆整理员：逐会话采集 / 整理提示词 / agent 执行 / 整目录快照 / runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
-├── storage.mjs               # 文件存储层 (1319 行)
+├── storage.mjs               # 文件存储层 (1359 行)
 ├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
 ├── skills.mjs                # Agent Skills 管理和加载 (645 行)
@@ -267,7 +267,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于统一 Model Catalog，包含当前允许的自定义模型；当前 ACP 会话已经使用的隐藏模型会保留在该会话的选项中，但不能由其他会话重新选择。客户端调用 `session/set_config_option` 后会通过统一 resolver 校验并切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。新建会话时初始 Thinking Level 与 Web UI 保持一致：读取「最近一次选择的思考等级」（`settings['active-thinking-level']`），非推理模型强制 `off`，从未记录过则回落推理模型 `high`（见 `resolveInitialThinkingLevel` 与 `src/lib/pi-chat.ts resolveNewSessionThinkingLevel`）。
 - 工具审批事件会转成 ACP `session/request_permission`，客户端选择 allow/reject 后调用现有 `approveToolCall` / `rejectToolCall`。
 
-### storage.mjs (1319 行)
+### storage.mjs (1359 行)
 
 **用途**: 文件存储层。管理 JSON 文件的读写、存储布局迁移。
 

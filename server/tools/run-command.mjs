@@ -24,6 +24,10 @@ const MIN_RUN_COMMAND_TIMEOUT_MS = 1000
 const MAX_RUN_COMMAND_TIMEOUT_MS = 60 * 60 * 1000
 const COMMAND_PREVIEW_LINES = 200
 const COMMAND_PREVIEW_TOTAL_CHARS = 10000
+// 单个命令日志文件的写入上限（字节）。预览（尾窗 10k 字）不受影响；超过上限后
+// 输出文件停止追加，收尾时写一行截断标记。历史上一条跑飞的命令写出过 1.8GB
+// 的日志文件（2026-10-30），这个上限把它钉死在可诊断、不可失控的量级。
+const COMMAND_LOG_MAX_BYTES = 8 * 1024 * 1024
 
 function formatDurationMs(durationMs = 0) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000))
@@ -113,13 +117,52 @@ function safeLogFilePart(value, fallback) {
   return text || fallback
 }
 
+/**
+ * 有字节上限的命令日志写入器：超过 COMMAND_LOG_MAX_BYTES 后静默丢弃后续输出，
+ * close() 时在文件末尾补一行截断标记。写盘失败由原始流的 error 监听兜住，
+ * 不影响命令执行本身。
+ */
+// Exported for tests：命令日志 8MB 上限的行为契约（见 tests/server/run-command-log-cap.test.mjs）。
+export function createBoundedCommandLog(stream, maxBytes = COMMAND_LOG_MAX_BYTES) {
+  let written = 0
+  let truncated = false
+  return {
+    get truncated() {
+      return truncated
+    },
+    write(chunk) {
+      if (truncated) return
+      const text = String(chunk)
+      if (written + text.length > maxBytes) {
+        truncated = true
+        return
+      }
+      written += text.length
+      stream.write(text)
+    },
+    close(afterClose) {
+      const finish = () => stream.end(() => afterClose())
+      if (!truncated) {
+        finish()
+        return
+      }
+      stream.write('\n[quickforge] Log truncated: output capped at ' + maxBytes + ' bytes, further output discarded.\n')
+      finish()
+    },
+  }
+}
+
 async function createCommandLogStream(command, { cwd, description, toolCallId } = {}) {
   const dir = path.join(logsDir, 'commands')
   await fs.mkdir(dir, { recursive: true })
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
   const fileName = `${timestamp}_${safeLogFilePart(toolCallId, 'command')}.log`
   const outputFile = path.join(dir, fileName)
-  const stream = createWriteStream(outputFile, { flags: 'wx' })
+  const rawStream = createWriteStream(outputFile, { flags: 'wx' })
+  rawStream.on('error', () => {
+    // 写盘失败只影响日志完整性；命令结果不受影响（写超限由 wrapper 兜住）。
+  })
+  const stream = createBoundedCommandLog(rawStream)
   stream.write([
     `Command: ${command}`,
     description ? `Description: ${description}` : null,
@@ -129,6 +172,8 @@ async function createCommandLogStream(command, { cwd, description, toolCallId } 
   ].filter(Boolean).join('\n'))
   return { stream, outputFile }
 }
+
+// 兼容旧调用形态：写日志只经 wrapper（带 8MB 上限）。
 
 function writeCommandLog(stream, source, chunk) {
   stream.write(`\n[${source} ${new Date().toISOString()}]\n`)
@@ -187,9 +232,6 @@ export async function toolRunCommand(params, context, runtime = {}) {
     const log = await createCommandLogStream(command, { cwd, description, toolCallId: runtime.toolCallId })
     logStream = log.stream
     outputFile = log.outputFile
-    logStream.on('error', (error) => {
-      logError = error?.message || 'Failed to write command log.'
-    })
   } catch (error) {
     logError = error?.message || 'Failed to create command log.'
   }
@@ -292,7 +334,7 @@ export async function toolRunCommand(params, context, runtime = {}) {
         'Command finished.',
         '',
       ].filter((line) => line !== null).join('\n'))
-      logStream.end(() => afterClose(result))
+      logStream.close(() => afterClose(result))
     }
 
     const finish = ({ code = null, signal = null, error = null } = {}) => {

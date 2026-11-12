@@ -77,7 +77,9 @@
 
 ### 4.1 心跳指令:固定头 + 可自我修改的操作模板 + 固定尾
 
-指令 = 服务端拼的固定头(处境 + botPath + **自进化授权**:模板和记忆都可以自己改) + `.bot/heartbeat.md`(bot 的操作模板,创建时播种、可自我修改、缺失回退种子) + 固定尾(`[报告]` 契约、不 commit、不提问)。分界口诀:每次醒来都一样的放指令模板,每次醒来会变的放记忆;丢了会坏机制([报告]/不 commit/授权入口)的钉在服务端。种子保持引导式给判断标准,不写场景化步骤(防过拟合)。文案全文见 [Bot 主动性设计](../../architecture/bot-proactivity.zh-CN.md) §3.2。
+指令 = 服务端拼的固定头(处境 + botPath + **自进化授权**:模板和记忆都可以自己改 + **项目活派活半径**:发现/拆解/派活/验收自己做,实现一律 spawn 给绑定该项目的子会话) + `.bot/heartbeat.md`(bot 的操作模板,创建时播种、可自我修改、缺失回退种子) + 固定尾(`[报告]` 契约、不 commit、不提问)。分界口诀:每次醒来都一样的放指令模板,每次醒来会变的放记忆;丢了会坏机制([报告]/不 commit/授权入口/派活半径)的钉在服务端。种子保持引导式给判断标准,不写场景化步骤(防过拟合)。文案全文见 [Bot 主动性设计](../../architecture/bot-proactivity.zh-CN.md) §3.2。
+
+存量 bot 也有:`runBotHeartbeat` 每次开头跑一次幂等的 `ensureBotWorkspace`——建于模板化之前的 bot,下一次被 runner 扫到(最多 30 秒,或手动催醒)就会补上模板文件,已有记忆与已演化的模板不会被碰。
 
 ### 4.2 `[报告]` 首行契约与通知
 
@@ -106,6 +108,7 @@
 | PUT | `/api/bots/:id/memory` | 写 `MEMORY.md` |
 | POST | `/api/bots/:id/wake` | 立刻催醒一次（跳过「有没有活」的判断） |
 | POST | `/api/bots/:id/inbox` | 投喂：`{ text }` 追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间 |
+| POST | `/api/bots/:id/open-in-explorer` | 在系统文件管理器里打开这个 bot 的目录（`workspacePath`）；**只放行本机调用**，远端 / 局域网请求 403（与 `POST /api/project/:id/open-in-explorer` 同一条边界） |
 
 内置 `quickforge-api` skill 为上表提供命令行入口：`bots`（列表）、`bot`（详情）、`bot-create`（创建，心跳默认开，`--no-heartbeat` 建完即睡）、`bot-messages`（读会话尾部，只读不唤醒）、`bot-memory`（读记忆）、`bot-wake`（催醒）。删/改/写记忆没有子命令，界面专属（白名单裁决见 `docs/architecture/quickforge-api-skill.zh-CN.md` §4.1）。
 

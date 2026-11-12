@@ -22,6 +22,7 @@ import {
 } from '../bots.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
 import { runBotHeartbeat } from '../bot-runner.mjs'
+import { openPathInFileManager } from '../utils/platform.mjs'
 
 function requestError(message, statusCode = 400, errorCode = null) {
   const error = new Error(message)
@@ -112,7 +113,16 @@ async function deleteBotProject(projectId) {
   }
 }
 
-export async function handleBotsApi(req, res, url) {
+// 打开系统文件管理器是本机动作：局域网/远端调用会把窗口开到主人桌面上。
+// 与 project.mjs 的 open-in-explorer 同一条边界——路由文件各守一次，守卫就地写小。
+function assertLocalExternalAction(context) {
+  if (context?.isLocalRequest === true) return
+  const error = new Error('Opening applications is only allowed from this computer')
+  error.statusCode = 403
+  throw error
+}
+
+export async function handleBotsApi(req, res, url, context = {}) {
   const parts = url.pathname.split('/').filter(Boolean) // ['api','bots',...]
   const [, , rawId, rawSub] = parts
   const botId = rawId ? decodeSegment(rawId) : null
@@ -221,6 +231,17 @@ export async function handleBotsApi(req, res, url) {
     }
 
     throw requestError('Method not allowed', 405)
+  }
+
+  if (sub === 'open-in-explorer') {
+    // bot 目录是它自己的家（记忆、投喂、工作日志都在里面），设置页给一个直达入口。
+    // 目录不存在时 openPathInFileManager 自己抛 400，不用在这里先判一次。
+    if (req.method !== 'POST') throw requestError('Method not allowed', 405)
+    assertLocalExternalAction(context)
+    const bot = await requireBotRecord(botId)
+    await openPathInFileManager(bot.workspacePath)
+    sendJson(res, 200, { ok: true, path: bot.workspacePath })
+    return
   }
 
   if (sub === 'session') {

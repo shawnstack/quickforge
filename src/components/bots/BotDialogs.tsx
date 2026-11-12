@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2, Pencil } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { FolderOpen, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
   feedBot,
   fetchBotMemory,
+  heartbeatIntervalMinutes,
+  openBotWorkspace,
   patchBot,
   saveBotMemory,
+  splitHeartbeatInterval,
   type BotMascot as BotMascotSettings,
   type BotSummary,
+  type HeartbeatIntervalUnit,
 } from './bots-data'
 import { BotMascot } from './mascot/BotMascot'
 import { MASCOT_PALETTES } from './mascot/mascot-geometry'
@@ -20,7 +24,20 @@ const BUTTON = 'inline-flex h-8 items-center justify-center rounded-lg px-3 text
 const PRIMARY = `${BUTTON} bg-primary text-primary-foreground hover:bg-primary/90`
 const GHOST = `${BUTTON} border border-border text-muted-foreground hover:text-foreground`
 
-const INTERVAL_OPTIONS = [15, 30, 60, 180, 1440]
+/** 常用档位只是快捷键：真正的间隔由「数值 + 单位」决定，想设 7 分钟就设 7 分钟。 */
+const INTERVAL_PRESETS: Array<{ amount: number; unit: HeartbeatIntervalUnit }> = [
+  { amount: 5, unit: 'minutes' },
+  { amount: 15, unit: 'minutes' },
+  { amount: 30, unit: 'minutes' },
+  { amount: 1, unit: 'hours' },
+  { amount: 6, unit: 'hours' },
+  { amount: 1, unit: 'days' },
+]
+
+/** 档位归属判断用：把「数值 + 单位」折成分钟，和持久化的值比。 */
+function minutesOf(amount: number, unit: HeartbeatIntervalUnit) {
+  return heartbeatIntervalMinutes(amount, unit) ?? 0
+}
 
 /**
  * 弹窗里的开关行：label 左、switch 右，hint 换行弱化。
@@ -66,6 +83,12 @@ function SwitchRow({
       {hint ? <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</div> : null}
     </div>
   )
+}
+
+function intervalUnitLabel(unit: HeartbeatIntervalUnit) {
+  if (unit === 'days') return t('heartbeatUnitDays')
+  if (unit === 'hours') return t('heartbeatUnitHours')
+  return t('heartbeatUnitMinutes')
 }
 
 function minutesLabel(minutes: number) {
@@ -151,6 +174,11 @@ export function BotSettingsDialog({
   const [savingMemory, setSavingMemory] = useState(false)
   const [memorySaved, setMemorySaved] = useState(false)
   const [busy, setBusy] = useState(false)
+  // 打开目录是一次网络往返，给按钮一个转圈态，避免连点开出好几个窗口。
+  const [openingWorkspace, setOpeningWorkspace] = useState(false)
+  // 间隔输入用「数值 + 单位」草稿：回车 / 失焦才换算成分钟提交，避免每敲一个字符发一次 PATCH。
+  const [intervalDraft, setIntervalDraft] = useState(() =>
+    splitHeartbeatInterval(bot?.heartbeat?.intervalMinutes ?? 60))
   const [error, setError] = useState<string | null>(null)
   // 投喂：写进 .bot/inbox.md，不进会话消息流；投完清空，fedFlash 短暂提示。
   const [feedDraft, setFeedDraft] = useState('')
@@ -244,6 +272,22 @@ export function BotSettingsDialog({
     }
   }, [botId, onChanged])
 
+  const commitInterval = useCallback((draft: { amount: string; unit: HeartbeatIntervalUnit }) => {
+    const minutes = heartbeatIntervalMinutes(draft.amount, draft.unit)
+    if (minutes === null) {
+      // 空 / 0 / 非数字：不提交，把输入框拨回服务端现在的值，别让它停在无效状态。
+      setIntervalDraft(splitHeartbeatInterval(bot?.heartbeat?.intervalMinutes ?? 60))
+      return
+    }
+    // 提交后立刻换成规范化回显：填 3 分钟会显示成 5 分钟、填 60 分钟会显示成 1 小时，
+    // 用户看得见下限和单位换算到底起了什么作用——比在 effect 里跟着 prop 改写省一次级联渲染。
+    setIntervalDraft(splitHeartbeatInterval(minutes))
+    if (minutes === (bot?.heartbeat?.intervalMinutes ?? 60)) return
+    void update({ heartbeat: { intervalMinutes: minutes } })
+  }, [bot?.heartbeat?.intervalMinutes, update])
+
+  const commitIntervalDraft = useCallback(() => commitInterval(intervalDraft), [commitInterval, intervalDraft])
+
   const scheduleMascotSave = useCallback((next: BotMascotSettings) => {
     setMascotDraft(next)
     if (mascotTimer.current !== null) window.clearTimeout(mascotTimer.current)
@@ -256,13 +300,6 @@ export function BotSettingsDialog({
   useEffect(() => () => {
     if (mascotTimer.current !== null) window.clearTimeout(mascotTimer.current)
   }, [])
-
-  const intervalOptions = useMemo(() => {
-    const list = [...INTERVAL_OPTIONS]
-    const current = bot?.heartbeat?.intervalMinutes
-    if (current && !list.includes(current)) list.push(current)
-    return list.sort((a, b) => a - b)
-  }, [bot?.heartbeat?.intervalMinutes])
 
   if (!bot) return null
 
@@ -391,17 +428,68 @@ export function BotSettingsDialog({
             />
             <div className="flex items-center gap-3 py-2">
               <div className="min-w-0 flex-1 text-xs">{t('botHeartbeatInterval')}</div>
-              <select
-                className="h-7 rounded-lg border border-border bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
-                value={heartbeat?.intervalMinutes ?? 60}
+              <input
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                className="h-7 w-16 rounded-lg border border-border bg-background px-2 text-right text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                value={intervalDraft.amount}
                 disabled={busy}
                 aria-label={t('botHeartbeatInterval')}
-                onChange={(event) => void update({ heartbeat: { intervalMinutes: Number(event.target.value) } })}
+                onChange={(event) => setIntervalDraft((draft) => ({ ...draft, amount: event.target.value }))}
+                onBlur={commitIntervalDraft}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Enter') return
+                  event.preventDefault()
+                  commitIntervalDraft()
+                }}
+              />
+              <select
+                className="h-7 rounded-lg border border-border bg-background px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
+                value={intervalDraft.unit}
+                disabled={busy}
+                aria-label={t('botHeartbeatIntervalUnit')}
+                onChange={(event) => {
+                  const next = { ...intervalDraft, unit: event.target.value as HeartbeatIntervalUnit }
+                  setIntervalDraft(next)
+                  commitInterval(next)
+                }}
               >
-                {intervalOptions.map((minutes) => (
-                  <option key={minutes} value={minutes}>{minutesLabel(minutes)}</option>
-                ))}
+                <option value="minutes">{t('heartbeatUnitMinutes')}</option>
+                <option value="hours">{t('heartbeatUnitHours')}</option>
+                <option value="days">{t('heartbeatUnitDays')}</option>
               </select>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              {INTERVAL_PRESETS.map((preset) => {
+                const active = minutesOf(preset.amount, preset.unit) === (heartbeat?.intervalMinutes ?? 60)
+                return (
+                  <button
+                    key={`${preset.amount}${preset.unit}`}
+                    type="button"
+                    className={cn(
+                      'h-6 rounded-full border px-2 text-[11px] transition-colors disabled:cursor-not-allowed',
+                      active
+                        // 选中态与吉祥物色板同一套写法：语义色受旧产物白名单约束，用 color-mix 给透明度。
+                        ? 'border-[color-mix(in_oklab,var(--ring)_70%,transparent)] text-foreground'
+                        : 'border-border text-muted-foreground hover:text-foreground',
+                    )}
+                    disabled={busy}
+                    aria-pressed={active}
+                    onClick={() => {
+                      const next = { amount: String(preset.amount), unit: preset.unit }
+                      setIntervalDraft(next)
+                      commitInterval(next)
+                    }}
+                  >
+                    {`${preset.amount} ${intervalUnitLabel(preset.unit)}`}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="mt-1 text-[11px] leading-4 text-muted-foreground">
+              {minutesLabel(heartbeat?.intervalMinutes ?? 60)}
             </div>
             <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botHeartbeatHint')}</div>
           </section>
@@ -493,6 +581,28 @@ export function BotSettingsDialog({
             <div className="mb-1 text-[11px] leading-4 text-muted-foreground">{t('botWorkspace')}</div>
             <div className="truncate rounded-lg border border-border px-3 py-2 font-mono text-xs leading-5 text-muted-foreground">
               {bot.workspacePath}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <button
+                type="button"
+                className={cn(GHOST, 'gap-1.5')}
+                disabled={openingWorkspace || !botId}
+                onClick={async () => {
+                  if (!botId) return
+                  setOpeningWorkspace(true)
+                  setError(null)
+                  try {
+                    await openBotWorkspace(botId)
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err))
+                  } finally {
+                    setOpeningWorkspace(false)
+                  }
+                }}
+              >
+                {openingWorkspace ? <Loader2 className="size-4 animate-spin" /> : <FolderOpen className="size-4" />}
+                {t('openInExplorer')}
+              </button>
             </div>
             <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{t('botWorkspaceHint')}</div>
           </section>

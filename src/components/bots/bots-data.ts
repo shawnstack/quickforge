@@ -123,6 +123,47 @@ export async function wakeBot(botId: string): Promise<{ woke: boolean; reason: s
   })
 }
 
+/** 心跳间隔下限，与服务端 `MIN_HEARTBEAT_MINUTES` 对齐：低于它的输入会向上夹紧。 */
+export const MIN_HEARTBEAT_MINUTES = 5
+
+/** 间隔输入的单位。服务端只认分钟，单位只是输入时的换算。 */
+export type HeartbeatIntervalUnit = 'minutes' | 'hours' | 'days'
+
+const UNIT_MINUTES: Record<HeartbeatIntervalUnit, number> = { minutes: 1, hours: 60, days: 1440 }
+
+/**
+ * 分钟数 → 「数值 + 单位」：优先用能整除的最大单位回显。
+ * 120 显示成「2 小时」、90 保持「90 分钟」——不把用户设的 90 分钟假装成 1.5 小时。
+ */
+export function splitHeartbeatInterval(minutes: number): { amount: string; unit: HeartbeatIntervalUnit } {
+  const value = Math.max(MIN_HEARTBEAT_MINUTES, Math.round(Number(minutes) || MIN_HEARTBEAT_MINUTES))
+  if (value % 1440 === 0) return { amount: String(value / 1440), unit: 'days' }
+  if (value % 60 === 0) return { amount: String(value / 60), unit: 'hours' }
+  return { amount: String(value), unit: 'minutes' }
+}
+
+/**
+ * 「数值 + 单位」→ 分钟数。
+ * 返回 null 表示这次输入不能提交（空、0、负数、非数字）——调用方据此保留原值，不要猜。
+ */
+export function heartbeatIntervalMinutes(
+  amountInput: string | number,
+  unit: HeartbeatIntervalUnit,
+): number | null {
+  const raw = typeof amountInput === 'number' ? amountInput : Number(String(amountInput).trim())
+  if (!Number.isFinite(raw) || raw <= 0) return null
+  const minutes = Math.round(raw * (UNIT_MINUTES[unit] ?? 1))
+  return Math.max(MIN_HEARTBEAT_MINUTES, minutes)
+}
+
+/** 在系统文件管理器里打开这个 bot 的目录。服务端只放行本机调用，远端会拿到 403。 */
+export async function openBotWorkspace(botId: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`/api/bots/${encodeURIComponent(botId)}/open-in-explorer`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
 /** 投喂：写进 .bot/inbox.md。服务端只提前节拍不直接唤醒，30 秒内 runner 会叫醒它。 */
 export async function feedBot(botId: string, text: string): Promise<void> {
   await requestJson<{ ok: boolean }>(`/api/bots/${encodeURIComponent(botId)}/inbox`, {

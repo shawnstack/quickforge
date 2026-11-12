@@ -3,6 +3,17 @@ import { access, mkdtemp, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 
+// open-in-explorer 会真的弹出系统窗口：这里把平台动作换成 spy，只验路由与本机边界。
+vi.mock('../../../server/utils/platform.mjs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    openPathInFileManager: vi.fn(),
+    openPathInVSCode: vi.fn(),
+    openPathInIDEA: vi.fn(),
+  }
+})
+
 function mockResponse() {
   return {
     status: null,
@@ -30,6 +41,13 @@ async function callBots(method, url, body) {
   const { handleBotsApi } = await import('../../../server/routes/bots.mjs')
   const res = mockResponse()
   await handleBotsApi(mockRequest(method, body), res, new URL(url))
+  return res
+}
+
+async function callBotsWithContext(method, url, body, context) {
+  const { handleBotsApi } = await import('../../../server/routes/bots.mjs')
+  const res = mockResponse()
+  await handleBotsApi(mockRequest(method, body), res, new URL(url), context)
   return res
 }
 
@@ -296,5 +314,34 @@ describe('bots API', () => {
 
   it('404s an unknown bot', async () => {
     await expectRejection(callBots('GET', 'http://localhost/api/bots/nope'), 404)
+  })
+
+  it('opens the bot folder in the file manager for local callers only', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'open-dir' })
+    const bot = created.body.bot
+    const { openPathInFileManager } = await import('../../../server/utils/platform.mjs')
+
+    const local = await callBotsWithContext(
+      'POST',
+      `http://localhost/api/bots/${encodeURIComponent(bot.id)}/open-in-explorer`,
+      undefined,
+      { isLocalRequest: true },
+    )
+    expect(local.status).toBe(200)
+    expect(local.body).toEqual({ ok: true, path: bot.workspacePath })
+    expect(openPathInFileManager).toHaveBeenCalledWith(bot.workspacePath)
+
+    // 远端（局域网客户端）不能把窗口开到主人桌面上：403，且平台动作不被触发。
+    openPathInFileManager.mockClear()
+    await expectRejection(
+      callBotsWithContext(
+        'POST',
+        `http://localhost/api/bots/${encodeURIComponent(bot.id)}/open-in-explorer`,
+        undefined,
+        { isLocalRequest: false },
+      ),
+      403,
+    )
+    expect(openPathInFileManager).not.toHaveBeenCalled()
   })
 })

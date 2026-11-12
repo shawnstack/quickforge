@@ -526,7 +526,7 @@ async function handleApi(req, res, url, requestContext = {}) {
 
   // Bot routes（一个 bot = 一条记录 + 独占目录 + 一条持久会话）
   if (pathname === '/api/bots' || pathname.startsWith('/api/bots/')) {
-    await handleBotsApi(req, res, url)
+    await handleBotsApi(req, res, url, requestContext)
     return
   }
 

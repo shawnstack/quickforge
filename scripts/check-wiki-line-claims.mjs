@@ -36,9 +36,18 @@ const strict = process.argv.includes('--strict')
 const EXT = '(?:tsx|mjs|cjs|ts)'
 const PAREN = new RegExp('([A-Za-z0-9._/-]+?\\.' + EXT + ')[^()\\n]{0,60}?[（(]\\s*(\\d{2,5})\\s*行', 'g')
 const CELL = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|[^|]*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
+// 反引号式表格行「| `名.ext` | N | …」——本仓库 wiki 的主流写法，2026-11-13 前一直无校验
+// （文档bot 用 backtick-claims.mjs 扫出 77 条隐身声明、2 条漂移后收编为第四形态）。
+const BACKTICK = new RegExp('^\\|\\s*`([A-Za-z0-9._/-]+?\\.' + EXT + ')`\\s*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git'])
 // 出现在 wiki 里但不是本仓库文件的第三方库名：只打印，不计入 unresolved。
 const NON_REPO_FILES = new Set(['xterm.js', 'highlight.js', 'jszip.min.js', 'index.html'])
+// 用户在途 WIP 的已知漂移，显式豁免（打印提示、不计 bad）——落地后必须删除本条目，
+// 届时该声明会回到正常判定。文档bot 的底单：.bot/reports/table-cols-backlog.md（文档bot 侧）。
+const WIP_EXEMPT = new Map([
+  // [wiki 相对路径, 行号集合]：src/lib/README.md:117 slash-catalog.ts 写 113、实测 112（用户 slash-catalog 在途）
+  ['src/lib/README.md', new Set([117])],
+])
 const MIN_MATCHED = 100
 
 function wc(file) {
@@ -88,10 +97,12 @@ let resolved = 0
 let historical = 0
 let unresolved = 0
 let nonRepo = 0
+let exempt = 0
 let bad = 0
 const driftDetails = []
 const unresolvedDetails = []
 const nonRepoDetails = []
+const exemptDetails = []
 
 for (const file of listWikiReadmes(WIKI)) {
   const rel = path.relative(WIKI, file).replace(/\\/g, '/')
@@ -137,6 +148,12 @@ for (const file of listWikiReadmes(WIKI)) {
       const at = line.indexOf(docStr + ' 行')
       const before = at > 3 ? line.slice(at - 3, at) : ''
       const isHistorical = line.includes('→') || /原\s*$/.test(before)
+      // WIP 豁免优先于 historical/bad：在途文件的漂移是预期状态，不该挡提交闸。
+      if (actual !== Number(docStr) && WIP_EXEMPT.get(rel)?.has(lineIndex + 1)) {
+        exempt += 1
+        exemptDetails.push(rel + ':' + (lineIndex + 1) + '  ' + name + '  doc=' + docStr + ' actual=' + actual + '  [WIP 豁免，落地后删条目]')
+        return
+      }
       if (verbose) console.log('check ' + rel + ':' + (lineIndex + 1) + '  ' + name + '  doc=' + docStr + ' actual=' + actual)
       if (actual === Number(docStr)) {
         resolved += 1
@@ -151,21 +168,23 @@ for (const file of listWikiReadmes(WIKI)) {
     }
     for (const match of line.matchAll(PAREN)) verify(match[1], match[2])
     for (const match of line.matchAll(CELL)) verify(match[1], match[2])
+    for (const match of line.matchAll(BACKTICK)) verify(match[1], match[2])
   })
 }
 
 console.log(
   'wiki line claims: matched=' + matched + ' resolved=' + resolved + ' historical=' + historical +
-  ' unresolved=' + unresolved + ' nonRepo=' + nonRepo + ' bad=' + bad
+  ' unresolved=' + unresolved + ' nonRepo=' + nonRepo + ' exempt=' + exempt + ' bad=' + bad
 )
 for (const detail of driftDetails) console.log('  DRIFT ' + detail)
 for (const detail of unresolvedDetails) console.log('  SKIP  ' + detail)
 if (verbose) for (const detail of nonRepoDetails) console.log('  LIB   ' + detail)
+for (const detail of exemptDetails) console.log('  WIP   ' + detail)
 
 // 护栏 1：各分桶必须刚好把 matched 分完（漏桶 = 有声明没被任何分支处理）。
-const bucketed = resolved + historical + unresolved + nonRepo + bad
+const bucketed = resolved + historical + unresolved + nonRepo + exempt + bad
 if (bucketed !== matched) {
-  console.error('  COUNT MISMATCH: matched=' + matched + ' but resolved+historical+unresolved+nonRepo=' + bucketed)
+  console.error('  COUNT MISMATCH: matched=' + matched + ' but resolved+historical+unresolved+nonRepo+exempt=' + bucketed)
   process.exit(3)
 }
 // 护栏 2：规模哨兵——matched 掉下来通常意味着正则被文档写法变化打穿了。

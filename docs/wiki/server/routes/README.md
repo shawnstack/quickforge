@@ -24,9 +24,9 @@
 | `hooks.mjs` | 52 | Hooks 手动测试与最近执行记录查询 |
 | `scheduled-tasks.mjs` | 194 | 定时任务管理路由（薄路由层）；领域逻辑拆至 server 根目录 `scheduled-task-{store,executor,runner,instruction-parser}.mjs`，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 152 | 分享管理 |
-| `side-chat.mjs` | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
-| `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
-| `session-assets.mjs` | 当前会话生成图片资产的同源二进制读取 |
+| `side-chat.mjs` | 320 | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
+| `shared-conversation.mjs` | 486 | 共享会话查看与共享图片资产读取 |
+| `session-assets.mjs` | 49 | 当前会话生成图片资产的同源二进制读取 |
 | `backup.mjs` | 865 | 数据备份和恢复（普通 HTTP 入口仅允许 settings sections；权威会话/分享/LAN 访问备份由内部 capability + maintenance 路径使用） |
 | `lan-access.mjs` | 432 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
@@ -37,7 +37,7 @@
 | `workspace-file-service.mjs` | 193 | 文本读取、语言/MIME、预览安全校验与 ETag、外部路径打开；本机 HTTP 门禁仍在入口 |
 | `workspace-request-control.mjs` | 42 | 请求取消信号和清理、AbortError识别、原进程树终止；Git/browser共同使用 |
 | `static.mjs` | 160 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
-| `bots.mjs` | 311 | Bots 常驻伴生会话管理（/api/bots*：列表、详情、创建、唤醒、消息查看） |
+| `bots.mjs` | 321 | Bots 常驻伴生会话管理（/api/bots*：列表、详情、创建、唤醒、消息查看） |
 | `dreaming.mjs` | 180 | 记忆整理（Dreaming）设置、手动 run、经验与运行历史路由（/api/dreaming/*） |
 | `mcp.mjs` | 50 | MCP 服务器配置与连接状态查询（/api/mcp*） |
 | `memory.mjs` | 32 | 全局记忆 MEMORY.md 读写（/api/memory） |

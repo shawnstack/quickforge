@@ -27,6 +27,7 @@ import { agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types
 import { randomId } from '@/lib/random-id'
 import { useAgentSessionStore } from '@/stores/agent-session-store'
 import { disposeAgentTask, selectAgentTaskEvictions, touchAgentTask } from '@/lib/agent-task-retention'
+import { shouldSkipSessionReload } from '@/lib/session-reload-guard'
 import { drainStoredMessageQueue, pauseStoredMessageQueue } from '@/lib/message-queue-drainer'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { t } from '@/lib/i18n'
@@ -490,6 +491,12 @@ export function useAgentManager(deps: AgentManagerDeps): AgentManager {
         if (!isLatestRequest()) return false
 
         const runningTask = taskMapRef.current.get(sessionId)
+        // 同会话重复点击（如重复点同一个 bot）：视图已是该会话且 agent 引用
+        // 未变，加载是纯重复操作，直接早退。与 beginSessionTransition 的过渡
+        // 遮罩短路语义对齐（session-open-fast-path §2.2）。
+        if (shouldSkipSessionReload({ sessionId, runningTask, currentSessionId: currentSessionIdRef.current, viewAgent: agentRef.current })) {
+          return true
+        }
         if (runningTask) {
           if (runningTask.scope === 'project' && runningTask.project?.id && activeProjectRef.current?.id !== runningTask.project.id) {
             try {

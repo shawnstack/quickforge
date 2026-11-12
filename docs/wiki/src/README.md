@@ -15,8 +15,8 @@ src/
 │   ├── sidebar/         # 侧边栏
 │   ├── terminal/         # xterm.js 多终端 Dock
 │   ├── ui/              # 基础 UI 组件
-├── hooks/               # 自定义 React Hooks (24 个)，详见 [hooks 文档](hooks/README.md)
-├── lib/                 # 前端工具库 (87 个模块)，详见 [lib 文档](lib/README.md)
+├── hooks/               # 自定义 React Hooks (29 个)，详见 [hooks 文档](hooks/README.md)
+├── lib/                 # 前端工具库 (119 个顶层模块，另含 types/、tool-renderers/ 子目录)，详见 [lib 文档](lib/README.md)
 ├── stores/              # Zustand 状态仓库（App 级 UI/会话域内存状态，10 个 store；兼容层模式见 [状态管理迁移](../../architecture/zustand-migration.zh-CN.md)）
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
 ├── App.tsx              # 主应用组件 (1970 行；区域组件在 components/app/，状态域 hooks 见 hooks 文档)

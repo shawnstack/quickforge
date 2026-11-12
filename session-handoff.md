@@ -3,9 +3,12 @@
 只保留最近一轮交接；更早轮次由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/handoffs/`（按月分文件）。
 新一轮的「本轮」段落加在最上面。
 
-## 本轮：拆分 scheduled-tasks.mjs 上帝模块（god-module-decomposition ①）（2026-11-12 00:30）
+## 本轮：吉祥物符号观感微调（思考点外移 + 感叹号柔化）（2026-11-12 09:05）
 
-- 目标：把 1120 行四合一的 `server/routes/scheduled-tasks.mjs` 拆成薄路由 + 四个职责模块，HTTP 行为与 API 契约完全不变（纯重构），全量验证全绿。
-- 改动：新增 `server/scheduled-task-store.mjs`（354 行）/ `scheduled-task-executor.mjs`（443 行）/ `scheduled-task-runner.mjs`（117 行）/ `scheduled-task-instruction-parser.mjs`（113 行）；`server/routes/scheduled-tasks.mjs` 缩为薄路由（194 行，只导出 `handleScheduledTasksApi`）；`server/index.mjs` 的 import 拆两行（生命周期符号改自 `./scheduled-task-runner.mjs`）；`tests/server/scheduled-tasks.execution.test.mjs`、`scheduled-tasks.commands.test.mjs` 的 start/stop/recover 调用改直连 runner 模块；`docs/wiki/server/routes/README.md`、`docs/wiki/server/README.md` 同步；feature_list.json 仅更新本 feature 的 updatedAt 与 summary 追记。未 commit（用户未要求）。
-- 验证：vitest 相关批 4 文件 127 例全绿；npx eslint 改动文件 0 problems；npx tsc -b 通过；npm run build 通过；npm run test 全量 524 文件 5797 passed + 2 skipped、0 失败。
-- 未完 / 下一步：①god-module-decomposition 剩 ②-⑦（下一项建议 `src/components/skills-dialog.tsx`，注意其组件内数据层抽离）；②本改动未 commit，需要提交时先跑 `node scripts/archive-harness.mjs`；③服务端改动需重启 QuickForge 才生效（重启会杀掉所有在跑会话，先排 [自约] 班）；④工作区还有一个既有未跟踪文件 `docs/design/bot-mascot/self-review-board.html`，不属于本轮、不要动。
+- 目标：用户实机反馈两条：①「thinking 的点像插在头上」；②感叹号太突兀。均已修完。
+- 结论：①思考「…」三点整体外移成 45° 直线（(398,136)/(424,110)/(452,82)，大小不变），第一颗点离球边从约 5 → 约 28 单位，thinking 旋转/上浮/压扁与动画下探的最坏间隙都核过 ≥15——几何改在 `BotMascot.tsx`（dots 坐标在组件、不在生成 CSS）；②感叹号柔化在 08:45 轮完成（! 条 13×44→10×36、!! 13×40→10×32，动效去弹射去猛晃改「轻浮出→停住→轻飘走」，改在 `generate-bot-gif.py` + `emit_web()` 重导）。评审板 `docs/design/bot-mascot/self-review-board.html`（直连产品 CSS 定格帧 + Chrome 无头截图 `%TEMP%\mascot-self-review.png`）两次复查均通过。
+- 改动文件：`src/components/bots/mascot/BotMascot.tsx`、生成产物 `src/components/bots/mascot/mascot-anim.css`（感叹号轮）、`docs/design/bot-mascot/{generate-bot-gif.py, self-review-board.html}`、`progress.md`、本文件。
+- 验证：两轮均为针对性 `bot-mascot*.test.ts`（49 例）+ `npm run lint`（0 问题）+ `npm run build`（通过）。
+- 未完 / 下一步：①用户硬刷新确认思考点新位置；②两个待拍板项：张望「?」从系统字体改几何 path、79px 下 zZ/星星加大——用户点头即照同一路径（改生成脚本/组件 → 重导 → 评审板重截核查 → 针对性验证）；③纯前端 CSS/几何改动，无需重启服务端；④未 commit。
+- 注意：与 god-module-decomposition ②（skills-dialog 拆分）并行，状态三件套基于其最新内容插入。
+

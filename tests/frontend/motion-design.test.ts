@@ -136,7 +136,7 @@ describe('motion design batch 2', () => {
 
   it('reuses the dialog enter classes in the four large feature dialogs', () => {
     const dialogs = [
-      '../../src/components/skills-dialog.tsx',
+      '../../src/components/skills/SkillsManagerPanel.tsx',
       '../../src/components/git/GitGraphDialog.tsx',
       '../../src/components/share/ShareConversationDialog.tsx',
       '../../src/components/project-directory-picker.tsx',

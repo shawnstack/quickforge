@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
 import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
-import { SkillsDialog } from '@/components/skills-dialog'
+import { SkillsDialog } from '@/components/skills'
 import { BotSettingsDialog, NewBotDialog } from '@/components/bots/BotDialogs'
 import { BotMascot } from '@/components/bots/mascot/BotMascot'
 import { useMascotStroll } from '@/components/bots/mascot/use-mascot-stroll'

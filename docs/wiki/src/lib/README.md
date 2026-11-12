@@ -419,6 +419,14 @@
 - 浏览器通知点击由 Service Worker 聚焦同源窗口并发消息，页面监听消息后派发已有会话打开事件；原生通知点击也复用该会话打开逻辑。通知正文不包含完整 AI 输出。
 - 不提供 Web Push/FCM；普通浏览器页面或原生 App 无法继续接收现有 SSE 时，不保证任务完成通知。
 
+### skills-client.ts
+
+**用途**: Skills 域 HTTP 客户端（`/api/skills` 系列），share-client 同款私有 `requestJson` 模式。
+
+- 导出 `fetchSkills`（GET 列表 + 选中集 + 搜索路径）、`fetchSkillContent`（GET `SKILL.md` 内容）、`saveSkillsSelection`（PUT project/global 选中集）与域类型 `SkillsPayload` / `SaveSkillsPayload` / `SkillContent`。
+- 统一 JSON 解析与错误处理：非 2xx 时抛 `payload?.error || HTTP <status>`。
+- 乐观更新与回滚的编排不在本文件，见 `src/hooks/use-skills-manager.ts`；消费方为 Skills 管理面板（`components/skills/`）。
+
 ## 设置选项卡
 
 设置页已全部自研为 React：`settings-tabs.ts` 组装 tab 定义，`react-settings-tabs.tsx` 按 tabKey 懒加载渲染，页面文件位于 `src/components/settings/tabs/`（Appearance / DefaultOptions / Memory / CustomProviders / Backup / ArchivedConversations / LanAccess / About / ProjectCommands / Hooks，共享 `shared.tsx` 与 `SettingsNumberInput.tsx`，下拉复用 `../SettingsSelect.tsx`）。模型与提供商页（CustomProviders）已重构为分层设计：`tabs/CustomProvidersSettingsTab.tsx` 只做编排（存储读写、active 生命周期、`customProvider` 深链选中），三层子组件位于 `settings/custom-providers/`（`provider-list-pane` L1 列表+预设弹层 / `connection-section` L2 连接（协议下拉、密钥行内独立保存、请求头折叠）/ `model-list-section` L3 模型（行内编辑独立保存、可见性即时写回、模型级测试、从服务器拉取）），`shared.ts` 承载预设与 buildModel），样式在 `styles/settings/custom-providers.css`（主从布局，窄屏抽屉）。存储结构不变（`custom-providers` + `provider-keys`，连接层保存 = 读-改-写整个提供商并迁移改名密钥）。无 `SettingsTab` 基类、无自定义元素渲染、无命令式桥（`extends SettingsTab` / `replaceChildren` / `createRoot` 由 `tests/frontend/settings-workspace-react.test.ts` 守卫）。Hooks 页（`HooksSettingsTab.tsx`）无总开关：说明文字收进标题行 `InfoTip`，提供 Hook 增删改与 Hook 级启停、编辑器内手动测试（`POST /api/hooks/test`，按 `{execution}` 信封解析）与执行记录分页列表（`GET /api/hooks/executions?limit=20&offset=`：20 条/页、页码/总数摘要与上下翻页，mount 加载、加载失败可重试且重试保留当前页，可展开失败输出；记录由 server 持久化，上限 300 条、重启后保留）；存量 `enabled: false` 在下次保存时重置为 `true`（server 引擎仍按该字段过滤）。

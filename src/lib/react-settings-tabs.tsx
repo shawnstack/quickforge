@@ -15,7 +15,7 @@ const ProjectCommandsSettingsTab = lazy(() => import('@/components/settings/tabs
 const HooksSettingsTab = lazy(() => import('@/components/settings/tabs/HooksSettingsTab').then((m) => ({ default: m.HooksSettingsTab })))
 const AgentProfilesPage = lazy(() => import('@/components/agent-profiles/AgentProfilesPage').then((m) => ({ default: m.AgentProfilesPage })))
 const McpServersPanel = lazy(() => import('@/components/mcp-servers-dialog').then((m) => ({ default: m.McpServersPanel })))
-const SkillsManagerPanel = lazy(() => import('@/components/skills-dialog').then((m) => ({ default: m.SkillsManagerPanel })))
+const SkillsManagerPanel = lazy(() => import('@/components/skills').then((m) => ({ default: m.SkillsManagerPanel })))
 const PluginsPage = lazy(() => import('@/components/plugins/PluginsPage').then((m) => ({ default: m.PluginsPage })))
 const ScheduledTasksPage = lazy(() => import('@/components/scheduled-tasks/ScheduledTasksPage').then((m) => ({ default: m.ScheduledTasksPage })))
 const DreamingSettingsTab = lazy(() => import('@/components/dreaming/DreamingSettingsTab').then((m) => ({ default: m.DreamingSettingsTab })))

@@ -190,7 +190,7 @@ components/
 ├── ErrorBoundary.tsx               # 错误边界组件 (53 行)
 ├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (34 行)
 ├── project-directory-picker.tsx    # 项目目录选择器 (247 行)
-└── skills-dialog.tsx               # Skills 管理面板与项目技能对话框
+└── skills/                         # Skills 管理面板（数据层在 hooks/use-skills-manager + lib/skills-client，见下文 skills/ 小节）
 ```
 
 ## 核心组件说明
@@ -315,14 +315,15 @@ components/
 - 创建/编辑弹窗支持用默认模型 AI 填充 Agent 名称、显示名称、描述和系统提示词，不自动修改工具白名单或运行限制
 - 展示内置 Agent Profiles；内置项的定义只读，但允许设置继承模型或固定模型
 
-### skills-dialog.tsx
+### skills/
 
-- `SkillsManagerPanel` 提供可嵌入的 Skills 选择、搜索、阅读和保存能力
+- `SkillsManagerPanel`（`skills/SkillsManagerPanel.tsx`）提供可嵌入的 Skills 选择、搜索、阅读和保存能力；数据层不在组件内——列表/详情加载与选中集的乐观保存、回滚集中在 `src/hooks/use-skills-manager.ts`，HTTP 调用在 `src/lib/skills-client.ts`
 - 全局 Skills 通过设置页 Skills tab 嵌入展示，左侧 Skills 图标会跳转到该设置 tab
 - 项目级 Skills 仍由项目菜单打开 `SkillsDialog` 对话框
 - 列表支持关键字（名称、描述、标签、触发词）、来源（内置 / 个人或项目 / 插件）和启用状态筛选，并按来源分组显示计数
 - 支持单技能开关、对当前筛选结果批量启用/停用（带撤销 toast），以及重新扫描和只读搜索路径复制
 - 点击技能行打开居中详情弹窗（概览 / 指令 / 元数据）；详情经 portal 渲染，避免被项目级外层对话框裁剪，`SKILL.md` 按需读取并以 markdown 展示、可复制
+- 子区块组件：`SkillsPageHead`（页头 / 搜索路径弹层 / 重扫）、`SkillsToolbar`（搜索与筛选）、`SkillsSummary`（批量启用停用）、`SkillsList`（分组列表与空态）、`SkillDetailDialog`（详情弹窗）、`SkillGlyph`（按名称猜图标）与 `skill-source.ts`（来源分组映射）；`index.ts` 为 barrel
 
 ### 聊天子模块
 

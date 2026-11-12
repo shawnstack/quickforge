@@ -12,7 +12,8 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `agent.mjs` | 1075 | Agent 会话管理、消息流式处理 |
+| `agent.mjs` | 952 | Agent 会话管理、消息流式处理 |
+| `sse-transport.mjs` | 129 | Agent SSE 传输机制：流式增量 trailing 合并节流、背压丢弃、keep-alive、帧序列化缓存与写出；自 agent.mjs 外提，agent.mjs 底部 re-export 保持既有导入兼容 |
 | `storage.mjs` | 426 | 存储 CRUD 操作 |
 | `project.mjs` | 242 | 项目管理 |
 | `filesystem.mjs` | 172 | 文件系统浏览与目录创建 |
@@ -58,7 +59,7 @@
 
 ---
 
-## agent.mjs (1075 行)
+## agent.mjs (952 行)
 
 冷会话的 continue/rollback/access-mode/yolo-mode/model/thinking-level 操作由 manager 按需恢复，不要求客户端先调用 restore。主 model 路由在读取当前模型和解析 binding 前恢复，保留当前隐藏模型可继续使用的 `allowCurrentHidden` 规则；主路由、共享路由与 ACP 均等待异步 model/thinking setter。真正缺失仍 404；恢复失败为 500 / `SESSION_RESTORE_FAILED`（响应 `code`），已有 503 原样传播；SSE 在恢复完成前不发送流头。共享 rollback 的存储 fallback 仍仅接受 404，不吞掉恢复故障。
 

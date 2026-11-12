@@ -19,7 +19,7 @@ import { describe, expect, it } from 'vitest'
  * across the client/server boundary, not pure functions.
  */
 
-const agentManagerSource = readFileSync(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8')
+const agentManagerSource = readFileSync(new URL('../../server/agent-session-lifecycle.mjs', import.meta.url), 'utf8')
 const useChatActionsSource = readFileSync(new URL('../../src/hooks/useChatActions.ts', import.meta.url), 'utf8')
 
 function forkBlock() {

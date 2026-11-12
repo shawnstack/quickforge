@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest'
  */
 const deferredSource = readFileSync(new URL('../../src/lib/deferred-session-agent.ts', import.meta.url), 'utf8')
 const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
-const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent/prompt-actions.ts', import.meta.url), 'utf8')
 
 describe('deferred session handoff', () => {
   it('hands the optimistic messages to createAgent', () => {
@@ -35,12 +35,12 @@ describe('deferred session handoff', () => {
   })
 
   it('keeps the reuse path in ServerAgent.prompt', () => {
-    const promptStart = serverAgentSource.indexOf('async prompt(')
-    const promptSource = serverAgentSource.slice(promptStart, serverAgentSource.indexOf('this.startStateWatchdog()', promptStart))
+    const promptStart = serverAgentSource.indexOf('export async function serverAgentPrompt(')
+    const promptSource = serverAgentSource.slice(promptStart, serverAgentSource.indexOf('core.startStateWatchdog()', promptStart))
 
     expect(promptSource).toContain('messageAlreadyInState')
     expect(promptSource).toContain('reusesExistingMessage')
     // 复用分支不能走乐观追加，否则同一句话出现两条。
-    expect(promptSource.indexOf('reusesExistingMessage')).toBeLessThan(promptSource.indexOf('this.state.messages = [...this.state.messages, agentMessage]'))
+    expect(promptSource.indexOf('reusesExistingMessage')).toBeLessThan(promptSource.indexOf('core.state.messages = [...core.state.messages, agentMessage]'))
   })
 })

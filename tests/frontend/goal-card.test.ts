@@ -15,7 +15,11 @@ const surfaceSource = readFileSync(new URL('../../src/components/chat/surface/Ch
 const commandsSource = readFileSync(new URL('../../src/components/chat/command-suggestions.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
 const css = appCss
-const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent/agent.ts', import.meta.url), 'utf8')
+const agentCoreSource = readFileSync(new URL('../../src/lib/server-agent/core.ts', import.meta.url), 'utf8')
+const sseDispatchSource = readFileSync(new URL('../../src/lib/server-agent/sse-dispatch.ts', import.meta.url), 'utf8')
+const sseGoalEventsSource = readFileSync(new URL('../../src/lib/server-agent/sse-goal-events.ts', import.meta.url), 'utf8')
+const goalActionsSource = readFileSync(new URL('../../src/lib/server-agent/goal-actions.ts', import.meta.url), 'utf8')
 
 type GoalState = import('../../src/lib/goal').GoalState
 
@@ -289,11 +293,11 @@ describe('goal wiring in the chat host', () => {
   })
 
   it('keeps the goal contract on ServerAgent snapshots, SSE and the action endpoint', () => {
-    expect(serverAgentSource).toContain('goal?: GoalState | null')
-    expect(serverAgentSource).toContain("case 'goal_updated'")
-    expect(serverAgentSource).toContain('normalizeGoalState(goalEvent.goal)')
+    expect(agentCoreSource).toContain('goal?: GoalState | null')
+    expect(sseDispatchSource).toContain("case 'goal_updated'")
+    expect(sseGoalEventsSource).toContain('normalizeGoalState(goalEvent.goal)')
     expect(serverAgentSource).toContain('async updateGoal(action: GoalAction, objective?: string, options?: GoalActionOptions)')
-    expect(serverAgentSource).toContain('/goal`')
+    expect(goalActionsSource).toContain('/goal`')
   })
 })
 

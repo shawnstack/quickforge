@@ -186,14 +186,14 @@ describe('reading anchor across background history hydration', () => {
     // anchor captured when the request starts would restore a position the user
     // has already left. `hydrateFullHistory` therefore takes a callback it
     // invokes immediately before swapping the message list.
-    const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
-    expect(serverAgentSource).toContain('async hydrateFullHistory(beforeReplace?')
+    const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent/history-reconcile.ts', import.meta.url), 'utf8')
+    expect(serverAgentSource).toContain('async function hydrateFullHistory(core: ServerAgentCore, beforeReplace?')
     expect(serverAgentSource).toContain('const cancelAnchor = beforeReplace?.()')
     // The swap happens after the callback, never before it.
     const callbackIndex = serverAgentSource.indexOf('const cancelAnchor = beforeReplace?.()')
     // 替换走统一的 `applyLog`（数组与 baseSeq 成对更新），不再直接赋
-    // `this.state.messages = all`。
-    const swapIndex = serverAgentSource.indexOf("this.applyLog({ kind: 'snapshot', baseSeq: 0, messages: all })", callbackIndex)
+    // `core.state.messages = all`。
+    const swapIndex = serverAgentSource.indexOf("core.applyLog({ kind: 'snapshot', baseSeq: 0, messages: all })", callbackIndex)
     expect(swapIndex).toBeGreaterThan(callbackIndex)
   })
 
@@ -251,9 +251,9 @@ describe('reading anchor across background history hydration', () => {
   })
 
   it('guards the deferred anchor release for non-DOM consumers', () => {
-    // `server-agent.ts` also runs in tests and the ACP/Node paths where `window`
+    // `server-agent/history-reconcile.ts` also runs in tests and the ACP/Node paths where `window`
     // is undefined; an unguarded requestAnimationFrame throws there.
-    const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+    const serverAgentSource = readFileSync(new URL('../../src/lib/server-agent/history-reconcile.ts', import.meta.url), 'utf8')
     expect(serverAgentSource).toContain("typeof window !== 'undefined'")
   })
 })

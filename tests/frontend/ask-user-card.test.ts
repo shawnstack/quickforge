@@ -144,7 +144,7 @@ describe('ask-user card wiring', () => {
     readFileSync('src/components/chat/ChatPanelHost.tsx', 'utf8'),
     readFileSync('src/components/chat/panel-wiring/approval-cards.ts', 'utf8'),
   ].join('\n')
-  const serverAgent = readFileSync('src/lib/server-agent.ts', 'utf8')
+  const serverAgent = readFileSync('src/lib/server-agent/approval-actions.ts', 'utf8')
   const sseClient = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
   const i18n = readFileSync('src/lib/i18n.ts', 'utf8')
   const card = readFileSync('src/components/chat/panel-decoration/ask-user-card.ts', 'utf8')

@@ -7,8 +7,10 @@ const css = appCss
 const actions = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
 const host = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
 const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const previewActions = readFileSync(new URL('../../src/hooks/useArtifactPreviewActions.ts', import.meta.url), 'utf8')
 const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const serverAgent = readFileSync(new URL('../../src/lib/server-agent.ts', import.meta.url), 'utf8')
+const serverAgent = readFileSync(new URL('../../src/lib/server-agent/agent.ts', import.meta.url), 'utf8')
+const rollbackActions = readFileSync(new URL('../../src/lib/server-agent/rollback-actions.ts', import.meta.url), 'utf8')
 const inspector = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
 const workspaceTypes = readFileSync(new URL('../../src/components/workspace/workspace-types.ts', import.meta.url), 'utf8')
 const panelDecoration = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
@@ -156,10 +158,13 @@ describe('assistant artifact card contract', () => {
     expect(host).toContain('onRevealFile: props.readOnly ? undefined : props.onRevealFile')
     expect(host).toContain('onReviewFileChanges: props.onReviewFileChanges')
 
-    expect(app).toContain('reviewFileChangesFromArtifactCard')
-    expect(app).toContain("kind: 'review', view: 'changes', path: relativePath")
-    expect(app).toContain('revealFileFromArtifactCard')
-    expect(app).toContain('await openWorkspaceExternal(projectId, relativePath, target)')
+    // 文件卡三动作的实现迁入 useArtifactPreviewActions；App 仍负责把回调接到 ChatPanelHost。
+    expect(app).toContain('onReviewFileChanges={reviewFileChangesFromArtifactCard}')
+    expect(previewActions).toContain('reviewFileChangesFromArtifactCard')
+    expect(previewActions).toContain("kind: 'review', view: 'changes', path: relativePath")
+    expect(app).toContain('onRevealFile={revealFileFromArtifactCard}')
+    expect(previewActions).toContain('revealFileFromArtifactCard')
+    expect(previewActions).toContain('await openWorkspaceExternal(projectId, relativePath, target)')
     expect(app).toContain('<TurnRollbackDialog client={fileRollbackTarget.agent} turnIds={fileRollbackTarget.turnIds}')
     expect(app).toContain('fileRollbackTarget.sessionId === agentManager.currentSessionId')
     expect(app).toContain('fileRollbackTarget.projectId === agentManager.currentToolProject?.id')
@@ -168,13 +173,13 @@ describe('assistant artifact card contract', () => {
     // 轮键 = 弹窗打开时 turnIds 的 join('|')：卡片判定与 App 记录共用 turnRollbackKey。
     expect(readFileSync(new URL('../../src/hooks/useTurnFileRollback.ts', import.meta.url), 'utf8')).toContain('new Set(previous).add(turnRollbackKey(target.turnIds))')
 
-    expect(serverAgent).toContain('/rollback-turn/preview?turnIds=')
+    expect(rollbackActions).toContain('/rollback-turn/preview?turnIds=')
     expect(serverAgent).toContain('async rollbackTurn(turnIds: string[], revision: string, signal?: AbortSignal): Promise<ServerTurnRollbackResult>')
     expect(serverAgent).toContain('async getTurnRollbackPreview(turnIds: string[], signal?: AbortSignal)')
     // 会话级 rollbackFiles/rollbackFile 能力已整体下线（前端 client + 服务端路由一并移除）。
-    expect(serverAgent).not.toContain('/rollback-files')
-    expect(serverAgent).not.toContain('async rollbackFiles(')
-    expect(serverAgent).not.toContain('async getFileRollbackPreview(')
+    expect(rollbackActions).not.toContain('/rollback-files')
+    expect(rollbackActions).not.toContain('async rollbackFiles(')
+    expect(rollbackActions).not.toContain('async getFileRollbackPreview(')
 
     // Review 请求支持指定文件直达 diff tab，并收起右侧文件列表导航（审查只展示 diff）。
     expect(workspaceTypes).toMatch(/kind: 'review'; view: 'review' \| 'changes';[^}]*path\?: string/)
@@ -343,10 +348,10 @@ describe('assistant artifact card contract', () => {
     expect(source).toMatch(/target: 'idea', label: t\('openInIDEA'\), iconUrl: ideaIconUrl/)
     expect(source).toMatch(/onRevealFile\?\.\(artifact\.path \?\? '', target\)/)
     expect(source).toContain('menuItem.append(item.icon, label)')
-    // App 侧按目标转发 open-external，失败提示按目标区分。
-    expect(app).toMatch(/revealFileFromArtifactCard = useCallback\(async \(relativePath: string, target: WorkspaceExternalOpenTarget = 'explorer'\)/)
-    expect(app).toMatch(/await openWorkspaceExternal\(projectId, relativePath, target\)/)
-    expect(app).toMatch(/'openInVSCodeFailed' : target === 'idea' \? 'openInIDEAFailed' : 'assistantArtifactRevealFailed'/)
+    // App 侧按目标转发 open-external，失败提示按目标区分（实现位于 useArtifactPreviewActions）。
+    expect(previewActions).toMatch(/revealFileFromArtifactCard = useCallback\(async \(relativePath: string, target: WorkspaceExternalOpenTarget = 'explorer'\)/)
+    expect(previewActions).toMatch(/await openWorkspaceExternal\(projectId, relativePath, target\)/)
+    expect(previewActions).toMatch(/'openInVSCodeFailed' : target === 'idea' \? 'openInIDEAFailed' : 'assistantArtifactRevealFailed'/)
     // CSS：菜单项 flex 图标槽 + 描边 SVG 变体。
     const itemBlock = css.match(/\.quickforge-assistant-open-menu-item\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(itemBlock).toMatch(/display:\s*flex/)

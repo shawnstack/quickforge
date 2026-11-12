@@ -8,7 +8,6 @@ const bridge = read('src/lib/desktop-browser-bridge.ts')
 const inspector = read('src/components/workspace/WorkspaceInspector.tsx')
 const panelTabs = read('src/components/workspace/workspace-panel-tabs.ts')
 const tabModel = read('src/components/workspace/workspace-inspector-tabs.ts')
-const app = read('src/App.tsx')
 const preload = read('desktop/electron-preload.cjs')
 
 describe('agent browser panel contract', () => {
@@ -40,8 +39,10 @@ describe('agent browser panel contract', () => {
   })
 
   it('opens itself when the agent starts driving the desktop browser', () => {
-    expect(app).toContain("toolName.startsWith('mcp__desktop-browser__')")
-    expect(app).toContain("kind: 'agent-browser'")
+    // agent-browser 自动切换已迁入 useAppEventBridges（App 装配层挂载 hook）。
+    const bridges = read('src/hooks/useAppEventBridges.ts')
+    expect(bridges).toContain("toolName.startsWith('mcp__desktop-browser__')")
+    expect(bridges).toContain("kind: 'agent-browser'")
   })
 
   it('bridges only bounds/visibility/state, never page content', () => {

@@ -1,4 +1,6 @@
 import { logger } from './utils/logger.mjs'
+import { promises as fs } from 'node:fs'
+import path from 'node:path'
 import {
   agentEvents,
   getSessionEventBus,
@@ -8,6 +10,9 @@ import {
 import { agentSessions } from './agent-session-store.mjs'
 import { ensureBotSession, sessionExists } from './bot-session.mjs'
 import {
+  BOT_HEARTBEAT_TEMPLATE_FILE,
+  defaultHeartbeatTemplate,
+  ensureBotWorkspace,
   getBotRecord,
   inspectBotWork,
   listBotRecords,
@@ -91,24 +96,31 @@ let timer = null
 let tickPromise = null
 
 /**
- * 心跳指令。刻意写成「给有判断力的助手交代几句」而不是操作手册——
- * 不规定步骤、不规定记忆格式：怎么找活、怎么记，由 bot 自己长出来。
- * 三样钉死的是机制不是风格：[报告] 首行（服务端解析发通知）、
- * 不 commit（他人项目改动的撤销保障）、目录边界（沙箱）。
+ * 心跳指令 = 固定头（处境 + 自进化授权 + 目录）+ bot 自己的操作模板 + 固定尾（硬契约）。
+ *
+ * 模板（.bot/heartbeat.md）是 bot 可自我修改的工作方式——指令和记忆一样交给它演化；
+ * 但首尾两段钉在服务端：[报告] 是发通知的唯一依据、不 commit 是他人项目的安全绳，
+ * bot 重写模板也改不掉它们。模板缺失（存量 bot / 手工删除）时回退种子文案，
+ * 行为与模板化之前完全一致。
  */
-export function heartbeatInstruction(bot) {
+export async function heartbeatInstruction(bot) {
+  let template
+  try {
+    template = await fs.readFile(path.join(bot.workspacePath, BOT_HEARTBEAT_TEMPLATE_FILE), 'utf8')
+  } catch {
+    template = defaultHeartbeatTemplate()
+  }
+  const body = template.trim() || defaultHeartbeatTemplate()
   return [
-    '[心跳] 你醒了，不是用户在说话。这是你的自主时间。',
+    `[心跳] 你醒了，不是用户在说话。这是你的自主时间。你的目录：${bot.workspacePath}。`,
     '',
-    `你的半径：自己的目录 ${bot.workspacePath} 随便写；别的项目，用 quickforge-api 能看见用户所有的会话与项目脉络，想深入就 spawn 一个绑定该项目的子会话去干——派活时把规矩带过去：改动留在工作区、不 commit、做完回报结果。`,
+    '你的两份东西都可以自己改：操作模板 .bot/heartbeat.md（你每次醒来怎么干活）、记忆 MEMORY.md（你是谁、在做什么）。觉得不好用就改，改完下一跳生效——改它们本身就是自我进化的一部分。',
     '',
-    '醒来先接上上次的自己：MEMORY.md 是你的记忆，不是别人的模板——结构不好用就重组它，装不下就拆成目录里的文件、只在一屏能读完的记忆里留线索。怎么记你说了算，标准只有一个：下次醒来的你能快速接上。',
+    '用户的项目的活，你负责发现、拆解、派活、验收：实现不在本会话里做——用 quickforge-api 的 spawn 派给绑定该项目的子会话去实现（探索、只读可以直接走 API），派活时把规矩带过去（留痕、不 commit、回报结果），用 show / messages 收结果再验收。',
     '',
-    '然后去做一件值得做的事。什么是值得，你自己判断——线索在记忆里、投喂里、会话与项目的变化里（git、测试、坏味道）；改动小、见效快、失败了只亏一跳的先做。做了就做透，确实没有就探索出候选，或明说这一跳不动手、为什么。',
+    body,
     '',
-    '动手前留痕，做完记录：改自己目录先备份；动别的项目走子会话并让它留痕。能回滚的事，大胆做，不用请示。要用户拍板的，写进记忆等他。',
-    '',
-    '首行以 [报告] 开头，他才会收到通知（60 字内说清）；没有就不带。不向他提问。',
+    '首行以 [报告] 开头，他才会收到通知（60 字内说清）；没有就不带。不向他提问。改动永远不 commit——留在工作区让用户决定去留。',
   ].join('\n')
 }
 
@@ -137,6 +149,9 @@ export async function runBotHeartbeat(bot, options = {}) {
   if (running.has(bot.id)) {
     return { woke: false, reason: 'already-waking' }
   }
+  // 补播种（幂等）：存量的 bot 建于模板化之前，目录里还没有 .bot/heartbeat.md；
+  // ensureBotWorkspace 只在文件缺失时写，不会覆盖它已有的演化。
+  await ensureBotWorkspace(bot).catch(() => {})
   if (!bot?.sessionId || !(await sessionExists(bot.sessionId))) {
     // 会话可能在上次创建时没建起来（比如当时没配模型）。这里补一次，
     // 补不上就当作这一班没醒，不写错误进记录。
@@ -169,7 +184,7 @@ export async function runBotHeartbeat(bot, options = {}) {
     watchBotHeartbeatReport(bot, bot.sessionId, `${bot.id}:${startedAt}`)
     await runPrompt(bot.sessionId, {
       role: 'user',
-      content: heartbeatInstruction(bot),
+      content: await heartbeatInstruction(bot),
       timestamp: startedAt,
       details: { quickforgeBotHeartbeat: { version: 1 } },
     }, [], null, null, { source: 'bot-heartbeat' })

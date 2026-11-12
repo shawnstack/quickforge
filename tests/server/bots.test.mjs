@@ -3,6 +3,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  BOT_HEARTBEAT_TEMPLATE_FILE,
   BOT_MEMORY_FILE,
   BOT_STORE,
   ensureBotWorkspace,
@@ -24,25 +25,114 @@ describe('bots store registration', () => {
 describe('bot heartbeat instruction (proactivity contract)', () => {
   const bot = normalizeBotRecord({ name: 'helper' })
 
-  it('injects the bot workspace path and keeps the report marker contract', () => {
-    const text = heartbeatInstruction(bot)
+  it('injects the bot workspace path, self-evolution grant and report marker contract even without a template file', async () => {
+    const text = await heartbeatInstruction(bot)
     expect(text).toContain(bot.workspacePath)
+    // 自进化授权：指令和记忆都可自己改，这是自驱动的入口，钉在固定头。
+    expect(text).toContain('.bot/heartbeat.md')
+    expect(text).toContain('自我进化')
     // [报告] 首行是服务端发通知的唯一依据（runBotHeartbeat 解析首行），必须出现在指令里。
     expect(text).toContain('[报告]')
+    // 不 commit 钉在固定尾，模板里删不掉。
+    expect(text).toContain('不 commit')
   })
 
-  it('guides instead of prescribing, and keeps the pinned rules', () => {
-    const text = heartbeatInstruction(bot)
-    // 半径三层如实描述：qf-api 自发现 + spawn 子会话 + 不 commit。
+  it('seeds a guiding template (not a scene-specific playbook)', async () => {
+    const text = await heartbeatInstruction(bot)
+    // 半径三层如实描述：qf-api 自发现 + spawn 子会话。
     expect(text).toContain('quickforge-api')
     expect(text).toContain('spawn')
-    expect(text).toContain('不 commit')
     // 记忆自我迭代与渐进披露的引导。
     expect(text).toContain('MEMORY.md')
     expect(text).toContain('一屏')
-    // 防守型指令不应回归。
+    // 判断标准在、场景步骤不在（防过拟合）。
+    expect(text).toContain('自己判断')
+    expect(text).not.toMatch(/^1\. /m)
     expect(text).not.toContain('不值得动')
     expect(text).not.toContain('制造工作')
+  })
+
+  it('uses the bot-owned template file when present, and pinned contracts survive rewrites', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-bot-hb-'))
+    const custom = {
+      ...bot,
+      workspacePath: dir,
+      // memoryFile 也必须指到临时目录，默认值指向真实用户目录。
+      memoryFile: path.join(dir, BOT_MEMORY_FILE),
+    }
+    try {
+      // bot 重写过的模板：只剩一句自己的话，契约相关的字眼一个都没有。
+      const rewritten = '# 我的工作方式\n\n先看投喂，再扫清单；其余时间自由探索。'
+      await fs.mkdir(path.dirname(path.join(dir, BOT_HEARTBEAT_TEMPLATE_FILE)), { recursive: true })
+      await fs.writeFile(path.join(dir, BOT_HEARTBEAT_TEMPLATE_FILE), rewritten, 'utf8')
+      const text = await heartbeatInstruction(custom)
+      expect(text).toContain('先看投喂，再扫清单')
+      expect(text).toContain(rewritten)
+      // 模板被重写，钉死的契约仍然在场。
+      expect(text).toContain('[报告]')
+      expect(text).toContain('不 commit')
+      expect(text).toContain('.bot/heartbeat.md')
+      // 派活半径同样钉死：实现不在本会话里做，重写模板也删不掉这句。
+      expect(text).toContain('spawn')
+      expect(text).toContain('子会话')
+      // 空模板视为无效，回退种子而不是发出空指令。
+      await fs.writeFile(path.join(dir, BOT_HEARTBEAT_TEMPLATE_FILE), '   ', 'utf8')
+      const fallback = await heartbeatInstruction(custom)
+      expect(fallback).toContain('# 我的心跳操作模板')
+      expect(fallback).toContain('[报告]')
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('bot heartbeat template seeding', () => {
+  it('plants the editable template once at workspace creation, never overwriting', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-bot-hb-seed-'))
+    const bot = {
+      ...normalizeBotRecord({ name: '小助手' }),
+      workspacePath: dir,
+      memoryFile: path.join(dir, BOT_MEMORY_FILE),
+    }
+    try {
+      await ensureBotWorkspace(bot)
+      const file = path.join(dir, BOT_HEARTBEAT_TEMPLATE_FILE)
+      const seeded = await fs.readFile(file, 'utf8')
+      expect(seeded).toContain('我的心跳操作模板')
+      expect(seeded).toContain('不好用就改')
+      // 半径节是指令式：项目活实现一律派给子会话，不是「想深入再说」。
+      expect(seeded).toContain('子会话')
+      expect(seeded).toContain('派给')
+      // 引导式种子不含场景化固定步骤。
+      expect(seeded).not.toContain('先看投喂')
+      // bot 自己改过之后，ensure 不再覆盖。
+      await fs.writeFile(file, '# 我的版本', 'utf8')
+      await ensureBotWorkspace(bot)
+      expect(await fs.readFile(file, 'utf8')).toBe('# 我的版本')
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('backfills the template for legacy bots that predate it, without touching their memory', async () => {
+    // 存量 bot：目录里已有 MEMORY.md（甚至已演化过），但没有 heartbeat.md。
+    // runBotHeartbeat 每跳都会走同一个幂等 ensure——这里锁的是那个函数的行为：
+    // 只补缺的模板，不动已有记忆。
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-bot-hb-legacy-'))
+    const bot = {
+      ...normalizeBotRecord({ name: 'old-timer' }),
+      workspacePath: dir,
+      memoryFile: path.join(dir, BOT_MEMORY_FILE),
+    }
+    try {
+      await fs.writeFile(bot.memoryFile, '# 我自己演化过的记忆\n', 'utf8')
+      await ensureBotWorkspace(bot)
+      const template = await fs.readFile(path.join(dir, BOT_HEARTBEAT_TEMPLATE_FILE), 'utf8')
+      expect(template).toContain('我的心跳操作模板')
+      expect(await fs.readFile(bot.memoryFile, 'utf8')).toBe('# 我自己演化过的记忆\n')
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
   })
 })
 

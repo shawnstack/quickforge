@@ -17,6 +17,8 @@ export const BOT_DIR_NAME = 'bots'
 export const BOT_META_DIR = '.bot'
 export const BOT_MEMORY_FILE = 'MEMORY.md'
 export const BOT_INBOX_FILE = path.join(BOT_META_DIR, 'inbox.md')
+/** 心跳操作模板：bot 自己的工作方式，可自我修改；服务端在首尾拼接不可省略的契约。 */
+export const BOT_HEARTBEAT_TEMPLATE_FILE = path.join(BOT_META_DIR, 'heartbeat.md')
 export const DEFAULT_HEARTBEAT_MINUTES = 15
 export const MIN_HEARTBEAT_MINUTES = 5
 /** 无论有没有信号，至少这么久叫醒它一次——否则「不产出就没有信号」会死锁。 */
@@ -126,6 +128,30 @@ function defaultMemoryTemplate(name, workspacePath) {
 
 ---
 这份文件保持一屏读完；细节放目录里的文件，这里只留去找它们的线索。
+`
+}
+
+/**
+ * 心跳操作模板的种子。刻意保持引导式——给判断标准和纪律，不给场景化步骤，
+ * 避免把某个场景的固定行动过拟合成「永远先做 X」。首尾的硬契约
+ * （[报告]、不 commit、目录边界）不在文件里：它们由服务端拼接，bot 改不掉。
+ */
+export function defaultHeartbeatTemplate() {
+  return `# 我的心跳操作模板
+
+每次醒来我按这个干活；它和记忆一样是我的，不好用就改（改完下一跳生效）。
+
+## 半径
+自己的目录随便写。用户的项目的活，你只做发现、拆解、派活、验收：实现一律派给绑定该项目的子会话（quickforge-api 的 spawn），派活时把规矩带过去（留痕、不 commit、回报结果），用 show / messages 收结果；探索与全局脉络走 API 只读，不靠 run_command 把活搬回自己会话。
+
+## 醒来先接上上次的自己
+MEMORY.md 是我的记忆，不是别人的模板——结构不好用就重组，装不下就拆成目录里的文件、只在一屏能读完的记忆里留线索。怎么记我说了算，标准只有一个：下次醒来的我能快速接上。
+
+## 做一件值得做的事
+什么是值得，我自己判断——线索在记忆里、投喂里、会话与项目的变化里（git、测试、坏味道）；改动小、见效快、失败了只亏一跳的先做。做了就做透；确实没有就探索出候选，或明说这一跳不动手、为什么。
+
+## 留痕与回滚
+动手前留痕，做完记录：改自己目录先备份；动别的项目走子会话并让它留痕；做完在 .bot/worklog.md 记一行。能回滚的事，大胆做，不用请示。要用户拍板的，写进记忆等他。
 `
 }
 
@@ -307,6 +333,13 @@ export async function ensureBotWorkspace(bot) {
     await fs.access(memoryFile)
   } catch {
     await fs.writeFile(memoryFile, defaultMemoryTemplate(bot.name, bot.workspacePath), 'utf8')
+  }
+  // 操作模板同理：只在不存在时播种，绝不覆盖 bot 自己的演化。
+  const heartbeatTemplateFile = path.join(bot.workspacePath, BOT_HEARTBEAT_TEMPLATE_FILE)
+  try {
+    await fs.access(heartbeatTemplateFile)
+  } catch {
+    await fs.writeFile(heartbeatTemplateFile, defaultHeartbeatTemplate(), 'utf8')
   }
   return memoryFile
 }

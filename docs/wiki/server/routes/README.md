@@ -12,7 +12,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `agent.mjs` | 952 | Agent 会话管理、消息流式处理 |
+| `agent.mjs` | 952 | Agent 会话管理、消息流式处理；SSE 传输已外提至 `sse-transport.mjs`（见下行），此处保留 re-export 以兼容既有导入 |
 | `sse-transport.mjs` | 129 | Agent SSE 传输机制：流式增量 trailing 合并节流、背压丢弃、keep-alive、帧序列化缓存与写出；自 agent.mjs 外提，agent.mjs 底部 re-export 保持既有导入兼容 |
 | `storage.mjs` | 426 | 存储 CRUD 操作 |
 | `project.mjs` | 242 | 项目管理 |

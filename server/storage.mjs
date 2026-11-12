@@ -454,10 +454,10 @@ async function readJsonFileCached(file, defaultValue = {}) {
   return structuredClone(parsed)
 }
 
-async function writeJsonAtomic(file, data) {
+async function writeJsonAtomic(file, data, compact = false) {
   await fs.mkdir(path.dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.${Date.now()}.tmp`
-  await fs.writeFile(tmp, `${JSON.stringify(data, null, 2)}\n`, 'utf8')
+  await fs.writeFile(tmp, `${JSON.stringify(data, null, compact ? undefined : 2)}\n`, 'utf8')
   // Windows AV (e.g. Defender real-time scan) can briefly hold the freshly
   // written tmp file between writeFile and rename, surfacing as EPERM/EBUSY.
   // A bounded retry closes that window; the rename stays atomic either way.
@@ -1282,7 +1282,7 @@ export async function writeStore(storeName, data) {
     }
 
     if (isRootArrayStore(storeName)) {
-      await writeJsonAtomic(rootArrayStoreFilePath(storeName), Array.isArray(data) ? data : [])
+      await writeJsonAtomic(rootArrayStoreFilePath(storeName), Array.isArray(data) ? data : [], true)
       return
     }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -343,5 +343,109 @@ describe('inspectBotWork', () => {
     await fs.writeFile(path.join(dir, BOT_MEMORY_FILE), '# helper\n', 'utf8')
     const result = await inspectBotWork(botWith(lastWakeAt))
     expect(result).toEqual({ hasWork: true, reason: 'stale' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// runBotHeartbeat 的 alwaysWake 分支：开关开着时跳过判活，无事也真醒。
+// bot-runner 依赖 agent-manager / bot-session（真实实现会建会话、跑模型），
+// 这里用 vi.doMock 隔离模块图，只桩会话存在性与 runPrompt，其余走真实现。
+// ---------------------------------------------------------------------------
+describe('runBotHeartbeat alwaysWake', () => {
+  let tmpDir
+  let previousDataDir
+  let previousHome
+  let previousUserProfile
+  let promptCalls
+
+  beforeEach(() => {
+    promptCalls = []
+    vi.resetModules()
+  })
+
+  async function importBotRunner() {
+    // watchBotHeartbeatReport 在 eventBus 为 null 时直接返回，不会用到 agentEvents，
+    // 但模块顶部 import 了它，桩里必须给一个带 emit 的对象。
+    vi.doMock('../../server/agent-manager.mjs', () => ({
+      agentEvents: { emit: () => {} },
+      getSessionEventBus: () => null,
+      isSessionFileRollbackBusy: () => false,
+      runPrompt: vi.fn(async (_sessionId, _prompt, _history, _a, _b, meta) => {
+        promptCalls.push(meta ?? null)
+        return {}
+      }),
+    }))
+    vi.doMock('../../server/bot-session.mjs', () => ({
+      sessionExists: vi.fn(async () => true),
+      ensureBotSession: vi.fn(async (bot) => bot),
+    }))
+    const { runBotHeartbeat } = await import('../../server/bot-runner.mjs')
+    return runBotHeartbeat
+  }
+
+  /** 真实建一条 bot 记录并落盘，返回它。 */
+  async function seedBot(name, heartbeatOverrides) {
+    const { normalizeBotRecord, saveBotRecord } = await import('../../server/bots.mjs')
+    const base = normalizeBotRecord({ name, heartbeat: heartbeatOverrides ?? {} })
+    // runBotHeartbeat 要求 bot 自带 sessionId；这里不建真实会话，塞个假 id 即可
+    // （bot-session 已被 mock：sessionExists 恒 true，不会再走 ensureBotSession 建会话）。
+    return saveBotRecord({ ...base, sessionId: `bot-${base.id}-stub` })
+  }
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-bot-wake-'))
+    previousDataDir = process.env.QUICKFORGE_DATA_DIR
+    previousHome = process.env.HOME
+    previousUserProfile = process.env.USERPROFILE
+    process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
+    process.env.HOME = tmpDir
+    process.env.USERPROFILE = tmpDir
+  })
+
+  afterEach(async () => {
+    if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
+    else process.env.QUICKFORGE_DATA_DIR = previousDataDir
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+    vi.resetModules()
+    vi.doUnmock('../../server/agent-manager.mjs')
+    vi.doUnmock('../../server/bot-session.mjs')
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('skips the work inspection and wakes anyway when alwaysWake is on', async () => {
+    const runBotHeartbeat = await importBotRunner()
+    // 上一醒在「未来」且工作区无新文件、无投喂：判活必判 idle。
+    // 开关开着也应跳过判活直接真醒（这一跳调用一次模型）。
+    const lastWakeAt = new Date(Date.now() + 60_000).toISOString()
+    const bot = await seedBot('alarm', { alwaysWake: true, lastWakeAt })
+    const result = await runBotHeartbeat(bot)
+    expect(result.woke).toBe(true)
+    expect(result.reason).toBe('signal')
+    expect(promptCalls).toHaveLength(1)
+  })
+
+  it('still marks the round idle without alwaysWake when there is nothing to do', async () => {
+    const runBotHeartbeat = await importBotRunner()
+    const lastWakeAt = new Date(Date.now() + 60_000).toISOString()
+    const bot = await seedBot('sleeper', { alwaysWake: false, lastWakeAt })
+    const result = await runBotHeartbeat(bot)
+    expect(result.woke).toBe(false)
+    expect(result.reason).toBe('idle')
+    expect(promptCalls).toHaveLength(0)
+  })
+
+  it('treats a legacy heartbeat without the field as off', async () => {
+    const runBotHeartbeat = await importBotRunner()
+    const lastWakeAt = new Date(Date.now() + 60_000).toISOString()
+    // 老记录：字段缺失 → undefined !== true → 走判活 → idle
+    const bot = await seedBot('legacy', { lastWakeAt })
+    delete bot.heartbeat.alwaysWake
+    const result = await runBotHeartbeat(bot)
+    expect(result.woke).toBe(false)
+    expect(result.reason).toBe('idle')
+    expect(promptCalls).toHaveLength(0)
   })
 })

@@ -10,18 +10,18 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [index.mjs](../../../../server/tools/index.mjs) | 工具注册表/装配薄层：装配 `toolHandlers` 并再导出各模块公开面，导入方仍统一 `import './tools/index.mjs'` | 52 |
-| [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 302 |
-| [file-search.mjs](../../../../server/tools/file-search.mjs) | `read_file` + `grep_files`：ripgrep 优先、Node 回退、limit 短路 | 452 |
-| [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一 | 139 |
-| [skill-resources.mjs](../../../../server/tools/skill-resources.mjs) | `activate_skill` / `read_skill_resource` / `loadSkillToolContext` | 69 |
-| [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 99 |
-| [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘、后台 detach | 502 |
-| [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 107 |
-| [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳（写 `writeGlobalMemory`） | 12 |
-| [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 65 |
-| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（grep_files / run_command 参数归一化） | 13 |
-| [memory-notes.mjs](../../../../server/tools/memory-notes.mjs) | 记忆笔记四工具（工作记忆 + 经验库，Dreaming curator 共用） | 193 |
+| [index.mjs](../../../../server/tools/index.mjs) | 工具注册表/装配薄层：装配 `toolHandlers` 并再导出各模块公开面，导入方仍统一 `import './tools/index.mjs'` | 51 |
+| [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 301 |
+| [file-search.mjs](../../../../server/tools/file-search.mjs) | `read_file` + `grep_files`：ripgrep 优先、Node 回退、limit 短路 | 451 |
+| [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一 | 138 |
+| [skill-resources.mjs](../../../../server/tools/skill-resources.mjs) | `activate_skill` / `read_skill_resource` / `loadSkillToolContext` | 68 |
+| [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 98 |
+| [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘、后台 detach | 501 |
+| [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 106 |
+| [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳（写 `writeGlobalMemory`） | 11 |
+| [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 64 |
+| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（grep_files / run_command 参数归一化） | 12 |
+| [memory-notes.mjs](../../../../server/tools/memory-notes.mjs) | 记忆笔记四工具（工作记忆 + 经验库，Dreaming curator 共用） | 192 |
 
 ---
 

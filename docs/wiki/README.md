@@ -14,6 +14,11 @@ quickforge/
 ├── src/               # React frontend (TypeScript/TSX)
 ├── scripts/           # Build/packaging helper scripts
 ├── public/            # Static assets (favicon)
+├── docs/              # 项目文档（wiki 开发文档 / architecture 设计文档 / archive 归档）
+├── plugins/           # 本地插件（manifest 与 UI/工具实现）
+├── skills/            # 内置 Agent Skills
+├── tests/             # 测试（server/、frontend/、fixtures/、helpers/）
+├── vendor/            # 第三方运行时（node-pty）
 ├── .github/           # CI workflows, issue/PR templates
 ├── index.html         # HTML entry
 ├── vite.config.ts     # Vite + Tailwind config

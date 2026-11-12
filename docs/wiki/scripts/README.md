@@ -8,7 +8,13 @@
 | [prepare-patch-release.cjs](../../../scripts/prepare-patch-release.cjs) | patch 发布准备（版本/文档/test-lint-build/打包；不执行 Git/publish） | 351 |
 | [prepare-runtime-package.cjs](../../../scripts/prepare-runtime-package.cjs) | 准备运行时发行包 | 19 |
 | [sqlite-compatibility-spike.mjs](../../../scripts/sqlite-compatibility-spike.mjs) | 开发期 `node:sqlite` 共同 API、WAL 与双进程锁等待兼容性探针 | 374 |
-| [session-index-query-benchmark.mjs](../../../scripts/session-index-query-benchmark.mjs) | 开发期 1k/10k（可传 50k）JSON 与 warm SQL 会话分页对比，输出 JSON Lines 与 EXPLAIN | 110 |
+| [session-index-query-benchmark.mjs](../../../scripts/session-index-query-benchmark.mjs) | 开发期 1k/10k（可传 50k）JSON 与 warm SQL 会话分页对比，输出 JSON Lines 与 EXPLAIN | 126 |
+| [archive-harness.mjs](../../../scripts/archive-harness.mjs) | Harness 状态归档：done/superseded 的 feature 与进度写入 docs/archive/ | 213 |
+| [migrate-bot-workspaces.mjs](../../../scripts/migrate-bot-workspaces.mjs) | 一次性迁移 bot 工作目录名（显示名 → bot- 加 id 前 8 位） | 166 |
+| [precompress-assets.mjs](../../../scripts/precompress-assets.mjs) | 为构建产物生成 .br / .gz 兄弟文件（npm run build 末尾调用） | 81 |
+| [session-message-benchmark.mjs](../../../scripts/session-message-benchmark.mjs) | 开发期基准：整身会话 messages 存储测量（拆表决策依据） | 411 |
+| [sqlite-synchronous-benchmark.mjs](../../../scripts/sqlite-synchronous-benchmark.mjs) | 开发期基准：synchronous=NORMAL 与 FULL 的会话保存热路径对比 | 173 |
+| [vendor-node-pty.mjs](../../../scripts/vendor-node-pty.mjs) | 同步最小 node-pty 运行时到 vendor/node-pty（lib + prebuilds） | 96 |
 
 ---
 
@@ -35,7 +41,7 @@
 - 将 `@vscode/ripgrep` 保持为 optionalDependencies，避免固定构建机平台二进制
 - 不写入 `bundledDependencies`，发布到 npm/cnpm 时由 npm 按目标平台安装依赖，避免包版本体积超过镜像同步限制
 
-### `prepare-runtime-package.cjs` (13 行)
+### `prepare-runtime-package.cjs` (19 行)
 
 - 创建 `package-dist/` 目录
 - 复制与离线包相同的内容

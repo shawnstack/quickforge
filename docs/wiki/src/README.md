@@ -28,8 +28,8 @@ src/
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 83 |
-| [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1585 |
+| [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 116 |
+| [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1590 |
 | [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 39 个 CSS 文件 |
 
 ### main.tsx (116 行)

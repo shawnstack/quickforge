@@ -153,7 +153,7 @@
 
 ## 核心模块
 
-### i18n.ts (3342 行)
+### i18n.ts (4487 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 
@@ -166,7 +166,7 @@
 - **surface 文案统一走 `appTranslations`**：聊天 surface（`MessageEditor` / `ThinkingBlock` / `AssistantMessage` / `ToolMessage` / `AttachmentTile` / `AttachmentOverlay` / `AttachmentPreview` / `ApiKeyPromptDialog` / `CodeBlock` / `ChatSurface`）不再硬编码文案，全部调用 `t()`；新增或修改 surface 文案**必须同时补齐 `appTranslations.en` 与 `appTranslations.zh` 的同名键**（中英成对维护），并优先复用既有键（`thinking*` / `input` / `output` / `stop` / `close` / `save` / `cancel` / `composerPlaceholder`、```svg 与 ```mermaid 预览、`executeInTerminal`、`moreActions` 等）。装饰层可见文案同规则（`openLocalFileWithPath` / `gitBranchLabel` / `toolCommand*` 等）。
 - **测试约定（文案断言固定语言）**：surface 组件的 `renderToStaticMarkup` 断言因默认语言回退 `navigator.language`（中文机器上即 zh），必须在测试内固定语言（文件级 `beforeEach(applyAppLanguageFromSnapshot('en'))`），另保留一处 zh 断言覆盖本地化生效；见 `tests/frontend/chat-surface-editor.test.ts` 与其余 `chat-surface-*.test.ts`。
 
-### pi-chat.ts (365 行)
+### pi-chat.ts (497 行)
 
 **用途**: Pi Chat 的初始化和模型配置管理。
 
@@ -188,7 +188,7 @@
 - `modelReferenceFromModel()` 为 Agent、Profile、任务和共享切换生成持久化引用。
 - `loadModelCatalog()` 读取同源 `/api/models/catalog`，不读取 Provider Key。
 
-### server-agent.ts (2331 行)
+### server-agent.ts (45 行)
 
 **用途**: `ServerAgent` 类 — 与服务端 Agent 通信的客户端。
 
@@ -221,7 +221,7 @@
 - **弱网重连状态广播**：`GlobalAgentSseClient` 的指数退避重连（1s 起 ×2、封顶 30s）新增尝试计数与上限 `MAX_SSE_RECONNECT_ATTEMPTS = 10`；`onerror` 进入恢复（直连→同源代理切换计一次零等待尝试）时经 `subscribeSseConnectionState` 广播 `{status:'reconnecting', attempt, maxAttempts, nextRetryAt, unreachable?}`，`onopen` 成功且此前确有断连时广播 `{status:'connected', recovered:true, restarted?}` 并重置计数/退避，第 10 次重试仍失败广播 `{status:'failed', maxAttempts}` 并停止自动重试（`requestSseReconnectNow()` 供 UI「立即重试」手动重启、`getSseConnectionState()` 取当前快照）；断连期间的 streaming 卡死仍由既有 15s 静默看门狗轮询 `/status` 兜底，两者互补不替代。重连期间每次调度失败后还会 fire-and-forget 探测一次 `/api/health`（`SSE_HEALTH_PROBE_TIMEOUT_MS = 5000`，AbortController 超时、single-flight 去重、baseUrl 跟随直连/同源代理切换）：`reachable = ok && json.ok`，结果返回时若仍处重连中则更新 `serverUnreachable` 并重播当前 reconnecting 状态（不可达时携带 `unreachable:true`）；`serverUnreachable` 为 true 时重连不再受 10 次上限约束（退避仍封顶 30s 持续自动重试，翻回 false 后若已超上限则下次失败照常进 failed），成功连上/`retryNow()`/`disconnect()` 均复位该标志。探测同时读取 `bootId` 维护基线：重连探测结果无条件更新基线；每次 `onopen`（含首次连接）再探测一次，若基线存在且 bootId 变化则补播 `{status:'connected', recovered:true, restarted:true}`（服务重启提示），首次连接仅记录基线；连上后到达的探测结果不影响 unreachable 语义。不可达窗口带时间戳：`serverUnreachable` 从 false→true 时记录 `unreachableSince`（`Date.now()`，同一轮不可达期间保持不变），reconnecting 广播携带该字段供 UI 计算断开时长与提示分层阈值（30s 升级 Tier2 常驻条）；翻回 false / onopen 恢复 / `retryNow()` / `disconnect()` 均清除
 - **会话消息不做浏览器缓存（2026-11-02 移除）**：原 `session-message-cache`（IndexedDB 尾部 200 条快照）只在 `GET /view` 快路径失败、退回 `POST /restore` 时才被读取，正常打开会话完全不经过它；命中后的替换判据是「服务端更长才替换」，缓存比服务端长（回滚 / 压缩 / 持久化降级）时页面会被永久钉在旧内容，缓存里的 `stateVersion` 也会被当成服务端水位把 `/state` 整份丢弃。现整层删除：打开会话只有 `GET /view` 与 `POST /restore` 两条真实通道，都以服务端当前状态为准；`resolveServerCacheKey` 迁到 `server-cache-key.ts` 继续供工作区 / 设置快照缓存使用。
 
-### shared-server-agent.ts (488 行)
+### shared-server-agent.ts (492 行)
 
 **用途**: `SharedServerAgent` 类 — 共享会话的 Agent 客户端。
 
@@ -233,7 +233,7 @@
 - SSE 事件订阅
 - 结构化选择在共享会话为 no-op：`setNextPromptCapabilities()` / `setNextPromptContextReferences()` 为空实现（对应服务端对非空 `contextReferences` 的 `CONTEXT_REFERENCES_UNSUPPORTED_SHARED` 显式拒绝）；`setPromptMode('plan' | 'ask' | null)` 与 `setPlanMode` 兼容包装同 `ServerAgent`
 
-### deferred-session-agent.ts (302 行)
+### deferred-session-agent.ts (314 行)
 
 **用途**: `DeferredSessionAgent` 类 — 新会话首条消息发出前的本地延迟代理，让用户无需等待服务端会话创建即可开始输入。
 
@@ -329,7 +329,7 @@
 
 **渲染器与样式契约**：`tool-renderers/workflow-tool-renderer.tsx` 注册为 `run_workflow` 的渲染器，聊天区只输出**一行入口**（`.quickforge-workflow-card` 为整行 `<button>`）。摘要由 `workflowSummaryText` 生成：状态标签（`workflowRunning/Completed/Failed/Aborted`）+ `workflowCountParts` 的 Agent/工具数片段（`workflowAgentCountOne/Many`、`workflowToolCountOne/Many`，**计数为 0 的片段整段省略**，未调用 `agent()` 的工作流不显示「0 个智能体」），运行中主文案带 running sweep（`.quickforge-tool-running-sweep`），并在其后渲染 `quickforge-tool-marquee`：内容是 `view.phases.at(-1)?.title`（**最后一个阶段标题**，不是活跃步骤 label），`.quickforge-workflow-marquee` 固定单行、定高、溢出横向滚动，reduced-motion 退化为省略号；右侧只留状态图标与耗时（运行中隐藏）。**不再渲染「查看详情」入口与 `.quickforge-workflow-ticks` 阶段刻度**：整行本身可点，动作提示收在 `aria-label`（`workflowDetailOpenRun` / `workflowDetailOpened`）。点击卡片先用 `buildWorkflowRunPayload` 回填 `workflowRunStore`（`shouldPublishWorkflowRunPayload` 拒绝终态回退），再派发 `OPEN_WORKFLOW_RUN_EVENT`；`App.tsx` 监听后 `requestWorkspaceInspector({ kind: 'workflow' })` 打开右侧 Tab；`activeWorkflowRunStore` 驱动 `data-open`「已打开」态。卡片自身重渲染时也会按同一路径回填 store（历史首帧/SSE 漏帧仍能打开完整详情）。**内联展开体已删除**：`goal-workflow.css` 现存 14 个 `-card` / `-preparing` / `-title` / `-marquee*` / `-error*` 类，`.quickforge-workflow-phase*`、`-tool-zone`、`-result-section`、`-script`、`-ticks` 均已移除，明细全部在 Inspector。
 
-`src/components/workspace/WorkflowRunDetailContent.tsx`（468 行）承担详情面板的**无时间轴单页步骤流**（完整契约见 `docs/wiki/src/components/README.md` 同名小节）：概览（状态点 + 总耗时 + 规模 + 派生统计；失败步骤显示「N 个失败步骤 · 定位」）+ 吸顶阶段头 + `workflowPhaseSteps` 交错的轻量 Agent 行 / ToolMessage 工具行 + 折叠日志。Agent 行只做入口：图标 + 任务名 + profile + 状态 + 外链提示，点击仍经 `subagentRunStore` + `OPEN_SUBAGENT_RUN_EVENT` 打开原子 Agent 详情，queued 禁用，不渲染当前工具跑马灯；工具行可展开 input/output，detailed 模式才显示参数 JSON；并行只在组首保留「并行×N」文字标记。日志一律默认收起（error 级只在头部留标记点，不自动铺开），时间/消息两列，错误只染消息；`run.error` 仍走错误横幅，折叠态只有一个错误图标（点击就地展开原文，展开后 40vh 内滚动）；底部固定区提供脚本与结果抽屉（脚本 sheet 默认展开、可手动收起；两者都无时整条隐藏，预算行随脚本 sheet 头部）。审批卡对 `run_workflow` 使用 `runWorkflow` 标签，`source.type === 'workflow'` 时显示 `toolApprovalRiskWorkflow` 风险说明；`tool()` 的审批 source 为 `workflow-tool`，显示 Workflow 徽标。回归见 `tests/frontend/workflow-renderer.test.ts` 与 `tests/frontend/workflow-step-interaction.test.ts`。
+`src/components/workspace/WorkflowRunDetailContent.tsx`（495 行）承担详情面板的**无时间轴单页步骤流**（完整契约见 `docs/wiki/src/components/README.md` 同名小节）：概览（状态点 + 总耗时 + 规模 + 派生统计；失败步骤显示「N 个失败步骤 · 定位」）+ 吸顶阶段头 + `workflowPhaseSteps` 交错的轻量 Agent 行 / ToolMessage 工具行 + 折叠日志。Agent 行只做入口：图标 + 任务名 + profile + 状态 + 外链提示，点击仍经 `subagentRunStore` + `OPEN_SUBAGENT_RUN_EVENT` 打开原子 Agent 详情，queued 禁用，不渲染当前工具跑马灯；工具行可展开 input/output，detailed 模式才显示参数 JSON；并行只在组首保留「并行×N」文字标记。日志一律默认收起（error 级只在头部留标记点，不自动铺开），时间/消息两列，错误只染消息；`run.error` 仍走错误横幅，折叠态只有一个错误图标（点击就地展开原文，展开后 40vh 内滚动）；底部固定区提供脚本与结果抽屉（脚本 sheet 默认展开、可手动收起；两者都无时整条隐藏，预算行随脚本 sheet 头部）。审批卡对 `run_workflow` 使用 `runWorkflow` 标签，`source.type === 'workflow'` 时显示 `toolApprovalRiskWorkflow` 风险说明；`tool()` 的审批 source 为 `workflow-tool`，显示 Workflow 徽标。回归见 `tests/frontend/workflow-renderer.test.ts` 与 `tests/frontend/workflow-step-interaction.test.ts`。
 
 **残留 i18n 键**：`workflowDetailTimelineLegend*`、`workflowDetailTimelineHint`、`workflowDetailNow`/`NowTitle`、`workflowDetailLogsExpand`/`LogsCollapse`、`workflowDetailCopyTrace` 只存在于 `src/lib/i18n.ts` 定义处（中英各一份），仓库内已无引用点，属时间轴时代的遗留，保留待清理。
 
@@ -341,7 +341,7 @@
 
 **用途**: 聊天 Markdown 与 Workspace Markdown Reader 共享的 Mermaid 渲染入口。首次遇到 Mermaid fenced code block 时动态加载 Mermaid，以严格安全配置生成 SVG，并在转为图片预览前拒绝脚本、事件属性、HTML 外嵌内容和外部资源。
 
-### http-storage-backend.ts (286 行)
+### http-storage-backend.ts (291 行)
 
 **用途**: 通过 HTTP API 实现的 Storage Backend。
 
@@ -381,7 +381,7 @@
 
 - `cn()` — Tailwind class 合并工具 (封装 `clsx` + `tailwind-merge`)
 
-### browser-connection-diagnostics.ts (631 行)
+### browser-connection-diagnostics.ts (560 行)
 
 **用途**: 浏览器侧连接池 / 请求排队诊断采集器。目标是在 DevTools 控制台执行 `window.__quickforgePerf()` 就能区分「浏览器 HTTP/1.1 同源 6 连接池耗尽（请求在浏览器侧排队）」与「服务端阻塞」。
 
@@ -407,7 +407,7 @@
 
 **用途**: 工具展示设置管理。支持“简洁 / 详细”模式：简洁模式隐藏原始 Tool JSON、显示简洁摘要；详细模式显示完整参数和 details。显示模式只控制 input/details 的内容渲染，不再控制工具卡细节的初始开合。折叠默认值（`components/chat/panel-decoration/process-folding.ts`，原最内层「调用了 N 项工具」工具摘要组已移除，工具行直接挂内层阶段 stage 的 step，失败计数并入阶段标题；纯思考段不渲染空「已执行」stage 头、思考块直接挂顶层组 body（`processSectionNeedsStage`），工具行到来后走全量重建正常包 stage）：顶层过程组默认展开值 = `isAgentStreaming`（只有正在流式的回合默认展开，历史回合默认收起，见导出的 `processGroupDefaultExpanded(isAgentStreaming)`）；内层阶段默认展开值 = **固化常量 `PROCESS_STAGE_DEFAULT_EXPANDED = true`**（2026-10-22 起不再可配置：展开过程组后每条工具调用直接可见；原先的 `tool-display-settings.expandProcessStageByDefault` 字段与 `processStageDefaultExpanded()` 读取入口、设置页开关一并删除，页面结构因此恒定——每段含工具行就聚合成一个 stage 且默认展开，流式思考行不再被单独拎到组 body，`isStreamingThinkingItem` / `splitStreamingThinkingRuns` 随之删除）。两层默认值均不覆盖 saved state（用户手动展开/收起后按回合记忆，`resolveProcessExpandedState`），所以手动收起 stage 不会被默认值翻回；显示模式不参与折叠默认值，仅控制单行摘要详细程度与 subagent 详情。工具卡细节（参数/输出）固定默认收起（`initiallyOpen={false}`，不随任何设置变化）：5 个工具渲染器（local-workspace / mcp / ask-user / todo-write / goal-report）的 `ToolDetails` 与无渲染器默认工具卡（`ToolMessage.tsx` 的 `DefaultToolCardBody`，params/output 亦收进 ToolDetails、header 只留一行工具名摘要）统一固定收起，`toolDetailsOpenMemory` 手动开合记忆优先。设置页「通用 → 交互」只剩 Tool 显示模式（简洁 / 详细）与上下文用量两个开关。可见性契约不变：禁止任何针对 `.thinking-header` 的 `display:none`（fail-visible，接管失败时宁可显示 React 原生「Thinking...」行）。上下文用量显示设置保存在同一配置中。归一化恒重建完整对象：`expandProcessStageByDefault` 已按未知字段丢弃（与 legacy `showToolDetails` / `expandToolsByDefault` / `expandToolDetailsByDefault` 一样被剥离，老数据里存过的 `false` 不再生效，属于一次不可逆的偏好覆盖）；`saveToolDisplaySettings` 入参放宽为 `Partial<ToolDisplaySettings>`。思考头交互契约（header 按钮在 React 侧 `onPointerDown` 优先切换、click 仅 `detail === 0` 生效；`decorateProcessThinkingBlocks` 对已接管 header 幂等 no-op，流式期间零 DOM churn）见 `docs/wiki/src/components/README.md`「思考头接管契约」条目。
 
-### tool-execution-events.ts (163 行)
+### tool-execution-events.ts (162 行)
 
 **用途**: 工具执行事件类型定义和消息合并工具。
 
@@ -450,7 +450,7 @@
 | `thinking-slider.ts` | 思考等级滑杆：五档常驻整列文字用 `translateY` 翻滚（不用节点入场/退场，避免快速换档重叠）、渐变轨道 + 单圆圈、canvas 粒子拖尾随档位改变密度/流速/拖尾长度并按轨道圆角裁剪。`prefers-reduced-motion` 下关闭粒子与动画。**定位文字列时不能假设已布局**：滑杆先创建、后 append 到弹层，首帧 `offsetHeight` 恒为 0，必须用根字号推算的兜底行高（`--quickforge-thinking-line` = 1.2rem），等 ResizeObserver 拿到实测值后再无动画校正；非法/不支持的档位（含上游 `minimal`）经 `toSliderLevel()` 收敛，避免 `indexOf(-1)` 把几何算成 NaN |
 | `thinking-levels.ts` | 思考等级词表与标签（off/low/medium/high/xhigh），跨模块契约：服务端同步、持久化、子代理运行详情共用 |
 
-### message-utils.ts (95 行)
+### message-utils.ts (151 行)
 
 **用途**: 消息处理工具函数。
 

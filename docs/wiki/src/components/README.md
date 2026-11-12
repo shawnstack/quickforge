@@ -74,7 +74,7 @@ ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消
 components/
 ├── chat/
 │   ├── ChatConversationSurface.tsx # 主聊天与 Side Chat 共用的薄 conversation 布局/背景壳 (16 行)
-│   ├── ChatPanelHost.tsx           # 聊天面板宿主（DOM 装饰接线与 React surface 桥）(1750 行)
+│   ├── ChatPanelHost.tsx           # 聊天面板宿主（DOM 装饰接线与 React surface 桥）(1795 行)
 │   ├── panel-wiring/               # ChatPanelHost 的无 Hook 子系统接线（主 effect 按原顺序调用）
 │   │   ├── composer-input.ts       # 草稿捕获/落盘、editor input/file-change、侧聊草稿与初始恢复
 │   │   ├── composer-suggestions.ts # `/`、`+`、`@`、task launcher 建议与建议草稿恢复
@@ -82,22 +82,22 @@ components/
 │   │   ├── approval-cards.ts       # 工具审批 / ask_user 卡片对账（auto-compact 已移入 React 消息列表）
 │   │   └── decorate-pipeline.ts    # rAF 装饰调度、MutationObserver、流式快路径与 handoff
 │   ├── ModelSetupEmptyState.tsx    # 模型未配置时的空状态引导 (43 行)
-│   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (340 行)
+│   ├── chat-utils.ts               # 共享类型、DOM 工具、token 估算 (237 行)
 │   ├── FileRollbackDialog.tsx      # 撤销确认弹窗：仅 TurnRollbackDialog（轮级，产物卡唯一撤销入口），App 唯一挂载点 (131 行)
 │   ├── file-rollback-state.ts      # 撤销弹窗状态机：createFileRollbackController / createTurnRollbackController（409→conflict、网络错→unconfirmed 禁再执行）(193 行)
-│   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(495 行)
-│   ├── file-reference-suggestions.ts # Composer @ 当前项目逐层目录浏览、文件筛选/选择与结构化文件 chip (403 行)
+│   ├── command-suggestions.ts      # 聊天输入框 / 斜杠菜单：指令·技能·子智能体三分组补全 + 选中态 chip（方案 A）(520 行)
+│   ├── file-reference-suggestions.ts # Composer @ 当前项目逐层目录浏览、文件筛选/选择与结构化文件 chip (435 行)
 │   ├── capability-suggestions.ts   # + 菜单/快捷任务共享插件目录与结构化插件 chip（不占用 @）
 │   ├── task-launcher.ts            # 主聊天开发/办公双 Tab、8 个任务模板与草稿冲突保护
 │   ├── capability-icons.ts         # @ 文件引用与非 Slash 插件菜单/chip 的中立图标表
 │   ├── slash-icons.ts              # Slash 三类复用 Lucide 图标静态映射（SquareTerminal / BookOpen / Bot）
-│   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (541 行)
-│   ├── context-usage.ts            # 上下文用量环状指示器：只认 provider 上报值，百分比按当前模型窗口前端换算 (631 行)
-│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (380 行)
+│   ├── slash-invocation-chip.ts    # Slash 选中态 chip：输入框内联覆盖层控制器 + 消息流 chip 共享元素 (551 行)
+│   ├── context-usage.ts            # 上下文用量环状指示器：只认 provider 上报值，百分比按当前模型窗口前端换算 (618 行)
+│   ├── panel-decoration.ts         # 聊天面板 DOM 装饰兼容入口 / editor 编排 facade (64 行)
 │   ├── panel-decoration/goal-card.ts # Goal 卡：纯视图模型 + 原生 DOM 控制器（状态/准则/证据/预算、revise/pause/resume/extend_resume/cancel）；生产主路径已不再挂载，保留为兼容入口与摘要分区共用的视图模型
 │   ├── panel-decoration/goal-control-strip.ts # Goal 运行条视图投影（方案 A 目标卡）：13 个服务器状态收敛为 5 个用户可见状态词 + 阶段说明 + 唯一主操作（暂停/继续/去处理/追加预算）+ 验收计数/轮次/累计用时；纯投影，无 DOM
 │   ├── panel-decoration/subagent-running-indicator.ts # Composer 当前会话 Subagent 运行 Bot 图标+数量角标指示（直接 run_subagent + pending run_workflow 下的嵌套 Agent）、运行列表 diff 更新与 Inspector 跳转桥接；菜单项只是详情入口（一行 label + 已运行时长，不平铺任务全文，任务只在 aria-label 里）；同文件另挂载 Composer 左下角的命令图标（终端图标 + 运行中数量角标），点击**直接**派发 `quickforge:open-background-tasks` 打开右侧后台任务面板，不再弹浮层（`openBackgroundCommandMenu` 与 `.quickforge-background-command-menu` 样式已删除）；`renderBackgroundCommandItems` 生成的 item/copy/stop/log 仍复用于 Subagent 运行浮层 (481 行)
-│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(391 行)
+│   ├── scroll-sync.ts              # 自动滚动同步 + 触顶加载回调 + 发送后用户消息置顶锚定（opt-in）(543 行)
 │   ├── windowed-messages.ts        # 超长会话窗口化控制器（超阈值时只渲染最近 3 轮，向上滚动逐页加载更早轮次；ChatSurface 以默认配置构造，窗口化默认开启）
 │   └── surface/                    # 自研 React 聊天面板核心（self-hosted-chat-ui；T5 起由 ChatPanelHost 挂载）
 │       ├── ChatSurface.tsx         # 顶层组件：props 合并 ChatPanel+AgentInterface 契约（agent/enable*/onApiKeyRequired/onBeforeSend/onCostClick/onModelSelect），ref 暴露 setInput/setAutoScroll；订阅 AgentEvent 维护快照；sendMessage 流程（本地 providerKeys 检查→onApiKeyRequired→onBeforeSend→清空编辑器→prompt/user-with-attachments）
@@ -142,7 +142,7 @@ components/
 │   └── ScheduledTasksPageSections.tsx # 编辑器/详情/列表/历史纯 render helpers
 ├── share/
 │   ├── ShareConversationDialog.tsx # 分享对话对话框 (199 行)
-│   └── SharedConversationPage.tsx  # 查看分享的对话页面 (266 行)
+│   └── SharedConversationPage.tsx  # 查看分享的对话页面 (315 行)
 ├── app/                             # App 主装配层的独立 UI 区域（MainApp 保持接线，区域组件化）
 │   ├── ConversationHeader.tsx       # 主区顶栏：标题/项目 chip/Git 分支菜单/对话-轨迹切换/会话 ⋯ 菜单
 │   ├── DesktopTitlebarMenu.tsx      # 桌面标题栏入口与菜单（关于 / 检查更新 / 退出）
@@ -168,7 +168,7 @@ components/
 │   ├── GoalInspectorContent.tsx    # Goal progress/edit 子视图：独立滚动内容区+底部固定动作栏、tone 状态行与 ? 说明浮层、预算计量条、验收 badge、安全保存和冲突提示
 │   ├── goal-inspector.css          # Goal 侧栏滚动布局、分段导航、状态行/浮层/计量条/动作栏样式
 │   ├── SideChatTabContent.tsx       # Workspace Side Chat 的共享 conversation surface + ChatPanelHost 薄包装 (37 行)
-│   ├── side-chat-agent.ts           # Side Chat 内存 AgentInterface 适配器（224 行）
+│   ├── side-chat-agent.ts           # Side Chat 内存 AgentInterface 适配器（261 行）
 │   ├── side-chat-client.ts          # Side Chat NDJSON 流客户端
 │   ├── SubagentRunDetailContent.tsx # Workspace Inspector 中的 subagent 单次运行详情内容（SubagentTrace：按结构签名决定是否释放过程组 + 同提交内同步重折叠）
 │   ├── subagent-trace-structure.ts  # subagent trace 的结构签名纯函数（消息行 + assistant 实际渲染的 part 结构），折叠释放门控用
@@ -187,11 +187,11 @@ components/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框（命令式 showConfirm/showAlert；模块级互斥防叠加、focus trap、关闭后焦点恢复）
 │   ├── input.tsx                   # 输入框组件 (19 行)：聚焦反馈 `focus-visible:border-ring` + `focus-visible:ring-2` + `focus-visible:ring-ring`（**有意补齐**：旧 `focus-visible:border-primary` 在移除依赖前是死类、不渲染聚焦边框，故与移除依赖前实际渲染不同）
-│   ├── prompt-dialog.tsx           # 提示输入对话框 (116 行)
-│   └── toast.tsx                   # Toast 通知组件 (113 行)
-├── ErrorBoundary.tsx               # 错误边界组件 (53 行)
-├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (34 行)
-├── project-directory-picker.tsx    # 项目目录选择器 (247 行)
+│   ├── prompt-dialog.tsx           # 提示输入对话框 (122 行)
+│   └── toast.tsx                   # Toast 通知组件 (153 行)
+├── ErrorBoundary.tsx               # 错误边界组件 (63 行)
+├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (33 行)
+├── project-directory-picker.tsx    # 项目目录选择器 (323 行)
 └── skills/                         # Skills 管理面板（数据层在 hooks/use-skills-manager + lib/skills-client，见下文 skills/ 小节）
 ```
 
@@ -329,12 +329,12 @@ components/
 
 ### 聊天子模块
 
-**chat-utils.ts** (340 行)
+**chat-utils.ts** (237 行)
 - 共享类型定义（MessageEditorElement, CommandSuggestionElement 等）；`FileContextReference`（`{type:'file',projectId,path}`）与内部 `ComposerCapabilitySelection` 为 @ 文件引用 / 插件 chip 的结构化草稿类型，`MessageEditorElement` 相应扩展 `contextReferences` / `selectedCapabilities` / `requestUpdate` 字段
 - DOM 工具函数（`replaceSvg`, `patchContent`, `ensureComposerContextChips`, `syncComposerContextChipsAriaLabel` 等）；`ensureComposerContextChips` 以 textarea 的父元素定位 `message-editor` 真正输入卡片，把共享 `.quickforge-context-chips` 移入卡片并保证位于 textarea 前，DOM 尚未渲染或测试 mock 能力不足时安全返回 `null`；两个控制器完成各自 chip 增删后统一调用 aria-label helper，按仅插件、仅文件、插件+文件混合三态同步可访问名称，空容器沿用既有语义移除
 - 草稿运行时管理（`hasDraft` 等）；`ComposerDraft` 携带 `contextReferences` / 内部 `selectedCapabilities`，`hasDraft` 口径为正文、附件、文件引用、插件 chip 任一非空；持久化在 `src/lib/composer-drafts.ts`，使用浏览器 `localStorage` 保存当前浏览器本地草稿，不迁移旧的 settings 后端草稿，也不参与后端备份/跨设备同步
 
-**command-suggestions.ts** (495 行)
+**command-suggestions.ts** (520 行)
 - 聊天输入框 "/" 斜杠菜单，三个分组依次渲染：指令（内置 /init /plan /review /commit /summary /compact /clear /help + 项目自定义命令）、技能、子智能体；每组 sticky 组头（label + 条数），整组无命中时隐藏
 - 技能/子智能体目录经 Options.loadSlashCatalog 懒加载（首次触发 / 时请求，见 `src/lib/slash-catalog.ts`）：idle → loading（技能/子智能体组渲染 2 行骨架，容器 aria-busy）→ ready（resolve 即含 null 目录，自动重渲染）/ error（本次打开仅指令组，菜单从关闭到重新打开允许重试一次）；无 loader 时同样仅指令组
 - 过滤口径：query = 去掉前导 / 的文本（trim + 小写），haystack = 用法文本（含类型前缀与 argumentHint，去前导 /）+ agent label·description，空白归一后 includes；因此仍可用 `skill ` / `agent ` 类型前缀搜索。单词 query 命中当前可见主文本时 `<b>` 加粗命中段，argumentHint 渲染为 muted hint 子 span
@@ -354,7 +354,7 @@ components/
 - 插件 chip 与文件 chip 共用的标签行固定在 `message-editor` 真正输入卡片内部、textarea 之前；两个控制器每次同步都调用共享 `ensureComposerContextChips`，完成自身 chip 增删后再统一同步可访问名称：仅插件为「已选插件 / Selected plugins」，仅文件复用「引用的文件 / Referenced files」，混合为「已选插件和引用的文件 / Selected plugins and referenced files」，空容器移除，因此不受先后顺序影响且不会互相覆盖错误语义。内置 `documents` / `spreadsheets` / `presentations` 按 `pluginName` 使用 `capability-icons.ts` 的 document / spreadsheet / presentation 专用图标，未知插件回退通用 plugin 图标；标签保留显式 × 删除，视觉尺寸参考 `.quickforge-slash-chip` 的紧凑排布，但不复用 Slash overlay 控制器。
 - 插件选择与正文、文件引用一起写入当前 Composer 的 `localStorage` 草稿；恢复时防御规范化、按 `type+pluginName+name` 去重且最多 4 个，附件仍不持久化。`capability-icons.ts` 继续服务 @ 文件引用与非 Slash 插件 chip/菜单，其中独立 `folderIcon` 供目录浏览行使用；`slash-icons.ts` 单独把 Slash command/skill/agent 映射到已有 Lucide `SquareTerminal` / `BookOpen` / `Bot`，避免 Slash 再新增自绘类别 glyph，也不影响插件菜单图标。
 
-**slash-invocation-chip.ts** (541 行)
+**slash-invocation-chip.ts** (551 行)
 - Slash 选中态 chip 子系统（方案 A）：纯逻辑（前缀解析 parseSlashInvocationPrefix / 匹配校验 slashInvocationPrefixMatches / 消息流剥前缀计划 planSlashChipText / spacer 宽度 max(0, 前缀宽度 - chip 宽度)）+ 共享 chip 元素工厂（输入框与消息流复用同一元素；skill 使用 `BookOpen`、agent 使用 `Bot`，图标颜色固定为 `muted-foreground` 中性）。skill/agent 变体的既有背景与文字语义色保留，图标通过独立子元素颜色覆盖与其分离 + 控制器工厂 createSlashInvocationChip
 - 控制器状态机：engage（显式选中，重置 dismissed）→ update（每次输入同步，失配自毁、文本不动；**自愈**——React 重渲染移除覆盖层或重建 textarea 时按匹配文本重挂覆盖层而非放弃选中态，保证打字过程中 chip 不消失）→ clear（Esc 退出，记 dismissed 前缀）→ removePrefix（退格边界删整段前缀含一个空格，同步 editor.value/onInput/input 事件后聚焦置 0）；光标进入前缀区域（document selectionchange）**降级为原文显示**（隐藏覆盖层、移除透明类，不销毁选中态），光标回尾部继续输入时自愈恢复；**点击 chip 本体不降级**——CSS 仅对覆盖层内 chip 开启 `pointer-events:auto`（消息流 chip 保持纯展示），控制器在 `renderChipContent` 挂 `pointerdown` 监听：preventDefault 吃掉默认行为后聚焦 textarea 并把光标移到文本末尾，点击不再穿透到前缀区露出 `/agent <name>` 原文；IME composition 期间覆盖层保持显示——预编辑文本经 compositionupdate 镜像进幽灵层尾部并以 `.quickforge-slash-preedit` 弱下划线提示输入中（Chromium 下 value 已含预编辑则从任务文本剥离去重，WebKit compositionend 先于 value 同步时手动拼接兜底）
 - 覆盖层几何：textarea 与 shell 的 `getBoundingClientRect()` 差值定位，宽高取 `clientWidth/clientHeight`；`ResizeObserver` 同时观察 textarea 与 `.quickforge-composer-shell`，因此 Composer Dock 内任务摘要插入、展开或收起引发 shell 布局变化时也会重算几何；editor/shell 自愈重建时重新绑定，两路 observer 在重建与卸载路径成对 disconnect/cleanup。幽灵层从 `getComputedStyle` 同步字体/行高/内边距/tabSize，scroll 事件同步 scrollTop；度量经 env 注入（canvas.measureText / offsetWidth），node 环境可单测
@@ -366,7 +366,7 @@ components/
 - Tooltip 的构成区：先是「输入 / 上下文」总量行（来源固定标注为「提供商上下文」，没有上报就不渲染指示器）；接着是提供商上报基线两行（`providerUsageTokens` + `trailingMessages`，两者之和等于总量行）；然后是「本地估算明细（仅供参考）」小标题下的系统提示词、工具定义、消息、`Skills`、`MCP` 行（后两项有值才显示，且是跨前三类的来源归因，不参与输入总量二次相加）；底部 meta 行只显示统计范围，数值非本轮上报时前置「上一次请求（尚未更新）」
 - 在现有模型选择按钮左侧单独显示中心镂空的彩色环，指示当前对话所占模型上下文窗口比例；悬停、聚焦或点击后显示结构化 Token 明细、统计来源与上下文范围；该圆环及详情可在“设置 → 通用”中开启，默认关闭
 
-**panel-decoration.ts** (310 行)
+**panel-decoration.ts** (64 行)
 - 聊天面板 DOM 装饰的兼容入口，继续向 `ChatPanelHost.tsx` re-export 消息装饰、草稿、审批卡、上下文压缩提示、等待气泡等能力，并再导出 TodoWrite 摘要的纯函数（`readLatestTodoWriteSnapshot` / `isFinalTodoSnapshot` / `shouldRetireTodoSummary` / `todoWriteCounts`；渲染在 `surface/TodoWriteSummary.tsx`，DOM 装饰层不再持有该子树的 controller）
 - `panel-decoration/todo-write-summary.ts`（**仅纯函数**）：TodoWrite 最新快照的规范化、当前消息分支提取、计数、`isFinalTodoSnapshot`、`shouldRetireTodoSummary`（`idle` 且全部完成才算终局）。摘要的**渲染**在 `surface/TodoWriteSummary.tsx`——位于 `message-editor` 前，**默认收拢**为居中进度胶囊，悬停/聚焦从胶囊正上方弹出纯任务列表浮层（不占 Dock 高度、不挤压消息区、长列表在浮层内滚动）；`hovered`/`focused`/`pinned`、`retiredKey`（按快照 key 退休，不是布尔）与 `retiringKey`（按快照 key latch 住淡出窗口）都是组件 state（不再靠 `dataset` 与 `insertBefore` 争位置）；`ChatSurface` 直接把 `!snapshot.isStreaming` 作为 `idle` 传入，不额外维护「回合是否结束」的 state
 - `panel-decoration/message-queue.ts`（593 行）提供流式期 Composer 消息队列面板 controller：Enter capture 拦截入队、队列列表渲染（下一条标记、行内编辑、删除、「立即」插队按钮、⠿ 手柄拖拽排序）、暂停横幅与恢复按钮、占位符切换与清理；面板位于任务摘要之后、建议菜单之前，纯逻辑与持久化在 `src/lib/message-queue.ts`，会话切换后的后台续发在 `src/lib/message-queue-drainer.ts`（后台 task 触发，面板只处理当前查看会话）
@@ -389,7 +389,7 @@ components/
 
 - **待答期间的输入框归属（ask_user 与排队消息的协同）**：`ask_user` 待答时 agent loop 阻塞在工具执行里、`state.isStreaming` 仍为真，所以输入框 Enter 原本会被排队消息的 capture keydown 收走（`enqueueTextValue` → 面板「立即」按钮再走 `agent.steer`）；而 steer 只在轮边界被消费，ask_user 那一轮永远走不到轮边界——用户打的那句话会一直看不到，最长等到 30 分钟超时。现在 capture keydown 先看 `isAskPending()`（来自 `state.pendingAsk`——ServerAgent 状态机是 pending 审批/提问的单一权威，面板不再用 ref 重建第二份）：为真则调用 `submitAskTextToPendingAsk(panel, text)` 交给已挂载的提问卡，并按卡片自身的语义消费文本——问题步写入该问的自由补充并前进（等价于卡片内 textarea 回车）；`allowCustom: false` 的选项题按选项标签精确匹配（忽略大小写与首尾空白），匹配不上返回 `false` 交回原入队逻辑，不吞字；回执步追加为卡片级「补充信息」。卡片用 `WeakMap` 按元素登记文本入口，重建卡片不会串用上一张的状态；待答时输入框 placeholder 换成 `askUserComposerPlaceholder`。排队消息面板的「立即」按钮同样先走这条通道，避免同一条消息被 steer 静默挂住。
 
-**scroll-sync.ts** (391 行)
+**scroll-sync.ts** (543 行)
 - 自动滚动同步管理
 - 新消息时自动滚到底部；用户主动上滚时暂停自动滚动
 - 用户滚回底部时重新启用自动滚动

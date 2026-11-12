@@ -46,8 +46,8 @@ goal 路由错误补机器码：`POST /api/agents/:sessionId/goal` 对非法 act
 
 ```
 server/
-├── index.mjs                 # 服务器入口 (883 行)
-├── agent-manager.mjs         # Agent 生命周期编排 + facade (约 1966 行；压缩/命令/审批/subagent/持久化已拆至 agent-* 模块)
+├── index.mjs                 # 服务器入口 (1029 行)
+├── agent-manager.mjs         # Agent 生命周期编排 + facade (133 行；压缩/命令/审批/subagent/持久化已拆至 agent-* 模块)
 ├── agent-session-store.mjs   # 模块级可变状态唯一 owner（agentSessions / pendingRestores / subagent 错误 details 暂存）
 ├── agent-session-events.mjs  # 共享事件核心（emitSessionEvent/分帧转换/消息构造器/context usage）
 ├── message-log.mjs           # 消息日志：logVersion / 尾部窗口快照 / 每连接投递游标 / 绝对 seq 投影
@@ -72,30 +72,34 @@ server/
 ├── dreaming/                 # 记忆整理员：逐会话采集 / 整理提示词 / agent 执行 / 整目录快照 / runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
-├── storage.mjs               # 文件存储层 (707 行)
+├── storage.mjs               # 文件存储层 (1319 行)
 ├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
-├── skills.mjs                # Agent Skills 管理和加载 (553 行)
+├── skills.mjs                # Agent Skills 管理和加载 (645 行)
 ├── hooks/                    # Hooks 事件钩子（设置规范化 / 事件引擎 / 命令与 Webhook 执行器）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
-├── share-store.mjs           # 分享数据存储 (432 行)
-├── session-utils.mjs         # 会话工具 (102 行)
+├── share-store.mjs           # 分享数据存储 (423 行)
+├── session-utils.mjs         # 会话工具 (118 行)
 ├── system-prompt.mjs         # 系统提示词合成；todo_write 通用计划规则位于项目任务专属段之外
 ├── working-memory.mjs        # 工作记忆（beta）：设置、笔记文件夹与大白话笔记提示词
 ├── note-store.mjs            # 两个记忆目录共用的文件操作：命名校验 / 读 / 写 / 归档式移动
 ├── experiences.mjs           # 经验库：目录、扫描生成 index.md、注入块
-├── project-config.mjs        # 项目配置管理 (162 行)
-├── conversation-compaction.mjs # 对话历史压缩 (302 行)
+├── project-config.mjs        # 项目配置管理 (553 行)
+├── conversation-compaction.mjs # 对话历史压缩 (389 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
 ├── selected-capabilities.mjs   # 本轮插件选择规范化、持久化快照与模型临时提示 (76 行)
-├── custom-commands.mjs       # 自定义命令系统 (628 行)
+├── custom-commands.mjs       # 自定义命令系统 (637 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
-├── lan-access-store.mjs      # LAN 共享访问令牌存储 (407 行)
+├── lan-access-store.mjs      # LAN 共享访问令牌存储 (194 行)
 ├── lan-access-service.mjs    # lan-access 域 repository 访问器 / 注入
 ├── lan-access-maintenance.mjs # lan-access 维护锁（跨进程串行 / fencing / heartbeat）
 ├── lan-access-backup.mjs     # F11 lan-access 权威导出 / restore 计划与补偿
+├── scheduled-task-store.mjs   # 定时任务记录领域规则与存取 (354 行)
+├── scheduled-task-executor.mjs # 定时任务 executeTask 会话编排 (443 行)
+├── scheduled-task-runner.mjs  # 常驻调度守护循环 (117 行)
+├── scheduled-task-instruction-parser.mjs # 自然语言→cron 草稿解析 (113 行)
 ├── terminal/                 # 本地交互式终端 PTY 会话管理
 ├── routes/                   # API 路由处理器
 ├── tools/                    # 工作区工具定义和实现
@@ -106,7 +110,7 @@ server/
 
 ## 核心模块
 
-### index.mjs (1031 行)
+### index.mjs (1029 行)
 
 **用途**: 服务器入口 / 主路由分发。启动 HTTP 服务器，注册所有 API 路由。
 
@@ -255,7 +259,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `session/new` / `session/load` 会返回 ACP `configOptions` 模型和 Thinking Level 下拉选项，模型来源于统一 Model Catalog，包含当前允许的自定义模型；当前 ACP 会话已经使用的隐藏模型会保留在该会话的选项中，但不能由其他会话重新选择。客户端调用 `session/set_config_option` 后会通过统一 resolver 校验并切换当前 ACP 会话配置。切换到不支持 reasoning 的模型时会自动将 Thinking Level 置为 `off`。新建会话时初始 Thinking Level 与 Web UI 保持一致：读取「最近一次选择的思考等级」（`settings['active-thinking-level']`），非推理模型强制 `off`，从未记录过则回落推理模型 `high`（见 `resolveInitialThinkingLevel` 与 `src/lib/pi-chat.ts resolveNewSessionThinkingLevel`）。
 - 工具审批事件会转成 ACP `session/request_permission`，客户端选择 allow/reject 后调用现有 `approveToolCall` / `rejectToolCall`。
 
-### storage.mjs (707 行)
+### storage.mjs (1319 行)
 
 **用途**: 文件存储层。管理 JSON 文件的读写、存储布局迁移。
 
@@ -334,7 +338,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - share / lan-access / scheduled-runs 的 `downgrade-*-v1.mjs` 已全部删除：没有可切回的 JSON 权威，逃生只能导出 + 重建空库 + 导入。
 - 业务模块只能使用受控 handle，不得自行关闭连接或改基础 PRAGMA；生命周期由 Server/ACP runner 管理。MED-9 已解决：authoritative history 的 total/page/filter 在 SQLite 中完成。
 
-### runtime-diagnostics.mjs (251 行)
+### runtime-diagnostics.mjs (250 行)
 
 **用途**: 服务端运行时诊断采集（event loop lag / 在途请求 / 慢请求），供 `GET /api/diagnostics`（仅本机）查询，并在超阈值时打 WARN。
 
@@ -435,7 +439,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表；QuickForge 自定义 Profile 可编辑两个能力开关，外部 readonly Profile 不可编辑，内置 `general` / `explore` 仅通过 `agent-profile-overrides` 编辑这两个开关、模型和思考等级。子 Agent 只继承父会话当前实际工具集中对应的 MCP/Skills 工具，不从全局额外扩展，MCP 保持父会话审批语义，关闭 Skills 时不注入可用 Skills 目录，并禁止递归 `run_subagent`。
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 
-### skills.mjs (654 行)
+### skills.mjs (645 行)
 
 **用途**: Agent Skills 的发现、加载和管理。
 
@@ -529,7 +533,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 **用途**: 设置页一键更新的外部更新器。由当前后端以 detached 子进程启动，等待旧服务退出后，在数据目录下执行 `npm install -g <package>@latest`，将 npm 输出写入 `~/.quickforge/logs/update-*.log`，成功后重新启动后端服务。这样避免 Windows 上“运行中的服务更新自己”导致安装目录文件被占用。重启服务时传入的 `serverCwd` 是调用方的真实工作目录（不是 `projectRoot`）：打包版 `server/` 在 `app.asar` 内，归档路径不能当子进程 `cwd`。
 
-### share-store.mjs (432 行)
+### share-store.mjs (423 行)
 
 **用途**: 对话分享的持久化和访问控制。
 
@@ -548,7 +552,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 令牌认证（7天有效期）
 - 口令保护
 
-### conversation-compaction.mjs (302 行)
+### conversation-compaction.mjs (389 行)
 
 **用途**: 对话历史压缩。使用 AI 将长对话压缩为精炼摘要。
 
@@ -556,7 +560,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 **不再做任何截断**: transcript 构造（`formatMessageForTranscript` / `buildTranscript` / `safeJson`）已移除全部长度上限。此前的三层截断是「单条消息 10000 字符（掐头留尾）」「整个 transcript `min(160000, max(12000, contextWindow × 1.6))`」「工具调用参数 2000 字符」。它们最伤的正是压缩存在的场景——已经把大文件/长日志贴进对话的会话，中段事实会在摘要里静默消失。现在的取舍是「宁可让 provider 因为请求过大而报错」：报错会经 `auto_compact_failed` 明确暴露，而不是产出一份看不出来不完整的摘要。仍然保留的结构性替换只有 `[image omitted: mime]`、`[attachments omitted: N]`（内容本身无法以文本上送），以及逐条 `redactSensitive()` 的**定点**脱敏（`sk-*` / `AKIA*` / `AIza*` / `Bearer *` / `key=value` 形式），脱敏是替换而非截断，因此不损失其余正文。
 
-### ai-http-logger.mjs (635 行) / ai-provider-options.mjs
+### ai-http-logger.mjs (580 行) / ai-provider-options.mjs
 
 **用途**: 服务端 → 模型供应商 API 的流包装层。`streamSimpleWithAiHttpLogging` 包装 pi-ai `streamSimple`：AI HTTP 日志（`QUICKFORGE_AI_HTTP_LOG`，AsyncLocalStorage trace + header 脱敏 jsonl）与流超时治理。默认首个实质事件（任意非 `start` 流事件，包括 text/thinking/toolcall delta）等待 90 秒；产出实质内容后 idle 预算为 3 分钟，total 硬上限为 20 分钟。仅首个实质事件前的 idle 超时会透明重建底层流，`MAX_STREAM_RETRIES=2`：每次尝试使用独立 AbortController（换流时打断上一次挂起连接，total timeout 跨尝试共享且不重置）、对外吞掉重试流的重复 `start`，`result()` 等待者跟随当前流迁移；重试进度经 `options.onStreamRetry` 上报 attempt/maxAttempts，新流首个实质事件上报 `recovered:true`，前端按动态上限显示「模型连接重试中… n/2」。一旦已有实质内容，后续 idle 直接失败且不重建；用户 parent signal 已 abort、total timeout 或重试额度用尽也不重试。显式 `idleTimeoutMs` / 兼容 `deadlineMs` 仍令首事件与后续 idle 两档同值，但不改变已有内容后不重试的规则。超时按原路径报 `AI stream idle/total timeout after Xms` 并中止 Provider signal；openai SDK 层的 `maxRetries=3` + 120s timeout 只覆盖请求建立阶段，流建立后的挂死由本层负责。`ai-provider-options.mjs` 另导出同步等待场景的 4 个 total 预算常量（`AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS`=60s、`AI_AGENT_PROFILE_FILL_TOTAL_TIMEOUT_MS`=3min、`AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS`=2min、`AI_GIT_COMMIT_MESSAGE_TOTAL_TIMEOUT_MS`=2min），由上述 4 个路由接口的 options 显式传入。
 
@@ -613,7 +617,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `selectedCapabilitiesFromMessage()` / `withCanonicalSelectedCapabilities()` — retry 从用户消息 details 读取历史快照时再次强制投影为 type/pluginName/name/label，历史 details 即使伪造 description 也会被丢弃，绝不进入 continue prompt；新 prompt 以请求体顶层 canonical 结果覆盖消息 details，空结果删除伪造/陈旧 selectedCapabilities，但保留 contextReferences 等其他 details；未知插件名不做 registry 校验，保证历史消息可继续展示
 - `selectedCapabilityPrompt()` — 严格使用同一 canonical 结果生成本轮 capability prompt，不修改用户正文；`message-converters.mjs` 后续剥离全部 details，避免展示字段直接进入 LLM 正文
 
-### custom-commands.mjs (628 行)
+### custom-commands.mjs (637 行)
 
 **用途**: 自定义命令系统。从用户级 `~/.quickforge/commands/`（所有项目共享）和项目级 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 及项目配置 `commandDir` 指向的目录读取命令定义；同名命令优先级由高到低：项目配置目录 > `.ai` > `.opencode` > `.claude` > 用户级目录 > 插件命令。内置命令元数据集中在 `builtinCommandCatalog` 常量表（单一事实源），`/help` 和前端建议均据此派生。
 
@@ -628,11 +632,11 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `formatHelpText()` — 生成 `/help` 输出（内置命令区 + 自定义命令区）
 - `createCommandFile()` — 在项目 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖），供 REST 路由和 `/command new` 复用
 
-### session-utils.mjs (102 行)
+### session-utils.mjs (118 行)
 
 会话工具函数：构建系统提示词、生成会话标题。
 
-### system-prompt.mjs (91 行)
+### system-prompt.mjs (276 行)
 
 合成系统提示词。将基础提示词、workspace 上下文、多来源用户/项目指令（兼容 `~/.claude/CLAUDE.md`、`~/.opencode/AGENTS.md`、项目 `CLAUDE.md` / `AGENTS.md` 等）、Skills 目录和 Subagents 目录组装成完整的系统提示词。基础提示词要求命令在可行时优先通过 `run_command` 的 `run_in_background` 后台运行，并禁止用 shell 语法自行后台化；Subagents 目录会引导主 Agent 在需要文件发现、源码搜索、调用链追踪、测试/文档/wiki 发现或影响面分析时优先委托 `explore` 做只读仓库调研。全局记忆开启时追加 `<memory_policy>` / `<global_user_memory>`（全文）；经验库非空时追加 `<experiences>`（**只放扫描生成的 `index.md`**，并明确说明索引只是指针、要看正文得自己 `read_memory_note`）；工作记忆（beta）开启时在记忆段之后追加 `<working_memory>`（笔记目录 + 使用规则 + 用户可编辑的笔记提示词，**不含笔记内容**），关闭时整段不出现。
 

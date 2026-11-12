@@ -34,6 +34,8 @@ export type BotSummary = {
   accessMode: string
   heartbeat: BotHeartbeat
   mascot: BotMascot
+  /** 手动排序位（服务端 reorder 维护）；null = 老记录，按创建时间兜底。 */
+  sortOrder?: number | null
   createdAt: string
   updatedAt: string
   busy?: boolean
@@ -79,6 +81,15 @@ export async function patchBot(botId: string, patch: BotPatch): Promise<BotSumma
     body: JSON.stringify(patch),
   })
   return payload.bot
+}
+
+/** 整组重排：服务端重编 sortOrder 并按新顺序返回全部 bot。 */
+export async function reorderBots(orderedIds: string[]): Promise<BotSummary[]> {
+  const payload = await requestJson<{ bots: BotSummary[] }>('/api/bots/reorder', {
+    method: 'PUT',
+    body: JSON.stringify({ orderedIds }),
+  })
+  return payload.bots ?? []
 }
 
 export async function deleteBot(botId: string): Promise<void> {
@@ -171,6 +182,8 @@ export type BotSidebarProps = {
   onOpenSettings: (bot: BotSummary) => void
   /** 催醒：立刻跑一跳（跳过判活）。在忙时按钮自己会禁用。 */
   onWake: (bot: BotSummary) => void
+  /** 拖动排序：给出新顺序的 bot id 列表，由宿主乐观应用并落盘。 */
+  onReorder?: (orderedIds: string[]) => void
   onToggleMode: () => void
   onStartNew: () => void
 }

@@ -1740,5 +1740,29 @@
     "verification": "node --check 通过；npx eslint skills/quickforge-api/ 0 problems；vitest runtime-info（10 例，脚本正文黑名单断言未破）+ skills（5 例）全过；本机实测 bots/bot/bot-messages/bot-memory/bot-create（建「qf-api自测」验证 --no-heartbeat 与空会话分支）；bot-wake 未实测——真实模型调用，POST 链路与其余命令一致。",
     "updatedAt": "2026-11-12",
     "boundaries": "不做：投喂（inbox）子命令、删/改 bot 与写 MEMORY.md 的子命令、mascot 外观参数（界面专属）、bot-messages 分页翻阅（tail 窗口够用，翻旧消息走 UI）。"
+  },
+  {
+    "id": "bot-reorder-rename",
+    "title": "bot 列表拖动排序 + bot 就地改名",
+    "status": "done",
+    "summary": "用户点名两件活：BOT 侧栏列表支持拖动排序（顺序服务端持久化）；bot 支持改名（设置弹窗就地编辑）。改名后端 PATCH 早已支持 name，本次补 UI 和两处外部引用同步（projects.json 项目名、会话标题）。",
+    "dependencies": [],
+    "approach": "排序完全镜像项目列表的既有模式：server/bots.mjs 记录加 sortOrder（老记录没有则按 createdAt 兜底）+ reorderBotRecords 整组重编；新增 PUT /api/bots/reorder（在 :id 分发前特判 reorder 这个段）；新 bot sortOrder=现有数量排末尾。前端 BotSidebarList 行组件抽出为 BotRow，多于一个 bot 时用 DndContext+SortableContext（PointerSensor 6px 激活，复用 SortableProjectItem），拖完把 orderedIds 交给 App 乐观重排再落盘，失败 refreshBots 回滚——顺序必须服务端持有，refreshBots 会整组覆盖。改名：BotDialogs 头部铅笔就地编辑（Enter 提交、Esc/失焦取消，409 保留草稿），走 PATCH name；服务端改名后尽力同步 ensureBotProject 与 updateSessionTitle，失败只记日志不回滚。",
+    "files": [
+      "server/bots.mjs",
+      "server/routes/bots.mjs",
+      "src/components/bots/bots-data.ts",
+      "src/components/bots/BotSidebarList.tsx",
+      "src/components/bots/BotDialogs.tsx",
+      "src/components/sidebar/ChatSidebar.tsx",
+      "src/App.tsx",
+      "src/lib/i18n.ts",
+      "tests/server/routes/bots.test.mjs",
+      "tests/frontend/bot-reorder-rename.test.ts",
+      "docs/wiki/server/bots.md"
+    ],
+    "verification": "全量 npm run test 523/523 文件全绿（新增 server reorder/rename 两例 + frontend bot-reorder-rename 9 例）；npm run lint 通过；npm run build 通过；npx tsc -b 通过；改动文件单独 eslint 0 problems。过程中修过一处自查发现的问题：改名输入分支排在前面会把 bot-mascot-composer-toggle 的头部 900 字符窗口断言挤出界，已把「非编辑态」分支换到前面（常路先行）。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "不动目录名（目录与名字解耦是既有设计）；不搬 MEMORY.md 首行旧名（内容性问题，留给 bot 自进化）；不加新依赖（dnd-kit 已在用）；不做实机 UI 目验（无人值守，明早用户可验）。"
   }
 ]

@@ -189,6 +189,10 @@ export function normalizeBotRecord(input, previous = null) {
   const id = previous?.id ?? (typeof source.id === 'string' && source.id ? source.id : randomUUID())
   const workspacePath = previous?.workspacePath ?? (source.workspacePath || botWorkspacePath(id))
   const heartbeat = normalizeHeartbeat(source.heartbeat, previous?.heartbeat ?? null)
+  // 手动排序位（拖动排序整组重编）；老记录没有它，列表按 createdAt 兜底排序。
+  const sortOrder = previous?.sortOrder !== undefined
+    ? previous.sortOrder
+    : (Number.isInteger(source.sortOrder) ? source.sortOrder : null)
   return {
     id,
     name,
@@ -204,6 +208,7 @@ export function normalizeBotRecord(input, previous = null) {
       ? source.thinkingLevel
       : (previous?.thinkingLevel ?? 'medium'),
     accessMode: typeof source.accessMode === 'string' ? source.accessMode : (previous?.accessMode ?? 'full-access'),
+    sortOrder,
     createdAt,
     updatedAt: nowIso(),
     heartbeat,
@@ -215,7 +220,13 @@ export async function listBotRecords() {
   const store = await readStore(BOT_STORE)
   return Object.values(store)
     .filter((bot) => bot && typeof bot === 'object' && typeof bot.id === 'string')
-    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+    // 手动排序优先；没有 sortOrder 的老记录排后面，并按创建时间保持相对顺序。
+    .sort((a, b) => {
+      const orderA = Number.isInteger(a.sortOrder) ? a.sortOrder : Number.POSITIVE_INFINITY
+      const orderB = Number.isInteger(b.sortOrder) ? b.sortOrder : Number.POSITIVE_INFINITY
+      if (orderA !== orderB) return orderA - orderB
+      return String(a.createdAt).localeCompare(String(b.createdAt))
+    })
 }
 
 export async function getBotRecord(botId) {
@@ -257,6 +268,31 @@ export async function removeBotRecord(botId) {
     return next
   })
   return existing
+}
+
+/**
+ * 整组重排：orderedIds 里的按给出顺序重编 sortOrder（0,1,2…），没提到的排在后面、
+ * 保持原相对顺序。与项目列表的 PUT /api/project/reorder 同一套约定（漏掉的兜底追加）。
+ * 入参不合法返回 null（路由层转 400）；不认识的 id 直接忽略。
+ */
+export async function reorderBotRecords(orderedIds) {
+  if (!Array.isArray(orderedIds) || orderedIds.some((id) => typeof id !== 'string' || !id)) return null
+  await atomicUpdate(BOT_STORE, (store) => {
+    const next = { ...store }
+    const seen = new Set()
+    let index = 0
+    const place = (botId) => {
+      const bot = next[botId]
+      if (!bot || typeof bot !== 'object' || seen.has(botId)) return
+      if (bot.sortOrder !== index) next[botId] = { ...bot, sortOrder: index }
+      seen.add(botId)
+      index += 1
+    }
+    for (const botId of orderedIds) place(botId)
+    for (const botId of Object.keys(next)) place(botId)
+    return next
+  })
+  return listBotRecords()
 }
 
 // ---------------------------------------------------------------------------

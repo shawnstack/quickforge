@@ -1,6 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { logger } from '../utils/logger.mjs'
-import { getSessionStatus, isSessionFileRollbackBusy } from '../agent-manager.mjs'
+import { getSessionStatus, isSessionFileRollbackBusy, updateSessionTitle } from '../agent-manager.mjs'
 import { ensureBotSession } from '../bot-session.mjs'
 import {
   BOT_STORE,
@@ -15,6 +15,7 @@ import {
   patchBotRecord,
   readBotMemory,
   removeBotRecord,
+  reorderBotRecords,
   requireBotRecord,
   saveBotRecord,
   writeBotMemory,
@@ -39,6 +40,7 @@ function publicBot(bot) {
     sessionId: bot.sessionId,
     thinkingLevel: bot.thinkingLevel,
     accessMode: bot.accessMode,
+    sortOrder: bot.sortOrder ?? null,
     heartbeat: bot.heartbeat,
     mascot: bot.mascot ?? DEFAULT_MASCOT,
     createdAt: bot.createdAt,
@@ -68,6 +70,8 @@ async function createBot(body) {
     modelRef: body?.modelRef ?? null,
     model: body?.model ?? null,
     mascot: body?.mascot,
+    // 新 bot 排在列表末尾；顺序之后可由拖动排序改写。
+    sortOrder: existing.length,
   })
 
   await ensureBotWorkspace(bot)
@@ -113,6 +117,17 @@ export async function handleBotsApi(req, res, url) {
   const [, , rawId, rawSub] = parts
   const botId = rawId ? decodeSegment(rawId) : null
   const sub = rawSub ? decodeSegment(rawSub) : null
+
+  // PUT /api/bots/reorder：整组重排（body: { orderedIds }）。放在 :id 分发之前，
+  // 否则 'reorder' 会被当成 botId 直接 404。与 PUT /api/project/reorder 同构。
+  if (rawId === 'reorder' && !sub) {
+    if (req.method !== 'PUT') throw requestError('Method not allowed', 405)
+    const body = await readJsonBody(req)
+    const bots = await reorderBotRecords(body?.orderedIds)
+    if (!bots) throw requestError('orderedIds must be an array of bot ids')
+    sendJson(res, 200, { bots: bots.map((bot) => publicBot(bot)) })
+    return
+  }
 
   if (!botId) {
     if (req.method === 'GET') {
@@ -175,6 +190,24 @@ export async function handleBotsApi(req, res, url) {
       }
 
       const bot = await patchBotRecord(botId, patch)
+      if (patch.name !== undefined && patch.name !== existing.name) {
+        // 改名同步两处外部引用，都按尽力而为处理：失败不回滚改名，只记日志。
+        // ① projects.json 里 kind:'bot' 项目的显示名（ensureBotProject 原地更新）；
+        // ② 这条持久会话的标题——只在建会话时写过一次，此后不跟名字走。会话还没
+        //    落盘时 404 属正常，下次 ensureBotSession 自然用新名字。
+        try {
+          await ensureBotProject({ name: bot.name, workspacePath: bot.workspacePath })
+        } catch (error) {
+          logger.warn(`Failed to sync project name for bot ${bot.id}:`, error)
+        }
+        if (bot.sessionId) {
+          try {
+            await updateSessionTitle(bot.sessionId, bot.name)
+          } catch (error) {
+            logger.warn(`Failed to sync session title for bot ${bot.id}:`, error)
+          }
+        }
+      }
       sendJson(res, 200, { bot: publicBot(bot) })
       return
     }

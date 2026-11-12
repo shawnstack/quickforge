@@ -20,6 +20,7 @@ import {
   deleteBot as deleteBotRequest,
   ensureBotSessionOpen,
   fetchBots,
+  reorderBots,
   wakeBot as wakeBotRequest,
   type BotSummary,
 } from '@/components/bots/bots-data'
@@ -1512,6 +1513,30 @@ function MainApp() {
     }
   }, [refreshBots])
 
+  // 拖动排序：先把乐观顺序摆上去（松手立刻就是新顺序），服务端落盘后用返回值
+  // 校准；失败就整表刷新回滚。与 useProject 的 reorderProjects 同一套路。
+  const handleReorderBots = useCallback(async (orderedIds: string[]) => {
+    setBots((previous) => {
+      const byId = new Map(previous.map((bot) => [bot.id, bot]))
+      const next: BotSummary[] = []
+      for (const id of orderedIds) {
+        const bot = byId.get(id)
+        if (bot) {
+          next.push(bot)
+          byId.delete(id)
+        }
+      }
+      return [...next, ...byId.values()]
+    })
+    try {
+      const list = await reorderBots(orderedIds)
+      if (list.length > 0) setBots(list)
+    } catch (error) {
+      logger.error('Failed to reorder bots:', error)
+      void refreshBots()
+    }
+  }, [refreshBots])
+
   const botShell = useMemo(() => ({
     mode: botMode,
     bots,
@@ -1521,6 +1546,7 @@ function MainApp() {
     onSelect: openBotSession,
     onOpenSettings: setBotSettings,
     onWake: handleWakeBot,
+    onReorder: handleReorderBots,
     onToggleMode: toggleBotMode,
     onStartNew: openNewBotDialog,
   }), [
@@ -1530,6 +1556,7 @@ function MainApp() {
     botsError,
     openBotSession,
     handleWakeBot,
+    handleReorderBots,
     toggleBotMode,
     openNewBotDialog,
     agentManager.currentSessionId,

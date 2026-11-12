@@ -712,6 +712,7 @@ export const ChatSidebar = memo(function ChatSidebar({
               onSelectBot={botShell.onSelect}
               onOpenBotSettings={botShell.onOpenSettings}
               onWakeBot={botShell.onWake}
+              onReorderBots={botShell.onReorder}
             />
           ) : (
           <>

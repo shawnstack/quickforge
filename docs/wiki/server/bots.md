@@ -29,6 +29,7 @@
   projectId,         // 注册在 projects.json 里的项目 id
   sessionId,         // 这个 bot 唯一的那条会话
   thinkingLevel, model, modelRef, accessMode,
+  sortOrder,          // 手动排序位（PUT /api/bots/reorder 维护）；老记录没有它，按 createdAt 兜底
   heartbeat: {
     enabled, intervalMinutes, nextRunAt,
     lastWakeAt, lastSessionId, wakeCount, idleCount,
@@ -99,24 +100,25 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/bots` | 列表（附 `busy` / `status`） |
-| POST | `/api/bots` | 建 bot：`{ name }`。会建目录、`MEMORY.md`、注册项目、建会话 |
+| GET | `/api/bots` | 列表（附 `busy` / `status`），按 `sortOrder` → `createdAt` 排序 |
+| POST | `/api/bots` | 建 bot：`{ name }`。会建目录、`MEMORY.md`、注册项目、建会话；新 bot 排在列表末尾 |
+| PUT | `/api/bots/reorder` | 整组重排：`{ orderedIds }` 重编 `sortOrder`（0,1,2…），漏掉的按原相对顺序追在后面，返回新顺序的完整列表。与 `PUT /api/project/reorder` 同构 |
 | GET | `/api/bots/:id` | 单条 |
-| PATCH | `/api/bots/:id` | 改名字 / 技能 / 思考档 / 心跳（改间隔会重算 `nextRunAt`，关掉会清空它）/ 吉祥物外观（`mascot`，可只传部分字段）。**改名不动目录**——目录由 id 决定 |
+| PATCH | `/api/bots/:id` | 改名字 / 技能 / 思考档 / 心跳（改间隔会重算 `nextRunAt`，关掉会清空它）/ 吉祥物外观（`mascot`，可只传部分字段）。**改名不动目录**——目录由 id 决定；改名会尽力同步两处外部引用：`projects.json` 里 `kind:'bot'` 项目的显示名、该 bot 会话的标题（失败只记日志，不回滚改名） |
 | DELETE | `/api/bots/:id` | 删记录和项目注册，**目录保留** |
 | GET | `/api/bots/:id/memory` | 读 `MEMORY.md` |
 | PUT | `/api/bots/:id/memory` | 写 `MEMORY.md` |
 | POST | `/api/bots/:id/wake` | 立刻催醒一次（跳过「有没有活」的判断） |
+| POST | `/api/bots/:id/inbox` | 投喂：`{ text }` 追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间 |
 
 内置 `quickforge-api` skill 为上表提供命令行入口：`bots`（列表）、`bot`（详情）、`bot-create`（创建，心跳默认开，`--no-heartbeat` 建完即睡）、`bot-messages`（读会话尾部，只读不唤醒）、`bot-memory`（读记忆）、`bot-wake`（催醒）。删/改/写记忆没有子命令，界面专属（白名单裁决见 `docs/architecture/quickforge-api-skill.zh-CN.md` §4.1）。
-| POST | `/api/bots/:id/inbox` | 投喂：`{ text }` 追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间 |
 
 ## 7. 前端
 
 - 侧栏左上角「对话 / BOT」分段切换 bot 模式（`ui-store.botMode`）：logo 行下方独占一行、两个等宽选项，选中项浮起（`SidebarHeaderNav.tsx` + `sidebar-classes.ts` 的 `modeSwitcher*`）。这段分段控件**只在侧栏展开时渲染**；侧栏折叠后左上角只留「展开侧栏」一枚按钮（平时显示 favicon，hover / 聚焦换成 `PanelLeftOpen`），折叠态不再单独放模式切换图标，切模式要先摊开侧栏。点当前已选中的那一项不会再触发一次切换。
 - 两个方向的补偿不对称，都值得知道：**进 bot 模式**时若当前会话不属于任何 bot，会自动打开第一个 bot（否则主区会停在普通会话上自相矛盾）；**退出 bot 模式**时若当前会话属于某个 bot，则落回新对话空态。后半条不是洁癖——不改的话主区会继续显示那个 bot 的历史对话，而 `chatCapabilities` 仍按 bot 项目判定，顶栏、吉祥物、消息落点全都还挂在 bot 上。实现在 `App.tsx` 的 `previousBotModeRef` effect 里（不能塞进 `toggleBotMode`：那里读 `agentManager.currentSessionId` 会被 `react-hooks/refs` 判成 render 期间读 ref）。
 - **`botMode` 不持久化，刷新即归零**：会话内容却能经 URL `?session=` 恢复回来（点开 bot 时 `attachTaskToView` 会把它写进地址栏）。所以启动链里要做第三次对齐——`useAppBootstrap` 在恢复成功后若会话项目是 bot（`isBotProject`），把 `botMode` 拨回 true，侧栏才不会错亮「对话」。只挂在启动恢复成功的分支上，不与退出补偿冲突。bot 会话还没落过盘（从没发过消息）时恢复必然失败，落到新对话空态是数据本身不存在，不属于此列。
-- bot 模式下侧栏换成 bot 列表（`BotSidebarList`），一行一个，与会话行同一套样式。
+- bot 模式下侧栏换成 bot 列表（`BotSidebarList`），一行一个，与会话行同一套样式。多于一个 bot 时整行可拖动排序（dnd-kit，`PointerSensor` 6px 激活与点击共存，复用 `SortableProjectItem` 包装）：拖完把新顺序交给 `App.tsx` 乐观重排并 `PUT /api/bots/reorder` 落盘，失败整表刷新回滚——顺序必须由服务端持有，`refreshBots` 会整组覆盖 `setBots`，纯前端顺序活不过下一次刷新。
 - 「新对话」按钮在 bot 模式下变成「创建 bot」。
 - **主区复用普通对话视图**：bot 就是一条会话，点开走 `requestOpenSession(sessionId)`。但「项目 + 分支」是普通对话语境的控件，这里有两处收敛：
   - bot 模式下顶栏不显示项目胶囊与分支菜单，空态也不渲染项目胶囊（`App.tsx` 的 `headerProject` / `emptyStateProject`）。
@@ -124,7 +126,7 @@
 - 切进 bot 模式时若当前会话不属于任何 bot，会先刷新一次列表、再自动打开第一个 bot（`toggleBotMode`）。没有 bot 时主区保持原样，用侧栏「创建 bot」创建。
 - **「项目被删除」的恢复逻辑必须跳过 bot 项目**：`getDeletedProjectRecoveryDecision` 的判据是「当前项目不在 `projects` 列表里」，而 bot 项目按设计永远不在（`project-store` 过滤 `kind: 'bot'`）。不跳过的话，每次点开 bot 都会被判成「项目已删除」，随即新建一条空会话顶掉 bot 的对话——表现就是「bot 的历史对话不见了」。所以判据收整个 `currentToolProject`、先看 `kind`，而不是只收 id。
 - **它的会话不能 fork、也不能回滚对话**：能力矩阵 `src/lib/chat-capabilities.ts` 的 `BOT_CHAT_CAPABILITIES` 关掉 `forkFromMessage` / `rollback` / `retry`（`compaction` 保留，它自己要压上下文），`App.tsx` 在 bot 语境把它注入 `ChatPanelHost`，消息行因此**不渲染**这些图标；服务端 `rollbackSessionMessages` 另有一道无条件闸门——会话落在 `kind: 'bot'` 的项目里就 403 `BOT_SESSION_IMMUTABLE`，绕过 UI 直接打 API 同样拒。理由：会话就是它的记忆，压缩后的摘要本身是数组里的一条消息，剪短会让 `contextCompaction.summaryMessage` 悬空，之后每轮喂给模型的都是幻象。**文件回滚（`/rollback-turn`）不碰 messages，照常可用。**
-- 设置弹窗（`BotSettingsDialog`）：header 是「44px 吉祥物预览 + bot 名」的身份行（预览跟形象草稿联动）；正文顺序 形象（调色盘、身体/眼睛色、显示动作、在输入框上方显示）→ 心跳 → `MEMORY.md` 编辑 → 工作空间路径（只读信息放最后）；三处开关共用 `SwitchRow`；footer 左下删除、右上关闭。
+- 设置弹窗（`BotSettingsDialog`）：header 是「44px 吉祥物预览 + bot 名」的身份行（预览跟形象草稿联动）；正文顺序 形象（调色盘、身体/眼睛色、显示动作、在输入框上方显示）→ 心跳 → `MEMORY.md` 编辑 → 工作空间路径（只读信息放最后）；三处开关共用 `SwitchRow`；footer 左下删除、右上关闭。名字就地改名：点名字（或旁边的铅笔）进入编辑，Enter 提交、Esc/失焦取消，走 PATCH 的 `name`；重名 409 时保留草稿就地报错，服务端同步项目名与会话标题（见 §6）。
 
 **技能不归 bot 管。** 会话能激活哪些技能由全局技能与项目技能决定（和普通会话一致），bot 记录里没有 `skills` 字段——早先有过一个 per-bot 开关，但它从来没传给会话，等于装饰品，已删除。
 
@@ -157,7 +159,7 @@
 - 输入框那只**默认安静**：只有 `mascotState === 'idle'` 时才可能散步，由 `useMascotStroll` 控制节奏（隔 20 秒走一轮 9 秒，其余时间站定），横向路线在 `mascot-stroll.css`（手写，播 1 次不是无限循环，末帧回到原点所以不会跳）。有状态（思考/干活/提醒/完成）时**不走路**，站定演那个状态。
 - 输入框那只还有**互动彩蛋**（`BotMascot` 的 `interactive`，其余调用点不传）：悬停抬眼看人、点一下被戳瘪再弹起、1.6s 内点满 5 下转晕。设计稿是 `docs/design/bot-mascot/interactions-preview.html`，CSS 同样由生成脚本输出（`V3_INTERACT_RULES`），时机逻辑在 `mascot-interactions.ts`（纯控制器，可注入假时钟）+ `use-mascot-interactions.ts`。规则：只在待机 / 犯困时响应，走路和忙状态不理人；事件只挂在球本体（`pointer-events: auto`），空白处穿透到输入框；纯装饰彩蛋，不进 Tab 序列。
 - 同一只还有**表情增强**（设计稿 `docs/design/bot-mascot/expressions-preview.html`，已验收）：① 眼型改为豆豆眼 `18×32`、中心上移到 `y=262`，三个尺寸全局生效；② 待机时每隔 5~9s 随机来一段 3.3s 的**东张西望**（`data-ambient='look'`）：眼睛拉长左上斜看 → 甩到右上（冒个「?」）→ 眨眼收尾，头反向微歪、呼吸照常，由 `__tilt` / `__gaze` 两个附加图层演，不碰身体动画；只在待机来（犯困在打瞌睡不张望），悬停 / 点击立即打断；③ **状态小符号**八个：思考「…」、犯困「zZ」、提醒「!!」、开心「♡」、干活汗滴、被戳「!」、转晕星星、张望「?」，跟随 `data-state` / `data-interact` / `data-ambient` 由 CSS 显隐。配色规则：球外符号用球身色、球上符号（汗滴）用眼色，深浅主题都与底色拉开；跟着球跳的符号画在球体图层里随球动（球外的同色符号会被蹦上来的球吞掉）。符号与张望只给输入框那只——侧栏 24px / 设置预览 44px 上符号认不出来。
-- 挂载点走 React 属性而不是 DOM 注入：`App.tsx` → `ChatPanelHost` 的 `composerMascot` → `ChatSurface` 把它排在输入框卡片的右上角（`-translate-y-[80%]`；`(cy+r)/512 = 79.7%`，所以不管 `size` 多大，球底边都正好落在输入框上边缘，看起来像站在框上）。
+- 挂载点走 React 属性而不是 DOM 注入：`App.tsx` → `ChatPanelHost` 的 `composerMascot` → `ChatSurface` 把它排在输入框卡片的右上角（`-translate-y-[80%]`；`(cy+r)/512 = 79.7%`，所以不管 `size` 多大，球底边都正好落在输入框上边缘，看起来像站在框上）。球站的其实是「composer 栈最顶上那行」：Goal 控制条占着编辑器正上方一行时（非终态 goal；占行判据与 `GoalControlStrip` 同用 `buildGoalControlStripView`），wrapper 的 `top` 上移 2.375rem（条高 2rem + 条下边距 0.375rem，`goal-workflow.css`），球改站在条顶，不压条上的主操作/「⋯」按钮（2026-11-12 反馈「助手形象会遮挡 goal 命令的执行」的修复）；球顶对消息区的探出量与无条时一致。
 
 ## 8. 测试
 
@@ -166,5 +168,6 @@
 - `tests/frontend/bot-mascot.test.ts`：状态映射优先级（纯函数）＋ 生成 CSS 的契约（6 状态 × 身体/左右眼关键帧、时长与几何数据一致、`prefers-reduced-motion` 与静态开关、弯月眼只在 `happy` 出现）＋ 组件用 CSS 变量换色 ＋ 溜达是单次动画而不是无限循环 ＋ 表情增强（豆豆眼几何、张望挂 `data-ambient`、八个符号的关键帧与绑定、关动画/减弱动效的降级）。
 - `tests/frontend/mascot-interactions.test.ts`：悬停 / 戳 / 连点转晕与东张西望的时机逻辑（纯控制器 + 假时钟：随机间隔 5~9s、一段 3.3s、悬停/点击立即打断、忙状态不张望）。
 - `tests/frontend/bot-mascot-composer-toggle.test.ts`：「在输入框上方显示」开关的接线契约（服务端默认值、前端类型、App 判据 `!== false`、弹窗里的开关与草稿默认值、三处开关共用 SwitchRow、双语文案）。
+- `tests/frontend/bot-mascot-goal-strip.test.ts`：goal 条占行时吉祥物上移让位的接线契约（占行判据与条同源、`top` 随占行切换、上移量 2.375rem 与条的 `height: 2rem` + 下边距 0.375rem 几何同步）。
 - `tests/frontend/bot-status-summary.test.ts`：侧栏状态小字的优先级（出错 > 在忙 > 睡了 > 时间）与相对时间分段，两种语言的文案键都齐。
 - `tests/server/routes/bots.test.mjs`：建/列/改/删、记忆读写、项目注册与反注册、心跳的 `nextRunAt` 重算、投喂端点（追加落盘 + 只在心跳开着时提前节拍）。

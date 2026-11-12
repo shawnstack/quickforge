@@ -147,6 +147,75 @@ describe('bots API', () => {
     expect(paused.body.bot.heartbeat.nextRunAt).toBeNull()
   })
 
+  it('reorders bots: persists sortOrder, keeps it across patches, rejects bad bodies', async () => {
+    const a = (await callBots('POST', 'http://localhost/api/bots', { name: 'alpha' })).body.bot
+    const b = (await callBots('POST', 'http://localhost/api/bots', { name: 'bravo' })).body.bot
+    const c = (await callBots('POST', 'http://localhost/api/bots', { name: 'charlie' })).body.bot
+
+    // 初始顺序 = 创建顺序
+    const initial = await callBots('GET', 'http://localhost/api/bots')
+    expect(initial.body.bots.map((bot) => bot.name)).toEqual(['alpha', 'bravo', 'charlie'])
+
+    const reordered = await callBots('PUT', 'http://localhost/api/bots/reorder', {
+      orderedIds: [c.id, a.id, b.id],
+    })
+    expect(reordered.status).toBe(200)
+    expect(reordered.body.bots.map((bot) => bot.name)).toEqual(['charlie', 'alpha', 'bravo'])
+    expect(reordered.body.bots.map((bot) => bot.sortOrder)).toEqual([0, 1, 2])
+
+    // 顺序落在服务端，重新拉列表不再依赖创建时间
+    const again = await callBots('GET', 'http://localhost/api/bots')
+    expect(again.body.bots.map((bot) => bot.name)).toEqual(['charlie', 'alpha', 'bravo'])
+
+    // 后续 PATCH（心跳等）不能把排序位弄丢
+    await callBots('PATCH', `http://localhost/api/bots/${encodeURIComponent(c.id)}`, {
+      heartbeat: { enabled: false },
+    })
+    const afterPatch = await callBots('GET', 'http://localhost/api/bots')
+    expect(afterPatch.body.bots.map((bot) => bot.name)).toEqual(['charlie', 'alpha', 'bravo'])
+
+    // 只给一部分 id：没提到的按原相对顺序追在后面；不认识的 id 忽略；非法 body 400
+    const partial = await callBots('PUT', 'http://localhost/api/bots/reorder', {
+      orderedIds: ['not-a-bot', b.id],
+    })
+    expect(partial.body.bots.map((bot) => bot.name)).toEqual(['bravo', 'alpha', 'charlie'])
+    await expectRejection(callBots('PUT', 'http://localhost/api/bots/reorder', {}), 400)
+    await expectRejection(
+      callBots('PUT', 'http://localhost/api/bots/reorder', { orderedIds: 'nope' }),
+      400,
+    )
+  })
+
+  it('renames a bot, syncs the project registration, and still rejects duplicates', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'before' })
+    const botId = created.body.bot.id
+
+    const renamed = await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(botId)}`,
+      { name: 'after' },
+    )
+    expect(renamed.status).toBe(200)
+    expect(renamed.body.bot.name).toBe('after')
+
+    // projects.json 里 kind:'bot' 项目的显示名跟着改（改名不能只改 bots 存储）
+    const { readProjectConfig } = await import('../../../server/project-config.mjs')
+    const config = await readProjectConfig()
+    const project = config.projects.find((item) => item.id === renamed.body.bot.projectId)
+    expect(project?.name).toBe('after')
+
+    // 重名依旧拒绝（409 BOT_NAME_TAKEN）
+    await callBots('POST', 'http://localhost/api/bots', { name: 'other' })
+    await expectRejection(
+      callBots(
+        'PATCH',
+        `http://localhost/api/bots/${encodeURIComponent(botId)}`,
+        { name: 'other' },
+      ),
+      409,
+    )
+  })
+
   it('deletes the bot and its project registration but keeps the folder', async () => {
     const created = await callBots('POST', 'http://localhost/api/bots', { name: 'gone' })
     const bot = created.body.bot

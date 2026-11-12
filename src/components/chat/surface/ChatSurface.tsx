@@ -46,6 +46,7 @@ import {
   type TodoWriteMessage,
   type TodoWriteSnapshot,
 } from '../panel-decoration/todo-write-summary'
+import { buildGoalControlStripView } from '../panel-decoration/goal-control-strip'
 
 /**
  * Chat surface for one `Agent` session: message list, streaming container,
@@ -1520,6 +1521,20 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
 
   const streamingAssistant = snapshot.streamingMessage?.role === 'assistant' ? snapshot.streamingMessage : undefined
 
+  // Goal state shared by the strip below and the mascot placement after it.
+  // The strip renders only for a non-terminal goal, and the mascot must make
+  // the same call, so both read the same builder instead of duplicating the
+  // rule here.
+  const goalState = (agent.state as { goal?: GoalState | null }).goal ?? null
+  // 用户反馈「助手形象会遮挡 goal 命令的执行」：球默认站在编辑器顶上
+  // （-translate-y-[80%]），而 goal 条占着编辑器正上方一行，球会整球压住
+  // 条右端的主操作/「⋯」按钮。条占行时球上移 2.375rem（= 条高 2rem + 条
+  // 下边距 0.375rem，goal-workflow.css），站到条顶上去；这样球对消息区的
+  // 探出量与无条时完全一致（约 46px，App.tsx 选型注释锁的量不变）。
+  const goalStripOccupiesRow = Boolean(
+    enableGoalStrip && sessionId && onGoalAction && goalState && buildGoalControlStripView(goalState),
+  )
+
   return (
     <CommandActionsEnabledContext.Provider value={commandActionsEnabled}>
       <LocalFilePathHandlerContext.Provider value={onOpenLocalFilePath ?? null}>
@@ -1592,7 +1607,7 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
               {enableGoalStrip && sessionId && onGoalAction ? (
                 <GoalControlStrip
                   sessionId={sessionId}
-                  goal={(agent.state as { goal?: GoalState | null }).goal ?? null}
+                  goal={goalState}
                   enabled={enableGoalStrip}
                   onAction={onGoalAction}
                 />
@@ -1665,8 +1680,16 @@ export const ChatSurface = forwardRef<WindowedChatSurfaceHandle, WindowedChatSur
                   </>
                 )}
               />
+                {/* 吉祥物站在 composer 栈最顶上那行——有 goal 条时是条顶
+                    （top 再上移 2.375rem，见上面 goalStripOccupiesRow 的注释），
+                    球不压条，条上的按钮照常可点；pointer-events 仍只有球本体。 */}
                 {composerMascot ? (
-                  <div className="pointer-events-none absolute right-4 top-0 z-10 -translate-y-[80%]">
+                  <div
+                    className={[
+                      'pointer-events-none absolute right-4 z-10 -translate-y-[80%] transition-[top]',
+                      goalStripOccupiesRow ? '-top-[2.375rem]' : 'top-0',
+                    ].join(' ')}
+                  >
                     {composerMascot}
                   </div>
                 ) : null}

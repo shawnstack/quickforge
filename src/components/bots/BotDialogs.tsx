@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
@@ -162,6 +162,45 @@ export function BotSettingsDialog({
   )
   const mascotTimer = useRef<number | null>(null)
 
+  // 改名：服务端 PATCH 本就支持 name，这里只补弹窗里的就地编辑。
+  // Enter 提交，Esc / 失焦取消；失败保留草稿让用户改重名，而不是默默回退。
+  const [renaming, setRenaming] = useState(false)
+  const [nameDraft, setNameDraft] = useState('')
+  const [renamePending, setRenamePending] = useState(false)
+  const [renameError, setRenameError] = useState<string | null>(null)
+
+  const cancelRename = useCallback(() => {
+    setRenaming(false)
+    setRenameError(null)
+  }, [])
+
+  const startRename = useCallback(() => {
+    if (!bot) return
+    setNameDraft(bot.name)
+    setRenameError(null)
+    setRenaming(true)
+  }, [bot])
+
+  const submitRename = useCallback(async () => {
+    if (!bot || renamePending) return
+    const trimmed = nameDraft.trim()
+    if (!trimmed || trimmed === bot.name) {
+      cancelRename()
+      return
+    }
+    setRenamePending(true)
+    setRenameError(null)
+    try {
+      const updated = await patchBot(bot.id, { name: trimmed })
+      onChanged(updated)
+      setRenaming(false)
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRenamePending(false)
+    }
+  }, [bot, nameDraft, renamePending, cancelRename, onChanged])
+
   const botId = bot?.id ?? null
 
   // 注意：这里刻意不在 effect 体内同步 setState（会触发级联渲染）。
@@ -243,8 +282,45 @@ export function BotSettingsDialog({
               比藏在形象区里直观；look 跟草稿联动，拖色盘时它跟着变。 */}
           <BotMascot state="idle" size={44} look={mascotDraft} className="shrink-0" />
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold">{bot.name}</div>
+            {!renaming ? (
+              <button
+                type="button"
+                className="flex min-w-0 items-center gap-1.5 text-left"
+                onClick={startRename}
+                aria-label={t('botRename')}
+                title={t('botRename')}
+              >
+                <span className="truncate text-sm font-semibold">{bot.name}</span>
+                <Pencil className="size-3 shrink-0 text-muted-foreground/50 transition-colors hover:text-muted-foreground" />
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <input
+                  className={cn(FIELD, 'h-8 min-w-0 flex-1 px-2 py-1 text-sm')}
+                  value={nameDraft}
+                  autoFocus
+                  disabled={renamePending}
+                  maxLength={40}
+                  aria-label={t('newBotName')}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      void submitRename()
+                    }
+                    if (event.key === 'Escape') {
+                      // 只取消改名，别冒泡到弹窗层把整个设置窗也关掉。
+                      event.stopPropagation()
+                      cancelRename()
+                    }
+                  }}
+                  onBlur={cancelRename}
+                />
+                {renamePending ? <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" /> : null}
+              </div>
+            )}
             <div className="text-[11px] leading-4 text-muted-foreground">{t('botSettings')}</div>
+            {renameError ? <div className="text-[11px] leading-4 text-destructive">{renameError}</div> : null}
           </div>
           <button type="button" className={GHOST} onClick={onClose}>{t('close')}</button>
         </div>

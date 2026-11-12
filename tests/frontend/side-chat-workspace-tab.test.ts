@@ -27,7 +27,7 @@ const hostSource = [
   readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8'),
   readFileSync(new URL('../../src/components/chat/panel-wiring/composer-suggestions.ts', import.meta.url), 'utf8'),
 ].join('\n')
-const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
+const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration/editor-decorations.ts', import.meta.url), 'utf8')
 const messageActionsSource = readFileSync(new URL('../../src/components/chat/panel-decoration/message-actions.ts', import.meta.url), 'utf8')
 const surfaceSource = readFileSync(new URL('../../src/components/chat/ChatConversationSurface.tsx', import.meta.url), 'utf8')
 const sideChatContentSource = readFileSync(new URL('../../src/components/workspace/SideChatTabContent.tsx', import.meta.url), 'utf8')

@@ -248,7 +248,7 @@ function ruleFor(selector: string) {
 }
 
 const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
-const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration.ts', import.meta.url), 'utf8')
+const decorationSource = readFileSync(new URL('../../src/components/chat/panel-decoration/editor-decorations.ts', import.meta.url), 'utf8')
 const indicatorSource = readFileSync(new URL('../../src/components/chat/panel-decoration/subagent-running-indicator.ts', import.meta.url), 'utf8')
 const cssSource = appCss
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')

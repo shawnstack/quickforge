@@ -12,30 +12,39 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `agent.mjs` | 558 | Agent 会话管理、消息流式处理 |
-| `storage.mjs` | 151 | 存储 CRUD 操作 |
-| `project.mjs` | 106 | 项目管理 |
+| `agent.mjs` | 1075 | Agent 会话管理、消息流式处理 |
+| `storage.mjs` | 426 | 存储 CRUD 操作 |
+| `project.mjs` | 242 | 项目管理 |
 | `filesystem.mjs` | 172 | 文件系统浏览与目录创建 |
-| `tools.mjs` | 82 | 工具定义和执行 |
+| `tools.mjs` | 117 | 工具定义和执行 |
 | `skills.mjs` | 213 | Skills 管理 |
-| `agent-profiles.mjs` | 236 | Agent Profile 管理 API，支持 AI 填充基础定义 |
+| `agent-profiles.mjs` | 234 | Agent Profile 管理 API，支持 AI 填充基础定义 |
 | `models.mjs` | 140 | 统一模型目录、模型连接测试与提供商级模型发现 |
-| `hooks.mjs` | 53 | Hooks 手动测试与最近执行记录查询 |
+| `hooks.mjs` | 52 | Hooks 手动测试与最近执行记录查询 |
 | `scheduled-tasks.mjs` | 194 | 定时任务管理路由（薄路由层）；领域逻辑拆至 server 根目录 `scheduled-task-{store,executor,runner,instruction-parser}.mjs`，支持绑定 Agent Profile 与配置单任务执行模式 |
-| `shares.mjs` | 90 | 分享管理 |
+| `shares.mjs` | 152 | 分享管理 |
 | `side-chat.mjs` | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
 | `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
 | `session-assets.mjs` | 当前会话生成图片资产的同源二进制读取 |
-| `backup.mjs` | 856 | 数据备份和恢复（普通 HTTP 入口仅允许 settings sections；权威会话/分享/LAN 访问备份由内部 capability + maintenance 路径使用） |
-| `lan-access.mjs` | 201 | LAN 共享访问管理 |
+| `backup.mjs` | 865 | 数据备份和恢复（普通 HTTP 入口仅允许 settings sections；权威会话/分享/LAN 访问备份由内部 capability + maintenance 路径使用） |
+| `lan-access.mjs` | 432 | LAN 共享访问管理 |
 | `instructions.mjs` | 20 | 系统提示词 |
-| `system.mjs` | 107 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
-| `workspace.mjs` | 594 | HTTP 路由适配与原有 17 个公共导出的兼容入口；调用下列 workspace 服务，不重复实现业务函数 |
+| `system.mjs` | 117 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
+| `workspace.mjs` | 557 | HTTP 路由适配与原有 17 个公共导出的兼容入口；调用下列 workspace 服务，不重复实现业务函数 |
 | `workspace-git-service.mjs` | 681 | Git 子进程、查询/解析、暂存还原、提交推送、AI 提交信息；保留取消/超时和错误语义 |
 | `workspace-browser-service.mjs` | 527 | 目录树/children、分页排序、rg 与回退搜索、严格项目 mention 浏览 |
 | `workspace-file-service.mjs` | 193 | 文本读取、语言/MIME、预览安全校验与 ETag、外部路径打开；本机 HTTP 门禁仍在入口 |
 | `workspace-request-control.mjs` | 42 | 请求取消信号和清理、AbortError识别、原进程树终止；Git/browser共同使用 |
-| `static.mjs` | 89 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
+| `static.mjs` | 160 | 静态文件服务；`index.html` 与可替换的 APK 下载使用 `no-cache`，其余构建资产长期缓存 |
+| `bots.mjs` | 311 | Bots 常驻伴生会话管理（/api/bots*：列表、详情、创建、唤醒、消息查看） |
+| `dreaming.mjs` | 180 | 记忆整理（Dreaming）设置、手动 run、经验与运行历史路由（/api/dreaming/*） |
+| `mcp.mjs` | 50 | MCP 服务器配置与连接状态查询（/api/mcp*） |
+| `memory.mjs` | 32 | 全局记忆 MEMORY.md 读写（/api/memory） |
+| `message-attachments.mjs` | 34 | 会话附件读取（?raw=1 返回字节，默认 JSON 返回 content 与元数据） |
+| `plugins.mjs` | 146 | 本地插件管理、重载、UI 资源与审计（/api/plugins*） |
+| `session-view.mjs` | 223 | 只读会话视图（/api/sessions/:id/view，尾部消息窗口投影） |
+| `terminal.mjs` | 158 | 交互式终端 PTY 会话管理与 WebSocket 升级（/api/terminal/*） |
+| `working-memory.mjs` | 91 | 工作记忆（beta）设置与笔记路由（/api/working-memory*） |
 
 ### system.mjs
 
@@ -49,7 +58,7 @@
 
 ---
 
-## agent.mjs (558 行)
+## agent.mjs (1075 行)
 
 冷会话的 continue/rollback/access-mode/yolo-mode/model/thinking-level 操作由 manager 按需恢复，不要求客户端先调用 restore。主 model 路由在读取当前模型和解析 binding 前恢复，保留当前隐藏模型可继续使用的 `allowCurrentHidden` 规则；主路由、共享路由与 ACP 均等待异步 model/thinking setter。真正缺失仍 404；恢复失败为 500 / `SESSION_RESTORE_FAILED`（响应 `code`），已有 503 原样传播；SSE 在恢复完成前不发送流头。共享 rollback 的存储 fallback 仍仅接受 404，不吞掉恢复故障。
 
@@ -89,7 +98,7 @@ Agent 会话管理核心路由。
 
 **会话写入租约守卫**：所有会写会话的路由（`prompt` / `goal` / `abort` / `continue` / `steer` / `follow-up` / `title` / `access-mode` / `yolo-mode` / `model` / `thinking-level` / `rollback` / `rollback-turn`）在入口统一调用 `assertSessionWriteAccess(req, sessionId)`：按 `x-quickforge-client-id` 头比对会话租约，非持有者立即 409 `SESSION_LEASE_HELD`（带 `holder`），守卫位于 `await readJsonBody` 之前，因此被拦下的请求不会读 body，也不会进入 `runPrompt` 等运行逻辑——这正是旧实现里 `state.isStreaming` 检查与真正开跑之间存在 `await` 空窗（TOCTOU）的补位。无租约时放行（沿用旧行为，ACP / 定时任务 / 共享会话等不带 clientId 的调用方不受影响）；审批与 ask_user 应答不设租约门禁，避免非持有页看不到卡片时把运行卡死。**唯一例外是 `compact`**：它不在入口调用守卫，而是把守卫作为回调交给 `requestSessionCompaction()`，由后者在 running 判定之后检查（理由见上面 compact 那条）。
 
-## storage.mjs (151 行)
+## storage.mjs (426 行)
 
 通用存储 CRUD 路由。本机与已通过 LAN 密码认证的远程客户端具有相同 KV 读写能力，包括 Provider Key、自定义 Provider、MCP、插件、任务、Agent Profile 覆盖与会话数据；未认证远程请求由全局认证层和路由守卫拒绝。
 
@@ -108,7 +117,7 @@ Agent 会话管理核心路由。
 - `POST /api/backup/import` — replace/merge 模式；含 conversations 的恢复在权威模式下走 `restoreSessionStateSnapshot`（维护锁 + 计划文件 + 失败补偿，只触碰会话表、不影响 `scheduled_task_runs`），维护锁占用时返回 423 `session_state_maintenance`；含 shares 的恢复在权威模式下走 `restoreShareStateSnapshot`（share 维护锁 + 计划文件 + 失败补偿，replace 全量 / merge 保留 local-only、backup 同 key 覆盖，不影响 F5/F7/F9），维护锁占用时返回 423 `share_maintenance`；v1 conversation-shares.json 形状归一化导入；空 `shares: {}` 语义：replace 清空、merge 保留；metadata-only 会话恢复在权威模式拒绝（400）；含 lanAccess 的恢复在权威模式下走 `restoreLanAccessStateSnapshot`（lan-access 维护锁 + `lan-access-restore-plan.json` 计划文件 + 失败补偿，replace 全量 / merge 保留本地配置字段与 tokens、backup 同 key 覆盖，恢复覆盖 enabled 开关，不影响 F5/F7/F9/F10），维护锁占用时返回 423 `lan_access_maintenance`；v1 lan-access.json 形状归一化导入
 - `POST /api/backup/inspect` / `inspect-file` — 检查备份内容与警告（含 shares 替换警告、lan-access「将替换局域网访问配置」警告），`inspect-file` 生成一次性 import token
 
-## project.mjs (192 行)
+## project.mjs (242 行)
 
 项目管理路由。
 
@@ -137,7 +146,7 @@ roots 为 Home/Desktop/Documents/Current project/盘符（Windows 枚举 A-Z 存
 - `GET /api/filesystem/directories?path=...` — 列出目录内容
 - `POST /api/filesystem/mkdir` — 在 allowedRoots 白名单内的父目录下创建子目录（名称禁止路径分隔符/`.`/`..`，已存在返回 409）
 
-## tools.mjs (82 行)
+## tools.mjs (117 行)
 
 工具定义和执行路由。
 
@@ -160,7 +169,7 @@ Skills 管理路由。
 - `PUT /api/skills/project` — 更新指定项目的已选 Skills
 - 支持项目级技能发现；内置 `skill-creator` 首次运行时默认加入全局已选项
 
-## agent-profiles.mjs (236 行)
+## agent-profiles.mjs (234 行)
 
 Agent Profile 管理路由。
 
@@ -184,7 +193,7 @@ Agent Profile 管理路由。
 - `POST /api/models/test-connection` — 用当前配置（Base URL、API Key、模型 ID）发送最小请求验证连通性。请求体 `{ model, apiKey? }`（`model` 为完整模型对象，`apiKey` 可选，用于测试尚未保存的配置）；成功返回 `{ ok: true }`，失败返回 `{ ok: false, error }`。错误统一以 HTTP 200 返回，便于前端统一解析。探测的 AI 调用总预算 60 秒（`AI_TEST_CONNECTION_TOTAL_TIMEOUT_MS`），超时按连通失败返回。
 - `POST /api/models/provider-discover` — 从服务器 `{baseUrl}/models` 拉取模型 ID 列表（「从服务器拉取模型」入口）：OpenAI 兼容走 `Authorization: Bearer`，Anthropic 走 `x-api-key` + `anthropic-version`；请求体 `{ baseUrl, protocol, apiKey?, headers? }`，不要求已配置任何模型；15 秒超时，返回 `{ ok: true, models: string[] }` / `{ ok: false, error }`，供前端合并为新的模型行。
 
-## hooks.mjs (53 行)
+## hooks.mjs (52 行)
 
 Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hooks-事件钩子)）。仅本机或已认证远程客户端可访问，其余返回 403。
 
@@ -233,7 +242,7 @@ Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hook
 - 类型切换显式清除无关频次字段，客户端提交的 nextRunAt 不作为常规循环规则；一次任务保留旧 nextRunAt 入参兼容。Cron 日期和星期沿用现有 AND 匹配及最多 366 天搜索窗口；并非完整 Unix Cron 实现。
 - 时间算法位于 `server/utils/scheduled-tasks.mjs`；任务记录的领域规则与存取、执行编排、调度循环、LLM 解析分别在 `server/scheduled-task-{store,executor,runner,instruction-parser}.mjs`。测试见 `tests/server/scheduled-tasks.test.mjs`、`scheduled-tasks.execution.test.mjs` 和前端 `scheduled-task-form` / `scheduled-tasks-page` tests。
 
-## shares.mjs (90 行)
+## shares.mjs (152 行)
 
 分享管理路由。
 
@@ -254,7 +263,7 @@ Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hook
 - 主会话沿用服务端权威模型绑定，`modelRef` 通过统一 Model Catalog 重新解析。
 - 模型上下文固定 `tools: []`，系统提示明确只读问答；主线上下文先复用 `buildAutoCompactLoopMessages` 与 `serverConvertToLlm`，再投影为仅含 user/assistant 纯文本的消息，忽略 system/tool/toolCall/thinking/非文本块与全部 details，并从最新向前按 120,000 字符确定性裁剪；存在 compact summary 时最多预留 20,000 字符尽量保留。侧聊历史最多 40 条、单条 12,000 字符；主线与侧聊上下文合计不超过 200,000 字符。任何 `toolcall_*` 或 `stopReason: toolUse` 都 fail closed；流随客户端断开中止，响应 `no-store + nosniff`。
 
-## shared-conversation.mjs (444 行)
+## shared-conversation.mjs (486 行)
 
 共享会话查看和交互路由。每次请求都会校验停用和过期状态；SSE 在停用、永久删除、链接被替代时立即关闭，并在到期时按时关闭。
 
@@ -303,7 +312,7 @@ LAN 共享访问管理路由。
 
 **用途**: 提供系统提示词 API。返回基础提示词、指令和 Skills 目录。
 
-## system.mjs (81 行)
+## system.mjs (117 行)
 
 **主要端点**:
 - `GET /api/system/network` — 网络信息
@@ -356,6 +365,6 @@ Workspace Inspector 后端 API。
 - `POST /api/git/push` — 执行 `git push`，无 upstream 等错误直接返回给前端。
 - `POST /api/git/commit-and-push` — 提交后执行 `git push`。
 
-## static.mjs (83 行)
+## static.mjs (160 行)
 
 **用途**: 静态文件服务。从 `dist/` 目录提供 Vite 构建产物。

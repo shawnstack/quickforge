@@ -177,6 +177,59 @@ function matchesWhitelist(cycle, whitelist) {
   return whitelist.some((group) => group.length === set.size && group.every((file) => set.has(file)))
 }
 
+
+// 环内「在模块顶层用到其它成员导入」的检查：ESM 循环导入只在顶层求值时可能拿到
+// 未初始化绑定；函数体内的调用都是延迟调用，安全。所以白名单里放行的环必须证明
+// 自己没有任何顶层跨模块使用，否则白名单就是在掩盖真 bug。
+function topLevelClusterUses(cycle) {
+  const members = new Set(cycle)
+  const findings = []
+  for (const file of cycle) {
+    const abs = path.join(REPO, file)
+    const source = fs.readFileSync(abs, 'utf8')
+    const names = new Map()
+    const importRe = /import\s+(?:([\w$]+)\s*,\s*)?(?:\{([^}]*)\}|\*\s+as\s+([\w$]+)|([\w$]+))?\s*from\s+['"]([^'"]+)['"]/g
+    let match
+    while ((match = importRe.exec(source)) !== null) {
+      const spec = match[5]
+      if (!spec.startsWith('.')) continue
+      const target = path.relative(REPO, path.resolve(path.dirname(abs), spec)).replace(/\\/g, '/')
+      if (!members.has(target)) continue
+      if (match[1] || match[4]) names.set((match[1] || match[4]).trim(), target)
+      if (match[3]) names.set(match[3], target)
+      if (match[2]) {
+        for (const part of match[2].split(',')) {
+          const trimmed = part.trim()
+          if (!trimmed) continue
+          const alias = trimmed.split(/\s+as\s+/)
+          names.set((alias[1] || alias[0]).trim(), target)
+        }
+      }
+    }
+    if (names.size === 0) continue
+    const lines = source.split('\n')
+    let inImport = false
+    lines.forEach((line, lineIndex) => {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('import ')) {
+        inImport = trimmed.endsWith('{') && !trimmed.includes(' from ')
+        return
+      }
+      if (inImport) {
+        if (trimmed.includes(' from ')) inImport = false
+        return
+      }
+      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return
+      if (!/^\S/.test(line)) return
+      for (const [name, from] of names) {
+        const re = new RegExp('\\b' + name.replace(/\$/g, '\\$') + '\\b')
+        if (re.test(line)) findings.push(file + ':' + (lineIndex + 1) + ' ' + name + ' (from ' + from + ')')
+      }
+    })
+  }
+  return findings
+}
+
 describe('frontend module graph', () => {
   it('sanity: parses a non-trivial graph', () => {
     const { valueEdges, typeEdges } = collectSourceEdges()
@@ -215,4 +268,10 @@ describe('server module graph', () => {
     const stillPresent = KNOWN_SERVER_CYCLES.filter((group) => cycles.some((cycle) => matchesWhitelist(cycle, [group])))
     expect(stillPresent.length).toBe(KNOWN_SERVER_CYCLES.length)
   })
+  it('has no top-level use of imports inside a cyclic cluster', () => {
+    const findings = []
+    for (const cycle of findCycles(collectServerEdges())) findings.push(...topLevelClusterUses(cycle))
+    expect(findings).toEqual([])
+  })
 })
+

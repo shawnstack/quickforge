@@ -2,8 +2,8 @@
 // 校验 docs/wiki 下的「某文件 N 行」声明与文件真实行数是否一致（wc 口径：数换行符）。
 //
 // 用法：
-//   node scripts/check-wiki-line-claims.mjs            # 只报漂移，退出码 1 表示有漂移
-//   node scripts/check-wiki-line-claims.mjs --verbose  # 另打印每条被核对声明的来源位置
+//   node scripts/check-wiki-line-claims.mjs            # 只报漂移与解析缺口，退出码 1 表示有漂移
+//   node scripts/check-wiki-line-claims.mjs --verbose  # 另打印每条被核对声明与每个解析缺口的位置
 //
 // 目录感知：wiki 的目录结构与仓库镜像（docs/wiki/src/lib/README.md ↔ src/lib/），
 // 每个 README 只在自己的对应目录里解析文件名，避免 a/index.mjs 与 b/index.mjs 歧义。
@@ -14,7 +14,9 @@
 //   3. 裸 basename：只剩唯一同名文件时才认（多义即跳过，不猜）。
 //
 // 覆盖三种声明形态：paren「名 … (N 行)」、表格行「| [名](…) | … | N |」、目录树注释（同 paren）。
-// 跳过：历史性叙述（数字前紧邻「原」，或整行含「→」迁移箭头）、文件不存在、多义无法消歧。
+// 跳过比对的历史叙述：数字前紧邻「原」，或整行含「→」迁移箭头（这些仍计入 resolved，只是不比数字）。
+// 解析不到或多义的声明计入 unresolved 并单独列出——**这是「看不见的盲区」，不要当它不存在**。
+//
 // 只做校验不改文件——行数漂移可能是「文档该改」，也可能是叙述本就是历史。
 
 import fs from 'node:fs'
@@ -71,8 +73,10 @@ if (!fs.existsSync(WIKI)) {
 }
 
 let checked = 0
+let unresolved = 0
 let bad = 0
-const details = []
+const driftDetails = []
+const unresolvedDetails = []
 
 for (const file of listWikiReadmes(WIKI)) {
   const rel = path.relative(WIKI, file).replace(/\\/g, '/')
@@ -82,7 +86,7 @@ for (const file of listWikiReadmes(WIKI)) {
   const index = indexDirectory(root)
   const lines = fs.readFileSync(file, 'utf8').split('\n')
 
-  lines.forEach((line, index_) => {
+  lines.forEach((line, lineIndex) => {
     const verify = (name, docStr) => {
       const explicit = Array.from(new Set([path.join(root, name), path.join(REPO, name)]))
         .filter((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile())
@@ -92,23 +96,31 @@ for (const file of listWikiReadmes(WIKI)) {
         if (suffixMatches.length === 1) candidates = [path.join(root, suffixMatches[0])]
         else if (suffixMatches.length === 0) candidates = index.byBasename.get(path.basename(name)) ?? []
       }
-      if (candidates.length !== 1) return // 解析不到或多义：不猜
+      if (candidates.length !== 1) {
+        unresolved += 1
+        unresolvedDetails.push(rel + ':' + (lineIndex + 1) + '  ' + name + '  (' + (candidates.length === 0 ? 'not found' : candidates.length + ' candidates') + ')')
+        return
+      }
       checked += 1
       const actual = wc(candidates[0])
-      if (verbose) console.log('ok? ' + rel + ':' + (index_ + 1) + '  ' + name + '  doc=' + docStr + ' actual=' + actual)
+      if (verbose) console.log('ok? ' + rel + ':' + (lineIndex + 1) + '  ' + name + '  doc=' + docStr + ' actual=' + actual)
       if (actual === Number(docStr)) return
       if (line.includes('→')) return
       const at = line.indexOf(docStr + ' 行')
       const before = at > 3 ? line.slice(at - 3, at) : ''
       if (/原\s*$/.test(before)) return
       bad += 1
-      details.push(rel + ':' + (index_ + 1) + '  ' + name + '  doc=' + docStr + ' actual=' + actual)
+      driftDetails.push(rel + ':' + (lineIndex + 1) + '  ' + name + '  doc=' + docStr + ' actual=' + actual)
     }
     for (const match of line.matchAll(PAREN)) verify(match[1], match[2])
     for (const match of line.matchAll(CELL)) verify(match[1], match[2])
   })
 }
 
-console.log('checked=' + checked + ' bad=' + bad)
-for (const detail of details) console.log('  DRIFT ' + detail)
+console.log('resolved=' + checked + ' unresolved=' + unresolved + ' bad=' + bad)
+for (const detail of driftDetails) console.log('  DRIFT ' + detail)
+if (unresolved > 0) {
+  console.log('  (' + unresolved + ' 处声明解析不到，见下方；--verbose 可看全部核对项)')
+  for (const detail of unresolvedDetails) console.log('  SKIP  ' + detail)
+}
 process.exit(bad > 0 ? 1 : 0)

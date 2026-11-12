@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>吉祥物质感提案 · quality-proposal</title>
+<!-- ============================================================
+  Bot 吉祥物「质感」重设计提案（UIbot · 2026-11-13）
+  · 靶子是质感，不是动作：13 个状态的关键帧体系一律不动，
+    质感层是静态叠加图层，与 mascot-anim.css 的动作层零冲突。
+  · 与产品同构：circle r150 @256,258 + 豆豆眼 rx18/ry32 dx±46 cy262，
+    颜色走 --body/--eye 两个 CSS 变量（产品是 --qf-mascot-body/eye）。
+  · 全部效果 = SVG 渐变 + CSS；无 filter/blur/JS；含 reduced-motion 降级。
+  · 对齐后建议并入 generate-bot-gif.py 的 emit_web 输出（生成产物勿手改）。
+============================================================ -->
+<style>
+  :root{--ink:#1c1d21;--sub:#5b616e;--line:#e5e7eb;--page:#fafafb;--chip:#eef0f4;--acc:#4f46e5;--rec:#b45309;--rec-bg:#fef3c7}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);font:14px/1.75 system-ui,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:40px 28px 80px}
+  header h1{font-size:26px;margin:0 0 6px;letter-spacing:.5px}
+  header .lead{color:var(--sub);max-width:860px}
+  header .lead b{color:var(--ink)}
+  header .meta{color:var(--sub);font-size:12.5px;margin-top:8px}
+  section{margin-top:64px}
+  h2{font-size:19px;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  h2 .no{flex:0 0 auto;width:26px;height:26px;border-radius:8px;background:var(--ink);color:#fff;font-size:13px;display:grid;place-items:center}
+  .sec-note{color:var(--sub);margin:2px 0 18px;max-width:880px}
+  .grid{display:grid;gap:14px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media (max-width:900px){.g3,.g4{grid-template-columns:repeat(2,1fr)}}
+  .card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 12px 10px}
+  .card .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;min-height:24px}
+  .chip{font-size:12px;padding:2px 9px;border-radius:999px;background:var(--chip);color:var(--sub);white-space:nowrap}
+  .chip.a{background:#eef2ff;color:var(--acc);font-weight:600}
+  .rec{margin-left:auto;font-size:11.5px;padding:2px 8px;border-radius:999px;background:var(--rec-bg);color:var(--rec);border:1px solid #fde68a;white-space:nowrap}
+  .stage{display:grid;place-items:center;border-radius:10px;height:200px;background:linear-gradient(180deg,#f7f8fa,#edeff3)}
+  .stage.d{background:radial-gradient(120% 100% at 50% 0%,#1d1f25,#131419)}
+  .stage.c{background:repeating-conic-gradient(#e8e9ed 0 25%,#fbfbfd 0 50%) 0 0/22px 22px}
+  .cap{font-size:12.5px;color:var(--sub);margin:8px 2px 0;line-height:1.6}
+  .cap b{color:var(--ink)}
+  /* ============ 吉祥物本体（与产品同构的图层结构） ============
+     产品: .qf-mascot > __body > __tilt > __ball + __gaze > 眼组
+     本稿: .mx > .mx-occl(落影) + .mx-tilt > .mx-ball + 质感叠加层 + .mx-gaze > 眼组
+     质感层全静态；将来动作关键帧仍作用在 tilt/gaze，互不干扰。 */
+  .mx{width:180px;height:180px;display:block;overflow:visible;user-select:none}
+  .mx.sm{width:110px;height:110px}
+  .mx.xs{width:84px;height:84px}
+  .mx-tilt{transform-box:view-box;transform-origin:256px 258px}
+  .mx-ball{fill:var(--body)}
+  .mx-eye{fill:var(--eye)}
+  .mx-occl{fill:url(#qp-occl);transform-box:fill-box;transform-origin:center;opacity:.95}
+  .mx-ovs ellipse{transform-box:view-box;transform-origin:256px 258px}
+  .mx-shade{fill:url(#qp-shade-ceramic)}
+  .mx-sheen{fill:url(#qp-sheen-ceramic)}
+  .mx-rim{fill:url(#qp-rim-ceramic)}
+  .mx-band{fill:url(#qp-band)}
+  .mx-edge{fill:url(#qp-edge)}
+  .mx-socket{fill:url(#qp-socket)}
+  .mx-eyeov{fill:url(#qp-eyeov)}
+  .mx-glint{fill:#fff;opacity:.92}
+  .mx-glint2{fill:#fff;opacity:.8}
+  /* 配色预设（与 MASCOT_PALETTES 一致） */
+  .p-ink{--body:#0B0B0C;--eye:#FFFFFF}
+  .p-inverse{--body:#FFFFFF;--eye:#0B0B0C}
+  .p-tangerine{--body:#EF8A3C;--eye:#FFFFFF}
+  .p-mint{--body:#57C2A6;--eye:#FFFFFF}
+  .p-butter{--body:#F2C94C;--eye:#242424}
+  /* 白眼珠：白色高光点不可见 → 高光换冷灰反射、次高光关；深眼珠用白釉面高光 */
+  .p-ink .mx-glint,.p-tangerine .mx-glint,.p-mint .mx-glint{fill:rgba(100,116,139,.38)}
+  .p-ink .mx-glint2,.p-tangerine .mx-glint2,.p-mint .mx-glint2{display:none}
+  /* 材质切换（默认 = 哑光陶瓷渐变） */
+  .mat-frost .mx-sheen{fill:url(#qp-sheen-frost)}
+  .mat-frost .mx-shade{fill:url(#qp-shade-frost)}
+  .mat-frost .mx-rim{fill:url(#qp-rim-frost)}
+  .mat-frost .mx-ball{fill-opacity:.94}
+  .mat-rubber .mx-sheen{fill:url(#qp-sheen-rubber)}
+  .mat-rubber .mx-shade{fill:url(#qp-shade-rubber)}
+  .mat-rubber .mx-rim{fill:url(#qp-rim-rubber)}
+  .mat-rubber .mx-glint{opacity:.5}
+  /* 方向开关：默认全部质感层在（=推荐组合）；各 opt-* 做减法 */
+  .opt-flat .mx-ov,.opt-flat .mx-socket,.opt-flat .mx-eyeov,.opt-flat .mx-glint,.opt-flat .mx-glint2,.opt-flat .mx-occl{display:none}
+  .opt-light .mx-rim,.opt-light .mx-occl,.opt-light .mx-band,.opt-light .mx-socket,.opt-light .mx-eyeov,.opt-light .mx-glint,.opt-light .mx-glint2,.opt-light .mx-edge{display:none}
+  .opt-lightplus .mx-socket,.opt-lightplus .mx-eyeov,.opt-lightplus .mx-glint,.opt-lightplus .mx-glint2,.opt-lightplus .mx-band,.opt-lightplus .mx-edge{display:none}
+  .opt-socket .mx-glint,.opt-socket .mx-glint2,.opt-socket .mx-band,.opt-socket .mx-eyeov,.opt-socket .mx-edge{display:none}
+  .opt-solid .mx-glint,.opt-solid .mx-glint2,.opt-solid .mx-band,.opt-solid .mx-eyeov{display:none}
+  .opt-solid .mx-ball{stroke:rgba(20,21,25,.42);stroke-width:2.5}
+  .opt-ceramic .mx-band,.opt-rubber .mx-band,.opt-full .mx-band{display:none}
+  /* 推荐组合含极细描边 */
+  .opt-full .mx-ball{stroke:rgba(20,21,25,.35);stroke-width:2.5}
+  /* ⑥ 微交互（纯 CSS 示意；落地叠加在既有动作层之上） */
+  .live .mx-tilt{animation:qp-breathe 3.2s ease-in-out infinite}
+  .live .mx-occl{animation:qp-occl 3.2s ease-in-out infinite}
+  @keyframes qp-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.026,1.012)}}
+  @keyframes qp-occl{0%,100%{opacity:.95;transform:scale(1)}50%{opacity:.72;transform:scale(1.06)}}
+  .lift{cursor:pointer}
+  .lift .mx-tilt{transition:transform .38s cubic-bezier(.34,1.45,.44,1)}
+  .lift .mx-occl{transition:opacity .38s,transform .38s}
+  .lift:hover .mx-tilt,.lift:focus-visible .mx-tilt{transform:translateY(-20px)}
+  .lift:hover .mx-occl{opacity:.55;transform:scale(1.22)}
+  @media (prefers-reduced-motion:reduce){.live .mx-tilt,.live .mx-occl{animation:none}.lift .mx-tilt,.lift .mx-occl{transition:none}}
+  /* 总览/尺寸/决策/表格 */
+  .hero-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:14px}
+  @media (max-width:900px){.hero-grid{grid-template-columns:1fr}}
+  .diff{margin:10px 2px 0;padding:0;list-style:none;font-size:13px;color:var(--sub)}
+  .diff li{margin:6px 0;padding-left:18px;position:relative}
+  .diff li::before{content:"";position:absolute;left:2px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--acc)}
+  .diff b{color:var(--ink)}
+  .sizerow{display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;padding:16px 8px 4px}
+  .sizecell{display:grid;place-items:center;min-width:40px}
+  .sizetag{font-size:11px;color:var(--sub);text-align:center;margin-top:6px;line-height:1.4}
+  .decide{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px 26px;margin-top:20px}
+  .decide h3{font-size:15px;margin:18px 0 8px}
+  .decide h3:first-child{margin-top:0}
+  .decide label{display:inline-flex;align-items:center;gap:7px;margin:5px 18px 5px 0;font-size:13.5px;cursor:pointer}
+  .decide input{accent-color:var(--acc);width:15px;height:15px}
+  .star{color:var(--rec);font-weight:700}
+  .decide .hint{font-size:12.5px;color:var(--sub);margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;background:#fff;border:1px solid var(--line)}
+  th,td{border-bottom:1px solid var(--line);padding:7px 12px;text-align:left;vertical-align:top}
+  th{background:var(--chip);font-weight:600}
+  tr:last-child td{border-bottom:none}
+  td code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:#374151}
+  .foot{color:var(--sub);font-size:12.5px;margin-top:40px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+
+<!-- 共享渐变 defs：全页唯一一份，落地时并入产品 SVG/生成脚本 -->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <radialGradient id="qp-sheen-ceramic" gradientUnits="userSpaceOnUse" cx="210" cy="170" r="172"><stop offset="0" stop-color="#fff" stop-opacity=".30"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-sheen-frost" gradientUnits="userSpaceOnUse" cx="214" cy="158" r="150"><stop offset="0" stop-color="#fff" stop-opacity=".44"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-sheen-rubber" gradientUnits="userSpaceOnUse" cx="256" cy="205" r="300"><stop offset="0" stop-color="#fff" stop-opacity=".15"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-shade-ceramic" gradientUnits="userSpaceOnUse" cx="256" cy="150" r="390"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".17"/></radialGradient>
+    <radialGradient id="qp-shade-frost" gradientUnits="userSpaceOnUse" cx="256" cy="150" r="390"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".12"/></radialGradient>
+    <radialGradient id="qp-shade-rubber" gradientUnits="userSpaceOnUse" cx="256" cy="120" r="380"><stop offset=".5" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".30"/></radialGradient>
+    <radialGradient id="qp-rim-ceramic" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".15"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-rim-frost" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".26"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-rim-rubber" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".04"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-band"><stop offset="0" stop-color="#fff" stop-opacity=".13"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-occl"><stop offset="0" stop-color="#000" stop-opacity=".36"/><stop offset=".65" stop-color="#000" stop-opacity=".14"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-socket"><stop offset="0" stop-color="#000" stop-opacity=".28"/><stop offset=".7" stop-color="#000" stop-opacity=".10"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-eyeov" gradientUnits="objectBoundingBox"><stop offset="0" stop-color="#0B0B0C" stop-opacity=".22"/><stop offset="1" stop-color="#0B0B0C" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qp-edge" gradientUnits="userSpaceOnUse" cx="256" cy="258" r="150"><stop offset=".82" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".20"/></radialGradient>
+    <clipPath id="qp-clip"><circle cx="256" cy="258" r="150"/></clipPath>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <h1>吉祥物质感提案 <span style="font-size:13px;color:var(--sub);font-weight:400">quality-proposal · 2026-11-13</span></h1>
+  <p class="lead">现状是<b>纯平涂</b>：实心色圆 + 平色眼，任何底上都像「贴纸」，且悬空没有落点。本稿只动<b>质感层</b>——光影、材质、轮廓细节、背景衬托、微交互五个方向，每个方向给出可切换对照与推荐项；<b>13 个状态的动作体系一字不动</b>（质感层是静态叠加，与动作关键帧零冲突）。全部用 SVG 渐变 + CSS 实现，与产品同构（circle r150 + 豆豆眼 rx18/ry32 + 变量换色），对齐后可直接翻译成产品代码。</p>
+  <p class="meta">看稿：每个方向「现状 / 提案 A / 提案 B」对照；微交互区悬停可看动态；文末决策清单勾选 + 落地参数表。无 JS。</p>
+</header>
+
+<!-- ============ 0. 总览 ============ -->
+<section id="s0">
+  <h2><span class="no">0</span>当前 vs 提案（推荐组合）</h2>
+  <p class="sec-note">推荐组合 = 哑光陶瓷光影（顶光渐变 + 底部压暗 + 底缘环境反光）+ 接触阴影 + 眼窝微凹 + 釉面眼 + 边缘内阴影与极细描边。逐方向展开见 ①–⑤。</p>
+  <div class="hero-grid">
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 纯平涂</span></div>
+      <div class="stage">
+        <svg class="mx p-ink opt-flat" viewBox="0 0 512 512" aria-hidden="true"><ellipse class="mx-occl" cx="256" cy="424" rx="126" ry="19"/><g class="mx-tilt"><circle class="mx-ball" cx="256" cy="258" r="150"/><g class="mx-ovs" clip-path="url(#qp-clip)"><ellipse class="mx-ov mx-shade" cx="256" cy="258" rx="150" ry="150"/><ellipse class="mx-ov mx-sheen" cx="256" cy="258" rx="150" ry="150"/><ellipse class="mx-ov mx-rim" cx="256" cy="258" rx="150" ry="150"/><ellipse class="mx-ov mx-band" cx="250" cy="168" rx="128" ry="26" transform="rotate(-14 250 168)"/><ellipse class="mx-ov mx-edge" cx="256" cy="258" rx="150" ry="150"/></g><g class="mx-gaze"><g transform="translate(210 262)"><ellipse class="mx-socket" rx="30" ry="45"/><ellipse class="mx-eye" rx="18" ry="32"/><ellipse class="mx-eyeov" rx="18" ry="32"/><ellipse class="mx-glint" cx="-5" cy="-11" rx="6.5" ry="10"/><ellipse class="mx-glint2" cx="7" cy="11" rx="3.2" ry="3.2"/></g><g transform="translate(302 262)"><ellipse class="mx-socket" rx="30" ry="45"/><ellipse class="mx-eye" rx="18" ry="32"/><ellipse class="mx-eyeov" rx="18" ry="32"/><ellipse class="mx-glint" cx="-5" cy="-11" rx="6.5" ry="10"/><ellipse class="mx-glint2" cx="7" cy="11" rx="3.2" ry="3.2"/></g></g></g></svg>
+      </div>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">提案 · 推荐组合</span><span class="rec">推荐</span></div>
+      <div class="stage">
+        <svg class="mx p-ink opt-full" viewBox="0 0 512 512" aria-hidden="true"><ellipse class="mx-occl" cx="256" cy="424" rx="126" ry="19"/><g class="mx-tilt"><circle class="mx-ball" cx="256" cy="258" r="150"/><g class="mx-ovs" clip-path="url(#qp-clip)"><ellipse class="mx-ov mx-shade" cx="256" cy="258" rx="150" ry="150"/><ellipse class="mx-ov mx-sheen" cx="256" cy="258" rx="150" ry="150"/><ellipse class="mx-ov mx-rim" cx="256" cy="258" rx="150" ry="150"/><ellipse class="mx-ov mx-band" cx="250" cy="168" rx="128" ry="26" transform="rotate(-14 250 168)"/><ellipse class="mx-ov mx-edge" cx="256" cy="258" rx="150" ry="150"/></g><g class="mx-gaze"><g transform="translate(210 262)"><ellipse class="mx-socket" rx="30" ry="45"/><ellipse class="mx-eye" rx="18" ry="32"/><ellipse class="mx-eyeov" rx="18" ry="32"/><ellipse class="mx-glint" cx="-5" cy="-11" rx="6.5" ry="10"/><ellipse class="mx-glint2" cx="7" cy="11" rx="3.2" ry="3.2"/></g><g transform="translate(302 262)"><ellipse class="mx-socket" rx="30" ry="45"/><ellipse class="mx-eye" rx="18" ry="32"/><ellipse class="mx-eyeov" rx="18" ry="32"/><ellipse class="mx-glint" cx="-5" cy="-11" rx="6.5" ry="10"/><ellipse class="mx-glint2" cx="7" cy="11" rx="3.2" ry="3.2"/></g></g></g></svg>
+      </div>
+      <ul class="diff">
+        <li><b>体积</b>：顶光渐变 + 底部压暗，「圆片」变「圆球」</li>
+        <li><b>落地</b>：接触阴影 + 底缘环境反光，暗部不死黑</li>
+        <li><b>眼珠</b>：眼窝微凹 + 釉面高光，平色椭圆变「玻璃珠」</li>
+        <li><b>实体</b>：边缘内阴影 + 极细描边，浅色球身立得住</li>
+        <li><b>活气</b>：呼吸 2.6% + 悬浮抬升（叠加在既有动作上）</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <div class="hd"><span class="chip">真实尺寸检验</span><span class="cap" style="margin:0">上排现状 / 下排提案 · ink · 对应产品 24 侧栏 / 44 设置 / 79 输入框 / 160 预览</span></div>
+    <div class="sizerow">
+      <div class="sizecell"><svg class='mx p-ink opt-flat' style='width:24px;height:24px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">24</div></div>
+      <div class="sizecell"><svg class='mx p-ink opt-flat' style='width:44px;height:44px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">44</div></div>
+      <div class="sizecell"><svg class='mx p-ink opt-flat' style='width:79px;height:79px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">79</div></div>
+      <div class="sizecell"><svg class='mx p-ink opt-flat' style='width:160px;height:160px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">160</div></div>
+    </div>
+    <div class="sizerow" style="border-top:1px dashed var(--line)">
+      <div class="sizecell"><svg class='mx p-ink opt-full' style='width:24px;height:24px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">24</div></div>
+      <div class="sizecell"><svg class='mx p-ink opt-full' style='width:44px;height:44px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">44</div></div>
+      <div class="sizecell"><svg class='mx p-ink opt-full' style='width:79px;height:79px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">79</div></div>
+      <div class="sizecell"><svg class='mx p-ink opt-full' style='width:160px;height:160px' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg><div class="sizetag">160</div></div>
+    </div>
+    <p class="cap">要点：渐变在 24–44px 几乎不可见，小尺寸的质感主要靠<b>接触阴影的轮廓兜底</b>（悬空感在小图上反而更明显）；79px 起提案优势逐步展开，160px 是主场。哑光陶瓷是唯一下降到 24px 仍不脏的材质——这也是推荐它的原因之一。</p>
+  </div>
+</section>
+
+<!-- ============ 1. 光影体积 ============ -->
+<section id="s1">
+  <h2><span class="no">1</span>光影体积感</h2>
+  <p class="sec-note">现状纯平涂。A 只加「上亮下暗」的顶光渐变；B 再加底缘环境反光与接触阴影（球落地）。两张的眼睛都保持纯平，单独看球身变化。</p>
+  <div class="grid g3">
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 平涂</span></div>
+      <div class="stage">
+        <svg class='mx p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">一个平色圆，任何底上都像贴纸，也没有「站在哪」。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">A · 仅顶光</span></div>
+      <div class="stage">
+        <svg class='mx p-ink opt-light' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">左上柔光渐变 + 底部压暗。圆开始有「体积」，但仍悬空。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">B · 顶光+反光+落影</span><span class="rec">推荐</span></div>
+      <div class="stage">
+        <svg class='mx p-ink opt-lightplus' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">B 在 A 上加两件事：<b>底缘环境反光</b>（光从桌面弹回，暗部不死黑）与<b>接触阴影</b>（球「站」在底上）。跳跃/压扁动作时落影留在原地——重量感全靠它，也是 13 个动作最受益的一层。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. 材质 ============ -->
+<section id="s2">
+  <h2><span class="no">2</span>材质</h2>
+  <p class="sec-note">在方向①B 的光效基线上换材质，眼睛同步换「釉面」处理：深眼珠（butter/inverse）点白色高光；白眼珠（ink 等）白点不可见，改为冷灰反射 + 底缘内阴影。</p>
+  <div class="grid g4">
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 无材质</span></div>
+      <div class="stage">
+        <svg class='mx p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">数码平涂，无材质信息。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">A · 哑光陶瓷</span><span class="rec">推荐</span></div>
+      <div class="stage">
+        <svg class='mx p-ink opt-ceramic' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">低对比柔光（高光峰值 30%、无镜面），像手办哑光釉。性格中性，8 套配色都稳，24px 缩小不脏。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">B · 磨砂玻璃</span></div>
+      <div class="stage">
+        <svg class='mx p-ink mat-frost opt-ceramic' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">高光更亮（44%）+ 顶部带状反射 + 半透球身（fill-opacity .94）。科技感更足，但黑球上带状反射不明显，缩小后易显灰。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">C · 哑光橡胶</span></div>
+      <div class="stage">
+        <svg class='mx p-ink mat-rubber opt-rubber' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">高光宽而弱（大面积泛光）、暗部更深（30%）。像软胶玩具，圆润憨态；缺点是亮色系（tangerine/mint）会显「闷」。</p>
+    </div>
+  </div>
+  <p class="cap" style="margin-top:14px">釉面眼对照（butter 深眼珠演示高光点，ink 白眼珠演示冷灰反射）：</p>
+  <div class="grid g4" style="margin-top:8px">
+    <div class="card"><div class="stage" style="height:130px"><svg class='mx xs p-butter opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div><p class="cap">现状：平色眼（butter）</p></div>
+    <div class="card"><div class="stage" style="height:130px"><svg class='mx xs p-butter opt-ceramic' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div><p class="cap">釉面：白高光点 + 底缘内阴影（深眼珠）</p></div>
+    <div class="card"><div class="stage" style="height:130px"><svg class='mx xs p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div><p class="cap">现状：平色眼（ink 白眼珠）</p></div>
+    <div class="card"><div class="stage" style="height:130px"><svg class='mx xs p-ink opt-ceramic' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div><p class="cap">釉面：冷灰反射 + 底缘内阴影（白眼珠自动换画法）</p></div>
+  </div>
+</section>
+
+<!-- ============ 3. 轮廓与细节 ============ -->
+<section id="s3">
+  <h2><span class="no">3</span>轮廓与细节</h2>
+  <p class="sec-note">基线为①B。A 只加「眼窝微凹」；B 再加边缘内阴影与 2.5px 极细暗描边，把「片」封成「体」。用 inverse 白球演示——白球在浅底上边缘融化，是「要不要描边」的试金石。</p>
+  <div class="grid g3">
+    <div class="card">
+      <div class="hd"><span class="chip">基线 · ①B</span></div>
+      <div class="stage">
+        <svg class='mx p-inverse opt-lightplus' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">白球 + 纯光影：边缘与浅底几乎融为一体。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">A · 眼窝微凹</span></div>
+      <div class="stage">
+        <svg class='mx p-inverse opt-socket' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">每只眼外一圈 30×45 暗渐变（峰值 28%，下缘更重）。眼像「嵌」进球里，不是「印」在表面——眯眼/眨眼动作时凹陷感尤其加分。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">B · 眼窝+内阴影+细描边</span><span class="rec">推荐</span></div>
+      <div class="stage">
+        <svg class='mx p-inverse opt-solid' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg>
+      </div>
+      <p class="cap">A 基础上：边缘一圈 18% 内阴影贴边收拢体积，再叠 2.5px 暗描边。白球在浅底上终于「立」住；黑球上描边几乎不可见，不碍事。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 4. 背景衬托 ============ -->
+<section id="s4">
+  <h2><span class="no">4</span>背景衬托</h2>
+  <p class="sec-note">质感只有在有对比的底上才看得出来。上排现状、下排推荐组合；三种底：浅色 / 深色 / 透明（棋盘格）。现状墨黑球在深底上靠「深色主题整球反白」兜底，提案的黑球靠自身光影与描边也能立住。</p>
+  <div class="grid g3">
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 浅底</span></div>
+      <div class="stage"><svg class='mx p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">平贴、无落点。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 深底</span></div>
+      <div class="stage d"><svg class='mx p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">黑球接近隐形——现状靠主题反白救场。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 透明底</span></div>
+      <div class="stage c"><svg class='mx p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">GIF/导出场景：没有底色支援。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">提案 · 浅底</span></div>
+      <div class="stage"><svg class='mx p-ink opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">光影 + 描边 + 落影，稳稳站在浅底上。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">提案 · 深底</span></div>
+      <div class="stage d"><svg class='mx p-ink opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">顶光 + 描边勾勒轮廓；深底上落影可按主题降低（见参数表）。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">提案 · 透明底</span></div>
+      <div class="stage c"><svg class='mx p-ink opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">无底色支援时，描边 + 光影就是全部轮廓信息，比现状强得多。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 5. 配色 × 质感 ============ -->
+<section id="s5">
+  <h2><span class="no">5</span>配色 × 质感</h2>
+  <p class="sec-note">上排现状、下排推荐组合；ink（墨黑·默认）+ tangerine（暖亮色）+ inverse（白球）。釉面高光画法按眼珠明暗自动切换。</p>
+  <div class="grid g3">
+    <div class="card"><div class="hd"><span class="chip">现状 · ink</span></div><div class="stage"><svg class='mx sm p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div></div>
+    <div class="card"><div class="hd"><span class="chip">现状 · tangerine</span></div><div class="stage"><svg class='mx sm p-tangerine opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div></div>
+    <div class="card"><div class="hd"><span class="chip">现状 · inverse</span></div><div class="stage"><svg class='mx sm p-inverse opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div></div>
+    <div class="card"><div class="hd"><span class="chip a">提案 · ink</span></div><div class="stage"><svg class='mx sm p-ink opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div></div>
+    <div class="card"><div class="hd"><span class="chip a">提案 · tangerine</span></div><div class="stage"><svg class='mx sm p-tangerine opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div></div>
+    <div class="card"><div class="hd"><span class="chip a">提案 · inverse</span></div><div class="stage"><svg class='mx sm p-inverse opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div></div>
+  </div>
+  <p class="cap" style="margin-top:10px">三套质感层（光影/描边/高光）全部是<b>黑白透明渐变</b>，不引入新色相——任意自定义 <code>--body/--eye</code> 都自动成立，8 套预设与自定义色无需逐一调参。inverse 白球是描边收益最大的配色。</p>
+</section>
+
+<!-- ============ 6. 微交互 ============ -->
+<section id="s6">
+  <h2><span class="no">6</span>微交互（CSS 示意）</h2>
+  <p class="sec-note">呼吸 3.2s、缩放 2.6%（落影反向呼吸增强「活物感」）；悬浮抬升 20px + 落影变淡变大。落地时叠加在既有动作层之上，不与 13 个状态的关键帧冲突；<code>prefers-reduced-motion</code> 自动关停。</p>
+  <div class="grid g3">
+    <div class="card">
+      <div class="hd"><span class="chip">现状 · 静止</span></div>
+      <div class="stage"><svg class='mx sm p-ink opt-flat' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">待机之外完全静止（产品里 idle 本身有动作，这里只对照质感层）。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">提案 · 呼吸</span></div>
+      <div class="stage live"><svg class='mx sm p-ink opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap">球体 + 落影同时呼吸（一胀一缩），有「活着」的底噪。</p>
+    </div>
+    <div class="card">
+      <div class="hd"><span class="chip a">提案 · 呼吸 + 悬浮</span><span class="rec">推荐</span></div>
+      <div class="stage live lift" tabindex="0"><svg class='mx sm p-ink opt-full' viewBox='0 0 512 512' aria-hidden='true'><ellipse class='mx-occl' cx='256' cy='424' rx='126' ry='19'/><g class='mx-tilt'><circle class='mx-ball' cx='256' cy='258' r='150'/><g class='mx-ovs' clip-path='url(#qp-clip)'><ellipse class='mx-ov mx-shade' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-sheen' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-rim' cx='256' cy='258' rx='150' ry='150'/><ellipse class='mx-ov mx-band' cx='250' cy='168' rx='128' ry='26' transform='rotate(-14 250 168)'/><ellipse class='mx-ov mx-edge' cx='256' cy='258' rx='150' ry='150'/></g><g class='mx-gaze'><g transform='translate(210 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g><g transform='translate(302 262)'><ellipse class='mx-socket' rx='30' ry='45'/><ellipse class='mx-eye' rx='18' ry='32'/><ellipse class='mx-eyeov' rx='18' ry='32'/><ellipse class='mx-glint' cx='-5' cy='-11' rx='6.5' ry='10'/><ellipse class='mx-glint2' cx='7' cy='11' rx='3.2' ry='3.2'/></g></g></g></svg></div>
+      <p class="cap"><b>鼠标悬停试试</b>：轻抬 20px，落影变淡变大——「被托起来」的物理感，与既有 hover 抬眼交互叠加。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 7. 决策清单 ============ -->
+<section id="s7">
+  <h2><span class="no">7</span>决策清单（勾完回我即可）</h2>
+  <div class="decide">
+    <h3>① 光影体积</h3>
+    <label><input type="radio" name="d1" value="light">A · 仅顶光（最克制）</label>
+    <label><input type="radio" name="d1" value="lightplus" checked>B · 顶光 + 边缘反光 + 落影 <span class="star">推荐</span></label>
+    <label><input type="radio" name="d1" value="flat">C · 保持纯平</label>
+    <h3>② 材质</h3>
+    <label><input type="radio" name="d2" value="ceramic" checked>A · 哑光陶瓷 <span class="star">推荐</span></label>
+    <label><input type="radio" name="d2" value="frost">B · 磨砂玻璃</label>
+    <label><input type="radio" name="d2" value="rubber">C · 哑光橡胶</label>
+    <label><input type="radio" name="d2" value="none">D · 保持纯平</label>
+    <h3>③ 轮廓与细节</h3>
+    <label><input type="radio" name="d3" value="socket">A · 仅眼窝微凹</label>
+    <label><input type="radio" name="d3" value="solid" checked>B · 眼窝 + 内阴影 + 极细描边 <span class="star">推荐</span></label>
+    <label><input type="radio" name="d3" value="none">C · 都不加</label>
+    <h3>④ 接触阴影（落影）</h3>
+    <label><input type="radio" name="d4" value="yes" checked>要（球落地，动作的重量感来源） <span class="star">推荐</span></label>
+    <label><input type="radio" name="d4" value="no">不要（透明底导出更干净）</label>
+    <h3>⑤ 釉面眼</h3>
+    <label><input type="radio" name="d5" value="yes" checked>要（高光画法按眼珠明暗自动切换） <span class="star">推荐</span></label>
+    <label><input type="radio" name="d5" value="no">不要（保持平色眼）</label>
+    <h3>⑥ 微交互</h3>
+    <label><input type="radio" name="d6" value="both" checked>呼吸 + 悬浮都要 <span class="star">推荐</span></label>
+    <label><input type="radio" name="d6" value="breath">只要呼吸</label>
+    <label><input type="radio" name="d6" value="none">都不要</label>
+    <p class="hint">默认勾选 = UIbot 推荐组合（即第 0 节右图）：哑光陶瓷 + ①B 光影 + 眼窝/描边 + 落影 + 釉面眼 + 呼吸/悬浮。不满意的项改勾即可；也可以直接说「照推荐来」。</p>
+  </div>
+
+  <h2 style="margin-top:48px"><span class="no">8</span>落地参数表（对齐后用）</h2>
+  <table>
+    <tr><th>图层</th><th>实现</th><th>参数</th><th>备注</th></tr>
+    <tr><td>顶光高光</td><td><code>radialGradient</code> 叠加</td><td>center (210,170) r172，白 30%→0</td><td>陶瓷版；玻璃 44%、橡胶 15%</td></tr>
+    <tr><td>底部压暗</td><td><code>radialGradient</code> 叠加</td><td>center (256,150) r390，黑 0→17%</td><td>玻璃 12%、橡胶 30%</td></tr>
+    <tr><td>底缘环境反光</td><td><code>radialGradient</code> 叠加</td><td>center (256,512) r330，白 15%→0</td><td>玻璃 26%、橡胶 4%</td></tr>
+    <tr><td>接触阴影</td><td>球外 <code>ellipse</code></td><td>(256,424) 126×19，黑 36%→14%→0</td><td>不随球动；深色主题可降至 ~60%</td></tr>
+    <tr><td>眼窝微凹</td><td>眼后 <code>ellipse</code></td><td>30×45，黑 28%→10%→0</td><td>放 gaze 组，随视线动</td></tr>
+    <tr><td>釉面眼</td><td>高光 + 内阴影</td><td>高光 (-5,-11) 6.5×10 白 92%；次高光 (7,11) 3.2；内阴影底缘 22%</td><td>深眼珠白高光 / 白眼珠冷灰反射自动切换</td></tr>
+    <tr><td>边缘内阴影</td><td><code>radialGradient</code> 叠加</td><td>r150 上 0→20%（82% 起才出现）</td><td>全部配色共用</td></tr>
+    <tr><td>极细描边</td><td><code>circle stroke</code></td><td><code>rgba(20,21,25,.35)</code> 2.5px</td><td>黑球上几乎不可见</td></tr>
+    <tr><td>呼吸</td><td>CSS 动画</td><td>3.2s，scale(1.026,1.012)</td><td>落影反向（opacity .95↔.72 + scale 1↔1.06）</td></tr>
+    <tr><td>悬浮</td><td>hover 过渡</td><td>translateY(-20px) 0.38s 回弹曲线</td><td>落影 .95→.55 + scale 1.22</td></tr>
+    <tr><td>半透球身（仅玻璃）</td><td><code>fill-opacity:.94</code></td><td>—</td><td>陶瓷/橡胶不用</td></tr>
+    <tr><td>带状反射（仅玻璃）</td><td>斜置 <code>ellipse</code></td><td>(250,168) 128×26 rotate(-14°)</td><td>黑球上不明显，玻璃材质卖点</td></tr>
+  </table>
+
+  <p class="foot">提案稿 · UIbot · 2026-11-13 · 几何与配色取自 <code>mascot-geometry.ts</code>（生成产物）。对齐后落地路径：质感图层与 defs 并入 generate-bot-gif.py 的 emit_web（SVG 结构 + 关键帧不动），呼吸/悬浮并入 mascot-anim.css 的 idle 补充；本稿未改任何产品代码。</p>
+</section>
+
+</div>
+</body>
+</html>

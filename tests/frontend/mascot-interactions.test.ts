@@ -9,6 +9,8 @@ import {
   MASCOT_LOOK_MS,
   MASCOT_LOOK_STATES,
   MASCOT_POKE_MS,
+  MASCOT_SURPRISE_CLICKS,
+  MASCOT_SURPRISE_MS,
   createMascotInteractController,
   type MascotAmbient,
   type MascotInteract,
@@ -105,17 +107,22 @@ describe('createMascotInteractController', () => {
     expect(b.last()).toBe('hover')
   })
 
-  it('poke 播放中的点击只计数不重开；攒满 5 下打断成 dizzy', () => {
+  it('连点梯度完整链路：1 击 poke → 3 击 surprise → 5 击 dizzy（播放中的点击只计数）', () => {
     const { env, controller, last } = setup()
-    // 每 350ms 点一下：第 1 下起 poke，中间的点击不改变当前值
-    for (let i = 0; i < 4; i += 1) {
-      controller.onPointerDown()
-      expect(last()).toBe('poke')
-      env.advance(350)
-    }
-    expect(MASCOT_DIZZY_CLICKS).toBe(5)
-    controller.onPointerDown() // 第 5 下，仍在 1600ms 窗口内
+    controller.onPointerDown() // 第 1 下 → poke
+    expect(last()).toBe('poke')
+    env.advance(350)
+    controller.onPointerDown() // 第 2 下：poke 播放中，只计数
+    expect(last()).toBe('poke')
+    env.advance(350) // poke 已播完
+    controller.onPointerDown() // 第 3 下 → surprise
+    expect(last()).toBe('surprise')
+    env.advance(350)
+    controller.onPointerDown() // 第 4 下：surprise 播放中，只计数
+    expect(last()).toBe('surprise')
+    controller.onPointerDown() // 第 5 下 → dizzy，打断 surprise
     expect(last()).toBe('dizzy')
+    expect(MASCOT_DIZZY_CLICKS).toBe(5)
     env.advance(MASCOT_DIZZY_MS)
     expect(last()).toBeNull()
   })
@@ -135,16 +142,59 @@ describe('createMascotInteractController', () => {
     expect(last()).toBeNull()
   })
 
-  it('慢速点击攒不满窗口，不会误触发 dizzy', () => {
+  it('慢速点击攒不满窗口，不会误触发 surprise / dizzy', () => {
     const { env, controller, last } = setup()
-    // 每 650ms 一下来回点：窗口 1600ms 内最多同时存在 3 下，永远到不了 5
-    for (let i = 0; i < 8; i += 1) {
+    // 每 800ms 一下来回点：1600ms 窗口内最多同时存在 2 下，到不了 3（surprise）更到不了 5（dizzy）
+    for (let i = 0; i < 6; i += 1) {
       controller.onPointerDown()
       expect(last()).toBe('poke')
-      env.advance(650)
+      env.advance(MASCOT_POKE_MS)
       expect(last()).toBeNull()
+      env.advance(800 - MASCOT_POKE_MS)
     }
     expect(MASCOT_DIZZY_WINDOW_MS).toBe(1600)
+  })
+
+  it('连点梯度：快连 3 下升级成 surprise，播完归位', () => {
+    const { env, controller, last } = setup()
+    controller.onPointerDown() // 第 1 下 → poke（0.6s）
+    expect(last()).toBe('poke')
+    env.advance(650) // poke 播完
+    controller.onPointerDown() // 第 2 下：又是一个 poke（上一轮计数还在窗口内）
+    expect(last()).toBe('poke')
+    env.advance(650)
+    controller.onPointerDown() // 第 3 下（窗口 1600ms 内）→ surprise
+    expect(last()).toBe('surprise')
+    env.advance(MASCOT_SURPRISE_MS)
+    expect(last()).toBeNull()
+  })
+
+  it('surprise 播放中的点击只计数，攒满 5 下打断成 dizzy', () => {
+    const { env, controller, last } = setup()
+    controller.onPointerDown() // t=0 第 1 下 → poke
+    env.advance(650)          // poke 播完，计数还在窗口内
+    controller.onPointerDown() // t=650 第 2 下 → poke
+    env.advance(650)
+    controller.onPointerDown() // t=1300 第 3 下 → surprise
+    expect(last()).toBe('surprise')
+    controller.onPointerDown() // t=1300 第 4 下：surprise 播放中，只计数
+    expect(last()).toBe('surprise')
+    controller.onPointerDown() // t=1300 第 5 下 → dizzy（打断 surprise）
+    expect(last()).toBe('dizzy')
+    env.advance(MASCOT_DIZZY_MS)
+    expect(last()).toBeNull()
+  })
+
+  it('慢速点击（两击间隔远）不会误触发 surprise', () => {
+    const { env, controller, last } = setup()
+    controller.onPointerDown()
+    env.advance(800)
+    controller.onPointerDown() // 与第 1 下隔 800ms，仍在窗口内但只有 2 下
+    expect(last()).toBe('poke')
+    env.advance(800)
+    controller.onPointerDown() // 第 1 下已出 1600ms 窗口，这是新一轮第 1 下
+    expect(last()).toBe('poke')
+    expect(MASCOT_SURPRISE_CLICKS).toBe(3)
   })
 
   it('关掉响应后指针事件无效，reset 清空已挂上的互动', () => {

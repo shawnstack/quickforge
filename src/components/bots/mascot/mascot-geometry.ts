@@ -14,7 +14,7 @@ export const MASCOT_EYE_SHAPE = {
 
 export const MASCOT_ARC = { d: 'M -18 6 Q 0 -17 18 6', width: 11 }
 
-/** 每个状态的循环时长（秒），与设计稿 mascot-v3.html 一致（GIF 暂未同步）。 */
+/** 状态与动作的循环时长（秒）；动作（peek/wave/…）由 use-mascot-actions 触发，详见生成脚本。 */
 export const MASCOT_DURATIONS = {
   idle: 1.60,
   thinking: 1.80,
@@ -23,6 +23,12 @@ export const MASCOT_DURATIONS = {
   sleepy: 3.20,
   alert: 1.10,
   walk: 0.80,
+  peek: 2.40,
+  wave: 3.40,
+  stretch: 3.00,
+  yawn: 3.40,
+  pleased: 1.80,
+  surprise: 1.20,
 } as const
 
 export type MascotStateId = keyof typeof MASCOT_DURATIONS
@@ -36,6 +42,12 @@ export const MASCOT_STATE_LABELS_ZH: Record<MascotStateId, string> = {
   sleepy: '犯困',
   alert: '提醒',
   walk: '走路',
+  peek: '偷看打字',
+  wave: '打招呼',
+  stretch: '伸懒腰',
+  yawn: '打哈欠',
+  pleased: '被夸',
+  surprise: '惊讶',
 }
 
 export type MascotPalette = { id: string; body: string; eye: string }
@@ -50,5 +62,12 @@ export const MASCOT_PALETTES: MascotPalette[] = [
   { id: 'butter', body: '#F2C94C', eye: '#242424' },
   { id: 'slate', body: '#4A5568', eye: '#F7FAFC' },
 ]
+
+/** 质感层几何（quality-proposal.html 拍板 2026-11-13）；图层由 BotMascot.tsx 渲染。 */
+export const MASCOT_QUALITY = {
+  sheen: { cx: 210, cy: 170, r: 172 },
+  shade: { cy: 150, r: 390 },
+  rim: { cy: 512, r: 330 },
+} as const
 
 export const MASCOT_DEFAULT = { body: '#0B0B0C', eye: '#FFFFFF', animated: true }

@@ -16,7 +16,7 @@ export const MASCOT_INTERACTIVE_STATES: readonly MascotStateId[] = ['idle', 'sle
 /** 会来一段「东张西望」的状态。 */
 export const MASCOT_LOOK_STATES: readonly MascotStateId[] = ['idle']
 
-export type MascotInteract = 'hover' | 'hover-exit' | 'poke' | 'dizzy'
+export type MascotInteract = 'hover' | 'hover-exit' | 'poke' | 'dizzy' | 'surprise'
 export type MascotAmbient = 'look' | null
 
 export const MASCOT_POKE_MS = 600
@@ -25,6 +25,9 @@ export const MASCOT_HOVER_EXIT_MS = 320
 /** 连点窗口：在这个窗口内点满 MASCOT_DIZZY_CLICKS 下就转晕。 */
 export const MASCOT_DIZZY_WINDOW_MS = 1600
 export const MASCOT_DIZZY_CLICKS = 5
+/** 连点梯度：1 击=被戳，3 击=惊讶（瞪眼后仰），5 击=转晕。 */
+export const MASCOT_SURPRISE_MS = 1200
+export const MASCOT_SURPRISE_CLICKS = 3
 
 /** 一段张望的时长，与 mascot-anim.css 的 qf-mascot-gaze-look 3.30s 一致。 */
 export const MASCOT_LOOK_MS = 3300
@@ -73,7 +76,7 @@ export function createMascotInteractController(
 
   let enabled = opts.enabled ?? false
   let ambientEnabled = opts.ambientEnabled ?? false
-  let acting: 'poke' | 'dizzy' | null = null
+  let acting: 'poke' | 'dizzy' | 'surprise' | null = null
   let hovering = false
   let clicks: number[] = []
   let endTimer: number | undefined
@@ -200,14 +203,20 @@ export function createMascotInteractController(
       clicks.push(t)
       if (clicks.length >= MASCOT_DIZZY_CLICKS) {
         clicks = []
-        clearEndTimer() // 转晕可以直接打断还没播完的 poke
+        clearEndTimer() // 转晕可以直接打断还没播完的 poke / surprise
         acting = 'dizzy'
         apply('dizzy')
         endTimer = schedule(finishOneShot, MASCOT_DIZZY_MS)
         return
       }
-      if (acting === 'poke') return // poke 播放中的点击只计数，攒够 5 下就转晕
-      clearEndTimer()
+      if (acting) return // poke / surprise 播放中的点击只计数，攒够 3/5 下就升级
+      if (clicks.length >= MASCOT_SURPRISE_CLICKS) {
+        clearEndTimer()
+        acting = 'surprise'
+        apply('surprise')
+        endTimer = schedule(finishOneShot, MASCOT_SURPRISE_MS)
+        return
+      }
       acting = 'poke'
       apply('poke')
       endTimer = schedule(finishOneShot, MASCOT_POKE_MS)

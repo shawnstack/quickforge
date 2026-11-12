@@ -144,6 +144,17 @@ BW_EYE_RX, BW_EYE_RY = 18, 32       # 豆豆眼：上下拉长（expressions-pre
 BW_ARC = "M -18 6 Q 0 -17 18 6"     # 弯月眼路径
 BW_ARC_WIDTH = 11
 
+# ---- 质感层（quality-proposal.html 定稿 2026-11-13；01:53 减法更新：①B ②陶瓷 ⑥呼吸+悬浮）----
+# 全部是黑白透明渐变/图层，不引入新色相：任意 --body/--eye 换色自动成立。
+# 动作关键帧一律不动；质感层是静态叠加，与 mascot-anim.css 的动作层零冲突。
+# 01:53 用户减法：接触阴影（原④）、眼窝微凹（原③）、釉面眼（原⑤）全部移除——
+# 眼睛回到纯色豆豆眼，球体只留顶光/压暗/环境反光三层光影 + 呼吸微动效。
+BW_SHEEN_CX, BW_SHEEN_CY, BW_SHEEN_R = 210, 170, 172   # 顶光高光（哑光陶瓷：低对比柔光）
+BW_SHADE_CY_R = (150, 390)                             # 底部压暗：中心(256,150) r390
+BW_RIM_CY_R = (512, 330)                               # 底缘环境反光：中心(256,512) r330
+BW_BREATH_SCALE = (1.026, 1.012)                       # ⑥ 呼吸缩放
+BW_BREATH_MS = 3200                                    # ⑥ 呼吸周期
+
 
 @dataclass
 class Pose:
@@ -601,6 +612,115 @@ V3_WEB: dict[str, tuple[float, str, str, str, str | None]] = {
 }
 
 
+# ---- 界面动作组（actions-preview.html 验收）：六个事件触发的小动作 ----------
+# 与 V3_WEB 同一套输出管道，但语义不同：V3_WEB 是「业务状态」（持续循环），
+# V3_ACTIONS 是「事件触发的一次性/情境动作」——hook 触发时短暂把 data-state
+# 切过去，播完（关键帧尾部自带回正段）再切回真实状态。时长含尾部停顿，
+# 一次性播放恰好回到原位，衔接无缝。
+# 每项比 V3_WEB 多一个 arc 标记（True=弯月笑眼）。
+# 触发（use-mascot-actions.ts / interactions）：
+#   peek=输入框聚焦且有输入（持续状态）；wave=进 bot 模式/切 bot；
+#   stretch/yawn=idle 小剧场调度；surprise=连点 3 下彩蛋；pleased=夸奖词回答完播。
+V3_ACTIONS: dict[str, tuple[float, str, str, str, str | None, bool]] = {
+    "peek": (
+        2.4, "ease-in-out",
+        """  0%        { transform: translateY(0) scale(1, 1); }
+  12%       { transform: translateY(12px) scale(1.05, 0.94); }
+  23%       { transform: translateY(10px) scale(1.04, 0.95); }
+  33%       { transform: translateY(13px) scale(1.06, 0.93); }
+  44%       { transform: translateY(10px) scale(1.04, 0.95); }
+  54%       { transform: translateY(13px) scale(1.06, 0.93); }
+  67%       { transform: translateY(10px) scale(1.04, 0.95); }
+  79%,100%  { transform: translateY(0) scale(1, 1); }""",
+        "ease-in-out",
+        """  0%        { transform: translate(0,0) scaleY(1); }
+  12%       { transform: translate(0,13px) scaleY(0.9); }
+  23%       { transform: translate(-4px,12px) scaleY(0.9); }
+  33%       { transform: translate(4px,13px) scaleY(0.9); }
+  44%       { transform: translate(-4px,12px) scaleY(0.9); }
+  54%       { transform: translate(4px,13px) scaleY(0.9); }
+  67%       { transform: translate(0,13px) scaleY(0.9); }
+  79%,100%  { transform: translate(0,0) scaleY(1); }""",
+        False,
+    ),
+    "wave": (
+        3.4, "cubic-bezier(.3,0,.4,1)",
+        """  0%        { transform: rotate(0) translateY(0); }
+  6%        { transform: rotate(-10deg) translateY(-4px); }
+  12%       { transform: rotate(10deg) translateY(-6px); }
+  17%       { transform: rotate(-10deg) translateY(-4px); }
+  21%       { transform: rotate(9deg) translateY(-5px); }
+  25%       { transform: rotate(-8deg) translateY(-3px); }
+  29%       { transform: rotate(0) translateY(-10px) scale(0.98, 1.03); }
+  33%,100%  { transform: rotate(0) translateY(0) scale(1, 1); }""",
+        "linear", None, True,
+    ),
+    "stretch": (
+        3.0, "ease-in-out",
+        """  0%        { transform: translateY(0) scale(1, 1); }
+  9%        { transform: translateY(8px) scale(1.08, 0.90); }
+  22%       { transform: translateY(-18px) scale(0.90, 1.14); }
+  30%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  45%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  50%       { transform: translateY(-18px) scale(0.92, 1.13); }
+  55%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  65%       { transform: translateY(-19px) scale(0.92, 1.13); }
+  75%       { transform: translateY(4px) scale(1.06, 0.94); }
+  87%,100%  { transform: translateY(0) scale(1, 1); }""",
+        "ease-in-out",
+        """  0%, 9%    { transform: scaleY(1); }
+  22%, 65%  { transform: scaleY(0.15); }
+  75%       { transform: scaleY(0.5); }
+  87%,100%  { transform: scaleY(1); }""",
+        False,
+    ),
+    "yawn": (
+        3.4, "ease-in-out",
+        """  0%        { transform: translateY(0) scale(1, 1) rotate(0); }
+  12%       { transform: translateY(4px) scale(1.10, 0.90) rotate(0); }
+  29%       { transform: translateY(-10px) scale(0.94, 1.10) rotate(0); }
+  38%       { transform: translateY(-9px) scale(0.95, 1.09) rotate(0); }
+  47%       { transform: translateY(-11px) scale(0.94, 1.10) rotate(0); }
+  53%       { transform: translateY(-9px) scale(0.95, 1.09) rotate(2deg); }
+  62%       { transform: translateY(14px) scale(1.08, 0.92) rotate(-2deg); }
+  76%,100%  { transform: translateY(0) scale(1, 1) rotate(0); }""",
+        "ease-in-out",
+        """  0%        { transform: scaleY(1); }
+  18%, 62%  { transform: scaleY(0.06); }
+  70%       { transform: scaleY(0.45); }
+  85%       { transform: scaleY(0.8); }
+  100%      { transform: scaleY(1); }""",
+        False,
+    ),
+    "pleased": (
+        1.8, "cubic-bezier(.3,0,.4,1)",
+        """  0%        { transform: rotate(0) translateY(0); }
+  8%        { transform: rotate(-6deg) translateY(2px); }
+  17%       { transform: rotate(6deg) translateY(0); }
+  25%       { transform: rotate(-4deg) translateY(2px); }
+  31%       { transform: rotate(0) translateY(0); }
+  39%       { transform: translateY(-10px) scale(0.97, 1.04); }
+  50%       { transform: translateY(0) scale(1, 1); }
+  61%       { transform: translateY(-4px); }
+  72%,100%  { transform: translateY(0) scale(1, 1); }""",
+        "linear", None, True,
+    ),
+    "surprise": (
+        1.2, "cubic-bezier(.2,0,.3,1)",
+        """  0%        { transform: translateY(0) scale(1, 1); }
+  7%        { transform: translateY(-6px) scale(0.96, 1.05); }
+  17%       { transform: translateY(2px) scale(1.03, 0.97); }
+  29%       { transform: translateY(-3px) scale(0.99, 1.01); }
+  42%,100%  { transform: translateY(0) scale(1, 1); }""",
+        "ease-out",
+        """  0%        { transform: scale(1); }
+  8%, 80%   { transform: scale(1.45, 1.40); }
+  96%,100%  { transform: scale(1); }""",
+        False,
+    ),
+}
+
+
 # ---- 界面互动：hover / poke / dizzy ------------------------------------------
 # 设计稿见 interactions-preview.html（已验收）。绑定在 data-interact 上，
 # 与状态规则同特异度但写在后面，所以互动期间会盖住状态动画；
@@ -626,7 +746,12 @@ V3_INTERACT_RULES = """\
 
 .qf-mascot[data-interact='dizzy'] .qf-mascot__body { animation: qf-mascot-body-dizzy 1.50s ease-in-out 1; }
 .qf-mascot[data-interact='dizzy'] .qf-mascot__eye-l { animation: qf-mascot-dizzy-eye-l 1.50s linear 1; }
-.qf-mascot[data-interact='dizzy'] .qf-mascot__eye-r { animation: qf-mascot-dizzy-eye-r 1.50s linear 1; }"""
+.qf-mascot[data-interact='dizzy'] .qf-mascot__eye-r { animation: qf-mascot-dizzy-eye-r 1.50s linear 1; }
+
+/* 连点 3 下的彩蛋：惊讶（复用 V3_ACTIONS 里 surprise 状态的关键帧，一次性播放） */
+.qf-mascot[data-interact='surprise'] .qf-mascot__body { animation: qf-mascot-body-surprise 1.20s cubic-bezier(.2,0,.3,1) 1; }
+.qf-mascot[data-interact='surprise'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='surprise'] .qf-mascot__eye-r { animation: qf-mascot-eye-surprise 1.20s ease-out 1; }"""
 
 V3_INTERACT_KEYFRAMES = """\
 @keyframes qf-mascot-body-hover {
@@ -756,7 +881,7 @@ V3_SYMBOL_RULES = """\
 .qf-mascot__sym-sweat,
 .qf-mascot__sym-poke,
 .qf-mascot__sym-quest { transform-box: fill-box; transform-origin: center; }
-.qf-mascot__sym-dizzy-orbit { transform-box: view-box; transform-origin: 256px 88px; }
+.qf-mascot__sym-dizzy-orbit { transform-box: view-box; transform-origin: 256px 84px; }
 
 /* 思考 …：一颗一颗加上去（像「正在输入…」），三颗全亮停一拍，一起消散重来
    （1.8s，跟思考同拍；消散正好赶在 84%「想到啦」弹起之前） */
@@ -765,7 +890,7 @@ V3_SYMBOL_RULES = """\
 .qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle:nth-child(2) { animation-name: qf-mascot-sym-dot-2; }
 .qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle:nth-child(3) { animation-name: qf-mascot-sym-dot-3; }
 
-/* 犯困 zZ：小 z 先起、大 Z 随后，飘着淡出（3.2s，跟犯困同拍） */
+/* 犯困 zZ：小 z 先起、大 Z 随后，飘着淡出（3.2s，跟犯困同拍；笔画加粗到 12，79px 下约 1.8px 起） */
 .qf-mascot[data-state='sleepy'] .qf-mascot__sym-zz { display: block; }
 .qf-mascot[data-state='sleepy'] .qf-mascot__sym-z { animation: qf-mascot-sym-z 3.20s ease-in-out infinite; }
 .qf-mascot__sym-zz g:nth-child(2) .qf-mascot__sym-z { animation-delay: .45s; }
@@ -774,8 +899,9 @@ V3_SYMBOL_RULES = """\
    ——评审后柔化：不再弹射+左右抖，跳起的是球，符号只标注情绪 */
 .qf-mascot[data-state='alert'] .qf-mascot__sym-bang { display: block; animation: qf-mascot-sym-bang 1.10s ease-out infinite; }
 
-/* 开心 ♡：弹出 + 心跳一下（0.9s，跟开心同拍；跟着球跳） */
-.qf-mascot[data-state='happy'] .qf-mascot__sym-heart { display: block; animation: qf-mascot-sym-heart 0.90s ease-out infinite; }
+/* 开心 ♡：弹出 + 心跳一下（0.9s，跟开心同拍；跟着球跳）；「被夸」也冒心（pleased） */
+.qf-mascot[data-state='happy'] .qf-mascot__sym-heart,
+.qf-mascot[data-state='pleased'] .qf-mascot__sym-heart { display: block; animation: qf-mascot-sym-heart 0.90s ease-out infinite; }
 
 /* 干活汗滴：球上往下滑、淡出（眼色；干活 0.7s 一拍，汗滴两拍一滴） */
 .qf-mascot[data-state='working'] .qf-mascot__sym-sweat { display: block; animation: qf-mascot-sym-sweat 1.40s ease-in infinite; }
@@ -808,7 +934,7 @@ V3_SYMBOL_KEYFRAMES = """\
   89%, 100% { opacity: 0; }
 }
 @keyframes qf-mascot-sym-z {
-  0%        { opacity: 0; transform: translateY(12px) scale(.8); }
+  0%        { opacity: 0; transform: translateY(8px) scale(.8); }
   12%       { opacity: 1; transform: translateY(0) scale(1); }
   62%       { opacity: 1; transform: translateY(-16px); }
   78%       { opacity: 0; transform: translateY(-22px); }
@@ -872,7 +998,12 @@ def _web_css() -> str:
         "",
     ]
     blocks: list[str] = []
-    for state, (dur, body_ease, body_kf, eye_ease, eye_kf) in V3_WEB.items():
+    # V3_WEB（业务状态）+ V3_ACTIONS（事件动作）走同一套输出管道：
+    # 后者多一个 arc 标记 —— True 的动作用弯月笑眼（同 happy 的显示规则）。
+    for state, (dur, body_ease, body_kf, eye_ease, eye_kf, arc) in {
+        **{k: (*v, False) for k, v in V3_WEB.items()},
+        **V3_ACTIONS,
+    }.items():
         sel = f".qf-mascot[data-state='{state}']"
         rules.append(
             f"{sel} .qf-mascot__body {{ animation: qf-mascot-body-{state} {dur:.2f}s {body_ease} infinite; }}"
@@ -884,6 +1015,9 @@ def _web_css() -> str:
                 f"{{ animation: qf-mascot-eye-{state} {dur:.2f}s {eye_ease} infinite; }}"
             )
             blocks.append(f"@keyframes qf-mascot-eye-{state} {{\n{eye_kf}\n}}")
+        if arc:
+            rules.append(f"{sel} .qf-mascot__eye {{ display: none; }}")
+            rules.append(f"{sel} .qf-mascot__arc {{ display: block; }}")
         rules.append("")
 
     rules.append(V3_INTERACT_RULES)
@@ -927,7 +1061,40 @@ def _web_css() -> str:
         "  .qf-mascot .qf-mascot__sym * { animation: none !important; }"
     )
     rules.append("}")
+    # ---- 质感层（quality-proposal.html 定稿 2026-11-13；01:53 减法更新：①B ②陶瓷 ⑥呼吸+悬浮）----
+    # 呼吸挂 svg 根（独立 scale 属性，与动作的 transform 动画并行叠加）；
+    # 图层本体（球体顶光/压暗/环境反光）由 BotMascot.tsx 按 MASCOT_QUALITY 渲染。
+    quality_rules = f"""\
+/* 质感·呼吸：整个吉祥物轻微胀缩（scale 独立属性，不碰动作的 transform）。01:53 减法定稿：
+   只留球体光影（顶光/压暗/环境反光，TSX 渲染）+ 呼吸；落影、眼窝、釉面眼已按用户要求移除 */
+.qf-mascot[data-state] {{ animation: qf-mascot-breathe {BW_BREATH_MS / 1000:.2f}s ease-in-out infinite; transform-origin: 50% 50%; }}
+
+/* 关掉动画：呼吸一并停（静态光影层保留） */
+.qf-mascot.qf-mascot--static {{ animation: none !important; }}
+
+@media (prefers-reduced-motion: reduce) {{
+  .qf-mascot[data-state] {{ animation: none !important; }}
+}}"""
+    rules.append(quality_rules)
+    rules.append("")
+    blocks.append(f"""\
+@keyframes qf-mascot-breathe {{
+  0%, 100% {{ scale: 1 1; }}
+  50%      {{ scale: {BW_BREATH_SCALE[0]} {BW_BREATH_SCALE[1]}; }}
+}}""")
+
     return _WEB_BANNER + "\n".join(rules) + "\n\n" + "\n".join(blocks) + "\n"
+
+
+# 动作组的中文名（MASCOT_STATE_LABELS_ZH 用；GIF 的 STATE_LABELS 不含动作）。
+V3_ACTION_LABELS: dict[str, str] = {
+    "peek": "偷看打字",
+    "wave": "打招呼",
+    "stretch": "伸懒腰",
+    "yawn": "打哈欠",
+    "pleased": "被夸",
+    "surprise": "惊讶",
+}
 
 
 def _web_ts() -> str:
@@ -936,8 +1103,12 @@ def _web_ts() -> str:
     )
     durations = ",\n".join(
         f"  {state}: {V3_WEB[state][0]:.2f}" for state in STATES
+    ) + ",\n" + ",\n".join(
+        f"  {action}: {V3_ACTIONS[action][0]:.2f}" for action in V3_ACTIONS
     )
-    labels = "\n".join(f"  {state}: '{label[0]}'," for state, label in STATE_LABELS.items())
+    labels = "\n".join(f"  {state}: '{label[0]}'," for state, label in STATE_LABELS.items()) + "\n" + "\n".join(
+        f"  {action}: '{name}'," for action, name in V3_ACTION_LABELS.items()
+    )
     return f"""/** 由 docs/design/bot-mascot/generate-bot-gif.py --emit-web 生成，勿手改。
  *  改造型请改生成脚本后重新导出。 */
 
@@ -954,7 +1125,7 @@ export const MASCOT_EYE_SHAPE = {{
 
 export const MASCOT_ARC = {{ d: '{BW_ARC}', width: {BW_ARC_WIDTH} }}
 
-/** 每个状态的循环时长（秒），与设计稿 mascot-v3.html 一致（GIF 暂未同步）。 */
+/** 状态与动作的循环时长（秒）；动作（peek/wave/…）由 use-mascot-actions 触发，详见生成脚本。 */
 export const MASCOT_DURATIONS = {{
 {durations},
 }} as const
@@ -971,6 +1142,13 @@ export type MascotPalette = {{ id: string; body: string; eye: string }}
 export const MASCOT_PALETTES: MascotPalette[] = [
 {palettes},
 ]
+
+/** 质感层几何（quality-proposal.html 拍板 2026-11-13）；图层由 BotMascot.tsx 渲染。 */
+export const MASCOT_QUALITY = {{
+  sheen: {{ cx: {BW_SHEEN_CX}, cy: {BW_SHEEN_CY}, r: {BW_SHEEN_R} }},
+  shade: {{ cy: {BW_SHADE_CY_R[0]}, r: {BW_SHADE_CY_R[1]} }},
+  rim: {{ cy: {BW_RIM_CY_R[0]}, r: {BW_RIM_CY_R[1]} }},
+}} as const
 
 export const MASCOT_DEFAULT = {{ body: '{PALETTES["ink"][0]}', eye: '{PALETTES["ink"][1]}', animated: true }}
 """

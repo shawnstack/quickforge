@@ -88,13 +88,29 @@ python3 docs/design/bot-mascot/generate-bot-gif.py --state happy --palette grape
 
 时机规则（`mascot-interactions.ts` 的 `MASCOT_INTERACTIVE_STATES`）：只在**待机 / 犯困**时响应——思考、干活、提醒、开心是要让用户看清的状态，走路时目标在横向移动，都不理人。逻辑是纯控制器（可注入假时钟，`tests/frontend/mascot-interactions.test.ts`），React 侧由 `use-mascot-interactions.ts` 接线。事件只挂在球本体（`.qf-mascot__ball`，`pointer-events: auto`），84px 方图的空白处照常穿透；刻意不进 Tab 序列（纯装饰彩蛋，键盘用户不损失任何功能）。目前只给输入框上方那只开（`BotMascot` 的 `interactive`），侧栏行和设置预览不加。
 
+## 动作组（peek / wave / stretch / yawn / pleased / surprise）
+
+设计稿是 `actions-preview.html`（六选全要，已验收落地）。六个都是「事件触发的小动作」，与业务状态（V3_WEB）的区别：触发都要求 idle，播完自动回真实状态，永远不盖思考/干活/提醒这些信息。生成上与 V3_WEB 走同一管道（`V3_ACTIONS`，多一个 arc 标记=弯月笑眼），时长/中文名自动进 `mascot-geometry.ts`。
+
+| 动作 | 时长 | 触发 | 实现 |
+|------|------|------|------|
+| 偷看打字 peek | 2.4s 循环 | 输入框有输入（document 级 input 监听 + 2.5s 保活） | use-mascot-actions |
+| 打招呼 wave | 3.4s 一次 | 切换 bot（含进入 bot 模式；挂载首次不算，免得刷新就挥手） | 同上，activeBotId 边沿 |
+| 伸懒腰 stretch | 3.0s 一次 | idle 持续 35s 后，之后每 35~55s 随机 | 同上，idle 调度 |
+| 打哈欠 yawn | 3.4s 一次 | idle 持续 180s（每个 idle 周期最多一次） | 同上，同调度器 |
+| 被夸 pleased | 1.8s 一次 | 消息带夸奖词（`containsPraise` 词表）→ 回答完成的 happy 窗口替换成 pleased；时长与 happy 保持窗口（1800ms）对齐 | ChatPanelHost `onComposerSend` → useBotWorkspace 计数 |
+| 惊讶 surprise | 1.2s 一次 | **连点 3 下**彩蛋（梯度：1 击被戳 / 3 击惊讶 / 5 击转晕；surprise 不清点击计数，可继续攒满 5 下升级 dizzy） | mascot-interactions，`data-interact='surprise'` 复用状态关键帧一次性播放 |
+
+两层保险保证不抢业务状态：触发要求 idle（`businessState === 'idle' && !strolling`），渲染层再 gate 一次；散步优先级最高（walk > action > mascotState）。
+
 ## 表情增强（豆豆眼 / 东张西望 / 状态小符号）
 
 设计稿是 `expressions-preview.html`（可直接看、可切深色背景），已验收并落地。三个部分：
 
+
 - **豆豆眼**：眼型从 20×26 改为 **18×32**、中心从 267 上移到 **262**（`BW_EYE_*` 常量，随 `--emit-web` 全局生效——三个尺寸、所有状态动画共用一份几何）。动作关键帧仍与 `mascot-v3.html` 逐字一致，眼型是唯一按验收稿偏离的一处。
 - **东张西望**（`data-ambient='look'`）：待机时每隔 **5~9s 随机**来一段 3.3s 的小剧场——眼睛拉长往左上斜看、停一下，甩到右上停一下（冒个「?」），眨眼收尾；头反向微歪，呼吸照常。实现在两个附加图层上：`__tilt`（歪头）与 `__gaze`（双眼整体斜移），不碰身体动画。时机由同一个互动控制器排（`MASCOT_LOOK_STATES = ['idle']`，犯困不张望；悬停 / 点击立即打断）。
-- **状态小符号**（`qf-mascot__sym-*`）：八个——思考「…」（三点错开冒）、犯困「zZ」（飘走）、提醒「!!」（弹出微抖）、开心「♡」（跳一下）、干活汗滴（球上往下滑）、被戳「!」（随 poke）、转晕星星（绕头顶）、张望「?」（随 look）。配色规则：**球外符号用球身色、球上符号（汗滴）用眼色**，深浅主题都与底色拉开。跟着球跳的符号（!! ♡ 汗滴 !）画在 `__tilt` 里随球动——球外的同色符号会被蹦上来的球吞掉；飘在空中的（… zZ 星星 ?）画在球外。
+- **状态小符号**（`qf-mascot__sym-*`）：八个——思考「…」（三点错开冒）、犯困「zZ」（飘走；笔画 12，79px 下约 1.8px 起步）、提醒「!!」（弹出微抖）、开心「♡」（跳一下）、干活汗滴（球上往下滑）、被戳「!」（随 poke）、转晕星星（绕头顶；1.6 倍，79px 下约 5.9px）、张望「?」（随 look；**几何形弯钩+圆点**，不依赖系统字体，与 zZ 同一套圆头线条语言）。配色规则：**球外符号用球身色、球上符号（汗滴）用眼色**，深浅主题都与底色拉开。跟着球跳的符号（!! ♡ 汗滴 !）画在 `__tilt` 里随球动——球外的同色符号会被蹦上来的球吞掉；飘在空中的（… zZ 星星 ?）画在球外。
 
 两条实现纪律（踩过的坑，改的时候别破坏）：
 

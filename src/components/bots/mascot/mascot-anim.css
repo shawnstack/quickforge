@@ -38,6 +38,30 @@
 
 .qf-mascot[data-state='walk'] .qf-mascot__body { animation: qf-mascot-body-walk 0.80s ease-in-out infinite; }
 
+.qf-mascot[data-state='peek'] .qf-mascot__body { animation: qf-mascot-body-peek 2.40s ease-in-out infinite; }
+.qf-mascot[data-state='peek'] .qf-mascot__eye-l,
+.qf-mascot[data-state='peek'] .qf-mascot__eye-r { animation: qf-mascot-eye-peek 2.40s ease-in-out infinite; }
+
+.qf-mascot[data-state='wave'] .qf-mascot__body { animation: qf-mascot-body-wave 3.40s cubic-bezier(.3,0,.4,1) infinite; }
+.qf-mascot[data-state='wave'] .qf-mascot__eye { display: none; }
+.qf-mascot[data-state='wave'] .qf-mascot__arc { display: block; }
+
+.qf-mascot[data-state='stretch'] .qf-mascot__body { animation: qf-mascot-body-stretch 3.00s ease-in-out infinite; }
+.qf-mascot[data-state='stretch'] .qf-mascot__eye-l,
+.qf-mascot[data-state='stretch'] .qf-mascot__eye-r { animation: qf-mascot-eye-stretch 3.00s ease-in-out infinite; }
+
+.qf-mascot[data-state='yawn'] .qf-mascot__body { animation: qf-mascot-body-yawn 3.40s ease-in-out infinite; }
+.qf-mascot[data-state='yawn'] .qf-mascot__eye-l,
+.qf-mascot[data-state='yawn'] .qf-mascot__eye-r { animation: qf-mascot-eye-yawn 3.40s ease-in-out infinite; }
+
+.qf-mascot[data-state='pleased'] .qf-mascot__body { animation: qf-mascot-body-pleased 1.80s cubic-bezier(.3,0,.4,1) infinite; }
+.qf-mascot[data-state='pleased'] .qf-mascot__eye { display: none; }
+.qf-mascot[data-state='pleased'] .qf-mascot__arc { display: block; }
+
+.qf-mascot[data-state='surprise'] .qf-mascot__body { animation: qf-mascot-body-surprise 1.20s cubic-bezier(.2,0,.3,1) infinite; }
+.qf-mascot[data-state='surprise'] .qf-mascot__eye-l,
+.qf-mascot[data-state='surprise'] .qf-mascot__eye-r { animation: qf-mascot-eye-surprise 1.20s ease-out infinite; }
+
 /* 互动（hover / poke / dizzy）：只把球本体设为可点，空白处继续穿透 */
 .qf-mascot.qf-mascot--interactive { pointer-events: none; }
 .qf-mascot.qf-mascot--interactive .qf-mascot__ball { pointer-events: auto; cursor: pointer; }
@@ -57,6 +81,11 @@
 .qf-mascot[data-interact='dizzy'] .qf-mascot__eye-l { animation: qf-mascot-dizzy-eye-l 1.50s linear 1; }
 .qf-mascot[data-interact='dizzy'] .qf-mascot__eye-r { animation: qf-mascot-dizzy-eye-r 1.50s linear 1; }
 
+/* 连点 3 下的彩蛋：惊讶（复用 V3_ACTIONS 里 surprise 状态的关键帧，一次性播放） */
+.qf-mascot[data-interact='surprise'] .qf-mascot__body { animation: qf-mascot-body-surprise 1.20s cubic-bezier(.2,0,.3,1) 1; }
+.qf-mascot[data-interact='surprise'] .qf-mascot__eye-l,
+.qf-mascot[data-interact='surprise'] .qf-mascot__eye-r { animation: qf-mascot-eye-surprise 1.20s ease-out 1; }
+
 /* 东张西望（data-ambient='look'）：一次性 3.3s，待机时由 JS 随机间隔触发 */
 .qf-mascot__tilt,
 .qf-mascot__gaze { transform-box: fill-box; transform-origin: center; }
@@ -73,7 +102,7 @@
 .qf-mascot__sym-sweat,
 .qf-mascot__sym-poke,
 .qf-mascot__sym-quest { transform-box: fill-box; transform-origin: center; }
-.qf-mascot__sym-dizzy-orbit { transform-box: view-box; transform-origin: 256px 88px; }
+.qf-mascot__sym-dizzy-orbit { transform-box: view-box; transform-origin: 256px 84px; }
 
 /* 思考 …：一颗一颗加上去（像「正在输入…」），三颗全亮停一拍，一起消散重来
    （1.8s，跟思考同拍；消散正好赶在 84%「想到啦」弹起之前） */
@@ -82,7 +111,7 @@
 .qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle:nth-child(2) { animation-name: qf-mascot-sym-dot-2; }
 .qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle:nth-child(3) { animation-name: qf-mascot-sym-dot-3; }
 
-/* 犯困 zZ：小 z 先起、大 Z 随后，飘着淡出（3.2s，跟犯困同拍） */
+/* 犯困 zZ：小 z 先起、大 Z 随后，飘着淡出（3.2s，跟犯困同拍；笔画加粗到 12，79px 下约 1.8px 起） */
 .qf-mascot[data-state='sleepy'] .qf-mascot__sym-zz { display: block; }
 .qf-mascot[data-state='sleepy'] .qf-mascot__sym-z { animation: qf-mascot-sym-z 3.20s ease-in-out infinite; }
 .qf-mascot__sym-zz g:nth-child(2) .qf-mascot__sym-z { animation-delay: .45s; }
@@ -91,8 +120,9 @@
    ——评审后柔化：不再弹射+左右抖，跳起的是球，符号只标注情绪 */
 .qf-mascot[data-state='alert'] .qf-mascot__sym-bang { display: block; animation: qf-mascot-sym-bang 1.10s ease-out infinite; }
 
-/* 开心 ♡：弹出 + 心跳一下（0.9s，跟开心同拍；跟着球跳） */
-.qf-mascot[data-state='happy'] .qf-mascot__sym-heart { display: block; animation: qf-mascot-sym-heart 0.90s ease-out infinite; }
+/* 开心 ♡：弹出 + 心跳一下（0.9s，跟开心同拍；跟着球跳）；「被夸」也冒心（pleased） */
+.qf-mascot[data-state='happy'] .qf-mascot__sym-heart,
+.qf-mascot[data-state='pleased'] .qf-mascot__sym-heart { display: block; animation: qf-mascot-sym-heart 0.90s ease-out infinite; }
 
 /* 干活汗滴：球上往下滑、淡出（眼色；干活 0.7s 一拍，汗滴两拍一滴） */
 .qf-mascot[data-state='working'] .qf-mascot__sym-sweat { display: block; animation: qf-mascot-sym-sweat 1.40s ease-in infinite; }
@@ -124,6 +154,17 @@
   .qf-mascot .qf-mascot__sym,
   .qf-mascot .qf-mascot__sym * { animation: none !important; }
 }
+/* 质感·呼吸：整个吉祥物轻微胀缩（scale 独立属性，不碰动作的 transform）。01:53 减法定稿：
+   只留球体光影（顶光/压暗/环境反光，TSX 渲染）+ 呼吸；落影、眼窝、釉面眼已按用户要求移除 */
+.qf-mascot[data-state] { animation: qf-mascot-breathe 3.20s ease-in-out infinite; transform-origin: 50% 50%; }
+
+/* 关掉动画：呼吸一并停（静态光影层保留） */
+.qf-mascot.qf-mascot--static { animation: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .qf-mascot[data-state] { animation: none !important; }
+}
+
 
 @keyframes qf-mascot-body-idle {
   0%        { transform: translateY(0)     scale(1, 1); }
@@ -212,6 +253,94 @@
   48%       { transform: translateY(2px) scale(1.10, 0.90); }
   72%       { transform: translateY(-16px) scale(0.97, 1.05); }
   100%      { transform: translateY(0)   scale(1, 1); }
+}
+@keyframes qf-mascot-body-peek {
+  0%        { transform: translateY(0) scale(1, 1); }
+  12%       { transform: translateY(12px) scale(1.05, 0.94); }
+  23%       { transform: translateY(10px) scale(1.04, 0.95); }
+  33%       { transform: translateY(13px) scale(1.06, 0.93); }
+  44%       { transform: translateY(10px) scale(1.04, 0.95); }
+  54%       { transform: translateY(13px) scale(1.06, 0.93); }
+  67%       { transform: translateY(10px) scale(1.04, 0.95); }
+  79%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes qf-mascot-eye-peek {
+  0%        { transform: translate(0,0) scaleY(1); }
+  12%       { transform: translate(0,13px) scaleY(0.9); }
+  23%       { transform: translate(-4px,12px) scaleY(0.9); }
+  33%       { transform: translate(4px,13px) scaleY(0.9); }
+  44%       { transform: translate(-4px,12px) scaleY(0.9); }
+  54%       { transform: translate(4px,13px) scaleY(0.9); }
+  67%       { transform: translate(0,13px) scaleY(0.9); }
+  79%,100%  { transform: translate(0,0) scaleY(1); }
+}
+@keyframes qf-mascot-body-wave {
+  0%        { transform: rotate(0) translateY(0); }
+  6%        { transform: rotate(-10deg) translateY(-4px); }
+  12%       { transform: rotate(10deg) translateY(-6px); }
+  17%       { transform: rotate(-10deg) translateY(-4px); }
+  21%       { transform: rotate(9deg) translateY(-5px); }
+  25%       { transform: rotate(-8deg) translateY(-3px); }
+  29%       { transform: rotate(0) translateY(-10px) scale(0.98, 1.03); }
+  33%,100%  { transform: rotate(0) translateY(0) scale(1, 1); }
+}
+@keyframes qf-mascot-body-stretch {
+  0%        { transform: translateY(0) scale(1, 1); }
+  9%        { transform: translateY(8px) scale(1.08, 0.90); }
+  22%       { transform: translateY(-18px) scale(0.90, 1.14); }
+  30%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  45%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  50%       { transform: translateY(-18px) scale(0.92, 1.13); }
+  55%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  65%       { transform: translateY(-19px) scale(0.92, 1.13); }
+  75%       { transform: translateY(4px) scale(1.06, 0.94); }
+  87%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes qf-mascot-eye-stretch {
+  0%, 9%    { transform: scaleY(1); }
+  22%, 65%  { transform: scaleY(0.15); }
+  75%       { transform: scaleY(0.5); }
+  87%,100%  { transform: scaleY(1); }
+}
+@keyframes qf-mascot-body-yawn {
+  0%        { transform: translateY(0) scale(1, 1) rotate(0); }
+  12%       { transform: translateY(4px) scale(1.10, 0.90) rotate(0); }
+  29%       { transform: translateY(-10px) scale(0.94, 1.10) rotate(0); }
+  38%       { transform: translateY(-9px) scale(0.95, 1.09) rotate(0); }
+  47%       { transform: translateY(-11px) scale(0.94, 1.10) rotate(0); }
+  53%       { transform: translateY(-9px) scale(0.95, 1.09) rotate(2deg); }
+  62%       { transform: translateY(14px) scale(1.08, 0.92) rotate(-2deg); }
+  76%,100%  { transform: translateY(0) scale(1, 1) rotate(0); }
+}
+@keyframes qf-mascot-eye-yawn {
+  0%        { transform: scaleY(1); }
+  18%, 62%  { transform: scaleY(0.06); }
+  70%       { transform: scaleY(0.45); }
+  85%       { transform: scaleY(0.8); }
+  100%      { transform: scaleY(1); }
+}
+@keyframes qf-mascot-body-pleased {
+  0%        { transform: rotate(0) translateY(0); }
+  8%        { transform: rotate(-6deg) translateY(2px); }
+  17%       { transform: rotate(6deg) translateY(0); }
+  25%       { transform: rotate(-4deg) translateY(2px); }
+  31%       { transform: rotate(0) translateY(0); }
+  39%       { transform: translateY(-10px) scale(0.97, 1.04); }
+  50%       { transform: translateY(0) scale(1, 1); }
+  61%       { transform: translateY(-4px); }
+  72%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes qf-mascot-body-surprise {
+  0%        { transform: translateY(0) scale(1, 1); }
+  7%        { transform: translateY(-6px) scale(0.96, 1.05); }
+  17%       { transform: translateY(2px) scale(1.03, 0.97); }
+  29%       { transform: translateY(-3px) scale(0.99, 1.01); }
+  42%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes qf-mascot-eye-surprise {
+  0%        { transform: scale(1); }
+  8%, 80%   { transform: scale(1.45, 1.40); }
+  96%,100%  { transform: scale(1); }
 }
 @keyframes qf-mascot-body-hover {
   0%        { transform: translateY(0)    scale(1, 1); }
@@ -358,7 +487,7 @@
   89%, 100% { opacity: 0; }
 }
 @keyframes qf-mascot-sym-z {
-  0%        { opacity: 0; transform: translateY(12px) scale(.8); }
+  0%        { opacity: 0; transform: translateY(8px) scale(.8); }
   12%       { opacity: 1; transform: translateY(0) scale(1); }
   62%       { opacity: 1; transform: translateY(-16px); }
   78%       { opacity: 0; transform: translateY(-22px); }
@@ -399,4 +528,8 @@
   8%        { opacity: 1; }
   92%       { opacity: 1; }
   100%      { opacity: 0; transform: rotate(360deg); }
+}
+@keyframes qf-mascot-breathe {
+  0%, 100% { scale: 1 1; }
+  50%      { scale: 1.026 1.012; }
 }

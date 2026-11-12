@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>吉祥物 v3 · 新动作组草案</title>
+<style>
+/* ============================================================
+   新动作组草案（六个候选，循环演示）：
+   peek 偷看打字 / wave 打招呼 / stretch 伸懒腰 /
+   yawn 打哈欠 / pleased 被夸 / surprise 惊讶
+   草案动画手写在本页，选中后并入 generate-bot-gif.py。
+   基础体系（豆豆眼 18×32@262、tilt/gaze 结构、符号色规则）
+   与已落地版本一致；与 expressions-preview.html 同一套页框架。
+   ============================================================ */
+.qf-mascot { display: inline-block; overflow: visible; vertical-align: middle; user-select: none; }
+.qf-mascot__body { transform-box: view-box; transform-origin: 256px 258px; }
+.qf-mascot__part { transform-box: fill-box; transform-origin: center; }
+
+/* 弯月眼：打招呼、被夸用笑眼 */
+.qf-mascot__arc { display: none; }
+.qf-mascot[data-state='wave'] .qf-mascot__eye,
+.qf-mascot[data-state='pleased'] .qf-mascot__eye { display: none; }
+.qf-mascot[data-state='wave'] .qf-mascot__arc,
+.qf-mascot[data-state='pleased'] .qf-mascot__arc { display: block; }
+
+/* ---- ① 偷看打字 peek（2.4s 循环）：压低探头往下看，视线跟内容左右扫 ---- */
+.qf-mascot[data-state='peek'] .qf-mascot__body { animation: act-peek-body 2.40s ease-in-out infinite; }
+.qf-mascot[data-state='peek'] .qf-mascot__eye-l,
+.qf-mascot[data-state='peek'] .qf-mascot__eye-r { animation: act-peek-eye 2.40s ease-in-out infinite; }
+@keyframes act-peek-body {
+  0%        { transform: translateY(0) scale(1, 1); }
+  12%       { transform: translateY(12px) scale(1.05, 0.94); }
+  23%       { transform: translateY(10px) scale(1.04, 0.95); }
+  33%       { transform: translateY(13px) scale(1.06, 0.93); }
+  44%       { transform: translateY(10px) scale(1.04, 0.95); }
+  54%       { transform: translateY(13px) scale(1.06, 0.93); }
+  67%       { transform: translateY(10px) scale(1.04, 0.95); }
+  79%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes act-peek-eye {
+  0%        { transform: translate(0,0) scaleY(1); }
+  12%       { transform: translate(0,13px) scaleY(0.9); }
+  23%       { transform: translate(-4px,12px) scaleY(0.9); }
+  33%       { transform: translate(4px,13px) scaleY(0.9); }
+  44%       { transform: translate(-4px,12px) scaleY(0.9); }
+  54%       { transform: translate(4px,13px) scaleY(0.9); }
+  67%       { transform: translate(0,13px) scaleY(0.9); }
+  79%,100%  { transform: translate(0,0) scaleY(1); }
+}
+
+/* ---- ② 打招呼 wave（总 3.4s：动作 1.4s + 停一拍）：左右快摆「挥手」，弯月眼 ---- */
+.qf-mascot[data-state='wave'] .qf-mascot__body { animation: act-wave-body 3.40s cubic-bezier(.3,0,.4,1) infinite; }
+@keyframes act-wave-body {
+  0%        { transform: rotate(0) translateY(0); }
+  6%        { transform: rotate(-10deg) translateY(-4px); }
+  12%       { transform: rotate(10deg) translateY(-6px); }
+  17%       { transform: rotate(-10deg) translateY(-4px); }
+  21%       { transform: rotate(9deg) translateY(-5px); }
+  25%       { transform: rotate(-8deg) translateY(-3px); }
+  29%       { transform: rotate(0) translateY(-10px) scale(0.98, 1.03); }
+  33%,100%  { transform: rotate(0) translateY(0) scale(1, 1); }
+}
+
+/* ---- ③ 伸懒腰 stretch（总 3.0s：动作 2.2s + 停）：压低→拉长眯眼→放松塌回 ---- */
+.qf-mascot[data-state='stretch'] .qf-mascot__body { animation: act-stretch-body 3.00s ease-in-out infinite; }
+.qf-mascot[data-state='stretch'] .qf-mascot__eye-l,
+.qf-mascot[data-state='stretch'] .qf-mascot__eye-r { animation: act-stretch-eye 3.00s ease-in-out infinite; }
+@keyframes act-stretch-body {
+  0%        { transform: translateY(0) scale(1, 1); }
+  9%        { transform: translateY(8px) scale(1.08, 0.90); }
+  22%       { transform: translateY(-18px) scale(0.90, 1.14); }
+  30%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  45%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  50%       { transform: translateY(-18px) scale(0.92, 1.13); }
+  55%       { transform: translateY(-20px) scale(0.92, 1.13); }
+  65%       { transform: translateY(-19px) scale(0.92, 1.13); }
+  75%       { transform: translateY(4px) scale(1.06, 0.94); }
+  87%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes act-stretch-eye {
+  0%, 9%    { transform: scaleY(1); }
+  22%, 65%  { transform: scaleY(0.15); }
+  75%       { transform: scaleY(0.5); }
+  87%,100%  { transform: scaleY(1); }
+}
+
+/* ---- ④ 打哈欠 yawn（总 3.4s：动作 2.6s + 停）：鼓起吸气→伸展闭眼→睁不开 ---- */
+.qf-mascot[data-state='yawn'] .qf-mascot__body { animation: act-yawn-body 3.40s ease-in-out infinite; }
+.qf-mascot[data-state='yawn'] .qf-mascot__eye-l,
+.qf-mascot[data-state='yawn'] .qf-mascot__eye-r { animation: act-yawn-eye 3.40s ease-in-out infinite; }
+@keyframes act-yawn-body {
+  0%        { transform: translateY(0) scale(1, 1) rotate(0); }
+  12%       { transform: translateY(4px) scale(1.10, 0.90) rotate(0); }
+  29%       { transform: translateY(-10px) scale(0.94, 1.10) rotate(0); }
+  38%       { transform: translateY(-9px) scale(0.95, 1.09) rotate(0); }
+  47%       { transform: translateY(-11px) scale(0.94, 1.10) rotate(0); }
+  53%       { transform: translateY(-9px) scale(0.95, 1.09) rotate(2deg); }
+  62%       { transform: translateY(14px) scale(1.08, 0.92) rotate(-2deg); }
+  76%,100%  { transform: translateY(0) scale(1, 1) rotate(0); }
+}
+@keyframes act-yawn-eye {
+  0%        { transform: scaleY(1); }
+  18%, 62%  { transform: scaleY(0.06); }
+  70%       { transform: scaleY(0.45); }
+  85%       { transform: scaleY(0.8); }
+  100%      { transform: scaleY(1); }
+}
+
+/* ---- ⑤ 被夸 pleased（1.8s 循环）：扭捏摆两下→得意挺胸小跳，弯月眼冒心 ---- */
+.qf-mascot[data-state='pleased'] .qf-mascot__body { animation: act-pleased-body 1.80s cubic-bezier(.3,0,.4,1) infinite; }
+@keyframes act-pleased-body {
+  0%        { transform: rotate(0) translateY(0); }
+  8%        { transform: rotate(-6deg) translateY(2px); }
+  17%       { transform: rotate(6deg) translateY(0); }
+  25%       { transform: rotate(-4deg) translateY(2px); }
+  31%       { transform: rotate(0) translateY(0); }
+  39%       { transform: translateY(-10px) scale(0.97, 1.04); }
+  50%       { transform: translateY(0) scale(1, 1); }
+  61%       { transform: translateY(-4px); }
+  72%,100%  { transform: translateY(0) scale(1, 1); }
+}
+
+/* ---- ⑥ 惊讶 surprise（总 1.2s：动作 0.8s + 瞪眼定格）：后仰一缩→瞪圆眼定住 ---- */
+.qf-mascot[data-state='surprise'] .qf-mascot__body { animation: act-surprise-body 1.20s cubic-bezier(.2,0,.3,1) infinite; }
+.qf-mascot[data-state='surprise'] .qf-mascot__eye-l,
+.qf-mascot[data-state='surprise'] .qf-mascot__eye-r { animation: act-surprise-eye 1.20s ease-out infinite; }
+@keyframes act-surprise-body {
+  0%        { transform: translateY(0) scale(1, 1); }
+  7%        { transform: translateY(-6px) scale(0.96, 1.05); }
+  17%       { transform: translateY(2px) scale(1.03, 0.97); }
+  29%       { transform: translateY(-3px) scale(0.99, 1.01); }
+  42%,100%  { transform: translateY(0) scale(1, 1); }
+}
+@keyframes act-surprise-eye {
+  0%        { transform: scale(1); }
+  8%, 80%   { transform: scale(1.45, 1.40); }
+  96%,100%  { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qf-mascot[data-state] .qf-mascot__body,
+  .qf-mascot[data-state] .qf-mascot__part { animation: none !important; transform: none !important; }
+}
+
+/* ---- 页面 ---- */
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin:0; padding:28px 22px 70px; background:#f7f7f8; color:#111;
+  font:14px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif; }
+header { max-width:1080px; margin:0 auto 10px; }
+h1 { font-size:21px; margin:0 0 6px; }
+.stamp { font-size:11px; color:#8a5a00; background:#fdf1dd; border-radius:999px; padding:2px 10px; margin-left:8px; vertical-align:2px; }
+.sub { color:#5c5c63; margin:0; max-width:88ch; }
+.sub b { color:#111; }
+.controls { max-width:1080px; margin:12px auto 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.darklab { font-size:12.5px; color:#5c5c63; display:flex; align-items:center; gap:6px; cursor:pointer; margin-left:auto; }
+.grid { max-width:1080px; margin:16px auto 0; display:grid; gap:16px; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); }
+.card { background:#fff; border:1px solid #e6e6ea; border-radius:16px; padding:14px 14px 12px; }
+.stage { height:220px; display:flex; align-items:center; justify-content:center; gap:26px; border-radius:12px;
+  background:radial-gradient(circle at 50% 46%, #fff 0, #fafafa 60%, #f1f1f4 100%); overflow:hidden; }
+h3 { font-size:15px; margin:10px 0 2px; }
+h3 code { font-size:11px; color:#9a9aa2; font-weight:400; margin-left:5px; }
+.card p { margin:0; font-size:12.5px; color:#5c5c63; }
+.card p b { color:#111; }
+.sizelab { font:11px/1 ui-monospace,Consolas,monospace; color:#9a9aa2; text-align:center; margin-top:6px; }
+.note { max-width:1080px; margin:18px auto 0; background:#fff; border:1px solid #e6e6ea; border-left:3px solid #d5d5dc;
+  border-radius:12px; padding:13px 16px; font-size:12.5px; color:#5c5c63; }
+.note b { color:#111; }
+
+body.dark { color-scheme: dark; background:#141417; color:#ececf1; }
+body.dark .sub, body.dark .card p, body.dark .darklab, body.dark .note { color:#b9b9c2; }
+body.dark .sub b, body.dark h3, body.dark .note b { color:#ececf1; }
+body.dark .card, body.dark .note { background:#1d1d22; border-color:#2e2e36; }
+body.dark .stage { background:radial-gradient(circle at 50% 46%, #232329 0, #1d1d22 60%, #17171b 100%); }
+
+.m-ink { --qf-mascot-body:#0B0B0C; --qf-mascot-eye:#FFFFFF; }
+body.dark .m-ink { --qf-mascot-body:#FFFFFF; --qf-mascot-eye:#0B0B0C; }
+</style>
+</head>
+<body>
+<header>
+<h1>吉祥物 v3 · 新动作组草案 <span class="stamp">已验收 · 六个全落地</span></h1>
+<p class="sub">六个新动作候选，全部循环演示（正式落地时「打招呼 / 惊讶」这类一次性动作由时机触发播放一次）。
+<b>每张卡左边 150px 看细节、右边 79px 是输入框上方实际大小</b>。右上开关切深色背景。
+动作草案手写在本页，选中后并入生成脚本（同东张西望 / 符号的落地路径）。</p>
+</header>
+
+<div class="controls">
+  <label class="darklab"><input type="checkbox" id="darkToggle"> 深色背景预览</label>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<p class="note"><b>验收要点：</b>① 六个里要哪几个（可全要可全砍）；② 每个的幅度、节奏有没有要调的（幅度在 79px 下是否可辨重点看「偷看打字」「惊讶」）；
+③ 触发场景建议是否认同（见各卡说明），尤其「被夸」的触发链路（点赞/好评识别）要不要做。<br>
+<b>落地方式：</b>选中动作的关键帧并入 generate-bot-gif.py（V3_ACTIONS 段）→ emit_web 重导 CSS；
+触发时机走 use-mascot-state / use-mascot-stroll 同款纯 hook（peek 盯输入框焦点与内容、wave 在 bot 模式进入时播一次、
+stretch/yawn 并入待机小剧场随机池与东张西望轮换、pleased/surprise 挂对应事件）；仍只给输入框上方那只。</p>
+
+<script>
+const EYES = [['l', 210], ['r', 302]].map(([side, x]) =>
+  `<g transform="translate(${x} 262)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-${side}" rx="18" ry="32" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-${side}" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g>`).join('');
+const mascot = (state, size) =>
+  `<svg class="qf-mascot m-ink" data-state="${state}" width="${size}" height="${size}" viewBox="0 0 512 512"><g class="qf-mascot__body"><circle cx="256" cy="258" r="150" fill="var(--qf-mascot-body)"/>${EYES}</g></svg>`;
+
+const CARDS = [
+  ['peek', '偷看打字', '你正在输入框打字时：压低身体往<b>下探头</b>盯着看，视线跟着内容左右扫两下，再直起来。它就站在输入框上，往下看最顺理成章。'],
+  ['wave', '打招呼', '进入 bot 模式 / 切换 bot 时播一次：左右快摆着「挥手」，<b>弯月笑眼</b>，收尾小跳一下（1.4s 一次性）。'],
+  ['stretch', '伸懒腰', '待机小剧场第二弹：压低蓄力 → <b>纵向拉长眯眼</b>停一拍微颤 → 放松塌回去。和张望轮换着来。'],
+  ['yawn', '打哈欠', '待机超久时：鼓起「吸气」→ 拉长<b>闭眼打哈欠</b> → 睁不太开，顺势滑向犯困。'],
+  ['pleased', '被夸', '扭捏左右摆两下 → 得意<b>挺胸小跳</b>，弯月眼（正式版配 ♡ 符号）。触发链路见下方说明。'],
+  ['surprise', '惊讶', '后仰一缩 → <b>眼睛瞪大 1.4 倍</b>变圆定住半拍再眨回。彩蛋向：长输出、大文件、突然的事件。'],
+];
+
+document.getElementById('grid').innerHTML = CARDS.map(([id, name, desc]) => `
+  <section class="card"><div class="stage">${mascot(id, 150)}${mascot(id, 79)}</div>
+  <h3>${name} <code>${id}</code></h3><p>${desc}</p>
+  <div class="sizelab">150px（看细节） · 79px（输入框上方实际大小）</div></section>`).join('');
+
+document.getElementById('darkToggle').addEventListener('change', (e) => {
+  document.body.classList.toggle('dark', e.target.checked);
+});
+</script>
+</body>
+</html>

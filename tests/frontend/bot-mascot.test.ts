@@ -4,7 +4,9 @@ import {
   MASCOT_DURATIONS,
   MASCOT_EYE_SHAPE,
   MASCOT_PALETTES,
+  MASCOT_STATE_LABELS_ZH,
 } from '@/components/bots/mascot/mascot-geometry'
+import { containsPraise } from '@/components/bots/mascot/use-mascot-actions'
 import { resolveMascotState, type MascotSignals } from '@/components/bots/mascot/mascot-state'
 
 const css = readFileSync(
@@ -154,7 +156,7 @@ describe('在输入框顶上溜达', () => {
     const botWorkspaceSource = readFileSync(new URL('../../src/hooks/useBotWorkspace.ts', import.meta.url), 'utf8')
     expect(appSource).not.toContain("mascotState === 'idle' ? 'walk'")
     expect(botWorkspaceSource).toContain('useMascotStroll(botMode && mascotState')
-    expect(appSource).toContain("state={mascotStrolling ? 'walk' : mascotState}")
+    expect(appSource).toContain("state={mascotStrolling ? 'walk' : mascotAction ?? mascotState}")
     expect(appSource).toContain('stroll={mascotStrolling}')
   })
 
@@ -244,7 +246,7 @@ describe('互动动作（hover / poke / dizzy）', () => {
 
   it('互动只给输入框上方那只；侧栏行和设置预览不加', () => {
     const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
-    expect(appSource).toMatch(/<BotMascot[\s\S]{0,900}?interactive/)
+    expect(appSource).toMatch(/<BotMascot[\s\S]{0,1200}?interactive/)
     const listSource = readFileSync(
       new URL('../../src/components/bots/BotSidebarList.tsx', import.meta.url),
       'utf8',
@@ -309,5 +311,65 @@ describe('表情增强：豆豆眼 / 东张西望 / 状态小符号', () => {
     expect(componentSource).toContain('{showSymbols && (')
     // 配色规则：符号用球身色、汗滴用眼色（组件里眼色 fill 只该有两处：眼睛 + 汗滴）
     expect(componentSource.match(/fill="var\(--qf-mascot-eye\)"/g)).toHaveLength(2)
+  })
+})
+
+describe('动作组（peek / wave / stretch / yawn / pleased / surprise）', () => {
+  it('六个动作都有身体动画，带眼睛动作的左右眼共用一套', () => {
+    for (const state of ['peek', 'wave', 'stretch', 'yawn', 'pleased', 'surprise']) {
+      expect(MASCOT_DURATIONS).toHaveProperty(state)
+      expect(css).toContain(`@keyframes qf-mascot-body-${state}`)
+      expect(css).toContain(
+        `.qf-mascot[data-state='${state}'] .qf-mascot__body { animation: qf-mascot-body-${state} ${MASCOT_DURATIONS[state as keyof typeof MASCOT_DURATIONS].toFixed(2)}s `,
+      )
+    }
+    // wave / pleased 是弯月笑眼，其余四个是椭圆眼
+    for (const state of ['peek', 'stretch', 'yawn', 'surprise']) {
+      expect(css).toContain(`@keyframes qf-mascot-eye-${state}`)
+    }
+    expect(css).toContain("[data-state='wave'] .qf-mascot__eye { display: none; }")
+    expect(css).toContain("[data-state='wave'] .qf-mascot__arc { display: block; }")
+    expect(css).toContain("[data-state='pleased'] .qf-mascot__arc { display: block; }")
+  })
+
+  it('surprise 走连点彩蛋：data-interact 绑定复用状态关键帧一次性播放', () => {
+    expect(css).toContain("[data-interact='surprise'] .qf-mascot__body { animation: qf-mascot-body-surprise 1.20s cubic-bezier(.2,0,.3,1) 1; }")
+    expect(css).toContain("[data-interact='surprise'] .qf-mascot__eye-l,")
+  })
+
+  it('被夸（pleased）也冒心，时长与回答完成的 happy 窗口对齐', () => {
+    expect(css).toContain("[data-state='pleased'] .qf-mascot__sym-heart")
+    expect(MASCOT_DURATIONS.pleased).toBe(1.8)
+    expect(MASCOT_DURATIONS.wave).toBe(3.4)
+  })
+
+  it('动作组的中文名齐全（aria-label 用）', () => {
+    for (const name of ['偷看打字', '打招呼', '伸懒腰', '打哈欠', '被夸', '惊讶']) {
+      expect(Object.values(MASCOT_STATE_LABELS_ZH)).toContain(name)
+    }
+  })
+
+  it('夸奖词表：命中夸奖、且避开否定语境的单字误报', () => {
+    expect(containsPraise('谢谢，这个方案很棒')).toBe(true)
+    expect(containsPraise('THANK you so much')).toBe(true)
+    expect(containsPraise('good job!')).toBe(true)
+    expect(containsPraise('这个不好，重做')).toBe(false)
+    expect(containsPraise('帮我看看这个文件')).toBe(false)
+  })
+
+  it('小动作只挂在输入框上方那只，且不抢业务状态（walk > action > mascotState）', () => {
+    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    expect(appSource).toContain("state={mascotStrolling ? 'walk' : mascotAction ?? mascotState}")
+    const hookSource = readFileSync(
+      new URL('../../src/components/bots/mascot/use-mascot-actions.ts', import.meta.url),
+      'utf8',
+    )
+    // 两层保险：触发要求 idle，渲染层再 gate 一次
+    expect(hookSource).toContain("businessState === 'idle' && !strolling")
+    expect(hookSource).toContain("pendingPraise && businessState === 'happy'")
+    expect(hookSource).toContain('MASCOT_PEEK_LINGER_MS')
+    expect(hookSource).toContain('.quickforge-composer')
+    // 发送文本回调从 ChatPanelHost 穿透到 useBotWorkspace 的夸奖计数
+    expect(hookSource).toContain('containsPraise')
   })
 })

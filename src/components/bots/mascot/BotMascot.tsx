@@ -4,6 +4,7 @@ import {
   MASCOT_ARC,
   MASCOT_BODY_SHAPE,
   MASCOT_EYE_SHAPE,
+  MASCOT_QUALITY,
   MASCOT_VIEW_BOX,
   type MascotStateId,
 } from './mascot-geometry'
@@ -20,6 +21,49 @@ export type BotMascotLook = {
 }
 
 const DEFAULT_LOOK: BotMascotLook = { body: '#0B0B0C', eye: '#FFFFFF', animated: true }
+
+/**
+ * 质感层（quality-proposal.html 定稿 2026-11-13；01:53 减法更新）：哑光陶瓷光影（顶光/
+ * 压暗/环境反光）+ 呼吸。全部是黑白透明渐变，不引入新色相——任意 --body/--eye 换色自动成立。
+ * 接触阴影、眼窝微凹、釉面眼已按用户要求移除；呼吸动画在 mascot-anim.css（生成物）。
+ */
+const Q = MASCOT_QUALITY
+
+/** 全页唯一一份渐变 defs；多个吉祥物共用（复用 id）。 */
+const QUALITY_DEFS = (
+  <defs>
+    <radialGradient id="qf-mascot-sheen" gradientUnits="userSpaceOnUse" cx={Q.sheen.cx} cy={Q.sheen.cy} r={Q.sheen.r}>
+      <stop offset="0" stopColor="#fff" stopOpacity={0.3} />
+      <stop offset="1" stopColor="#fff" stopOpacity={0} />
+    </radialGradient>
+    <radialGradient id="qf-mascot-shade" gradientUnits="userSpaceOnUse" cx={256} cy={Q.shade.cy} r={Q.shade.r}>
+      <stop offset="0.55" stopColor="#000" stopOpacity={0} />
+      <stop offset="1" stopColor="#000" stopOpacity={0.17} />
+    </radialGradient>
+    <radialGradient id="qf-mascot-rim" gradientUnits="userSpaceOnUse" cx={256} cy={Q.rim.cy} r={Q.rim.r}>
+      <stop offset="0" stopColor="#fff" stopOpacity={0.15} />
+      <stop offset="1" stopColor="#fff" stopOpacity={0} />
+    </radialGradient>
+    <radialGradient id="qf-mascot-occl">
+      <stop offset="0" stopColor="#000" stopOpacity={0.36} />
+      <stop offset="0.65" stopColor="#000" stopOpacity={0.14} />
+      <stop offset="1" stopColor="#000" stopOpacity={0} />
+    </radialGradient>
+    <radialGradient id="qf-mascot-socket">
+      <stop offset="0" stopColor="#000" stopOpacity={0.28} />
+      <stop offset="0.7" stopColor="#000" stopOpacity={0.1} />
+      <stop offset="1" stopColor="#000" stopOpacity={0} />
+    </radialGradient>
+    <linearGradient id="qf-mascot-eyeov" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stopColor="#0B0B0C" stopOpacity={0} />
+      <stop offset="1" stopColor="#0B0B0C" stopOpacity={0.22} />
+    </linearGradient>
+    <clipPath id="qf-mascot-clip">
+      <circle cx={MASCOT_BODY_SHAPE.cx} cy={MASCOT_BODY_SHAPE.cy} r={MASCOT_BODY_SHAPE.r} />
+    </clipPath>
+  </defs>
+)
+
 
 /**
  * bot 的吉祥物：一个圆球 + 两只眼睛（豆豆眼 18×32）。
@@ -111,6 +155,7 @@ export function BotMascot({
       aria-hidden={title ? undefined : true}
       focusable="false"
     >
+      {QUALITY_DEFS}
       <g className="qf-mascot__body">
         {/* tilt：张望时的反向微歪头；gaze：双眼整体斜移。平时没有 data-ambient 就是两个普通图层。 */}
         <g className="qf-mascot__tilt">
@@ -122,6 +167,12 @@ export function BotMascot({
             fill="var(--qf-mascot-body)"
             {...(interactive ? handlers : {})}
           />
+          {/* 质感·光影叠加：全部黑白透明渐变（哑光陶瓷），随球变形 */}
+          <g className="qf-mascot__ovs" clipPath="url(#qf-mascot-clip)">
+            <ellipse className="qf-mascot__ov qf-mascot__shade" cx={MASCOT_BODY_SHAPE.cx} cy={MASCOT_BODY_SHAPE.cy} rx={MASCOT_BODY_SHAPE.r} ry={MASCOT_BODY_SHAPE.r} fill="url(#qf-mascot-shade)" />
+            <ellipse className="qf-mascot__ov qf-mascot__sheen" cx={MASCOT_BODY_SHAPE.cx} cy={MASCOT_BODY_SHAPE.cy} rx={MASCOT_BODY_SHAPE.r} ry={MASCOT_BODY_SHAPE.r} fill="url(#qf-mascot-sheen)" />
+            <ellipse className="qf-mascot__ov qf-mascot__rim" cx={MASCOT_BODY_SHAPE.cx} cy={MASCOT_BODY_SHAPE.cy} rx={MASCOT_BODY_SHAPE.r} ry={MASCOT_BODY_SHAPE.r} fill="url(#qf-mascot-rim)" />
+          </g>
           <g className="qf-mascot__gaze">
             {[
               { side: 'l', x: leftX },
@@ -129,6 +180,7 @@ export function BotMascot({
             ].map(({ side, x }) => (
               // 外层只负责摆位置，动画作用在里层元素上（与设计稿的 SVG 结构一致）。
               <g key={side} transform={`translate(${x} ${MASCOT_EYE_SHAPE.cy})`}>
+                {/* 01:53 减法定稿：眼窝/釉面眼已移除，纯色豆豆眼（动画类挂回 ellipse，与既有动作一致） */}
                 <ellipse
                   className={`qf-mascot__part qf-mascot__eye qf-mascot__eye-${side}`}
                   rx={MASCOT_EYE_SHAPE.rx}
@@ -190,47 +242,48 @@ export function BotMascot({
               <circle cx="424" cy="110" r="11.5" />
               <circle cx="452" cy="82" r="15" />
             </g>
-            {/* 犯困 zZ：小 z 先起、大 Z 随后 */}
+            {/* 犯困 zZ：小 z 先起、大 Z 随后（笔画 12，79px 下可辨） */}
             <g
               className="qf-mascot__sym qf-mascot__sym-zz"
               fill="none"
               stroke="var(--qf-mascot-body)"
-              strokeWidth="9"
+              strokeWidth="12"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <g transform="translate(398 154) scale(0.95)">
+              <g transform="translate(404 150) scale(1.05)">
                 <path className="qf-mascot__sym-z" d="M -13 -13 H 13 L -13 13 H 13" />
               </g>
-              <g transform="translate(428 108) scale(1.45)">
+              <g transform="translate(432 106) scale(1.6)">
                 <path className="qf-mascot__sym-z" d="M -13 -13 H 13 L -13 13 H 13" />
               </g>
             </g>
-            {/* 转晕星星：绕头顶一圈（随 dizzy） */}
+            {/* 转晕星星：绕头顶一圈（随 dizzy；星形 1.6，79px 下约 5.9px） */}
             <g className="qf-mascot__sym qf-mascot__sym-dizzy">
               <g className="qf-mascot__sym-dizzy-orbit" fill="var(--qf-mascot-body)">
                 <path
-                  transform="translate(290 88) scale(1.25)"
+                  transform="translate(290 84) scale(1.6)"
                   d="M 0 -12 L 3 -3 L 12 0 L 3 3 L 0 12 L -3 3 L -12 0 L -3 -3 Z"
                 />
                 <path
-                  transform="translate(222 88) scale(1.25)"
+                  transform="translate(222 84) scale(1.6)"
                   d="M 0 -12 L 3 -3 L 12 0 L 3 3 L 0 12 L -3 3 L -12 0 L -3 -3 Z"
                 />
               </g>
             </g>
-            {/* 张望 ?（随 data-ambient='look'） */}
-            <text
-              className="qf-mascot__sym qf-mascot__sym-quest"
-              x="402"
-              y="140"
-              fontSize="56"
-              fontWeight="800"
-              textAnchor="middle"
-              fill="var(--qf-mascot-body)"
-            >
-              ?
-            </text>
+            {/* 张望 ?（随 data-ambient='look'；几何形：弯钩 + 点，与其他符号同一套线条语言） */}
+            <g transform="translate(402 126) scale(1.15)">
+              <g className="qf-mascot__sym qf-mascot__sym-quest">
+                <path
+                  d="M -11 -4 C -11 -14 11 -16 11 -5 C 11 1 0 2 0 9"
+                  fill="none"
+                  stroke="var(--qf-mascot-body)"
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                />
+                <circle cx="0" cy="18" r="5.5" fill="var(--qf-mascot-body)" />
+              </g>
+            </g>
           </>
         )}
       </g>

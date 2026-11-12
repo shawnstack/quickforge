@@ -13,7 +13,7 @@ const SUPPORTED_LANGUAGES: AppLanguage[] = ['en', 'zh']
 export const appTranslations = {
   en: {
     bots: 'Bots',
-    newBot: 'Create bot',
+    newBot: 'New bot',
     newBotHint: 'It gets its own folder, its own memory, and one conversation that never resets.',
     newBotName: 'Name',
     newBotNamePlaceholder: 'e.g. helper',
@@ -33,7 +33,7 @@ export const appTranslations = {
     backToChats: 'Back to chats',
     modeSwitcherLabel: 'Mode',
     chatModeLabel: 'Chat',
-    botModeLabel: 'BOT',
+    botModeLabel: 'Bot',
     botEmptyHint: 'No bots yet. Create one — it gets its own folder and memory.',
     botSettings: 'Bot settings',
     botMascot: 'Mascot',
@@ -2209,7 +2209,7 @@ export const appTranslations = {
   },
   zh: {
     bots: 'Bot',
-    newBot: '创建 bot',
+    newBot: '新建 Bot',
     newBotHint: '它会有自己的目录、自己的记忆，和一条永不重置的对话。',
     newBotName: '名字',
     newBotNamePlaceholder: '例如：小助手',
@@ -2229,7 +2229,7 @@ export const appTranslations = {
     backToChats: '回到对话',
     modeSwitcherLabel: '切换模式',
     chatModeLabel: '对话',
-    botModeLabel: 'BOT',
+    botModeLabel: 'Bot',
     botEmptyHint: '还没有 bot。点「创建 bot」建一个——它会得到自己的目录和记忆。',
     botSettings: 'Bot 设置',
     botMascot: '助手形象',

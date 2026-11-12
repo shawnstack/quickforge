@@ -41,10 +41,10 @@ describe('sidebar mode switcher', () => {
 
   it('translates both mode labels in every language', () => {
     expect(appTranslations.en.chatModeLabel).toBeTruthy()
-    expect(appTranslations.en.botModeLabel).toBe('BOT')
+    expect(appTranslations.en.botModeLabel).toBe('Bot')
     expect(appTranslations.en.modeSwitcherLabel).toBeTruthy()
     expect(appTranslations.zh.chatModeLabel).toBeTruthy()
-    expect(appTranslations.zh.botModeLabel).toBe('BOT')
+    expect(appTranslations.zh.botModeLabel).toBe('Bot')
     expect(appTranslations.zh.modeSwitcherLabel).toBeTruthy()
   })
 })

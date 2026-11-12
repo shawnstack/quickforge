@@ -1,4 +1,4 @@
-import { BookOpen, Bot, CalendarClock, MessageSquare, MessageSquarePlus, PanelLeft, PanelLeftOpen, Search, Server, Sparkles } from 'lucide-react'
+import { BookOpen, Bot, CalendarClock, MessageSquare, MessageSquarePlus, PanelLeft, PanelLeftOpen, Plus, Search, Server, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import {
@@ -118,7 +118,7 @@ export function SidebarHeaderNav({
           title={t('newBot')}
         >
           <span className={iconSlotClass}>
-            <Sparkles className="size-4" />
+            <Plus className="size-4" />
           </span>
           {sidebarOpen ? <span className={sessionTitleClass}>{t('newBot')}</span> : null}
         </button>
@@ -136,17 +136,19 @@ export function SidebarHeaderNav({
           {sidebarOpen ? <span className={sessionTitleClass}>{t('startNewChat')}</span> : null}
         </button>
       )}
-      <button
-        type="button"
-        className={cn(rowClass, 'w-full', inactiveRowClass)}
-        onClick={onOpenSearch}
-        aria-label={t('search')}
-      >
-        <span className={iconSlotClass}>
-          <Search className="size-4" />
-        </span>
-        {sidebarOpen ? <span className={sessionTitleClass}>{t('search')}</span> : null}
-      </button>
+      {!botMode ? (
+        <button
+          type="button"
+          className={cn(rowClass, 'w-full', inactiveRowClass)}
+          onClick={onOpenSearch}
+          aria-label={t('search')}
+        >
+          <span className={iconSlotClass}>
+            <Search className="size-4" />
+          </span>
+          {sidebarOpen ? <span className={sessionTitleClass}>{t('search')}</span> : null}
+        </button>
+      ) : null}
       <button
         type="button"
         className={cn(rowClass, 'w-full', inactiveRowClass)}
@@ -191,7 +193,7 @@ export function SidebarHeaderNav({
         title={t('agentsTab')}
       >
         <span className={iconSlotClass}>
-          <Bot className="size-4" />
+          <Users className="size-4" />
         </span>
         {sidebarOpen ? <span className={sessionTitleClass}>{t('agentsTab')}</span> : null}
       </button>

@@ -188,6 +188,9 @@ function normalizeHeartbeat(input, previous = null) {
     : fallbackMinutes
   return {
     enabled: source.enabled === undefined ? (previous?.enabled ?? true) : source.enabled === true,
+    // 到点必醒：开着就跳过「有没有活」的判定，每一跳都真的叫醒模型。
+    // 老记录没有这个字段 → undefined → 沿用 previous，再没有就是 false（默认关）。
+    alwaysWake: source.alwaysWake === undefined ? (previous?.alwaysWake ?? false) : source.alwaysWake === true,
     intervalMinutes,
     nextRunAt: source.nextRunAt === null
       ? null

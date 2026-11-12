@@ -426,6 +426,14 @@ export function BotSettingsDialog({
               disabled={busy}
               onToggle={() => void update({ heartbeat: { enabled: heartbeat?.enabled === false } })}
             />
+            {/* 到点必醒：默认关（老记录缺字段按 false），开着就跳过判活、每跳真醒。 */}
+            <SwitchRow
+              label={t('botHeartbeatAlwaysWake')}
+              checked={heartbeat?.alwaysWake === true}
+              disabled={busy}
+              onToggle={() => void update({ heartbeat: { alwaysWake: !(heartbeat?.alwaysWake === true) } })}
+              hint={t('botHeartbeatAlwaysWakeHint')}
+            />
             <div className="flex items-center gap-3 py-2">
               <div className="min-w-0 flex-1 text-xs">{t('botHeartbeatInterval')}</div>
               <input

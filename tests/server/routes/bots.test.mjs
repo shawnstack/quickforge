@@ -165,6 +165,35 @@ describe('bots API', () => {
     expect(paused.body.bot.heartbeat.nextRunAt).toBeNull()
   })
 
+  it('persists the alwaysWake heartbeat flag, defaulting to off for new bots', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'alarm' })
+    const botId = created.body.bot.id
+    // 默认关闭：没开开关的 bot 到点仍要走「有没有活」的判活
+    expect(created.body.bot.heartbeat.alwaysWake).toBe(false)
+
+    const patched = await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(botId)}`,
+      { heartbeat: { alwaysWake: true } },
+    )
+    expect(patched.body.bot.heartbeat.alwaysWake).toBe(true)
+    // 单独拨这个开关不动节拍：间隔、开关原样，nextRunAt 不重排不清空
+    expect(patched.body.bot.heartbeat.intervalMinutes).toBe(15)
+    expect(patched.body.bot.heartbeat.enabled).toBe(true)
+    expect(patched.body.bot.heartbeat.nextRunAt).toBe(created.body.bot.heartbeat.nextRunAt)
+
+    // 存储里真落了盘，不是只活在响应里
+    const reread = await callBots('GET', `http://localhost/api/bots/${encodeURIComponent(botId)}`)
+    expect(reread.body.bot.heartbeat.alwaysWake).toBe(true)
+
+    const off = await callBots(
+      'PATCH',
+      `http://localhost/api/bots/${encodeURIComponent(botId)}`,
+      { heartbeat: { alwaysWake: false } },
+    )
+    expect(off.body.bot.heartbeat.alwaysWake).toBe(false)
+  })
+
   it('reorders bots: persists sortOrder, keeps it across patches, rejects bad bodies', async () => {
     const a = (await callBots('POST', 'http://localhost/api/bots', { name: 'alpha' })).body.bot
     const b = (await callBots('POST', 'http://localhost/api/bots', { name: 'bravo' })).body.bot

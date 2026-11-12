@@ -57,9 +57,9 @@ describe('bot 吉祥物「在输入框上方显示」开关', () => {
     expect(headerChunk).toContain('{bot.name}')
   })
 
-  it('三处开关走同一个 SwitchRow，不再各写一份', () => {
+  it('四处开关走同一个 SwitchRow（吉祥物三开关 + 心跳到点必醒），不再各写一份', () => {
     const uses = dialogsSource.match(/<SwitchRow/g)?.length ?? 0
-    expect(uses).toBe(3)
+    expect(uses).toBe(4)
   })
 
   it('两种语言都有文案', () => {

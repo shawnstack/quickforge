@@ -143,7 +143,7 @@ async function markIdle(bot, reason) {
  * 跑一次心跳判定（可能叫醒模型，也可能只记一笔）。
  *
  * @param {object} bot  bot 记录
- * @param {{ manual?: boolean }} options 手动触发时跳过「有没有活」的判定
+ * @param {{ manual?: boolean }} options 手动触发或 bot.heartbeat.alwaysWake 打开时跳过「有没有活」的判定
  */
 export async function runBotHeartbeat(bot, options = {}) {
   if (running.has(bot.id)) {
@@ -170,7 +170,9 @@ export async function runBotHeartbeat(bot, options = {}) {
     return markIdle(bot, 'busy')
   }
 
-  if (!options.manual) {
+  // 到点必醒（alwaysWake）：用户明确选择跳过判活、每一跳都真醒（每次都会花模型调用），
+  // 所以这里和手动触发走同一条路；默认关闭，走原来的 inspectBotWork 判活。
+  if (!options.manual && bot?.heartbeat?.alwaysWake !== true) {
     const work = await inspectBotWork(bot)
     if (!work.hasWork) return markIdle(bot, work.reason)
   }

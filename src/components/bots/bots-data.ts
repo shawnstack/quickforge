@@ -2,6 +2,8 @@ import { t } from '@/lib/i18n'
 
 export type BotHeartbeat = {
   enabled: boolean
+  /** 到点必醒：跳过判活，每跳都真醒（每次都花一次模型调用）；与 server/bots.mjs 对齐，缺省 false。 */
+  alwaysWake: boolean
   intervalMinutes: number
   nextRunAt: string | null
   lastWakeAt: string | null

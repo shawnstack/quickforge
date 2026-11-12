@@ -9,7 +9,7 @@
 | [prepare-runtime-package.cjs](../../../scripts/prepare-runtime-package.cjs) | 准备运行时发行包 | 19 |
 | [sqlite-compatibility-spike.mjs](../../../scripts/sqlite-compatibility-spike.mjs) | 开发期 `node:sqlite` 共同 API、WAL 与双进程锁等待兼容性探针 | 374 |
 | [session-index-query-benchmark.mjs](../../../scripts/session-index-query-benchmark.mjs) | 开发期 1k/10k（可传 50k）JSON 与 warm SQL 会话分页对比，输出 JSON Lines 与 EXPLAIN | 126 |
-| [check-wiki-line-claims.mjs](../../../scripts/check-wiki-line-claims.mjs) | 校验 `docs/wiki` 里「某文件 N 行」声明与真实行数是否一致（wc 口径、目录感知、覆盖小节/表行/树注释三形态；`npm run check:wiki`） || 126 |
+| [check-wiki-line-claims.mjs](../../../scripts/check-wiki-line-claims.mjs) | 校验 `docs/wiki` 里「某文件 N 行」声明与真实行数是否一致（wc 口径、目录感知、覆盖小节/表行/树注释三形态；`npm run check:wiki`） ||| 181 |
 | [archive-harness.mjs](../../../scripts/archive-harness.mjs) | Harness 状态归档：done/superseded 的 feature 与进度写入 docs/archive/ | 213 |
 | [migrate-bot-workspaces.mjs](../../../scripts/migrate-bot-workspaces.mjs) | 一次性迁移 bot 工作目录名（显示名 → bot- 加 id 前 8 位） | 166 |
 | [precompress-assets.mjs](../../../scripts/precompress-assets.mjs) | 为构建产物生成 .br / .gz 兄弟文件（npm run build 末尾调用） | 81 |

@@ -53,6 +53,7 @@
     "build": "tsc -b && vite build && node scripts/precompress-assets.mjs",
     "lint": "eslint .",
     "check:wiki": "node scripts/check-wiki-line-claims.mjs",
+    "check:wiki:strict": "node scripts/check-wiki-line-claims.mjs --strict",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

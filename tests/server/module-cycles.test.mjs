@@ -3,24 +3,23 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 // 结构守门：前端模块图的两类循环依赖都盯着。
-// 背景：`types.ts ↔ server-agent`、`ui-store ↔ settings-tabs ↔ react-settings-tabs`
-// 这两个反哺环都是靠人肉扫描发现的（见 .bot/scan3-report.md），这里把它们固化成回归断言。
+// 背景：`types.ts ↔ server-agent`、`ui-store ↔ settings-tabs ↔ react-settings-tabs`、
+// `server-agent/agent.ts ↔ factories.ts` 三个反哺环此前都是靠人肉扫描发现的
+// （见 .bot/scan3-report.md），这里把它们固化成回归断言。
 //
 // 两类图：
 // - value 图（运行时）：`import type` 会被 esbuild 擦除，所以只看 value 边；**不允许任何环**。
 // - 混合图（value + type）：类型反哺环就是「A 运行时依赖 B、B 只用 type 依赖 A」，
-//   这类环运行时无害但会让模块边界模糊；只允许白名单里的已知项。
+//   运行时无害但会让模块边界模糊。**当前为零**，一旦出现即视为回归；确实要留的
+//   临时项登记到 KNOWN_TYPE_ONLY_CYCLES 并写清原因（修好后必须删，否则清单变摆设）。
 //
 // 口径：只扫 `src/**/*.ts(x)`（跳过 .d.ts）；`@/x` 解析为 `src/x`，相对路径按所在目录解析，
 // 依次尝试 `.ts` / `.tsx` / `index.ts` / `index.tsx`；裸包（react 等）直接忽略。
 
 const SRC_ROOT = path.resolve(process.cwd(), 'src')
 
-// 已知的类型反哺环白名单。修好后请一并删除对应条目。
-const KNOWN_TYPE_ONLY_CYCLES = [
-  // factories 只用 `import type { ServerAgent }`，agent.ts 运行时 import factories 的会话工厂。
-  ['src/lib/server-agent/agent.ts', 'src/lib/server-agent/factories.ts'],
-]
+// 已知的类型反哺环白名单（当前为空）。
+const KNOWN_TYPE_ONLY_CYCLES = []
 
 function listSourceFiles(dir, acc = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -141,8 +140,7 @@ describe('frontend module graph', () => {
 
   it('has no runtime (value) import cycles', () => {
     const { valueEdges } = collectEdges()
-    const cycles = findCycles(valueEdges)
-    expect(cycles.map((cycle) => cycle.join(' -> '))).toEqual([])
+    expect(findCycles(valueEdges).map((cycle) => cycle.join(' -> '))).toEqual([])
   })
 
   it('keeps type-only cycles within the known whitelist', () => {

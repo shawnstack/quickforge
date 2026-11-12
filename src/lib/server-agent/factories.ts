@@ -12,7 +12,6 @@ import type {
   ServerAgentCompactionNotice,
   ServerAgentStateSnapshot,
 } from '../server-agent-types'
-import type { ServerAgent } from './agent'
 import { STATE_REQUEST_TIMEOUT_MS } from './core'
 import { mergeGoalIterationMarkers } from './goal-iteration-markers'
 import { fetchAllSessionMessages } from './messages-channel'
@@ -22,9 +21,9 @@ import { initialStateFromSnapshot } from './snapshot'
  * 构造钩子：实例化与快照坐标落地留在类上（`applySnapshotCoordinates` 读写
  * 类的私有消息坐标），工厂函数负责 HTTP、快照规范化与日志。
  */
-export type AgentFactoryHooks = {
-  create(config: ServerAgentConfig): ServerAgent
-  applyCoordinates(agent: ServerAgent, snapshot: ServerAgentStateSnapshot): void
+export type AgentFactoryHooks<TAgent extends { messageOffset: number }> = {
+  create(config: ServerAgentConfig): TAgent
+  applyCoordinates(agent: TAgent, snapshot: ServerAgentStateSnapshot): void
 }
 
 /**
@@ -37,11 +36,11 @@ export type AgentFactoryHooks = {
  *
  * 失败（404 / 网络）抛错，由调用方决定是否退回 `restore`。
  */
-export async function loadSessionView(
+export async function loadSessionView<TAgent extends { messageOffset: number }>(
   sessionId: string,
   config: { baseUrl?: string; signal?: AbortSignal } = {},
-  hooks: AgentFactoryHooks,
-): Promise<{ agent: ServerAgent; snapshot: ServerAgentStateSnapshot }> {
+  hooks: AgentFactoryHooks<TAgent>,
+): Promise<{ agent: TAgent; snapshot: ServerAgentStateSnapshot }> {
   const baseUrl = config.baseUrl ?? ''
   const { response, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot & { error?: string }>(
     `${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/view`,
@@ -75,11 +74,11 @@ export async function loadSessionView(
 /**
  * 会话恢复：`POST /api/agents/:id/restore`（原 `ServerAgent.restore`，逐字迁出）。
  */
-export async function restoreSession(
+export async function restoreSession<TAgent extends { messageOffset: number }>(
   sessionId: string,
   config: { baseUrl?: string; signal?: AbortSignal } = {},
-  hooks: AgentFactoryHooks,
-): Promise<{ agent: ServerAgent; snapshot: ServerAgentStateSnapshot }> {
+  hooks: AgentFactoryHooks<TAgent>,
+): Promise<{ agent: TAgent; snapshot: ServerAgentStateSnapshot }> {
   const baseUrl = config.baseUrl ?? ''
   const startedAt = performance.now()
   const { response, body } = await fetchJsonWithTimeout<ServerAgentStateSnapshot & { error?: string }>(
@@ -118,7 +117,7 @@ export async function restoreSession(
  * 新建会话：`POST /api/agents/:id` + 首拉 `/state`（原 `ServerAgent.create`，
  * 逐字迁出）。
  */
-export async function createSession(
+export async function createSession<TAgent extends { messageOffset: number }>(
   sessionId: string,
   config: {
     scope?: 'global' | 'project'
@@ -134,8 +133,8 @@ export async function createSession(
     contextUsage?: ServerAgentContextUsage | null
     baseUrl?: string
   } = {},
-  hooks: AgentFactoryHooks,
-): Promise<ServerAgent> {
+  hooks: AgentFactoryHooks<TAgent>,
+): Promise<TAgent> {
   const baseUrl = config.baseUrl ?? ''
 
   const res = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(sessionId)}`, {

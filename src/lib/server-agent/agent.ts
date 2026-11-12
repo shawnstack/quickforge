@@ -886,7 +886,7 @@ export class ServerAgent {
   }
 
   /** 工厂钩子：实例化与坐标落地必须留在类上（坐标是私有字段）。 */
-  private static readonly factoryHooks: AgentFactoryHooks = {
+  private static readonly factoryHooks: AgentFactoryHooks<ServerAgent> = {
     create: (config) => new ServerAgent(config),
     applyCoordinates: (agent, snapshot) => ServerAgent.applySnapshotCoordinates(agent, snapshot),
   }

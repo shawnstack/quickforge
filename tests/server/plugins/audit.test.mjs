@@ -31,7 +31,9 @@ afterEach(async () => {
 })
 
 describe('plugin audit log', () => {
-  it('keeps newest first and caps the log at 300 entries', async () => {
+  // 305 次写盘在并发机器上会撞默认 15s 上限（单跑 1.1s、全量并发下偶发超时），
+// 给足余量而不是放宽断言。
+it('keeps newest first and caps the log at 300 entries', { timeout: 60_000 }, async () => {
     const audit = await importAudit()
     for (let index = 0; index < 305; index += 1) {
       await audit.recordPluginAudit({ plugin: 'demo', slot: 'composer.actions', action: `a${index}`, outcome: 'ok' })

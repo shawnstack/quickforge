@@ -44,20 +44,6 @@ const QUALITY_DEFS = (
       <stop offset="0" stopColor="#fff" stopOpacity={0.15} />
       <stop offset="1" stopColor="#fff" stopOpacity={0} />
     </radialGradient>
-    <radialGradient id="qf-mascot-occl">
-      <stop offset="0" stopColor="#000" stopOpacity={0.36} />
-      <stop offset="0.65" stopColor="#000" stopOpacity={0.14} />
-      <stop offset="1" stopColor="#000" stopOpacity={0} />
-    </radialGradient>
-    <radialGradient id="qf-mascot-socket">
-      <stop offset="0" stopColor="#000" stopOpacity={0.28} />
-      <stop offset="0.7" stopColor="#000" stopOpacity={0.1} />
-      <stop offset="1" stopColor="#000" stopOpacity={0} />
-    </radialGradient>
-    <linearGradient id="qf-mascot-eyeov" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stopColor="#0B0B0C" stopOpacity={0} />
-      <stop offset="1" stopColor="#0B0B0C" stopOpacity={0.22} />
-    </linearGradient>
     <clipPath id="qf-mascot-clip">
       <circle cx={MASCOT_BODY_SHAPE.cx} cy={MASCOT_BODY_SHAPE.cy} r={MASCOT_BODY_SHAPE.r} />
     </clipPath>

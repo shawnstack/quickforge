@@ -63,7 +63,15 @@ server/
 ├── session-lease.mjs         # 会话写入租约纯逻辑（TTL / 续约 / 接管 / fence / canWrite）
 ├── agent-session-lease.mjs   # 租约装配层（接 agentSessions + 广播 session_lease 帧）
 ├── agent-goal-state.mjs      # Legacy Goal 纯状态模型（13 状态 / 预算 / 证据与验收校验 / 恢复映射）
-├── agent-goal-runner.mjs     # Legacy Goal runner（会话绑定有限轮执行 / 用户动作 / goal_report）
+├── agent-goal-runner.mjs     # Legacy Goal 薄门面（re-export 26 个导出名，实现拆入下述 goal-* 模块）
+├── goal-policy.mjs           # Legacy Goal 常量与白名单（规划权限 / 证据与结算工具集 / 重试阈值 / requestError）
+├── goal-session-state.mjs    # Legacy Goal 会话记账（准入与模式判定 / stats / 终止意图 / 受信工具记录 / 每会话锁 / agent 空闲等待）
+├── goal-waiters.mjs          # Legacy Goal 完成等待器注册表（durable 终态快照 / stopped 会话 / per-session waiter 三容器唯一持有者）
+├── goal-budget.mjs           # Legacy Goal 预算断言与用量核算（assertGoalBudget / budgetRemainingMs / usageOnly）
+├── goal-prompts.mjs          # Legacy Goal prompt 文案组装（规划与续跑提示词 / 可见轮文案 / XML 转义）
+├── goal-run-orchestration.mjs # Legacy Goal 运行编排（runnerDeps 注入 / commit 屏障 / begin-finish-fail / 续跑调度 / startGoalPlanning）
+├── goal-actions.mjs          # Legacy Goal 用户动作（handleGoalAction 与 confirm/pause/resume/extend/cancel/revise/accept / notify 钩子 / stopGoalForSession）
+├── goal-report-tools.mjs     # Legacy Goal goal_report 工具（isGoalPlanning / 证据校验 / applyGoalReport / 两个 toolBlockReason）
 ├── goal/                     # Goal v2：state/store/service/policy-free driver/prompts/report-tool/tools/engine
 ├── goal-command-messages.mjs # /goal 命令错误文案按 settings.language 本地化（fail-open 英文）
 ├── goal-settings.mjs         # Goal 默认预算与引擎设置（settings 键 goal-settings；maxIterations clamp 1–100，engine legacy/v2）
@@ -230,7 +238,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ### Legacy Goal 模式（agent-goal-state.mjs / agent-goal-runner.mjs，opt-in）
 
-**用途**: 主聊天（QuickForge main chat）的 `/goal <目标>` 有界多轮执行。状态模型是纯函数（无 I/O、无会话/存储/SSE 依赖），runner 把它与既有会话/持久化/事件模块组合起来；`agent-manager.mjs` 只调用 runner 导出的 hook。
+**用途**: 主聊天（QuickForge main chat）的 `/goal <目标>` 有界多轮执行。状态模型是纯函数（无 I/O、无会话/存储/SSE 依赖），runner 把它与既有会话/持久化/事件模块组合起来；`agent-manager.mjs` 只调用 runner 导出的 hook。runner 已按职责拆为 8 个 `goal-*.mjs` 单一职责模块（policy / session-state / waiters / budget / prompts / run-orchestration / actions / report-tools），`agent-goal-runner.mjs` 本身只保留 26 个导出名的 re-export 门面，行为零变化；共享可变状态（waiters 三容器、每会话锁、runnerDeps）各只有一份，分别唯一持有于 goal-waiters / goal-session-state / goal-run-orchestration。
 
 - **可用范围**：QuickForge 主聊天与定时任务可用；ACP 会话（持久化 `source`）与共享会话（请求级 `source:'shared'`）仍拒绝。请求级来源只拒绝该次请求，不会永久关掉 owner 的 goal 能力。定时任务复用既有 `runPrompt`→Goal runner，不新增执行器。
 - **流程**：`/goal` → 只读规划 → plan 内部 awaiting_confirmation 过渡 → 正常轮末与持久化屏障 → 自动 running → complete 可信证据检查及正常轮末持久化 → completed。定时任务通过 `waitForGoalCompletion` 复用 runner 的持久化终态屏障与 idle；仅 `completed` 才 schedule 成功，`paused`/`blocked`、预算耗尽与 awaiting 等继续视为 running 并保留 serial。关联聊天可 resume/cancel；静止后的 cancelled/failed 才使定时任务失败。当前 needs_review 报告落 blocked 并说明无法验证原因，不伪造 passed，不要求人工签字；历史 human evidence 与旧 accept API 保留。

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>吉祥物 v3 · 表情增强自我评审板</title>
+<!-- 直连产品生成文件：评的就是产品真身，不是手抄 -->
+<link rel="stylesheet" href="../../../src/components/bots/mascot/mascot-anim.css">
+<style>
+/* 定格：把所有动画暂停在 --freeze 指定的时刻（负 delay = 已播到该进度） */
+.board .qf-mascot,
+.board .qf-mascot * {
+  animation-play-state: paused !important;
+  animation-delay: var(--freeze, 0s) !important;
+}
+:root { color-scheme: light; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 18px 16px 30px; background: #fff; color: #111;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif; }
+h1 { font-size: 16px; margin: 0 0 4px; }
+.sub { color: #666; margin: 0 0 14px; }
+h2 { font-size: 13px; margin: 18px 0 8px; color: #333; }
+.row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+figcaption { font: 11px/1.4 ui-monospace, Consolas, monospace; color: #555; text-align: center; }
+.cell { display: grid; place-items: center; width: 150px; height: 150px;
+  background: radial-gradient(circle at 50% 46%, #fff 0, #fafafa 60%, #f1f1f4 100%);
+  border-radius: 10px; border: 1px solid #e8e8ec; }
+.cell.s79 { width: 92px; height: 92px; }
+.m-ink { --qf-mascot-body: #0B0B0C; --qf-mascot-eye: #FFFFFF; }
+/* 深色主题行：产品深色规则是 default 配色反色 */
+.darkrow { background: #141417; border-radius: 12px; padding: 14px; }
+.darkrow .m-ink { --qf-mascot-body: #FFFFFF; --qf-mascot-eye: #0B0B0C; }
+.darkrow figcaption { color: #9a9aa2; }
+.darkrow .cell { background: #1d1d22; border-color: #2e2e36; }
+</style>
+</head>
+<body>
+<h1>吉祥物 v3 · 表情增强自我评审板（定格帧）</h1>
+<p class="sub">样式直连 src/components/bots/mascot/mascot-anim.css（产品真身），全部动画暂停在代表帧。检查点：豆豆眼比例、张望幅度、符号形态与一致性、79px 可辨性、深色对比。</p>
+<div class="board" id="board"></div>
+
+<script>
+// 与 BotMascot.tsx 同构的 SVG（豆豆眼 18×32 @cy262 + tilt/gaze + 八符号）
+const TILT_SYMS = `
+  <g transform="translate(350 102)" fill="var(--qf-mascot-body)"><g class="qf-mascot__sym qf-mascot__sym-bang"><rect x="-15" y="-30" width="10" height="32" rx="5"/><rect x="5" y="-30" width="10" height="32" rx="5"/></g></g>
+  <g transform="translate(256 42) scale(2.6)" fill="var(--qf-mascot-body)"><g class="qf-mascot__sym qf-mascot__sym-heart"><path d="M 0 6 C -1 3 -5 0 -8 0 C -13 0 -15 4 -15 7 C -15 13 -8 17 0 24 C 8 17 15 13 15 7 C 15 4 13 0 8 0 C 5 0 1 3 0 6 Z"/></g></g>
+  <g transform="translate(372 196) scale(1.6)"><g class="qf-mascot__sym qf-mascot__sym-sweat"><path d="M 0 -16 C 6 -6 10 0 10 6 A 10 10 0 1 1 -10 6 C -10 0 -6 -6 0 -16 Z" fill="var(--qf-mascot-eye)"/></g></g>
+  <g transform="translate(256 70)" fill="var(--qf-mascot-body)"><g class="qf-mascot__sym qf-mascot__sym-poke"><rect x="-5" y="-32" width="10" height="36" rx="5"/><circle cx="0" cy="14" r="6"/></g></g>`;
+const OUTER_SYMS = `
+  <g class="qf-mascot__sym qf-mascot__sym-dots" fill="var(--qf-mascot-body)"><circle cx="398" cy="136" r="9"/><circle cx="424" cy="110" r="11.5"/><circle cx="452" cy="82" r="15"/></g>
+  <g class="qf-mascot__sym qf-mascot__sym-zz" fill="none" stroke="var(--qf-mascot-body)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(398 154) scale(0.95)"><path class="qf-mascot__sym-z" d="M -13 -13 H 13 L -13 13 H 13"/></g><g transform="translate(428 108) scale(1.45)"><path class="qf-mascot__sym-z" d="M -13 -13 H 13 L -13 13 H 13"/></g></g>
+  <g class="qf-mascot__sym qf-mascot__sym-dizzy"><g class="qf-mascot__sym-dizzy-orbit" fill="var(--qf-mascot-body)"><path transform="translate(290 88) scale(1.25)" d="M 0 -12 L 3 -3 L 12 0 L 3 3 L 0 12 L -3 3 L -12 0 L -3 -3 Z"/><path transform="translate(222 88) scale(1.25)" d="M 0 -12 L 3 -3 L 12 0 L 3 3 L 0 12 L -3 3 L -12 0 L -3 -3 Z"/></g></g>
+  <text class="qf-mascot__sym qf-mascot__sym-quest" x="402" y="140" font-size="56" font-weight="800" text-anchor="middle" fill="var(--qf-mascot-body)">?</text>`;
+const EYES = [['l', 210], ['r', 302]].map(([side, x]) =>
+  `<g transform="translate(${x} 262)"><ellipse class="qf-mascot__part qf-mascot__eye qf-mascot__eye-${side}" rx="18" ry="32" fill="var(--qf-mascot-eye)"/><path class="qf-mascot__part qf-mascot__arc qf-mascot__arc-${side}" d="M -18 6 Q 0 -17 18 6" fill="none" stroke="var(--qf-mascot-eye)" stroke-width="11" stroke-linecap="round"/></g>`).join('');
+
+function mascot({ state = 'idle', size = 110, freeze = '0s', interact, ambient, small }) {
+  return `<svg class="qf-mascot m-ink" data-state="${state}"${interact ? ` data-interact="${interact}"` : ''}${ambient ? ` data-ambient="${ambient}"` : ''} width="${size}" height="${size}" viewBox="0 0 512 512" style="--freeze:${freeze}"><g class="qf-mascot__body"><g class="qf-mascot__tilt"><circle class="qf-mascot__ball" cx="256" cy="258" r="150" fill="var(--qf-mascot-body)"/><g class="qf-mascot__gaze">${EYES}</g>${TILT_SYMS}</g>${OUTER_SYMS}</g></svg>`;
+}
+function cell(opts, caption, small) {
+  return `<figure><div class="cell${small ? ' s79' : ''}">${mascot({ ...opts, size: small ? 79 : (opts.size || 110) })}</div><figcaption>${caption}</figcaption></figure>`;
+}
+
+const board = document.getElementById('board');
+board.innerHTML = `
+  <h2>一、豆豆眼 18×32：七个状态的代表帧（动画定格）</h2>
+  <div class="row">
+    ${cell({ state: 'idle', freeze: '-0.80s' }, 'idle 呼吸顶点')}
+    ${cell({ state: 'thinking', freeze: '-0.22s' }, 'thinking 歪头左')}
+    ${cell({ state: 'working', freeze: '-0.39s' }, 'working 压扁落地')}
+    ${cell({ state: 'happy', freeze: '-0.34s' }, 'happy 弹最高·弯月眼')}
+    ${cell({ state: 'sleepy', freeze: '-2.18s' }, 'sleepy 塌最狠')}
+    ${cell({ state: 'alert', freeze: '-0.15s' }, 'alert 瞪眼·放大1.3')}
+    ${cell({ state: 'walk', freeze: '-0.18s' }, 'walk 跳起')}
+  </div>
+
+  <h2>二、东张西望：一段 3.3s 的四个分镜</h2>
+  <div class="row">
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-0.30s', size: 130 }, '① 往左上斜看（头右歪）')}
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-1.95s', size: 130 }, '② 甩到右上 + ？')}
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-3.00s', size: 130 }, '③ 眨眼收尾')}
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-3.20s', size: 130 }, '④ 回正')}
+  </div>
+
+  <h2>三、思考 …：一颗一颗加上去的时序（定格四帧）</h2>
+  <div class="row">
+    ${cell({ state: 'thinking', freeze: '-0.25s', size: 120 }, '① 第 1 颗亮（0.25s）')}
+    ${cell({ state: 'thinking', freeze: '-0.50s', size: 120 }, '② 第 2 颗加上（0.50s）')}
+    ${cell({ state: 'thinking', freeze: '-0.80s', size: 120 }, '③ 三颗全亮·停一拍')}
+    ${cell({ state: 'thinking', freeze: '-1.70s', size: 120 }, '④ 一起消散·空档')}
+  </div>
+
+  <h2>四、八个状态小符号：各自动画最好看的一帧</h2>
+  <div class="row">
+    ${cell({ state: 'thinking', freeze: '-0.90s', size: 120 }, '思考 …')}
+    ${cell({ state: 'sleepy', freeze: '-1.20s', size: 120 }, '犯困 zZ')}
+    ${cell({ state: 'alert', freeze: '-0.12s', size: 120 }, '提醒 !!')}
+    ${cell({ state: 'happy', freeze: '-0.45s', size: 120 }, '开心 ♡')}
+    ${cell({ state: 'working', freeze: '-0.80s', size: 120 }, '干活 汗滴(眼色)')}
+    ${cell({ state: 'idle', interact: 'poke', freeze: '-0.12s', size: 120 }, '被戳 !')}
+    ${cell({ state: 'idle', interact: 'dizzy', freeze: '-0.60s', size: 120 }, '转晕 星星')}
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-1.95s', size: 120 }, '张望 ?')}
+  </div>
+
+  <h2>五、真实 79px（输入框上方实际大小）—— 可辨性以这行为准</h2>
+  <div class="row">
+    ${cell({ state: 'idle', freeze: '-0.80s' }, 'idle 豆豆眼', true)}
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-0.30s' }, '张望·左看', true)}
+    ${cell({ state: 'thinking', freeze: '-0.90s' }, '思考 …', true)}
+    ${cell({ state: 'sleepy', freeze: '-1.20s' }, '犯困 zZ', true)}
+    ${cell({ state: 'working', freeze: '-0.80s' }, '干活 汗滴', true)}
+    ${cell({ state: 'idle', interact: 'poke', freeze: '-0.12s' }, '被戳 !', true)}
+    ${cell({ state: 'idle', interact: 'dizzy', freeze: '-0.60s' }, '转晕 星星', true)}
+    ${cell({ state: 'alert', freeze: '-0.12s' }, '提醒 !!', true)}
+    ${cell({ state: 'happy', freeze: '-0.45s' }, '开心 ♡', true)}
+  </div>
+
+  <h2>六、深色主题（默认配色自动反色：白身黑眼）</h2>
+  <div class="row darkrow">
+    ${cell({ state: 'idle', freeze: '-0.80s', size: 100 }, 'idle')}
+    ${cell({ state: 'thinking', freeze: '-0.90s', size: 100 }, '…')}
+    ${cell({ state: 'sleepy', freeze: '-1.20s', size: 100 }, 'zZ')}
+    ${cell({ state: 'alert', freeze: '-0.12s', size: 100 }, '!!')}
+    ${cell({ state: 'happy', freeze: '-0.45s', size: 100 }, '♡')}
+    ${cell({ state: 'working', freeze: '-0.80s', size: 100 }, '汗滴(黑)')}
+    ${cell({ state: 'idle', ambient: 'look', freeze: '-1.95s', size: 100 }, '张望 ?')}
+  </div>
+`;
+</script>
+</body>
+</html>

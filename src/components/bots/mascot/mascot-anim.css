@@ -75,18 +75,20 @@
 .qf-mascot__sym-quest { transform-box: fill-box; transform-origin: center; }
 .qf-mascot__sym-dizzy-orbit { transform-box: view-box; transform-origin: 256px 88px; }
 
-/* 思考 …：三个点从小到大、由近到远错开冒（1.8s，跟思考同拍） */
+/* 思考 …：一颗一颗加上去（像「正在输入…」），三颗全亮停一拍，一起消散重来
+   （1.8s，跟思考同拍；消散正好赶在 84%「想到啦」弹起之前） */
 .qf-mascot[data-state='thinking'] .qf-mascot__sym-dots { display: block; }
-.qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle { animation: qf-mascot-sym-dot 1.80s ease-in-out infinite; }
-.qf-mascot__sym-dots circle:nth-child(2) { animation-delay: .22s; }
-.qf-mascot__sym-dots circle:nth-child(3) { animation-delay: .44s; }
+.qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle { animation: qf-mascot-sym-dot 1.80s ease-out infinite; }
+.qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle:nth-child(2) { animation-name: qf-mascot-sym-dot-2; }
+.qf-mascot[data-state='thinking'] .qf-mascot__sym-dots circle:nth-child(3) { animation-name: qf-mascot-sym-dot-3; }
 
 /* 犯困 zZ：小 z 先起、大 Z 随后，飘着淡出（3.2s，跟犯困同拍） */
 .qf-mascot[data-state='sleepy'] .qf-mascot__sym-zz { display: block; }
 .qf-mascot[data-state='sleepy'] .qf-mascot__sym-z { animation: qf-mascot-sym-z 3.20s ease-in-out infinite; }
 .qf-mascot__sym-zz g:nth-child(2) .qf-mascot__sym-z { animation-delay: .45s; }
 
-/* 提醒 !!：弹出 + 微抖（1.1s，跟提醒同拍；画在球体图层里跟着球跳） */
+/* 提醒 !!：轻浮出、微放大定格（1.1s，跟提醒同拍；画在球体图层里跟着球跳）
+   ——评审后柔化：不再弹射+左右抖，跳起的是球，符号只标注情绪 */
 .qf-mascot[data-state='alert'] .qf-mascot__sym-bang { display: block; animation: qf-mascot-sym-bang 1.10s ease-out infinite; }
 
 /* 开心 ♡：弹出 + 心跳一下（0.9s，跟开心同拍；跟着球跳） */
@@ -95,7 +97,8 @@
 /* 干活汗滴：球上往下滑、淡出（眼色；干活 0.7s 一拍，汗滴两拍一滴） */
 .qf-mascot[data-state='working'] .qf-mascot__sym-sweat { display: block; animation: qf-mascot-sym-sweat 1.40s ease-in infinite; }
 
-/* 被戳 !：弹一下晃一下（只在 poke 播放期间出现；forwards 防播完闪回静态） */
+/* 被戳 !：轻浮出、停住、轻飘走（只在 poke 播放期间出现；forwards 防播完闪回静态）
+   ——评审后柔化：去掉弹射和左右晃，戳瘪弹起的动作在球上，符号安静标注即可 */
 .qf-mascot[data-interact='poke'] .qf-mascot__sym-poke { display: block; animation: qf-mascot-sym-poke 0.60s ease-out 1 forwards; }
 
 /* 转晕星星：两颗小星绕头顶一圈（只在 dizzy 播放期间出现） */
@@ -338,9 +341,21 @@
 }
 @keyframes qf-mascot-sym-dot {
   0%        { opacity: 0; transform: translateY(6px); }
-  18%       { opacity: 1; transform: translateY(0); }
-  70%       { opacity: 1; transform: translateY(-3px); }
-  85%, 100% { opacity: 0; }
+  6%        { opacity: 1; transform: translateY(0); }
+  78%       { opacity: 1; transform: translateY(0); }
+  89%, 100% { opacity: 0; }
+}
+@keyframes qf-mascot-sym-dot-2 {
+  0%, 17%   { opacity: 0; transform: translateY(6px); }
+  23%       { opacity: 1; transform: translateY(0); }
+  78%       { opacity: 1; transform: translateY(0); }
+  89%, 100% { opacity: 0; }
+}
+@keyframes qf-mascot-sym-dot-3 {
+  0%, 33%   { opacity: 0; transform: translateY(6px); }
+  39%       { opacity: 1; transform: translateY(0); }
+  78%       { opacity: 1; transform: translateY(0); }
+  89%, 100% { opacity: 0; }
 }
 @keyframes qf-mascot-sym-z {
   0%        { opacity: 0; transform: translateY(12px) scale(.8); }
@@ -350,15 +365,11 @@
   100%      { opacity: 0; }
 }
 @keyframes qf-mascot-sym-bang {
-  0%        { opacity: 0; transform: scale(.3); }
-  10%       { opacity: 1; transform: scale(1.25); }
-  18%       { transform: scale(1); }
-  24%       { transform: rotate(5deg); }
-  32%       { transform: rotate(-5deg); }
-  40%       { transform: rotate(3deg); }
-  46%       { transform: rotate(0); }
-  80%       { opacity: 1; }
-  92%, 100% { opacity: 0; }
+  0%        { opacity: 0; transform: translateY(8px) scale(.9); }
+  14%       { opacity: 1; transform: translateY(0) scale(1.06); }
+  22%       { transform: translateY(0) scale(1); }
+  72%       { opacity: 1; }
+  88%, 100% { opacity: 0; transform: translateY(-5px); }
 }
 @keyframes qf-mascot-sym-heart {
   0%        { opacity: 0; transform: scale(0); }
@@ -377,15 +388,11 @@
   100%      { opacity: 0; transform: translateY(0); }
 }
 @keyframes qf-mascot-sym-poke {
-  0%        { opacity: 0; transform: scale(.4); }
-  12%       { opacity: 1; transform: scale(1.2); }
-  20%       { transform: scale(1); }
-  35%       { transform: translateX(-5px); }
-  45%       { transform: translateX(5px); }
-  55%       { transform: translateX(-3px); }
-  62%       { transform: translateX(0); }
-  85%       { opacity: 1; }
-  100%      { opacity: 0; }
+  0%        { opacity: 0; transform: translateY(10px) scale(.92); }
+  16%       { opacity: 1; transform: translateY(0) scale(1); }
+  70%       { opacity: 1; transform: translateY(0) scale(1); }
+  88%       { opacity: 1; }
+  100%      { opacity: 0; transform: translateY(-4px); }
 }
 @keyframes qf-mascot-sym-star-orbit {
   0%        { opacity: 0; transform: rotate(0); }

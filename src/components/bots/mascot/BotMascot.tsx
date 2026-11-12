@@ -149,11 +149,11 @@ export function BotMascot({
           {showSymbols && (
             <>
               {/* 跟着球跳的符号画在 tilt 里（球一蹦上来，球外的同色符号会被吞掉）。 */}
-              {/* 提醒 !!（球身色） */}
-              <g transform="translate(350 104)" fill="var(--qf-mascot-body)">
+              {/* 提醒 !!（球身色；瘦长条，轻浮出不抢戏） */}
+              <g transform="translate(350 102)" fill="var(--qf-mascot-body)">
                 <g className="qf-mascot__sym qf-mascot__sym-bang">
-                  <rect x="-19.5" y="-40" width="13" height="40" rx="6.5" />
-                  <rect x="6.5" y="-40" width="13" height="40" rx="6.5" />
+                  <rect x="-15" y="-30" width="10" height="32" rx="5" />
+                  <rect x="5" y="-30" width="10" height="32" rx="5" />
                 </g>
               </g>
               {/* 开心 ♡（球身色） */}
@@ -171,11 +171,11 @@ export function BotMascot({
                   />
                 </g>
               </g>
-              {/* 被戳 !（球身色，随 poke） */}
-              <g transform="translate(256 74)" fill="var(--qf-mascot-body)">
+              {/* 被戳 !（球身色，随 poke；瘦长条，轻浮出停住轻飘走） */}
+              <g transform="translate(256 70)" fill="var(--qf-mascot-body)">
                 <g className="qf-mascot__sym qf-mascot__sym-poke">
-                  <rect x="-6.5" y="-42" width="13" height="44" rx="6.5" />
-                  <circle cx="0" cy="16" r="7.5" />
+                  <rect x="-5" y="-32" width="10" height="36" rx="5" />
+                  <circle cx="0" cy="14" r="6" />
                 </g>
               </g>
             </>
@@ -184,11 +184,11 @@ export function BotMascot({
         {showSymbols && (
           <>
             {/* 飘在空中的符号画在球外（球身色，深浅主题都与底色拉开）。 */}
-            {/* 思考 …：三个点从小到大、由近到远 */}
+            {/* 思考 …：三个点从小到大、由近到远（离球边留足空隙，别像插在头上） */}
             <g className="qf-mascot__sym qf-mascot__sym-dots" fill="var(--qf-mascot-body)">
-              <circle cx="378" cy="148" r="9" />
-              <circle cx="400" cy="127" r="11.5" />
-              <circle cx="432" cy="97" r="15" />
+              <circle cx="398" cy="136" r="9" />
+              <circle cx="424" cy="110" r="11.5" />
+              <circle cx="452" cy="82" r="15" />
             </g>
             {/* 犯困 zZ：小 z 先起、大 Z 随后 */}
             <g

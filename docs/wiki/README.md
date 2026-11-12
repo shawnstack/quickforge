@@ -3,6 +3,10 @@
 > AI chat application with Agent access modes for local workspace tools.
 > React 19 + Vite 8 + Tailwind CSS 4 frontend, local Node.js storage server.
 
+> **改这份 wiki 之前请先知道**：文中所有「某文件 + 行数」都由 `npm run check:wiki` 自动对账（CI 与提交前用 `npm run check:wiki:strict`），改完顺手跑一次。
+> 输出怎么读：`DRIFT` = 数字对不上，改文档；`SKIP` = 这处声明解析不到，改写法或补 `NON_REPO_FILES` 白名单；`COUNT MISMATCH` / `TOO FEW CLAIMS PARSED` = 校验器自己出问题了（正则被新写法打穿），不是文档写错。
+> 硬约束见下文「行数声明的写法约束」：数字紧跟文件名、表行两种形态、历史叙述带括号、第三方库名进白名单。
+
 ## 目录结构
 
 ```

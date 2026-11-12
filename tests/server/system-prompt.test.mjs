@@ -48,7 +48,7 @@ describe('system prompt', () => {
   })
 
   it('agent approval hook explicitly exempts todo_write and goal_report without classifying them as safe reads', async () => {
-    const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-manager.mjs', import.meta.url), 'utf8'))
+    const source = await import('node:fs/promises').then((fs) => fs.readFile(new URL('../../server/agent-session-lifecycle.mjs', import.meta.url), 'utf8'))
     expect(source).toContain("if (toolName === 'ask_user' || toolName === 'todo_write' || toolName === 'goal_report') return undefined")
   })
 

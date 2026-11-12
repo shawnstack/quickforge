@@ -3,17 +3,20 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## 上帝模块治理④：server/tools/index.mjs 按职责拆分（2026-11-12 09:53）
+## 上帝模块治理⑤：agent-manager.mjs 按职责拆分（2026-11-12 10:40）
 
-- 需求：god-module-decomposition 子项④：`server/tools/index.mjs`（1375 行）混杂读/搜、写改、技能资源、展示、命令执行、记忆/todo 六类职责加整套子进程管理器，拆到 `server/tools/` 独立模块，index 只留注册表/装配薄层；纯重构，对外行为、工具名、参数与返回结构完全不变。
-- 改动：新增 9 模块——`file-search.mjs`（read_file+grep_files，452 行）、`file-write.mjs`（write/edit+会话锁+备份 journal，139）、`skill-resources.mjs`（69）、`present-files.mjs`（99）、`run-command.mjs`（toolRunCommand+tail 预览+命令日志，502）、`process-control.mjs`（killProcessTree+runningCommands/backgroundTasks 注册表+abort/list/stop 入口，107）、`global-memory.mjs`（12）、`todo-write.mjs`（65）、`params.mjs`（共享 clampNumber，13）；`index.mjs` 重写为 52 行薄层：`toolHandlers` 注册表 + 原公开面（15 个导出名）全量再导出，agent-manager/routes/tools/tool-wiring/agent-prompt-commands 与全部测试的 import 路径零改动。代码逐字迁移，仅三处接线调整（`runningCommands.set/delete`、`backgroundTasks.get` 改经 process-control 的 `registerRunningCommand`/`unregisterRunningCommand`/`getBackgroundTaskRecord`）；行级多重集校验：原 1375 行中仅 10 行未原样出现，全部为预期（2 行 import 合并、3 行加 export 前缀、2 行节注释升为模块头、3 行接线）。文档同步：`docs/wiki/server/tools/README.md` 文件表改 12 模块并更新 index.mjs 章节；custom-agents-design / quickforge-api-skill / skills/quickforge-api references/endpoints.md 及两处前端注释（local-workspace-tool-renderer、BackgroundTasksTabContent）里指向旧 index.mjs 的路径改指新模块。
-- Evidence：定向 tools 测试 6 files / 98 passed；`npx eslint server/tools/` 0 problems；全量 `npm run test` 524 files / 5800 passed / 2 skipped / 0 failed；`npx tsc -b` 通过；`npm run build` 通过。
-- Notes：①未 commit（规矩留工作区）；②package-dist/package-offline 里的旧 tools/index.mjs 是生成产物，未动；③本轮未跑 archive-harness——progress/session-handoff 里还有并行会话（Bot 心跳 09:35 段）的活内容，归档会把它挪进 docs/archive，时机留给那轮或下轮；④server 改动需重启 QuickForge 才生效；⑤用户并行的 bots/mascot 文件未触碰未还原。
+- 动手前先锁契约：`tests/server/agent-manager-exports-contract.test.mjs` 锁定 49 公开导出 + 5 内部共享导出共 54 名，导出面必须精确相等；排查出 3 个读 agent-manager.mjs 源码文本的测试，其中 2 个正向断言（system-prompt.test.mjs 的 beforeToolCall 行、context-references 的 createServerTools options 块）随 createAgent 迁移改指 `server/agent-session-lifecycle.mjs`（断言语义不变），1 个反向断言（session-index-lifecycle 的 not.toContain）不受影响。
+- 拆分落点（每块迁完跑相关测试再拆下一块）：`agent-turn-ids.mjs`（sessionTurnIds+begin/end/clear）、`goal/engine.mjs` 增补 `activeGoalStatus` 共享助手、`agent-tool-assembly.mjs`（createServerTools/attachTurnIdGetter/rebuildSessionTools/appendGoalTools/工具包装）、`agent-context-transform.mjs`（transformSessionContext）、`agent-idle-recycler.mjs`（resetIdleTimer/touchSession）、`agent-run-events.mjs`（agent.subscribe 事件扇出+落库、afterGoalRunPersisted、标题调度）、`agent-background-commands.mjs`（后台命令通知投递）、`agent-session-lifecycle.mjs`（createAgent 509 行/restore/sync/destroy/listSessions/shutdown/resetStaleTaskStatuses/模型绑定与记忆刷新）、`agent-rollback.mjs`、`agent-run-orchestration.mjs`、`agent-session-updaters.mjs`；`agent-manager.mjs` 定形 133 行薄 facade（契约 re-export + `createSessionQueries` 唯一实例 + `configureGoalRunner` 注入接线 + agentEvents.setMaxListeners）。
+- 关键决策：①不往 facade 增加任何新导出（契约测试断言精确集合），后台命令投递独立成模块以避免循环经门面取未导出符号；②跨模块互调全部函数级引用（ESM 函数声明提升），与既有 agent-compaction↔agent-manager 循环同模式；③查询工厂 getSessionState 等单例留在组合根，rollback/updaters 经 facade 取同一实例避免第二份闭包状态。
+- 验证：每块相关测试绿（agent-manager 专项 12 文件 100 用例）；`npm run test` 全量、`npx tsc -b`、`npm run build` 绿（详见 handoff）。改动留工作区未 commit；并行会话文件（bots 相关等）一律未触碰。
+- Notes：①`docs/wiki/server/README.md` agent-manager 章节已同步新模块布局（docs/wiki/README.md 当时为并行会话脏文件，未动）；②本轮与 bots 会话并行，progress/handoff 均只追加本段。
 
-## Bot 心跳指令模板化：自进化 + 防过拟合（2026-11-12 09:35）
+## 修复：重复点击同一 bot 对话触发「正在加载中」并卡 10 秒（2026-11-12 10:35）
 
-- 需求（用户原话）：「我希望心跳指令也是个模板.md 在bot创建时候」「注意让ai 能够自进化 自驱动 修改自己的对应的记忆和心跳 但是注意要是通用性的 泛化性好 不要过拟化 某种场景的固定行动」。分界口诀（已答复并获认可）：每次醒来都一样的放指令、会变的放记忆；丢了会坏机制的钉服务端、丢了只是忘了的让 bot 自己记。
-- 改动：①`bots.mjs` 新增 `BOT_HEARTBEAT_TEMPLATE_FILE`（`.bot/heartbeat.md`，判活扫描忽略 `.bot/` 不误触发）与 `defaultHeartbeatTemplate()`（四节引导式种子：半径/接上自己/做一件值得做的事/留痕回滚——只给判断标准，无场景化步骤）；`ensureBotWorkspace` 只在文件不存在时播种，绝不覆盖 bot 的演化。②`heartbeatInstruction` 改 async 三段拼装：固定头（处境 + botPath + **自进化授权**：模板和记忆都可自己改，改完下一跳生效）+ 模板内容（缺失/空白回退种子）+ 固定尾（`[报告]` 首行、不 commit、不提问）——bot 重写模板也改不掉契约。存量 bot 无文件自动回退，行为与之前一致。
-- Evidence：定向 3 files / 43 passed（bots/routes/bot-heartbeat-message）；`npx eslint` 0 problems（含修掉一处 no-useless-assignment）；`npx tsc -b` 通过；`npm run build` 通过；全量 `npm run test` 524 files / 5799 passed、2 skipped、0 failed（含并行会话 god-module 治理的新测试）。
-- Notes：①`.bot/heartbeat.md` 与 MEMORY.md 现在同为 bot 自我演化对象，一个管「怎么干活」一个管「我是谁」；②并行会话在做 god-module 治理（③ ui-store 迁移），与本轮无文件冲突；③生效仍需重启 QuickForge；④追加（同日）：用户问「存量的也会有对吧」——补上存量回填：`runBotHeartbeat` 开头幂等调 `ensureBotWorkspace`，存量 bot 下一次被扫到（≤30s 或催醒）即补 `.bot/heartbeat.md`，已有记忆/已演化模板不碰；新增 legacy 回填测试（有 MEMORY.md 无模板 → 补模板不动记忆），定向 37 passed、eslint 0。
+- 现象：重复点同一个 bot 的对话会弹「正在加载对话」且停约 10s；切换不同 bot 反而几百 ms。
+- 根因（explore 调研，代码逐行核实）：`performLoadSession`（useAgentManager.ts）对「同会话重复点击」并非空操作——①bot 会话是 project scope，但 bot 项目永远写不进 activeProject（useProject.ts 的约束），导致每次都 `await switchActiveProject` 网络往返且恒为无效写；②这次 await 让 `loadingSessionId` 中间态跨渲染周期，兜底通道挂出遮罩；③撤遮罩的就绪信号因 agent 引用未变（ChatPanelHost 主 effect 只在 agent 变化时重跑）与活跃 key 未变（同 key no-op）无人发布，只能等 10s watchdog。切换不同 bot 时 taskMap 必 miss（空闲零驻留）→ 走 `/view?tail=200` 快路径产生新 agent 引用 → ready 正常发出，所以快。违反 session-open-fast-path §2.2「同会话重复点击：不显示遮罩、不重复加载」契约。
+- 修复（方向 1，用户选定）：新增 `src/lib/session-reload-guard.ts` 纯函数 `shouldSkipSessionReload`（三条件：taskMap 命中 + 该会话就是当前视图 + 视图 agent 引用未变），`performLoadSession` 在 taskMap 命中分支前据此早退，与 `beginSessionTransition` 的遮罩短路语义对齐。普通/全局会话与「真正切换」路径不受影响（条件不满足即走原逻辑）。
+- 改动文件：`src/lib/session-reload-guard.ts`（新增）、`src/hooks/useAgentManager.ts`（+7 行）、`tests/frontend/session-reload-guard.test.ts`（新增 4 用例）。
+- 验证：vitest 新测试 + agent-task-retention + open-session-from-settings 14 passed；eslint 0 problems；`tsc -b` 通过。未跑全量（小改动走针对性检查）。
+- Notes：①修复候选 2 未做——「从别处切回 bot 会话」（taskMap 命中但视图不同）仍会多一次恒为无效的 switchActiveProject 往返，属低频路径，留观察；②React 批处理吞掉同步置位/清除是推断（explore 已标注），实测需重启 QuickForge 后重复点 bot 验证；③未 commit。
 

@@ -10,6 +10,7 @@
 import * as legacy from '../agent-goal-runner.mjs'
 import * as v2 from './runner.mjs'
 import { agentSessions } from '../agent-session-store.mjs'
+import { isGoalActiveStatus } from '../agent-goal-state.mjs'
 
 export function resolveGoalEngine(session) {
   if (!session) return 'legacy'
@@ -29,6 +30,17 @@ export function isGoalModeAvailable(session, requestSource = null) {
 
 export function sessionGoal(session) {
   return session?.goal || null
+}
+
+/**
+ * Active (non-terminal) goal of a session, or null.
+ * Shared by tool assembly (goal tool mounting), rollback/run orchestration
+ * (goal exclusivity gates) and background-command delivery; injected here so
+ * those modules never duplicate the status predicate.
+ */
+export function activeGoalStatus(session) {
+  const goal = sessionGoal(session)
+  return goal && isGoalActiveStatus(goal.status) ? goal : null
 }
 
 export function isGoalPlanning(session) {

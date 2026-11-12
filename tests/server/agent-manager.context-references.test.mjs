@@ -301,7 +301,7 @@ describe('agent file context references', () => {
   it('passes the live turn id getter on the createAgent tool path too', async () => {
     const { readFileSync } = await import('node:fs')
     const { fileURLToPath } = await import('node:url')
-    const source = readFileSync(fileURLToPath(new URL('../../server/agent-manager.mjs', import.meta.url)), 'utf8')
+    const source = readFileSync(fileURLToPath(new URL('../../server/agent-session-lifecycle.mjs', import.meta.url)), 'utf8')
     const createAgentCall = source.slice(source.indexOf('const tools = await createServerTools'))
     const optionsBlock = createAgentCall.slice(0, createAgentCall.indexOf('  // Resolve API key'))
     expect(optionsBlock).toContain('getTurnId: () => currentSessionTurnId(sessionId)')

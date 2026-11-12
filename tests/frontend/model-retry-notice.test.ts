@@ -30,7 +30,7 @@ const surfaceSource = readFileSync('src/components/chat/surface/ChatSurface.tsx'
 const noticesSource = readFileSync('src/components/chat/surface/ConnectionNotices.tsx', 'utf8')
 const barrelSource = readFileSync('src/components/chat/panel-decoration.ts', 'utf8')
 const agentClientSource = readFileSync('src/lib/global-agent-sse-client.ts', 'utf8')
-const agentManagerSource = readFileSync('server/agent-manager.mjs', 'utf8')
+const agentManagerSource = readFileSync('server/agent-session-lifecycle.mjs', 'utf8')
 const aiHttpLoggerSource = readFileSync('server/ai-http-logger.mjs', 'utf8')
 const i18nSource = readFileSync('src/lib/i18n.ts', 'utf8')
 const cssSource = appCss
@@ -123,8 +123,9 @@ describe('model retry notice source contracts', () => {
   })
 
   it('agent-manager injects onStreamRetry into both Agent streamFn sites', () => {
-    // 主 Agent streamFn 仍在 agent-manager.mjs；subagent streamFn 已随 runSubagent
-    // 逐字符迁至 agent-subagent-runner.mjs（模块拆分，行为不变），两处注入都在。
+    // 主 Agent streamFn 在 agent-session-lifecycle.mjs（createAgent 随
+    // god-module-decomposition ⑤ 迁出 agent-manager.mjs，行为不变）；
+    // subagent streamFn 已随 runSubagent 迁至 agent-subagent-runner.mjs，两处注入都在。
     expect(agentManagerSource).toContain("emitSessionEvent(session, { type: 'model_stream_retry', ...info })")
     const subagentRunnerSource = readFileSync('server/agent-subagent-runner.mjs', 'utf8')
     expect(subagentRunnerSource).toContain("emitSessionEvent(parentSession, { type: 'model_stream_retry', ...info })")

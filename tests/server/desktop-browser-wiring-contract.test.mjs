@@ -10,7 +10,7 @@ const policy = read('desktop/browser/policy.mjs')
 const electronMain = read('desktop/electron-main.mjs')
 const preload = read('desktop/electron-preload.cjs')
 const registry = read('server/mcp/registry.mjs')
-const agentManager = read('server/agent-manager.mjs')
+const agentManager = read('server/agent-session-lifecycle.mjs')
 
 /**
  * 这些不变量没法在 CI 里跑真实 Electron，只能用源码契约锁住：

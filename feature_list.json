@@ -5,7 +5,7 @@
       "id": "god-module-decomposition",
       "title": "上帝模块治理：按影响面从小到大拆分职责混杂的超大模块",
       "status": "pending",
-      "summary": "同一次代码健康扫描确认真正的上帝模块（一个文件承担 2 类以上没有共同主题的职责）共 7 处，按建议动手顺序排列。判定标准是职责混杂，不是行数：i18n.ts（4471 行，98% 是双语词条表）、code-highlight.ts（2654 行，语法规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs 都属于长但职责单一，不在治理范围内。",
+      "summary": "同一次代码健康扫描确认真正的上帝模块（一个文件承担 2 类以上没有共同主题的职责）共 7 处，按建议动手顺序排列。判定标准是职责混杂，不是行数：i18n.ts（4471 行，98% 是双语词条表）、code-highlight.ts（2654 行，语法规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs 都属于长但职责单一，不在治理范围内。2026-11-12：子项①已完成——scheduled-tasks.mjs（1120 行）拆为薄路由（194 行，只导出 handleScheduledTasksApi）+ server/scheduled-task-{store,executor,runner,instruction-parser}.mjs 四个职责模块，HTTP 行为与 API 契约不变，全量 test/lint/tsc/build 绿；②-⑦ 未动。",
       "dependencies": [
         "dead-code-cleanup-2026-11"
       ],
@@ -21,7 +21,7 @@
         "server/index.mjs / server/routes/agent.mjs / src/components/chat/surface/ChatSurface.tsx（中等优先级）"
       ],
       "verification": "每个子项独立验证：拆分前先跑该模块相关测试建立基线，拆分后要求相关测试全绿 + npx eslint 0 problems + npm run build 通过；涉及前端组件再跑 npx tsc -b。不得一次提交多个模块的拆分。",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-12",
       "boundaries": "明确不要动：i18n.ts、code-highlight.ts（纯数据表/规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs（职责单一，只是长）。不要为了拆而拆——先确认文件里存在两类以上无共同主题的职责再动手。"
     }
   ]

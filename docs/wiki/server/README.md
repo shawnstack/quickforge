@@ -668,6 +668,19 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 ---
 
+### scheduled-task-store.mjs / scheduled-task-executor.mjs / scheduled-task-runner.mjs / scheduled-task-instruction-parser.mjs — 定时任务域
+
+2026-11-12 自 `routes/scheduled-tasks.mjs`（原 1104 行四合一）拆出的四个模块（god-module-decomposition ①），路由文件只剩薄路由层（`handleScheduledTasksApi`，约 194 行），对外 HTTP 行为与 API 契约不变：
+
+- `scheduled-task-store.mjs`（354 行）— 任务记录领域规则与存取：输入归一化、scheduleRule 组装、`calculateNextRun`/`isRecurringTask`、任务 CRUD、SQLite 运行历史装配（内含 `taskRunsService` 单例，`readTasks: getTasks`）与循环任务状态修复（`repairRecurringTaskStatuses`）。`getTask`/`createTaskRecord`/`removeTaskRecord` 是路由层原来直接 `readStore/atomicUpdate` 的等价封装。
+- `scheduled-task-executor.mjs`（443 行）— `executeTask` 会话编排（run 记录创建/补偿、模型与 Agent Profile 与绑定项目解析、`createAgent` + `runPrompt`、超时 `abortRun`、终态与元数据落库、`scheduled_task_started/notification` 事件）。进程内活跃 run 追踪（`runningTaskRunIds`）在此模块：`executeTask` 是唯一写入方，路由（手动 run 串行 409）与调度循环（tick 跳过、维护暂停 409）经 `hasActiveTaskRuns`/`hasInFlightRuns` 共享。
+- `scheduled-task-runner.mjs`（117 行）— 常驻调度守护循环：30 秒 tick、`start/stopScheduledTaskRunner`（`server/index.mjs` 启动链直接调用，不再经 routes re-export）、`recoverStaleScheduledTaskRuns` 启动恢复、`configureScheduledRunsRuntimeHooks` 维护窗口暂停/恢复钩子（模块加载时注册）。与 `bot-runner.mjs`/`auto-archive.mjs` 同属「常驻循环放 server 根目录」一族。
+- `scheduled-task-instruction-parser.mjs`（113 行）— `POST /api/scheduled-tasks/parse` 的 LLM 解析：中文自然语言 → cron 任务草稿 JSON，信息不足时 `needMoreInfo` 追问、不编造 cron；AI 总预算 `AI_SCHEDULED_TASK_PARSE_TOTAL_TIMEOUT_MS`（2 分钟）。
+
+`scheduled-task-runs-service.mjs`、`scheduled-runs-maintenance.mjs`、`scheduled-runs-backup.mjs` 与 `utils/scheduled-tasks.mjs`（纯时间算法）不变。
+
+---
+
 ## API 路由 (routes/)
 
 Dreaming 的 `/api/dreaming/*` 同样采用前缀分发（`server/index.mjs` 的 `=== '/api/dreaming' || startsWith('/api/dreaming/')`）：

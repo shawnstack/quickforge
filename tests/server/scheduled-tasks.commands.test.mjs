@@ -151,7 +151,8 @@ afterEach(async () => {
 
 afterAll(async () => {
   try {
-    routes?.stopScheduledTaskRunner()
+    const runner = await import('../../server/scheduled-task-runner.mjs')
+    runner.stopScheduledTaskRunner()
     await database?.closeSqliteStorage()
   } finally {
     vi.restoreAllMocks()
@@ -287,9 +288,10 @@ describe('scheduled goals through the real manager and runner', () => {
     }
     const id = await createTask('/goal automatically verify the report')
     expect(await taskState(id)).toMatchObject({ status: 'enabled', runs: [] })
+    // No manual /run request or timer advancement: this must use the initial tick.
+    const runner = await import('../../server/scheduled-task-runner.mjs')
     try {
-      // No manual /run request or timer advancement: this must use the initial tick.
-      routes.startScheduledTaskRunner()
+      runner.startScheduledTaskRunner()
       await vi.waitFor(() => expect(seen).toEqual(['planning']))
       const task = await taskState(id)
       expect(task.runs).toHaveLength(1)
@@ -304,7 +306,7 @@ describe('scheduled goals through the real manager and runner', () => {
       await expectCurrentRunIdsCleared(id)
     } finally {
       release.resolve()
-      routes.stopScheduledTaskRunner()
+      runner.stopScheduledTaskRunner()
     }
   })
 

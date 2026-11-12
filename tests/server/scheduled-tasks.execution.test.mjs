@@ -437,6 +437,7 @@ describe('scheduled task manual schedule API', () => {
 
 describe('scheduled task scheduler ticks', () => {
   let routes
+  let runner
   const minuteMs = 60000
   const anchor = new Date('2026-01-01T00:00:00.000Z').getTime()
   const taskId = 'tick-cadence'
@@ -450,6 +451,7 @@ describe('scheduled task scheduler ticks', () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
     vi.setSystemTime(anchor)
     routes = await import('../../server/routes/scheduled-tasks.mjs')
+    runner = await import('../../server/scheduled-task-runner.mjs')
     mocks.stores.set('scheduled-tasks', { [taskId]: {
       id: taskId, title: 'cadence', instruction: 'run', scheduleType: 'interval',
       intervalValue: 1, intervalUnit: 'minute', executeAt: new Date(anchor).toISOString(),
@@ -458,7 +460,7 @@ describe('scheduled task scheduler ticks', () => {
     } })
   })
 
-  afterEach(() => routes.stopScheduledTaskRunner())
+  afterEach(() => runner.stopScheduledTaskRunner())
 
   async function waitForRun(count) {
     return waitFor(() => {
@@ -486,7 +488,7 @@ describe('scheduled task scheduler ticks', () => {
 
   it('advances parallel schedule slots at start and preserves cadence across overlapping completions', async () => {
     rawTask().executionMode = 'parallel'
-    routes.startScheduledTaskRunner()
+    runner.startScheduledTaskRunner()
     const first = await waitForRun(1)
     expect(first).toMatchObject({ trigger: 'schedule', scheduledAt: new Date(anchor).toISOString(), status: 'running' })
     expect(currentTask().nextRunAt).toBe(new Date(anchor + minuteMs).toISOString())
@@ -509,7 +511,7 @@ describe('scheduled task scheduler ticks', () => {
   })
 
   it('skips elapsed slots after a long serial run instead of replaying or drifting', async () => {
-    routes.startScheduledTaskRunner()
+    runner.startScheduledTaskRunner()
     const first = await waitForRun(1)
     await vi.advanceTimersByTimeAsync(150000)
     expect(currentTask().runs).toHaveLength(1)
@@ -529,7 +531,7 @@ describe('scheduled task scheduler ticks', () => {
     rawTask().executionMode = executionMode
     rawTask().nextRunAt = new Date(anchor + minuteMs).toISOString()
     await action('pause')
-    routes.startScheduledTaskRunner()
+    runner.startScheduledTaskRunner()
     await vi.advanceTimersByTimeAsync(150000)
     expect(currentTask().runs).toHaveLength(0)
     const resumed = await action('resume')
@@ -547,7 +549,7 @@ describe('scheduled task scheduler ticks', () => {
     const due = new Date(2026, 0, 5, 9)
     vi.setSystemTime(due)
     Object.assign(rawTask(), { scheduleType: 'cron', cronExpression: '0 9 * * 0-7', nextRunAt: due.toISOString() })
-    routes.startScheduledTaskRunner()
+    runner.startScheduledTaskRunner()
     const run = await waitForRun(1)
     await finish(run)
     expect(currentTask()).toMatchObject({ status: 'enabled', nextRunAt: new Date(2026, 0, 6, 9).toISOString() })
@@ -773,13 +775,13 @@ describe('scheduled task execution lifecycle', () => {
 
   it('does not rewrite the task store when recurring statuses need no repair', async () => {
     const storage = await import('../../server/storage.mjs')
-    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const runner = await import('../../server/scheduled-task-runner.mjs')
     storage.atomicUpdate.mockClear()
     storage.readStore.mockClear()
 
-    routes.startScheduledTaskRunner()
+    runner.startScheduledTaskRunner()
     await waitFor(() => storage.readStore.mock.calls.length >= 2, 'initial scheduler reads')
-    routes.stopScheduledTaskRunner()
+    runner.stopScheduledTaskRunner()
 
     expect(storage.atomicUpdate).not.toHaveBeenCalled()
   })
@@ -850,8 +852,8 @@ describe('scheduled task execution lifecycle', () => {
         nextRunAt: '2026-01-01T01:00:00.000Z', updatedAt: '2025-12-31T23:59:00.000Z',
       },
     })
-    const routes = await import('../../server/routes/scheduled-tasks.mjs')
-    await routes.recoverStaleScheduledTaskRuns({ now: () => new Date('2026-01-01T00:00:00.000Z') })
+    const runner = await import('../../server/scheduled-task-runner.mjs')
+    await runner.recoverStaleScheduledTaskRuns({ now: () => new Date('2026-01-01T00:00:00.000Z') })
     expect(mocks.syncRun).toHaveBeenCalledWith('task-stale', expect.objectContaining({
       id: 'stale-run', status: 'failed', errorMessage: 'Interrupted by previous process shutdown', durationMs: 60_000,
     }), { stage: 'startup-recovery' })
@@ -875,12 +877,12 @@ describe('scheduled task execution lifecycle', () => {
       },
     })
     const storage = await import('../../server/storage.mjs')
-    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const runner = await import('../../server/scheduled-task-runner.mjs')
     storage.atomicUpdate.mockClear()
 
-    routes.startScheduledTaskRunner()
+    runner.startScheduledTaskRunner()
     await waitFor(() => mocks.stores.get('scheduled-tasks')?.['task-repair']?.status === 'enabled', 'recurring task repair')
-    routes.stopScheduledTaskRunner()
+    runner.stopScheduledTaskRunner()
 
     expect(storage.atomicUpdate).toHaveBeenCalledTimes(1)
   })

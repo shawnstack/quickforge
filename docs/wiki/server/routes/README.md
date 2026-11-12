@@ -21,7 +21,7 @@
 | `agent-profiles.mjs` | 236 | Agent Profile 管理 API，支持 AI 填充基础定义 |
 | `models.mjs` | 140 | 统一模型目录、模型连接测试与提供商级模型发现 |
 | `hooks.mjs` | 53 | Hooks 手动测试与最近执行记录查询 |
-| `scheduled-tasks.mjs` | 949 | 定时任务管理，支持绑定 Agent Profile 与配置单任务执行模式 |
+| `scheduled-tasks.mjs` | 194 | 定时任务管理路由（薄路由层）；领域逻辑拆至 server 根目录 `scheduled-task-{store,executor,runner,instruction-parser}.mjs`，支持绑定 Agent Profile 与配置单任务执行模式 |
 | `shares.mjs` | 90 | 分享管理 |
 | `side-chat.mjs` | 独立、内存态 Side Chat 的纯模型 NDJSON 流路由；读取当前主会话上下文但固定 `tools: []`，不调用或写入主 Agent；纯文本安全投影在服务端最终模型解析后物化为 pi-ai 合法 user/assistant 消息，assistant 使用服务端模型字段与完整零 usage/cost |
 | `shared-conversation.mjs` | 共享会话查看与共享图片资产读取 |
@@ -192,9 +192,14 @@ Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hook
 - `GET /api/hooks/executions?limit=&offset=` — 分页查询执行记录，返回 `{executions, total, limit, offset}` 信封：`executions` 为该页记录（newest-first），`total` 为执行日志全量条数；`limit` 默认 20、clamp 1–100，`offset` 默认 0，缺省或不可解析参数回落默认值，越界 offset 返回空页但 `total` 不变。记录由引擎持久化到 store `hook-executions`（上限 300 条，内存 buffer 权威），重启后保留。
 - `POST /api/hooks/test` — `{hook}` 手动测试：服务端 `normalizeHook` 校验（动作不可用返回 400），以合成 `event:'test'` 上下文执行一次并返回 `{execution}` 记录（带 `test:true`），不写入执行日志。
 
-## scheduled-tasks.mjs (949 行)
+## scheduled-tasks.mjs (194 行)
 
-定时任务管理（最复杂的路由模块）。
+定时任务管理路由（薄路由层）：只做参数解析、请求校验与响应组装。领域逻辑按职责拆在 server 根目录四个模块（god-module-decomposition ①，2026-11-12）：
+
+- `scheduled-task-store.mjs` — 任务记录领域规则与存取：输入归一化（`normalizeTaskInput`）、scheduleRule 组装、`calculateNextRun`/`isRecurringTask`、任务 CRUD（`getTasks`/`getTask`/`updateTask`/`createTaskRecord`/`removeTaskRecord`）、SQLite 运行历史装配（`taskRunsService` 单例 + `persistRun`/`getTaskRuns`/`hydrateTaskRuns`）与循环任务状态修复。
+- `scheduled-task-executor.mjs` — `executeTask` 会话编排（建 run 记录 → 模型/Profile/项目绑定 → `createAgent` + `runPrompt` → 超时 `abortRun` → 终态落库），进程内活跃 run 追踪（`runningTaskRunIds`，`executeTask` 是唯一写入方）与 `scheduled_task_started/notification` 事件发射。
+- `scheduled-task-runner.mjs` — 常驻调度守护循环（30s tick、`start/stopScheduledTaskRunner`、`recoverStaleScheduledTaskRuns` 启动恢复、`configureScheduledRunsRuntimeHooks` 维护暂停钩子），由 `server/index.mjs` 启动链直接调用。
+- `scheduled-task-instruction-parser.mjs` — `parseScheduledTaskInstructionWithAi`：自然语言 → cron 任务草稿 JSON 的 LLM 解析。
 
 **主要端点**:
 - `GET /api/scheduled-tasks` — 列出任务
@@ -207,7 +212,7 @@ Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hook
 - `POST /api/scheduled-tasks/:id/resume` — 恢复任务
 - `POST /api/scheduled-tasks/:id/run` — 手动触发任务
 
-**调度引擎**: 内置调度器（`startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务新建/更新保存 `modelRef + model` 展示快照；执行时以后台授权上下文从当前统一目录重新解析，自定义 Provider 已删除时拒绝运行，永不使用旧 transport 快照。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
+**调度引擎**: 内置调度器（`server/scheduled-task-runner.mjs` 的 `startScheduledTaskRunner`），支持 Cron 表达式和间隔调度。任务新建/更新保存 `modelRef + model` 展示快照；执行时以后台授权上下文从当前统一目录重新解析，自定义 Provider 已删除时拒绝运行，永不使用旧 transport 快照。任务可通过 `agentId` 绑定 Agent Profile；执行时会追加 profile 系统提示词、限制工具白名单，并在运行历史中记录 `agentId`、`agentLabel` 和 `agentSnapshot`。每个任务可配置 `executionMode`：默认 `serial`，同一任务已有运行实例时跳过新的到期执行；`parallel` 允许同一任务重叠执行。不同任务之间始终并行触发。达到 Agent Profile 运行时限后会调用 `abortRun()`，并以有界等待清理 timeout、Agent 事件监听器、内存/持久化运行 ID；循环任务超时后暂停，已保存的任务会话仍保留供查看。
 
 **任务指令契约**：定时触发与手动运行都复用统一 `runPrompt`；内置 slash command、Skill 和项目自定义命令沿用既有解析、权限与可用性规则，定时任务来源仍拒绝 Goal，工具审批不变。首条用户消息由统一 prompt 流程持久化，路由不再预先 append/persist，因此不再保证首消息在 `onStarted` 前落盘。指令回归见 `tests/server/scheduled-tasks.commands.test.mjs`。
 
@@ -226,7 +231,7 @@ Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hook
 
 - 间隔以 executeAt 为锚点取严格晚于计算基准的下一槽位，错过的槽位跳过、不积压补跑；一天固定 24 小时。历史仅有中文 scheduleRule 的 interval 仍回退解析分钟/小时/天，以原 nextRunAt 补锚点；显式结构化字段优先。每 30 秒检查到期任务，非精确秒级触发。
 - 类型切换显式清除无关频次字段，客户端提交的 nextRunAt 不作为常规循环规则；一次任务保留旧 nextRunAt 入参兼容。Cron 日期和星期沿用现有 AND 匹配及最多 366 天搜索窗口；并非完整 Unix Cron 实现。
-- 时间算法位于 `server/utils/scheduled-tasks.mjs`；测试见 `tests/server/scheduled-tasks.test.mjs`、`scheduled-tasks.execution.test.mjs` 和前端 `scheduled-task-form` / `scheduled-tasks-page` tests。
+- 时间算法位于 `server/utils/scheduled-tasks.mjs`；任务记录的领域规则与存取、执行编排、调度循环、LLM 解析分别在 `server/scheduled-task-{store,executor,runner,instruction-parser}.mjs`。测试见 `tests/server/scheduled-tasks.test.mjs`、`scheduled-tasks.execution.test.mjs` 和前端 `scheduled-task-form` / `scheduled-tasks-page` tests。
 
 ## shares.mjs (90 行)
 

@@ -17,7 +17,7 @@ export const BOT_DIR_NAME = 'bots'
 export const BOT_META_DIR = '.bot'
 export const BOT_MEMORY_FILE = 'MEMORY.md'
 export const BOT_INBOX_FILE = path.join(BOT_META_DIR, 'inbox.md')
-export const DEFAULT_HEARTBEAT_MINUTES = 60
+export const DEFAULT_HEARTBEAT_MINUTES = 15
 export const MIN_HEARTBEAT_MINUTES = 5
 /** 无论有没有信号，至少这么久叫醒它一次——否则「不产出就没有信号」会死锁。 */
 export const MAX_IDLE_WAKE_MINUTES = 180
@@ -206,7 +206,7 @@ export function normalizeBotRecord(input, previous = null) {
     modelRef: source.modelRef ?? previous?.modelRef ?? null,
     thinkingLevel: typeof source.thinkingLevel === 'string'
       ? source.thinkingLevel
-      : (previous?.thinkingLevel ?? 'medium'),
+      : (previous?.thinkingLevel ?? 'xhigh'),
     accessMode: typeof source.accessMode === 'string' ? source.accessMode : (previous?.accessMode ?? 'full-access'),
     sortOrder,
     createdAt,

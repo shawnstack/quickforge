@@ -90,7 +90,7 @@ describe('bots API', () => {
     const bot = res.body.bot
     expect(bot.name).toBe('小助手')
     expect(bot.heartbeat.enabled).toBe(true)
-    expect(bot.heartbeat.intervalMinutes).toBe(60)
+    expect(bot.heartbeat.intervalMinutes).toBe(15)
     expect(bot.heartbeat.nextRunAt).toEqual(expect.any(String))
     expect(bot).not.toHaveProperty('skills')
     // 目录名由 id 派生，与显示名无关：名字可以是中文，路径里不会出现它

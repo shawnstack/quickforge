@@ -67,7 +67,7 @@ async function createBot(body) {
 
   let bot = normalizeBotRecord({
     name,
-    thinkingLevel: body?.thinkingLevel ?? 'medium',
+    thinkingLevel: body?.thinkingLevel ?? 'xhigh',
     modelRef: body?.modelRef ?? null,
     model: body?.model ?? null,
     mascot: body?.mascot,

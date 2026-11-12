@@ -134,7 +134,7 @@ describe('normalizeBotRecord', () => {
     // 技能不归 bot 管：会话的技能来自全局与项目配置，所以记录里不该有这个字段。
     expect(bot).not.toHaveProperty('skills')
     expect(bot.heartbeat.enabled).toBe(true)
-    expect(bot.heartbeat.intervalMinutes).toBe(60)
+    expect(bot.heartbeat.intervalMinutes).toBe(15)
     expect(bot.accessMode).toBe('full-access')
     expect(bot.memoryFile.endsWith(BOT_MEMORY_FILE)).toBe(true)
     expect(bot.sessionId).toBeNull()

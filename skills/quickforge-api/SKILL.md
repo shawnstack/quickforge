@@ -206,7 +206,7 @@ node <skill-dir>/scripts/qf-api.mjs bot-messages 巡检员 --tail 5
 
 | 点 | 说明 |
 |---|---|
-| 心跳默认开 | 不传参数 `enabled` 就是 `true`；`--heartbeat-minutes 120` 设间隔，`--no-heartbeat` 建完就睡 |
+| 心跳默认开 | 不传参数 `enabled` 就是 `true`；`--heartbeat-minutes 120` 设间隔（默认间隔 15 分钟），`--no-heartbeat` 建完就睡 |
 | `bot-wake` 是真花钱 | 它跳过「有没有活」的判断，立刻跑一轮心跳模型调用。`woke: false` + `busy` / `generating` 表示有人正跟它说话，这轮没跑 |
 | 空会话不落盘 | bot 会话在第一条消息之前不在存储里，`bot-messages` 会回 `empty: true` 和一句说明；先 `bot-wake` 或让用户在界面上跟它聊一句 |
 | 删 / 改 / 写记忆没有子命令 | 删 bot（不可逆）、改名字/心跳/外观、覆盖它的 MEMORY.md，都让用户在界面上做——和定时任务同一先例。给 bot 投喂（写 inbox）也是用户动作，不走命令行 |

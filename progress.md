@@ -3,6 +3,15 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
+## 切断 src/lib/types.ts ↔ server-agent 运行时循环依赖（2026-11-12 14:24）
+
+- 环结构：`types.ts` 第 2 行从 `@/lib/server-agent` 门面 import type `ServerAgent` / `ServerAgentContextCompaction`；反向 `server-agent/` 下 7 条 import 语句从 `@/lib/types` 取 `agentAccessModeFromYoloMode` / `normalizeAgentAccessMode` / `agentAccessModeToYoloMode` 与 `AgentAccessMode`，构成运行时环（types → 门面 → agent.ts → types）。
+- 落点：新增零依赖模块 `src/lib/agent-access-mode.ts`（17 行），把 `AgentAccessMode` 类型与三个纯函数原样搬入（签名、实现、顺序一字未改）；`types.ts` 保留 `export type { AgentAccessMode } from './agent-access-mode'` + 同名 value re-export，对外导出面不变（20 个环外消费方零改动），并把第 2 行拆成 `import type { ServerAgent } from '@/lib/server-agent/agent'` 与 `import type { ServerAgentContextCompaction } from '@/lib/server-agent-types'`（均 type-only，编译期擦除）。
+- 改 import 的 7 处：`server-agent-types.ts:3`、`server-agent/agent.ts:3-4`、`core.ts:3`、`factories.ts:3`、`snapshot.ts:2`、`sse-state-frame.ts:2`、`state-sync.ts:2` 全部改指 `@/lib/agent-access-mode`；这批语句没有混入其它 types 符号，故无需拆句。环外文件（useAgentManager / deferred-session-agent / pi-chat / App.tsx 等）一律未动。
+- 验证：`npm run test` 526 文件 5810 passed / 2 skipped 全绿；`npx tsc -b` 通过；`npm run build` 通过（tsc + vite + precompress，225 文件）；`npx eslint src/lib/agent-access-mode.ts src/lib/types.ts src/lib/server-agent-types.ts src/lib/server-agent` 0 problems。
+- 环证据自查：`src/lib/types.ts` 中 `@/lib/server-agent'` 门面路径 0 处（`types.ts` 116 → 102 行）；`src/lib/server-agent/` 目录内 `@/lib/types` 0 处。
+- Notes：①改动留工作区**未 commit**（未 push、未建分支、未跑 git add）；②`docs/wiki/src/lib/README.md` 模块表已补 `agent-access-mode.ts` 行并更新 `types.ts` 行与章节；③归档脚本本轮未跑（progress/handoff 另有多轮历史段落与并行会话上下文，避免误归档）；④表内既有漂移顺带修正 1 处：`server-agent-types.ts` 记 266 行、实际 308 行（本轮只改其第 3 行 import 路径，行数未变）。
+
 ## 上帝模块治理⑦：src/App.tsx 按职责拆分（2026-11-12 12:06）
 
 - 动手前先摸清测试面：explore 调研确认 23 个前端测试直接读 `src/App.tsx` 源码文本断言（含 indexOf/slice 锚点与多行缩进断言）；其中 openLocalFilePathFromChat / openArtifactPreview 无源码断言可自由迁移，其余块迁移时同步把断言改指新模块（语义不变、负向断言双保留防回流）。动手前基线全量 526 文件 5810 passed / 2 skipped 全绿。

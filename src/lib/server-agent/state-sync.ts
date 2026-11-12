@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
-import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/types'
+import { agentAccessModeFromYoloMode, agentAccessModeToYoloMode, normalizeAgentAccessMode } from '@/lib/agent-access-mode'
 import { normalizeGoalState } from '@/lib/goal'
 import { fetchJsonWithTimeout } from '../server-agent-http'
 import type { ServerAgentStateSnapshot } from '../server-agent-types'

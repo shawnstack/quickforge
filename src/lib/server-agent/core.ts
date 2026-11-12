@@ -1,6 +1,6 @@
 import type { AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import type { AgentAccessMode } from '@/lib/types'
+import type { AgentAccessMode } from '@/lib/agent-access-mode'
 import type { GoalState } from '@/lib/goal'
 import type { GoalStateController } from '../goal-state-controller'
 import type { MessageLogApplyResult, MessageLogOp } from '../message-log'

@@ -73,7 +73,7 @@
 | `goal-edit.ts` | — | 目标安全保存编排：确认 pause、限时等待权威 paused 且非 streaming，再 revise；校验 session/goal/基线，支持取消只读等待，不重试 POST、客户端不另发 confirm/resume；服务端 revise 的新规划正常持久化后自动执行 |
 | `server-agent.ts` | 46 | 上帝模块治理⑥（2026-11-12）后的**门面**：只 re-export `ServerAgent` 类（`server-agent/agent.ts`）、`fetchActiveAgentStatuses`（`server-agent/runtime-status.ts`）与既有 SSE 单例/共享类型（`global-agent-sse-client.ts` / `server-agent-types.ts`）；导出面与拆分前逐名一致，21 个导入方零改动 |
 | `server-agent/` | — | ServerAgent 拆分目录（原 2817 行单文件，纯重构逐字迁出）：`core.ts`（`ServerAgentState` 状态形状 + `ServerAgentCore` 内部协作面：类在构造时以闭包构建一次，模块经 core 读写私有状态，不复制实现）；`agent.ts`（类本体：字段/构造/订阅/租约薄门面/prompt·steer·continue 等委托 + 静态工厂入口 + 私有 `handleSseEvent`/`applyLog`/watchdog，测试经 cast 触达的私有成员全部保留在类上）；HTTP 动作族 `prompt-actions.ts`（prompt/retry/steer/followUp/continue/abort + stash 消费）、`approval-actions.ts`（approve/reject/answerAsk）、`goal-actions.ts`（updateGoal/refreshGoalForSave）、`rollback-actions.ts`（会话回滚/轮级预检与执行/guards，轮级两方法走轻量 `AgentHttpTarget` 兼容原型实例）；状态同步族 `state-sync.ts`（`/state`·`/status` 执行体）；历史族 `messages-channel.ts`（分页拉消息）、`history-reconcile.ts`（拉尾对账+退避重试、hydrate/ensureFullHistory）；事件族 `sse-dispatch.ts`（26 case 分发，`返回 true`=原 `break` 由分发层转发、`false`=族内自行处理转发）+ 按事件族拆的 `sse-state-frame.ts`（state 帧）、`sse-run-lifecycle.ts`（agent_start/agent_end/message_update）、`sse-message-sync.ts`（message_end/turn_end/messages_replaced/resync）、`sse-tool-events.ts`（tool_execution_*→subagent/workflow 发布器）、`sse-approvals.ts`（审批与 ask）、`sse-goal-events.ts`、`sse-compaction-events.ts`（压缩通知/persist_degraded）、`sse-session-events.ts`（error/background_commands/session_lease）；`goal-iteration-markers.ts`（marker 窄合并/收集/重放）、`snapshot.ts`（initialStateFromSnapshot）、`factories.ts`（loadView/restore/create，实例化与坐标落地经 hooks 回到类）、`errors.ts`（服务端错误文案助手）、`runtime-status.ts`（侧栏状态轮询去抖） |
-| `server-agent-types.ts` | 266 | 共享类型与事件边界：ServerAgentLocalEvent、只读 type?: unknown 的 ServerAgentWireEvent；无运行时依赖 |
+| `server-agent-types.ts` | 308 | 共享类型与事件边界：ServerAgentLocalEvent、只读 type?: unknown 的 ServerAgentWireEvent；无运行时依赖（`AgentAccessMode` 为 type-only 取自 `agent-access-mode.ts`） |
 | `server-agent-http.ts` | 16 | `fetchJsonWithTimeout`：请求超时、外部取消转发、JSON 解析与资源清理 |
 | `global-agent-sse-client.ts` | 340 | 全局 SSE 单例、按会话分发、连接状态订阅、重连退避与健康探测 |
 | `session-lease-client.ts` | 154 | 会话写入租约客户端：标签页级 `clientId`（sessionStorage，刷新不变/新标签页新值）、`acquireLease` / `takeOverLease` / `releaseLease`（`POST|DELETE /api/agents/:id/lease`，带 `x-quickforge-client-id` 头）、`leaseSnapshotFromWire` 把 `{clientId}` 翻译成 `owner`/`observer`，20s 心跳常量；409 与网络失败一律不降级成「可写」 |
@@ -120,7 +120,8 @@
 | `message-queue-drainer.ts` | — | 基于 localStorage 的排队消息后台顺序发送器：per-session 防并发、顺序逐条发送、**只有 `ServerAgent.prompt` 明确返回 `true`（服务端 2xx 接受）才删条目**，静默未发送（已销毁 / 无写租约 / 已在流式）或抛错都保留队首并置 paused、agent 流式中不抢发、永不抛错；导出 `drainStoredMessageQueue`（把指定会话的排队消息从 localStorage 逐条自动发送到该会话）与 `pauseStoredMessageQueue`（置 paused 停止该会话后台续发）。面板侧 `submitQueuedPrompt` 同一判据：未接受则 `restoreHead` + 暂停，且 panel 在 `hydrate` 之前不用内存里的空队列覆盖存储；「立即」（steering）路径同理（`ServerAgent.steer` 返回 `Promise<boolean>`） |
 | `startup-model.ts` | 主聊天启动模型的当前目录精确匹配与安全回退 |
 | `http-storage-backend.ts` | 286 | HTTP Storage Backend 实现；`set` 成功后 fire-and-forget 写通启动设置快照（`app-settings-cache`）；provider-keys store 挂接 `provider-keys-cache` 内存缓存（get/has 读穿、set/delete/clear 写通 + 跨标签广播，fake/override 短路不污染缓存） |
-| `types.ts` | 82 | 类型定义 |
+| `types.ts` | 102 | 应用层共享类型定义（会话元数据/数据、项目、草稿等）；`AgentAccessMode` 与三个 `agentAccessMode*` 纯函数已迁到 `agent-access-mode.ts`，此处仅 re-export 以保持 `@/lib/types` 旧导入路径（20 处环外消费方零改动）；`ServerAgent` / `ServerAgentContextCompaction` 为 type-only 具名导入（`@/lib/server-agent/agent`、`@/lib/server-agent-types`），不再经 `@/lib/server-agent` 门面 |
+| `agent-access-mode.ts` | 17 | Agent 访问模式（`default` / `full-access`）契约：`AgentAccessMode` 类型与 `agentAccessModeFromYoloMode` / `normalizeAgentAccessMode` / `agentAccessModeToYoloMode` 纯函数（自 `types.ts` 逐字迁出，签名实现不变）；零 import，故 `server-agent/` 与 UI 都能直接依赖而不经 `types.ts`，切断 `types.ts ↔ server-agent` 运行时环 |
 | `utils.ts` | 6 | 通用工具函数（cn） |
 | `message-utils.ts` | 95 | 消息处理工具 |
 | `mermaid-renderer.ts` | 共享 Mermaid 动态加载、SVG 安全检查和渲染工具 |
@@ -364,9 +365,17 @@
 - 失效路径：backend set/delete/clear 写穿、备份导入（`components/settings/tabs/BackupSettingsTab.tsx` 绕过 backend 直写服务端，成功后统一 `clearProviderKeysCache` + 广播）、跨标签 `BroadcastChannel('quickforge-sync')` `provider-keys-changed`（与 `useCrossTabSync` 共用频道、sourceTabId 自忽略、未知类型互相安全忽略）。
 - 通道惰性建立（首次产生缓存项或广播时）而非 import 期：Node 测试环境未关闭通道会挂住事件循环（建立时 `unref` 兜底），且缓存为空时不存在跨标签过期窗口；BroadcastChannel 不可用/监听器异常静默降级。
 
-### types.ts (82 行)
+### types.ts (102 行)
 
 **类型**: `BackgroundTaskStatus`, `ChatScope`, `ProjectInfo`, `SkillsScope`, `SkillSummary`, `RestoredDraft`, `QuickForgeSessionMetadata`, `QuickForgeSessionData`, `BackgroundTask`
+
+**re-export（兼容层）**: `AgentAccessMode` 类型与 `agentAccessModeFromYoloMode` / `normalizeAgentAccessMode` / `agentAccessModeToYoloMode` 已迁至 `agent-access-mode.ts`，本文件只做 `export type { AgentAccessMode }` 与同名 value re-export，旧 `@/lib/types` 导入路径继续有效。
+
+**依赖方向**: `ServerAgent` 走 `@/lib/server-agent/agent`、`ServerAgentContextCompaction` 走 `@/lib/server-agent-types`，均为 `import type`（编译期擦除），不再经 `@/lib/server-agent` 门面，因此 `types.ts ↔ server-agent` 无运行时环。
+
+### agent-access-mode.ts (17 行)
+
+**用途**: Agent 访问模式的唯一契约模块，零 import。从 `types.ts` 逐字迁出（类型 + 3 个纯函数），供 `server-agent/`（agent/core/factories/snapshot/sse-state-frame/state-sync）与 UI 两侧同时依赖；`server-agent-types.ts` 的 `AgentAccessMode` 也改指本模块。
 
 ### utils.ts (6 行)
 

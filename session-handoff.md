@@ -3,6 +3,13 @@
 只保留最近一轮交接；更早轮次由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/handoffs/`（按月分文件）。
 新一轮的「本轮」段落加在最上面。
 
+## 本轮：切断 types.ts ↔ server-agent 运行时循环依赖（2026-11-12 14:24）
+
+- 结论：完成，行为零变化。新增 `src/lib/agent-access-mode.ts`（17 行，零 import）承载 `AgentAccessMode` 与三个 `agentAccessMode*` 纯函数（自 `types.ts` 逐字迁出）；`types.ts` 只做 type + value re-export 保持旧路径，`ServerAgent`/`ServerAgentContextCompaction` 改走 `@/lib/server-agent/agent` 与 `@/lib/server-agent-types` 的 type-only import；`server-agent/` 下 7 条 import 全部改指新模块 → 环消失。
+- 改动文件：`src/lib/agent-access-mode.ts`（新增）；`src/lib/types.ts`（102 行，-13）；`src/lib/server-agent-types.ts:3`；`src/lib/server-agent/agent.ts:3-4`、`core.ts:3`、`factories.ts:3`、`snapshot.ts:2`、`sse-state-frame.ts:2`、`state-sync.ts:2`；`docs/wiki/src/lib/README.md`（模块表 + types.ts 章节）。
+- 验证：`npm run test` 526 文件 5810 passed / 2 skipped；`npx tsc -b` 通过；`npm run build` 通过；针对性 eslint 0 problems。环证据：types.ts 内门面路径 0 处、server-agent/ 内 `@/lib/types` 0 处。
+- 未完 / 下一步：①**未 commit / 未 push / 未建分支**，等用户验收；②环外 20 个消费方仍从 `@/lib/types` 取这三个符号（兼容层有意保留），如需进一步收敛可另开 feature 改指 `@/lib/agent-access-mode` 并删除 re-export；③归档脚本本轮未跑。
+
 ## 本轮：上帝模块治理⑦——src/App.tsx 按职责拆分（2026-11-12 12:06）
 
 - 结论：完成。App.tsx 2334 → 1585 行（MainApp 约 2120 → 约 1520）。任务点名的三块业务规则——openLocalFilePathFromChat（拼路径+fetch）、已删项目恢复策略执行、artifact 预览/自动预览挂起规则——全部迁出视图层；另迁出 agent 事件联动、窗口事件桥、bot 模式块、侧聊宿主、新对话空态+taskLauncher、顶栏工具条 JSX。逐字搬移 + 装配层接线，对外行为与 UI 完全不变。

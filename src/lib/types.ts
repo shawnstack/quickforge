@@ -1,24 +1,11 @@
 import type { SessionMetadata, SessionData } from '@/storage'
-import type { ServerAgent, ServerAgentContextCompaction } from '@/lib/server-agent'
+import type { ServerAgent } from '@/lib/server-agent/agent'
+import type { ServerAgentContextCompaction } from '@/lib/server-agent-types'
+import type { AgentAccessMode } from './agent-access-mode'
 import { t } from './i18n'
 
-export type AgentAccessMode = 'default' | 'full-access'
-
-export function agentAccessModeFromYoloMode(yoloMode: unknown): AgentAccessMode {
-  return yoloMode === true || yoloMode === 'true' ? 'full-access' : 'default'
-}
-
-export function normalizeAgentAccessMode(value: unknown, fallback: unknown = 'default'): AgentAccessMode {
-  if (value === 'default' || value === 'full-access') return value
-  if (value === true || value === 'true') return 'full-access'
-  if (value === false || value === 'false') return 'default'
-  if (fallback !== value) return normalizeAgentAccessMode(fallback, 'default')
-  return 'default'
-}
-
-export function agentAccessModeToYoloMode(mode: AgentAccessMode): boolean {
-  return mode === 'full-access'
-}
+export type { AgentAccessMode } from './agent-access-mode'
+export { agentAccessModeFromYoloMode, normalizeAgentAccessMode, agentAccessModeToYoloMode } from './agent-access-mode'
 
 export type BackgroundTaskStatus = 'running' | 'idle' | 'error' | 'aborted'
 

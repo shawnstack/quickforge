@@ -1,6 +1,6 @@
 import type { AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
-import { agentAccessModeToYoloMode, normalizeAgentAccessMode, type AgentAccessMode } from '@/lib/types'
+import { agentAccessModeToYoloMode, normalizeAgentAccessMode, type AgentAccessMode } from '@/lib/agent-access-mode'
 import { logger } from '@/lib/logger'
 import { modelReferenceFromModel } from '../model-reference'
 import { fetchJsonWithTimeout } from '../server-agent-http'

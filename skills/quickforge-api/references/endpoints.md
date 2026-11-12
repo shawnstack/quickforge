@@ -91,7 +91,7 @@ bot 的服务端路由在 `server/routes/bots.mjs`（详见 `docs/wiki/server/bo
 
 ## 身份与环境变量
 
-`server/tools/index.mjs` 的 `toolRunCommand` 通过
+`server/tools/run-command.mjs` 的 `toolRunCommand` 通过
 `server/runtime-info.mjs` 的 `buildChildProcessEnv(context)` 注入：
 
 | 变量 | 来源 | 没有时 |

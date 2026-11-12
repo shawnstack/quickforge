@@ -8,7 +8,7 @@
 
 - `server/subagents.mjs`：内置 `general` / `explore` sub agent 定义。
 - `server/tools/definitions.mjs`：定义 `run_subagent` 工具及 workspace 工具 schema。
-- `server/tools/index.mjs`：实现 workspace 工具 handler。
+- `server/tools/`：各职责模块实现 workspace 工具 handler，`index.mjs` 只做注册表装配。
 - `server/agent-manager.mjs`：负责 Agent 创建、工具注入、工具审批、sub agent 执行。
 - `server/routes/scheduled-tasks.mjs`：定时任务按计划创建 Agent session 并执行 instruction。
 
@@ -96,7 +96,7 @@ runner 定期扫描 -> 找到到期任务 -> createAgent -> 写入 user instruct
 工具定义和执行分离：
 
 - `server/tools/definitions.mjs`：工具名称、描述、参数 schema。
-- `server/tools/index.mjs`：工具执行 handler。
+- `server/tools/` 各职责模块：工具执行 handler（`index.mjs` 装配注册表）。
 - `server/agent-manager.mjs`：将工具定义包装为 Agent 可调用工具，并处理审批。
 
 当前工具来源主要包括：

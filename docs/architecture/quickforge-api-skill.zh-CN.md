@@ -25,7 +25,7 @@ QuickForge 的本地 API 已经覆盖了「创建会话 → 发消息 → 读消
 | `skills/quickforge-api/references/endpoints.md` | 白名单端点速查 + 明确不给出口的端点清单 |
 | `server/runtime-info.mjs` | 进程内记录 `{ host, port, baseUrl }`，并提供 `buildChildProcessEnv(context)` |
 | `server/index.mjs` | listen 回调里 `setRuntimeInfo({ host, port: boundPort })` |
-| `server/tools/index.mjs` | `toolRunCommand` 的 `spawn` 传 `env: buildChildProcessEnv(context)` |
+| `server/tools/run-command.mjs` | `toolRunCommand` 的 `spawn` 传 `env: buildChildProcessEnv(context)` |
 
 ### 3.1 身份自省：环境变量注入
 

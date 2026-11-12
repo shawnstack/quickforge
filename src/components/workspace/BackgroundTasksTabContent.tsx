@@ -79,7 +79,7 @@ function BackgroundTaskElapsed({ startedAt, running }: { startedAt?: number; run
 
 /**
  * 合并后的日志无法区分真实 stderr，只对显式标记行做弱化着色。
- * 服务端 `writeCommandLog` 写入的分段头是 `[stderr <ISO 时间>]`（见 server/tools/index.mjs），
+ * 服务端 `writeCommandLog` 写入的分段头是 `[stderr <ISO 时间>]`（见 server/tools/run-command.mjs），
  * 因此同时兼容带时间戳 / 不带时间戳两种前缀；`error:` 与 `Error` 开头保留原有的启发式。
  */
 function isStderrLine(line: string): boolean {

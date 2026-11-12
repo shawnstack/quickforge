@@ -26,7 +26,7 @@ import {
 
 /**
  * run_command 的日志查看上下文：`outputFile` 与 `sessionId` 都由工具 details 提供
- * （server/tools/index.mjs 的 commonDetails + agent-session-events 补的 sessionId）。
+ * （server/tools/run-command.mjs 的 commonDetails + agent-session-events 补的 sessionId）。
  * 二者缺一就不渲染「查看完整日志」按钮。
  */
 function runCommandLogContext(params: Record<string, unknown> | undefined, result: ToolResultLike | undefined) {

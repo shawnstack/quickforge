@@ -2,32 +2,16 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
-import { createTaskLauncherVisibility } from '@/components/chat/task-launcher-visibility'
-import {
-  PanelRight,
-  SquareTerminal,
-} from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
-import { ProjectOpenMenu } from '@/components/project/ProjectOpenMenu'
 import { SkillsDialog } from '@/components/skills'
 import { BotSettingsDialog, NewBotDialog } from '@/components/bots/BotDialogs'
 import { BotMascot } from '@/components/bots/mascot/BotMascot'
-import { useMascotStroll } from '@/components/bots/mascot/use-mascot-stroll'
-import { useMascotState } from '@/components/bots/mascot/use-mascot-state'
-import {
-  createBot as createBotRequest,
-  deleteBot as deleteBotRequest,
-  ensureBotSessionOpen,
-  fetchBots,
-  reorderBots,
-  wakeBot as wakeBotRequest,
-  type BotSummary,
-} from '@/components/bots/bots-data'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
 import { PluginUiToasts } from '@/components/plugins/PluginSlot'
 import { ConversationHeader } from '@/components/app/ConversationHeader'
 import { StartupSplash, ConversationLoadingScreen } from '@/components/app/StartupScreens'
+import { StartupErrorScreen } from '@/components/app/StartupErrorScreen'
+import { WindowToolbar } from '@/components/app/WindowToolbar'
 import {
   buildConnectionModel,
   DEFAULT_CONNECTION,
@@ -36,17 +20,8 @@ import {
 import { t } from '@/lib/i18n'
 import { isBotProject } from '@/lib/bot-project'
 import { BOT_CHAT_CAPABILITIES, QUICKFORGE_CHAT_CAPABILITIES } from '@/lib/chat-capabilities'
-import { pickNewChatGreetingKey } from '@/lib/new-chat-greeting'
 import { cn } from '@/lib/utils'
-import {
-  OPEN_SUBAGENT_RUN_EVENT,
-  normalizeOpenSubagentRunRequest,
-  type SubagentRunPayload,
-} from '@/lib/subagent-run-detail'
-import { OPEN_GOAL_SUMMARY_EVENT } from '@/lib/goal-ui'
 import { buildBackgroundTasks } from '@/lib/background-tasks-model'
-import { OPEN_BACKGROUND_TASKS_EVENT, normalizeOpenBackgroundTasksRequest } from '@/lib/background-tasks-open'
-import { OPEN_WORKFLOW_RUN_EVENT, normalizeOpenWorkflowRunRequest, workflowRunStore, type WorkflowRunPayload } from '@/lib/workflow-run-payload'
 import type { GoalAction, GoalActionOptions } from '@/lib/goal'
 import { saveGoalObjective } from '@/lib/goal-edit'
 import type {
@@ -89,33 +64,30 @@ import { useVisibleRuntimeStatuses } from '@/hooks/useVisibleRuntimeStatuses'
 import { HttpStorageBackend } from '@/lib/http-storage-backend'
 import { ServerAgent } from '@/lib/server-agent'
 import { logger } from '@/lib/logger'
-import { getDeletedProjectRecoveryDecision } from '@/lib/deleted-project-recovery'
-import { isCurrentProjectRequest } from '@/lib/project-request-guard'
+import { useAgentSessionEvents } from '@/hooks/useAgentSessionEvents'
+import { useAppEventBridges } from '@/hooks/useAppEventBridges'
+import { useBotWorkspace } from '@/hooks/useBotWorkspace'
+import { useSideChatPanel } from '@/hooks/useSideChatPanel'
+import { useNewChatEmptyState } from '@/hooks/useNewChatEmptyState'
+import { useChatFileOpener } from '@/hooks/useChatFileOpener'
+import { useDeletedProjectRecovery } from '@/hooks/useDeletedProjectRecovery'
+import { useArtifactPreviewActions } from '@/hooks/useArtifactPreviewActions'
 import { openSessionFromSettings } from '@/lib/open-session-from-settings'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
-import { GitToolsPinnedSummary } from '@/components/git/GitToolsPinnedSummary'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
 import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
-import { openWorkspaceExternal, resolveWorkspacePath } from '@/components/workspace/workspace-api'
-import type { WorkspaceExternalOpenTarget } from '@/components/workspace/workspace-api'
 import {
   shouldHandleWorkspaceInspectorRequest,
   workspaceInspectorRuntimeScopeMatches,
 } from '@/components/workspace/workspace-inspector-request'
 import type { WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
-import { SideChatAgent } from '@/components/workspace/side-chat-agent'
-import { subscribeToAgentEvents } from '@/lib/server-agent'
 import type { AiTurnArtifact } from '@/lib/tool-artifacts'
-import { artifactPreviewMode, documentFormatFromPath, findBestPreviewableArtifact, workspaceArtifactDiskPath } from '@/components/workspace/artifact-preview-utils'
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
 import { isMobileShell, isNativeMobileEntry, isRemoteQuickForgeClient, openMobileServerPicker, readMobileServerAliasFromUrl } from '@/lib/mobile-server'
 import { initializeSystemNotifications, showTaskSystemNotification } from '@/lib/system-notifications'
-import {
-  shouldClosePinnedSummaryBeforeInspectorOpen,
-  shouldSuspendPinnedSummary,
-} from '@/lib/pinned-summary-drag'
+import { shouldSuspendPinnedSummary } from '@/lib/pinned-summary-drag'
 import { useSidebarOrdering } from '@/hooks/useSidebarOrdering'
 import { usePinnedSummaryModel } from '@/hooks/usePinnedSummaryModel'
 import { useProjectExternalOpen } from '@/hooks/useProjectExternalOpen'
@@ -149,50 +121,6 @@ function LazyPanelFallback() {
 
 function LazyOverlayFallback() {
   return null
-}
-
-type ScheduledTaskNotificationEvent = {
-  type?: unknown
-  runId?: unknown
-  sessionId?: unknown
-  title?: unknown
-  status?: unknown
-  message?: unknown
-}
-
-type ScheduledTaskStartedEvent = {
-  type?: unknown
-  sessionId?: unknown
-  title?: unknown
-  scope?: unknown
-  projectId?: unknown
-  createdAt?: unknown
-}
-
-function isBackgroundTaskStatus(value: unknown): value is BackgroundTaskStatus {
-  return value === 'idle' || value === 'running' || value === 'error' || value === 'aborted'
-}
-
-function isScheduledTaskNotification(event: Record<string, unknown>): event is ScheduledTaskNotificationEvent {
-  return event.type === 'scheduled_task_notification'
-}
-
-type BotHeartbeatNotificationEvent = {
-  type?: unknown
-  sessionId?: unknown
-  botId?: unknown
-  reportKey?: unknown
-  title?: unknown
-  status?: unknown
-  message?: unknown
-}
-
-function isBotHeartbeatNotification(event: Record<string, unknown>): event is BotHeartbeatNotificationEvent {
-  return event.type === 'bot_heartbeat_notification'
-}
-
-function isScheduledTaskStarted(event: Record<string, unknown>): event is ScheduledTaskStartedEvent {
-  return event.type === 'scheduled_task_started'
 }
 
 function MainApp() {
@@ -248,16 +176,6 @@ function MainApp() {
   const terminalState = useAppTerminalState()
   const { pendingTerminalCommand, setPendingTerminalCommand, terminalDockOpen, setTerminalDockOpen } = terminalState
   const [workspaceInspectorFullscreen, setWorkspaceInspectorFullscreen] = useState(false)
-  const [sideChatAgent] = useState(() => new SideChatAgent({ model: buildConnectionModel(DEFAULT_CONNECTION) }))
-  const [sideChatRevision, setSideChatRevision] = useState(0)
-  const bumpSideChatRevision = useCallback(() => setSideChatRevision((value) => value + 1), [])
-  const sideChatDraftRef = useRef('')
-  const sideChatInputMemory = useMemo(() => ({
-    get: () => sideChatDraftRef.current,
-    set: (text: string) => {
-      sideChatDraftRef.current = text
-    },
-  }), [])
   const [currentSessionArtifactsState, setCurrentSessionArtifactsState] = useState<{
     projectId?: string
     sessionId?: string
@@ -266,9 +184,6 @@ function MainApp() {
   // 侧栏视图/排序模式（带持久化）；区块顺序与回调由 ChatSidebar 直连
   // sidebar-ordering-store 订阅（桌面/移动两处实例共享）。
   const { sidebarSessionViewMode, sidebarSessionSortMode } = useSidebarOrdering()
-  // 用户在新对话空状态主动清除项目预选后，本次空状态内不再默认预选上次激活的项目。
-  const [emptyStateProjectDismissed, setEmptyStateProjectDismissed] = useState(false)
-  const wasNewChatEmptyStateRef = useRef(false)
   const [currentSessionHoverInfo, setCurrentSessionHoverInfo] = useState<(ContextUsageDisplayInfo & { sessionId?: string }) | undefined>()
   const gitState = useAppGitState()
   const { titleGitStatus, setTitleGitStatus, titleGitRequestIdRef, titleGitAbortRef, branchMenuOpen, setBranchMenuOpen, gitToolsExpanded, setGitToolsExpanded, gitCommitDialogOpen, setGitCommitDialogOpen, gitGraphOpen, setGitGraphOpen } = gitState
@@ -281,7 +196,6 @@ function MainApp() {
   const chatFileRequestIdRef = useRef(0)
   const loadingState = useAppLoadingState()
   const { startupSplashDone, startupSplashExited, visibleLoadingSessionId, renderedLoadingSessionId } = loadingState
-  const recoveringDeletedToolProjectIdRef = useRef<string | undefined>(undefined)
   const [storage, setStorage] = useState<Awaited<ReturnType<typeof initializePiStorage>> | null>(null)
   const { toasts, handleTaskComplete: addTaskCompletionToast, addToast, dismissToast } = useTaskToasts()
   const handleTaskComplete = useCallback((sessionId: string, title: string, status: BackgroundTaskStatus) => {
@@ -388,7 +302,6 @@ function MainApp() {
   })
   const workspaceInspectorProjectId = agentManager.currentToolProject?.id ?? 'global-workspace'
   const workspaceInspectorRuntimeScopeId = agentManager.currentRuntimeScopeId
-  const sideChatRuntimeScopeRef = useRef(workspaceInspectorRuntimeScopeId)
   const workspaceInspectorScope = useMemo<WorkspaceInspectorRuntimeScope>(() => ({
     projectId: workspaceInspectorProjectId,
     runtimeScopeId: workspaceInspectorRuntimeScopeId,
@@ -542,42 +455,18 @@ function MainApp() {
     })
   }, [setWorkspaceInspectorRequest])
 
-  const clearSideChat = useCallback(() => {
-    sideChatAgent.reset()
-    sideChatDraftRef.current = ''
-    bumpSideChatRevision()
-  }, [bumpSideChatRevision, sideChatAgent])
-
-  // 内嵌 AI 浏览器：Agent 一旦开始驱动桌面浏览器，就把右侧面板切到浏览器标签，
-  // 让用户始终看得见它在点什么。非桌面端不会收到这类工具事件，这段对 Web 端无感。
-  const requestAgentBrowserPanel = useCallback(() => {
-    setArtifactPreviewOpen(false)
-    requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'agent-browser' })
-  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
-
-  useEffect(() => subscribeToAgentEvents((event) => {
-    if (event?.type !== 'tool_execution_start') return
-    const toolName = typeof event.toolName === 'string' ? event.toolName : ''
-    if (!toolName.startsWith('mcp__desktop-browser__')) return
-    if (event.sessionId !== agentManager.currentSessionId) return
-    requestAgentBrowserPanel()
-  }), [agentManager.currentSessionId, requestAgentBrowserPanel])
-
-  useEffect(() => () => sideChatAgent.abort(), [sideChatAgent])
-
-  useEffect(() => {
-    if (sideChatRuntimeScopeRef.current === workspaceInspectorRuntimeScopeId) return undefined
-    sideChatRuntimeScopeRef.current = workspaceInspectorRuntimeScopeId
-    const timer = window.setTimeout(() => {
-      clearSideChat()
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [clearSideChat, workspaceInspectorRuntimeScopeId])
-
-  useEffect(() => {
-    const model = agentManager.agent?.state.model ?? activeModelRef.current
-    sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })
-  }, [agentManager.agent, agentManager.chatPanelRevision, agentManager.currentSessionId, sideChatAgent])
+  const {
+    sideChatAgent,
+    sideChatInputMemory,
+    sideChatRevision,
+    clearSideChat,
+  } = useSideChatPanel({
+    agent: agentManager.agent,
+    chatPanelRevision: agentManager.chatPanelRevision,
+    currentSessionId: agentManager.currentSessionId,
+    runtimeScopeId: workspaceInspectorRuntimeScopeId,
+    activeModelRef,
+  })
 
   const openWorkspaceGitChanges = useCallback(() => {
     const projectId = agentManager.currentToolProject?.id
@@ -595,103 +484,30 @@ function MainApp() {
     addToast,
   })
 
-  const openLocalFilePathFromChat = useCallback(async (filePath: string) => {
-    const sessionId = agentManager.currentSessionId ?? 'local'
-    const normalizedPath = filePath.replace(/[\\\\/]+/g, '/').toLowerCase()
-    const isQuickForgeTextAttachment = normalizedPath.includes('/cache/global/tmp/conversations/')
-    if (isQuickForgeTextAttachment) {
-      try {
-        const response = await fetch(`/api/agents/${encodeURIComponent(sessionId)}/open-text-attachment`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ path: filePath }),
-        })
-        if (response.ok) return
-        const payload = await response.json().catch(() => null) as { error?: string; message?: string } | null
-        throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`)
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '打开临时附件失败'
-        addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
-        return
-      }
-    }
-    const projectId = agentManager.currentToolProject?.id
-    const requestScope = workspaceInspectorScopeRef.current
-    if (!projectId) {
-      addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message: '当前对话没有关联项目。' })
-      return
-    }
-    const requestId = chatFileRequestIdRef.current + 1
-    chatFileRequestIdRef.current = requestId
+  const { openLocalFilePathFromChat } = useChatFileOpener({
+    currentSessionId: agentManager.currentSessionId,
+    currentToolProjectId: agentManager.currentToolProject?.id,
+    addToast,
+    requestWorkspaceInspector,
+    workspaceInspectorScopeRef,
+    currentToolProjectIdRef,
+    chatFileRequestIdRef,
+  })
 
-    try {
-      const resolved = await resolveWorkspacePath(projectId, filePath)
-      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
-      if (!workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)) return
-      requestWorkspaceInspector({ projectId, kind: 'reader', path: resolved.relativePath }, requestScope)
-    } catch (error) {
-      if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
-      if (!workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)) return
-      const message = error instanceof Error ? error.message : '打开文件失败'
-      addToast({ sessionId: agentManager.currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
-    }
-  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id, requestWorkspaceInspector])
-
-  const openArtifactPreview = useCallback((projectId: string, path: string, kind?: Parameters<typeof artifactPreviewMode>[1]) => {
-    const project = agentManager.currentToolProject
-    const mode = artifactPreviewMode(path, kind)
-    if (!project || project.id !== projectId || !mode) return
-    setArtifactPreviewOpen(false)
-    if (mode === 'reader') {
-      requestWorkspaceInspector({ projectId, kind: 'reader', path })
-      return
-    }
-    if (mode === 'document') {
-      const format = documentFormatFromPath(path)
-      if (format) requestWorkspaceInspector({ projectId, kind: 'document', path, format })
-      return
-    }
-    requestWorkspaceInspector({
-      projectId,
-      kind: 'browser',
-      url: workspaceArtifactDiskPath(project.path, path),
-    })
-  }, [agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
-
-  // 助手回复文件卡片预览：复用产物预览统一入口，按类型分流 Reader/Document/Browser，
-  // 与产物列表点开同一文件的行为完全同源。
-  const openFilePreviewFromArtifactCard = useCallback((relativePath: string) => {
-    const projectId = agentManager.currentToolProject?.id
-    if (!projectId) return
-    openArtifactPreview(projectId, relativePath)
-  }, [agentManager.currentToolProject?.id, openArtifactPreview])
-
-  // 助手回复文件卡片「审查」：打开工作区 Review 面板并直达该文件的 diff tab
-  // （git 工作区 diff，与会话影子备份口径无关；文件卡上的 ±行数才是会话口径）。
-  const reviewFileChangesFromArtifactCard = useCallback((relativePath: string) => {
-    const projectId = agentManager.currentToolProject?.id
-    if (!projectId) return
-    requestWorkspaceInspector({ projectId, kind: 'review', view: 'changes', path: relativePath })
-  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector])
-
-  // 助手回复文件卡片「打开 ▾」外部打开：走工作区 open-external 路由（服务端带
-  // 工作区路径安全校验、仅限本机请求）。explorer 定位文件所在目录（默认），
-  // vscode / idea 用对应编辑器打开文件；失败提示按目标区分。
-  const revealFileFromArtifactCard = useCallback(async (relativePath: string, target: WorkspaceExternalOpenTarget = 'explorer') => {
-    const projectId = agentManager.currentToolProject?.id
-    if (!projectId) return
-    try {
-      await openWorkspaceExternal(projectId, relativePath, target)
-    } catch (error) {
-      const failureKey = target === 'vscode' ? 'openInVSCodeFailed' : target === 'idea' ? 'openInIDEAFailed' : 'assistantArtifactRevealFailed'
-      addToast({
-        sessionId: agentManager.currentSessionId ?? '',
-        title: t(failureKey),
-        status: 'error',
-        message: error instanceof Error ? error.message : String(error),
-      })
-    }
-  }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
+  const {
+    openArtifactPreview,
+    openFilePreviewFromArtifactCard,
+    reviewFileChangesFromArtifactCard,
+    revealFileFromArtifactCard,
+    openLivePresentedArtifacts,
+  } = useArtifactPreviewActions({
+    currentToolProject: agentManager.currentToolProject,
+    currentSessionId: agentManager.currentSessionId,
+    addToast,
+    requestWorkspaceInspector,
+    setArtifactPreviewOpen,
+    setWorkspaceInspectorRequest,
+  })
 
   // 每轮产物卡「撤销本轮」：目标收集 + 会话切换静默关闭 + 轮键记账（见 useTurnFileRollback）。
   const {
@@ -705,112 +521,6 @@ function MainApp() {
     sessionId: agentManager.currentSessionId,
     projectId: agentManager.currentToolProject?.id,
   })
-
-  // 自动预览的唯一入口：`ChatPanelHost` 在 `tool_execution_end` 时上报「本次工具
-  // 执行刚刚产出的文件」，且只由当前活跃视图上报。这是事件而不是状态差分，因此
-  // 历史补齐、缓存校准、SSE 重连、回滚都不会误触发打开右侧面板。
-  const openLivePresentedArtifacts = useCallback((sessionId: string, artifacts: AiTurnArtifact[]) => {
-    const project = agentManager.currentToolProject
-    const projectId = project?.id
-    if (!projectId || !sessionId || sessionId !== agentManager.currentSessionId) return
-    const artifact = findBestPreviewableArtifact(artifacts)
-    if (!artifact?.path) return
-    const mode = artifactPreviewMode(artifact.path, artifact.kind)
-    if (!mode) return
-    setArtifactPreviewOpen(false)
-    if (mode === 'reader') {
-      // Markdown、代码、配置和文本走 Reader；Markdown 使用富文本预览，其余使用 Monaco 只读查看。
-      requestWorkspaceInspector({ projectId, kind: 'reader', path: artifact.path })
-      return
-    }
-    if (mode === 'document') {
-      const format = documentFormatFromPath(artifact.path)
-      if (format) requestWorkspaceInspector({ projectId, kind: 'document', path: artifact.path, format })
-      return
-    }
-    // HTML 和支持的图片走 Browser iframe。
-    requestWorkspaceInspector({
-      projectId,
-      kind: 'browser',
-      url: workspaceArtifactDiskPath(project.path, artifact.path),
-    })
-  }, [agentManager.currentSessionId, agentManager.currentToolProject, requestWorkspaceInspector, setArtifactPreviewOpen])
-
-  useEffect(() => {
-    setArtifactPreviewOpen(false)
-    setWorkspaceInspectorRequest(undefined)
-  }, [agentManager.currentToolProject?.id, setArtifactPreviewOpen, setWorkspaceInspectorRequest])
-
-  // 监听工具卡片预览按钮的桥接请求（tool-renderers/shared.tsx 经 useUIStore 发起，
-  // 原 window CustomEvent 桥已由 ui-store 的请求信号替代），转调 openArtifactPreview，
-  // 复用与自动预览完全一致的逻辑。
-  const artifactPreviewRequest = useUIStore((s) => s.artifactPreviewRequest)
-  useEffect(() => {
-    const request = artifactPreviewRequest
-    if (!request) return
-    if (openArtifactPreview) {
-      const projectId = agentManager.currentToolProject?.id
-      if (projectId && typeof request.path === 'string') {
-        openArtifactPreview(projectId, request.path, request.kind)
-      }
-    }
-    useUIStore.getState().clearArtifactPreviewRequest()
-  }, [artifactPreviewRequest, agentManager.currentToolProject?.id, openArtifactPreview])
-
-  // 「查看完整日志」桥接（tool-renderers/shared.tsx 的 VIEW_COMMAND_LOG_EVENT）：
-  // 命令日志在 <dataDir>/logs/commands 下（工作区外），走 command-log reader tab。
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: unknown; path?: unknown; label?: unknown }>).detail
-      // 与 Inspector 的兜底保持一致：后台任务面板在没有关联项目时也可用，
-      // 此时 currentToolProject 为空，仍需把 command-log 打开到 global-workspace。
-      const projectId = agentManager.currentToolProject?.id ?? 'global-workspace'
-      const logSessionId = typeof detail?.sessionId === 'string' ? detail.sessionId : ''
-      const logPath = typeof detail?.path === 'string' ? detail.path : ''
-      if (!logSessionId || !logPath) return
-      requestWorkspaceInspector({
-        projectId,
-        kind: 'command-log',
-        sessionId: logSessionId,
-        path: logPath,
-        label: typeof detail?.label === 'string' && detail.label ? detail.label : undefined,
-      })
-    }
-    window.addEventListener('quickforge:view-command-log', handler as EventListener)
-    return () => window.removeEventListener('quickforge:view-command-log', handler as EventListener)
-  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector])
-
-  // 「打开后台任务面板」桥接（src/lib/background-tasks-open.ts）：
-  // 入口分散在 Inspector 子树之外（Composer 命令图标、置顶摘要），它们拿不到
-  // requestWorkspaceInspector，因此统一用窗口事件把意图交到这里。
-  // requestWorkspaceInspector 内部已登记打开 scope，不需要再调 onOpenChange。
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<unknown>).detail
-      const request = normalizeOpenBackgroundTasksRequest(detail)
-      // 跨会话残留事件不应把面板切走：只接受当前会话或缺省。
-      if (request.sessionId && request.sessionId !== agentManager.currentSessionId) return
-      requestWorkspaceInspector({ projectId: workspaceInspectorProjectId, kind: 'background-tasks' })
-    }
-    window.addEventListener(OPEN_BACKGROUND_TASKS_EVENT, handler as EventListener)
-    return () => window.removeEventListener(OPEN_BACKGROUND_TASKS_EVENT, handler as EventListener)
-  }, [agentManager.currentSessionId, requestWorkspaceInspector, workspaceInspectorProjectId])
-
-  // 其它 Goal surface（控制条/卡片）请求打开摘要：只认当前会话 + 当前 Goal，
-  // 打开前复用现有收起 Inspector 入口解除 suspension，不新增全局模式。
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ sessionId?: unknown; goalId?: unknown; view?: unknown }>).detail
-      const sessionId = typeof detail?.sessionId === 'string' ? detail.sessionId : ''
-      const goalId = typeof detail?.goalId === 'string' ? detail.goalId : ''
-      if (!sessionId || !goalId) return
-      if (!pinnedSummaryGoalSessionId || sessionId !== pinnedSummaryGoalSessionId) return
-      if (!pinnedSummaryGoal || pinnedSummaryGoal.id !== goalId) return
-      requestWorkspaceInspector({ projectId: workspaceInspectorScope.projectId, kind: 'goal', sessionId, goalId, view: detail.view === 'edit' ? 'edit' : 'progress' })
-    }
-    window.addEventListener(OPEN_GOAL_SUMMARY_EVENT, handler as EventListener)
-    return () => window.removeEventListener(OPEN_GOAL_SUMMARY_EVENT, handler as EventListener)
-  }, [pinnedSummaryGoal, pinnedSummaryGoalSessionId, requestWorkspaceInspector, workspaceInspectorScope])
 
   // Goal 动作只走 agent.updateGoal：共享锁由 Inspector / 控制条的
   // goal-ui wrapper 持有，这里不重复包一层。
@@ -842,101 +552,23 @@ function MainApp() {
     })
   }, [agentRef, handlePinnedGoalAction, invalidatePinnedSummary, pinnedSummaryGoal?.id, pinnedSummaryGoalSessionId])
 
-  const openSubagentRun = useCallback((payload: SubagentRunPayload) => {
-    setArtifactPreviewOpen(false)
-    requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'subagent', payload })
-  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
+  const { openSubagentRun } = useAppEventBridges({
+    currentSessionId: agentManager.currentSessionId,
+    currentToolProjectId: agentManager.currentToolProject?.id,
+    pinnedSummaryGoal,
+    pinnedSummaryGoalSessionId,
+    requestWorkspaceInspector,
+    setArtifactPreviewOpen,
+  })
 
-  const openWorkflowRun = useCallback((payload: WorkflowRunPayload) => {
-    setArtifactPreviewOpen(false)
-    requestWorkspaceInspector({ projectId: agentManager.currentToolProject?.id, kind: 'workflow', payload })
-  }, [agentManager.currentToolProject?.id, requestWorkspaceInspector, setArtifactPreviewOpen])
-
-  // 点击 subagent 摘要时，在 Workspace Inspector 中打开或激活该次运行的独立 Tab。
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const request = normalizeOpenSubagentRunRequest((event as CustomEvent).detail)
-      if (!request?.payload) return
-      openSubagentRun(request.payload)
-    }
-    window.addEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
-    return () => window.removeEventListener(OPEN_SUBAGENT_RUN_EVENT, handler as EventListener)
-  }, [openSubagentRun])
-
-  // 点击工作流摘要卡时，在 Workspace Inspector 中打开或激活该次运行详情 Tab。
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const request = normalizeOpenWorkflowRunRequest((event as CustomEvent).detail)
-      if (!request) return
-      const payload = request.payload ?? workflowRunStore.get(request.runId)
-      if (!payload) return
-      openWorkflowRun(payload)
-    }
-    window.addEventListener(OPEN_WORKFLOW_RUN_EVENT, handler as EventListener)
-    return () => window.removeEventListener(OPEN_WORKFLOW_RUN_EVENT, handler as EventListener)
-  }, [openWorkflowRun])
-
-  useEffect(() => {
-    const unsubscribe = subscribeToAgentEvents((event) => {
-      if (isScheduledTaskStarted(event)) {
-        const projectId = typeof event.projectId === 'string' ? event.projectId : undefined
-        if (projectId) {
-          setExpandedProjectIds((current) => {
-            const next = new Set(current)
-            next.add(projectId)
-            return next
-          })
-          void loadProjectSessions(projectId, 0)
-        }
-        void refreshSessions({ broadcast: true })
-        return
-      }
-      if (event.type === 'session_created') {
-        const metadata = event.metadata as QuickForgeSessionMetadata | undefined
-        if (metadata?.id) upsertSessionMetadata(metadata)
-      } else if (event.type === 'title_updated') {
-        const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
-        const title = typeof event.title === 'string' ? event.title : undefined
-        if (sessionId && title) updateSessionTitle(sessionId, title)
-      } else if (event.type === 'agent_end' || event.type === 'session_forked') {
-        void refreshSessions({ broadcast: true })
-      }
-      if (!isScheduledTaskNotification(event)) return
-      const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
-      const title = typeof event.title === 'string' ? event.title : t('scheduledTasks')
-      const status = isBackgroundTaskStatus(event.status) ? event.status : 'idle'
-      const message = typeof event.message === 'string' ? event.message : undefined
-      addToast({ sessionId: sessionId ?? '', title, status, message })
-      const runId = typeof event.runId === 'string' ? event.runId : undefined
-      void showTaskSystemNotification({
-        key: runId ? `scheduled:${runId}` : `scheduled:${sessionId ?? title}:${status}`,
-        sessionId,
-        title,
-        status,
-      })
-    })
-    return unsubscribe
-  }, [addToast, loadProjectSessions, refreshSessions, setExpandedProjectIds, updateSessionTitle, upsertSessionMetadata])
-
-  useEffect(() => {
-    const unsubscribe = subscribeToAgentEvents((event) => {
-      if (!isBotHeartbeatNotification(event)) return
-      // bot 心跳的 [报告]：只有首行带标记才走到这里，无事/idle 跳不会发这个事件。
-      const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined
-      const title = typeof event.title === 'string' ? event.title : t('bots')
-      const message = typeof event.message === 'string' ? event.message : undefined
-      const reportKey = typeof event.reportKey === 'string' ? event.reportKey : `${sessionId ?? title}:${Date.now()}`
-      addToast({ sessionId: sessionId ?? '', title, status: 'idle', message })
-      void showTaskSystemNotification({
-        key: `bot-heartbeat:${reportKey}`,
-        sessionId,
-        title,
-        status: 'idle',
-        message,
-      })
-    })
-    return unsubscribe
-  }, [addToast])
+  useAgentSessionEvents({
+    addToast,
+    loadProjectSessions,
+    refreshSessions,
+    setExpandedProjectIds,
+    updateSessionTitle,
+    upsertSessionMetadata,
+  })
 
   const { ready, startupError, retryBootstrap } = useAppBootstrap({
     storageRef,
@@ -1010,38 +642,32 @@ function MainApp() {
     setWorkspaceInspectorOpenScopeId(open ? workspaceInspectorRuntimeScopeId : null)
   }, [setWorkspaceInspectorOpenScopeId, workspaceInspectorRuntimeScopeId])
 
-  const [taskLauncherIntent] = useState(() => createTaskLauncherVisibility<typeof agentManager.agent>())
-  const [taskLauncherAgent, setTaskLauncherAgent] = useState<typeof agentManager.agent>(null)
-  const invalidateTaskLauncher = useCallback(() => {
-    taskLauncherIntent.invalidate()
-    setTaskLauncherAgent(null)
-  }, [taskLauncherIntent])
-  const runNewChatWithLauncher = useCallback(async (start: () => Promise<'cancelled' | 'reused' | 'created'>, explicit = true) => {
-    const version = taskLauncherIntent.begin()
-    const result = await start()
-    const agent = agentRef.current
-    if (taskLauncherIntent.complete(version, agent, explicit && result !== 'cancelled'
-      && agent instanceof DeferredSessionAgent && !currentSessionIdRef.current
-      && !agent.state.isStreaming && agent.state.messages.length === 0)) {
-      setTaskLauncherAgent(agent)
-    }
-    return result
-  }, [agentRef, currentSessionIdRef, taskLauncherIntent])
-
-  const startNewGlobalChatWithInspectorReset = useCallback(async (...args: Parameters<typeof startNewGlobalChat>) => {
-    return startNewGlobalChat(...args)
-  }, [startNewGlobalChat])
-
-  const startNewProjectChatWithInspectorReset = useCallback(async (...args: Parameters<typeof startNewProjectChat>) => {
-    return runNewChatWithLauncher(() => startNewProjectChat(...args))
-  }, [runNewChatWithLauncher, startNewProjectChat])
-
-  useEffect(() => {
-    if (agentManager.currentSessionId) taskLauncherIntent.invalidate()
-    return agentManager.agent?.subscribe((event) => {
-      if (event.type === 'message_start' || event.type === 'agent_start') invalidateTaskLauncher()
-    })
-  }, [agentManager.agent, agentManager.currentSessionId, invalidateTaskLauncher, taskLauncherIntent])
+  const {
+    showNewChatEmptyState,
+    newChatGreeting,
+    startNewDefaultSession,
+    startNewExplicitGlobalSession,
+    startNewGlobalChatWithInspectorReset,
+    startNewProjectChatWithInspectorReset,
+    handleSelectEmptyStateProject,
+    handleClearEmptyStateProject,
+    handleSelectEmptyStateNewProject,
+    handleCreateEmptyStateProject,
+    taskLauncherAgent,
+    invalidateTaskLauncher,
+  } = useNewChatEmptyState({
+    needsModelSetup,
+    agent: agentManager.agent,
+    agentRef,
+    currentSessionIdRef,
+    currentSessionId: agentManager.currentSessionId,
+    chatScope: agentManager.chatScope,
+    activeProject,
+    startNewGlobalChat,
+    startNewProjectChat,
+    selectProjectDirectory,
+    createProjectInWorkspace,
+  })
 
   const { deleteProjectInline } = useProjectActions({
     activeProjectRef,
@@ -1053,38 +679,19 @@ function MainApp() {
     setChatPanelRevision,
   })
 
-  useEffect(() => {
-    const recovery = getDeletedProjectRecoveryDecision({
-      ready,
-      currentToolProject: agentManager.currentToolProject,
-      projects,
-      activeProject,
-      recoveringProjectId: recoveringDeletedToolProjectIdRef.current,
-    })
-    if (recovery.type === 'none') {
-      const toolProjectId = agentManager.currentToolProject?.id
-      if (recoveringDeletedToolProjectIdRef.current && recoveringDeletedToolProjectIdRef.current !== toolProjectId) {
-        recoveringDeletedToolProjectIdRef.current = undefined
-      }
-      return
-    }
-    recoveringDeletedToolProjectIdRef.current = recovery.deletedProjectId
-
-    setCurrentSessionArtifactsState({ artifacts: [] })
-    setWorkspaceInspectorRequest(undefined)
-    setArtifactPreviewOpen(false)
-    setPendingTerminalCommand(null)
-    setTerminalDockOpen(false)
-    chatFileRequestIdRef.current += 1
-
-    void startDeferredSession(recovery.type === 'project'
-      ? { scope: 'project', project: recovery.project }
-      : { scope: 'global' })
-      .catch((error) => {
-        recoveringDeletedToolProjectIdRef.current = undefined
-        logger.error('Failed to recover after the current project was deleted:', error)
-      })
-  }, [activeProject, agentManager.currentToolProject, projects, ready, setArtifactPreviewOpen, setPendingTerminalCommand, setTerminalDockOpen, setWorkspaceInspectorRequest, startDeferredSession])
+  useDeletedProjectRecovery({
+    ready,
+    currentToolProject: agentManager.currentToolProject,
+    projects,
+    activeProject,
+    startDeferredSession,
+    setCurrentSessionArtifactsState,
+    setWorkspaceInspectorRequest,
+    setArtifactPreviewOpen,
+    setPendingTerminalCommand,
+    setTerminalDockOpen,
+    chatFileRequestIdRef,
+  })
 
   const { setAccessMode } = useAgentAccessActions({
     storageRef,
@@ -1268,72 +875,8 @@ function MainApp() {
       })
   }, [addToast, agentManager.currentSessionId, agentManager.currentToolProject?.id])
 
-  // 「新对话空态」= 真的没有会话。回滚会把已有会话截断成空消息，但会话本身还在
-  // （currentSessionId 非空），那只是「空会话」，不是「新对话」：把它当成空态会触发
-  // 下面的「空态自动切到项目会话」，用户看到的就是「回滚后跳回新对话页」。
-  const showNewChatEmptyState = !needsModelSetup
-    && Boolean(agentManager.agent)
-    && !agentManager.agent?.state.isStreaming
-    && (agentManager.agent?.state.messages.length ?? 0) === 0
-    && !agentManager.currentSessionId
-
-  // 随机只在进入新对话空状态时锁定一次，避免重渲染导致文案抖动。
-  const newChatGreeting = useMemo(
-    () => (showNewChatEmptyState ? t(pickNewChatGreetingKey()) : ''),
-    [showNewChatEmptyState],
-  )
-
-  // 清除标记只在离开当前新对话空状态后复位，显式 global 新建在本次空状态内保持生效。
-  useEffect(() => {
-    if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current) {
-      setEmptyStateProjectDismissed(false)
-    }
-    wasNewChatEmptyStateRef.current = showNewChatEmptyState
-  }, [showNewChatEmptyState])
-
-  // 默认项目必须进入真实会话状态，不能只在选择器中显示为已选。
-  useEffect(() => {
-    if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || isBotProject(activeProject) || agentManager.chatScope !== 'global') return
-    if (taskLauncherAgent && taskLauncherAgent === agentManager.agent) {
-      void runNewChatWithLauncher(() => startNewProjectChat(activeProject))
-    } else {
-      void startNewProjectChat(activeProject)
-    }
-  }, [activeProject, agentManager.agent, agentManager.chatScope, emptyStateProjectDismissed, runNewChatWithLauncher, showNewChatEmptyState, startNewProjectChat, taskLauncherAgent])
-
-  const startNewDefaultSession = useCallback(() => {
-    setEmptyStateProjectDismissed(false)
-    // bot 目录也注册成了项目，但它不是用户可以「新建对话到这儿」的项目：
-    // 否则打开过一次 bot，之后每次点新对话都会落进 bot 的目录里。
-    if (activeProject && !isBotProject(activeProject)) {
-      void startNewProjectChatWithInspectorReset(activeProject)
-      return
-    }
-    void runNewChatWithLauncher(startNewGlobalChat)
-  }, [activeProject, runNewChatWithLauncher, startNewGlobalChat, startNewProjectChatWithInspectorReset])
-
-  const startNewExplicitGlobalSession = useCallback(() => {
-    setEmptyStateProjectDismissed(true)
-    void runNewChatWithLauncher(startNewGlobalChat)
-  }, [runNewChatWithLauncher, startNewGlobalChat])
-
-  const handleSelectEmptyStateProject = useCallback((project: ProjectInfo) => {
-    void runNewChatWithLauncher(() => startNewProjectChat(project), taskLauncherAgent === agentManager.agent)
-  }, [agentManager.agent, runNewChatWithLauncher, startNewProjectChat, taskLauncherAgent])
-
-  const handleClearEmptyStateProject = useCallback(() => {
-    setEmptyStateProjectDismissed(true)
-    void runNewChatWithLauncher(startNewGlobalChat, taskLauncherAgent === agentManager.agent)
-  }, [agentManager.agent, runNewChatWithLauncher, startNewGlobalChat, taskLauncherAgent])
-
-  const handleSelectEmptyStateNewProject = useCallback(() => {
-    selectProjectDirectory()
-  }, [selectProjectDirectory])
-
-  const handleCreateEmptyStateProject = useCallback(
-    (name: string) => createProjectInWorkspace(name),
-    [createProjectInWorkspace],
-  )
+  // 「新对话空态」= 真的没有会话：判定与新建路由见 useNewChatEmptyState；
+  // 这里只保留 first-use 引导与既有 JSX 装配。
 
   const showFirstUseGuide = Boolean(storage)
     && !ui.firstUseGuideDismissed
@@ -1391,218 +934,30 @@ function MainApp() {
   // ---------------------------------------------------------------- bot 模式
   // 一个 bot = 一条持久会话 + 一个独占目录。侧栏换成 bot 列表，主区仍然复用
   // 普通会话视图 —— 所以「bot 的对话界面和普通对话一样」是零成本的。
-  // bot 模式的状态在文件上方读（历史动作的能力表要用），这里只取写入口。
-  const setBotMode = useUIStore((s) => s.setBotMode)
-  const [bots, setBots] = useState<BotSummary[]>([])
-  const [botsLoading, setBotsLoading] = useState(true)
-  const [botsError, setBotsError] = useState<string | null>(null)
-  const [newBotOpen, setNewBotOpen] = useState(false)
-  const [newBotPending, setNewBotPending] = useState(false)
-  const [newBotError, setNewBotError] = useState<string | null>(null)
-  const [botSettings, setBotSettings] = useState<BotSummary | null>(null)
-
-  // effect 里不能同步 setState（会级联渲染），所以这里所有状态更新都发生在 await 之后。
-  // 返回拿到的列表：切进 bot 模式时要立刻用它挑第一个 bot，不能只依赖 state。
-  const refreshBots = useCallback(async (): Promise<BotSummary[]> => {
-    try {
-      const list = await fetchBots()
-      setBots(list)
-      setBotsError(null)
-      return list
-    } catch (error) {
-      setBotsError(error instanceof Error ? error.message : String(error))
-      return []
-    } finally {
-      setBotsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!botMode) return
-    // 放到下一个任务里跑：effect 体内同步 setState 会触发级联渲染，
-    // 而这个加载本身不依赖任何 DOM 测量结果，延后一帧没有副作用。
-    const timer = setTimeout(() => { void refreshBots() }, 0)
-    return () => clearTimeout(timer)
-  }, [botMode, refreshBots])
-
-  const openBotSession = useCallback(async (bot: BotSummary) => {
-    try {
-      // 不能直接拿 bot.sessionId 去开会话：空会话不落盘，那个 id 只保证「永远是同一个」。
-      const sessionId = await ensureBotSessionOpen(bot.id)
-      // bot 的会话在第一次发言前只有内存态、没有存储记录，所以跳过 metadata 预检；
-      // 真正能不能打开由随后的 loadSession 决定。
-      useUIStore.getState().requestOpenSession(sessionId, { skipMetadataPrecheck: true })
-    } catch (error) {
-      void showAlert(error instanceof Error ? error.message : t('sessionNotFound'))
-    }
-  }, [])
-
-  const toggleBotMode = useCallback(async () => {
-    const next = !useUIStore.getState().botMode
-    setBotMode(next)
-    if (!next) return
-    // 刚切进 bot 模式时列表可能还没加载完（刷新放在 effect 里）。这里先等一次，
-    // 否则 `bots` 还是空的，什么都打不开，主区会继续停在刚才那条普通会话上。
-    const list = bots.length > 0 ? bots : await refreshBots()
-    // 当前这条会话不属于任何 bot，就顺手打开第一个 bot，免得用户对着一堆
-    // 普通对话发呆（bot 模式下主区不显示项目/分支，停在普通会话上会自相矛盾）。
-    const currentSessionId = agentManager.currentSessionId
-    const belongsToBot = list.some((bot) => bot.sessionId && bot.sessionId === currentSessionId)
-    const first = list.find((bot) => bot.sessionId)
-    if (!belongsToBot && first) await openBotSession(first)
-  }, [setBotMode, bots, refreshBots, openBotSession, agentManager.currentSessionId])
-
-  // 退出 bot 模式的反向补偿：进 bot 模式会自动打开一个 bot，退出时主区却可能还停在
-  // 那个 bot 的会话上。继续显示它的历史对话不只是观感问题 —— 此时 chatCapabilities
-  // 仍按 bot 项目判定，顶栏、吉祥物、消息落点都还挂在 bot 上，用户看到的是「人还在
-  // bot 里」。所以落到新对话空态，由用户自己选要进哪条对话。
-  // 放在 effect 里而不是 toggleBotMode 里：在那里读 agentManager.currentSessionId
-  // 会被 react-hooks/refs 判成「render 期间读 ref」。
-  const previousBotModeRef = useRef(botMode)
-  useEffect(() => {
-    const wasBotMode = previousBotModeRef.current
-    previousBotModeRef.current = botMode
-    if (!wasBotMode || botMode || needsModelSetup) return
-    // 和上面的 refreshBots 同理：effect 体内同步 setState 会触发级联渲染，
-    // 而这里只是「换一条会话」，延后到下一个任务没有副作用。
-    const timer = setTimeout(() => {
-      const currentBotSessionId = agentManager.currentSessionId
-      if (bots.some((bot) => bot.sessionId === currentBotSessionId)) startNewDefaultSession()
-    }, 0)
-    return () => clearTimeout(timer)
-  }, [botMode, needsModelSetup, bots, agentManager.currentSessionId, startNewDefaultSession])
-
-  const openNewBotDialog = useCallback(() => {
-    setNewBotError(null)
-    setNewBotOpen(true)
-  }, [])
-
-  const handleCreateBot = useCallback(async (name: string) => {
-    setNewBotPending(true)
-    setNewBotError(null)
-    try {
-      const bot = await createBotRequest(name)
-      setBots((previous) => [...previous, bot])
-      setNewBotOpen(false)
-      setBotMode(true)
-      void openBotSession(bot)
-    } catch (error) {
-      setNewBotError(error instanceof Error ? error.message : String(error))
-    } finally {
-      setNewBotPending(false)
-    }
-  }, [setBotMode, openBotSession])
-
-  const handleBotChanged = useCallback((bot: BotSummary) => {
-    setBotSettings(bot)
-    setBots((previous) => previous.map((item) => (item.id === bot.id ? { ...item, ...bot } : item)))
-  }, [])
-
-  const handleDeleteBot = useCallback(async (botId: string) => {
-    try {
-      await deleteBotRequest(botId)
-      setBots((previous) => previous.filter((bot) => bot.id !== botId))
-      setBotSettings(null)
-    } catch (error) {
-      setBotsError(error instanceof Error ? error.message : String(error))
-    }
-  }, [])
-
-  // 催醒：立刻跑一跳（服务端跳过判活）。wake 请求本身很快返回（runPrompt 即回），
-  // 真正的生成在后台跑；这里随后刷新一次列表，让状态小字尽快反映「在忙」。
-  const handleWakeBot = useCallback(async (bot: BotSummary) => {
-    try {
-      await wakeBotRequest(bot.id)
-      void refreshBots()
-    } catch (error) {
-      setBotsError(error instanceof Error ? error.message : String(error))
-    }
-  }, [refreshBots])
-
-  // 拖动排序：先把乐观顺序摆上去（松手立刻就是新顺序），服务端落盘后用返回值
-  // 校准；失败就整表刷新回滚。与 useProject 的 reorderProjects 同一套路。
-  const handleReorderBots = useCallback(async (orderedIds: string[]) => {
-    setBots((previous) => {
-      const byId = new Map(previous.map((bot) => [bot.id, bot]))
-      const next: BotSummary[] = []
-      for (const id of orderedIds) {
-        const bot = byId.get(id)
-        if (bot) {
-          next.push(bot)
-          byId.delete(id)
-        }
-      }
-      return [...next, ...byId.values()]
-    })
-    try {
-      const list = await reorderBots(orderedIds)
-      if (list.length > 0) setBots(list)
-    } catch (error) {
-      logger.error('Failed to reorder bots:', error)
-      void refreshBots()
-    }
-  }, [refreshBots])
-
-  const botShell = useMemo(() => ({
-    mode: botMode,
-    bots,
-    activeBotId: bots.find((bot) => bot.sessionId && bot.sessionId === agentManager.currentSessionId)?.id,
-    loading: botsLoading,
-    error: botsError,
-    onSelect: openBotSession,
-    onOpenSettings: setBotSettings,
-    onWake: handleWakeBot,
-    onReorder: handleReorderBots,
-    onToggleMode: toggleBotMode,
-    onStartNew: openNewBotDialog,
-  }), [
-    botMode,
-    bots,
-    botsLoading,
-    botsError,
-    openBotSession,
-    handleWakeBot,
-    handleReorderBots,
-    toggleBotMode,
-    openNewBotDialog,
-    agentManager.currentSessionId,
-  ])
-
-  // bot 主区的吉祥物：用会话的细粒度状态驱动动作（思考 / 干活 / 等审批 / 出错 / 刚完成）。
-  const activeBot = useMemo(
-    () => bots.find((bot) => bot.id === botShell.activeBotId) ?? null,
-    [bots, botShell.activeBotId],
-  )
-  const activeBotSessionId = agentManager.agent?.sessionId ?? null
-  // agent.state 的静态类型比运行时窄（审批/追问是可选字段，待执行工具是 Set），
-  // 这里按运行时实际形状收窄一次，别在下面到处 as。
-  const agentState = agentManager.agent?.state as
-    | {
-        isStreaming?: boolean
-        errorMessage?: string | null
-        pendingToolCalls?: Set<string> | string[]
-        pendingToolApproval?: unknown
-        pendingAsk?: unknown
-      }
-    | undefined
-  const pendingToolCalls = agentState?.pendingToolCalls
-  const pendingToolCount = pendingToolCalls instanceof Set
-    ? pendingToolCalls.size
-    : (pendingToolCalls?.length ?? 0)
-  const mascotState = useMascotState({
-    error: agentState?.errorMessage ?? activeBot?.heartbeat?.lastError ?? null,
-    waitingForUser: Boolean(agentState?.pendingToolApproval) || Boolean(agentState?.pendingAsk),
-    toolRunning: pendingToolCount > 0,
-    streaming: Boolean(agentState?.isStreaming),
-    justCompleted: Boolean(activeBotSessionId && completedSessionIds.has(activeBotSessionId)),
-    paused: activeBot?.heartbeat?.enabled === false,
+  // 列表加载 / 增删改 / 模式切换补偿 / 吉祥物派生见 useBotWorkspace；
+  // botMode 本身仍在上方读（历史动作的能力表要用）。
+  const {
+    botShell,
+    activeBot,
+    mascotState,
+    mascotStrolling,
+    composerMascotVisible,
+    newBotOpen,
+    newBotPending,
+    newBotError,
+    closeNewBotDialog,
+    handleCreateBot,
+    botSettings,
+    closeBotSettings,
+    handleBotChanged,
+    handleDeleteBot,
+  } = useBotWorkspace({
+    needsModelSetup,
+    currentSessionId: agentManager.currentSessionId,
+    agent: agentManager.agent,
+    completedSessionIds,
+    startNewDefaultSession,
   })
-  // 只有「闲着」才偶尔溜达一下；有状态时吉祥物演状态，不走路。
-  const mascotStrolling = useMascotStroll(botMode && mascotState === 'idle')
-  // 「在输入框上方显示」由 bot 设置控制（默认开，见 server/bots.mjs 的 DEFAULT_MASCOT）。
-  // 拿不到 activeBot 时保持显示 —— 和「拿不到就用默认外观」同一语义，免得加载竞态
-  // 被误读成「坏了」；列表到了之后才按用户的选择真正隐藏。侧栏行首的小吉祥物不受它管。
-  const composerMascotVisible = activeBot ? activeBot.mascot.showOnComposer !== false : true
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })
@@ -1659,25 +1014,7 @@ function MainApp() {
 
   // --- Loading state ---
   if (startupError) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-background p-6 text-foreground">
-        <div className="max-w-md rounded-lg border border-border bg-background p-5 text-center">
-          <h1 className="text-base font-semibold">{t('localServiceUnavailableTitle')}</h1>
-          <p className="mt-2 text-sm text-muted-foreground">{startupError.message}</p>
-          {startupError.detail ? (
-            <p className="mt-2 whitespace-pre-wrap break-all text-left text-xs text-muted-foreground">{startupError.detail}</p>
-          ) : null}
-          <div className="mt-4 flex justify-center gap-2">
-            <Button variant="outline" size="sm" onClick={retryBootstrap}>
-              {t('retry')}
-            </Button>
-            <Button variant="default" size="sm" onClick={() => window.location.reload()}>
-              {t('reloadPage')}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
+    return <StartupErrorScreen startupError={startupError} onRetry={retryBootstrap} />
   }
 
   if (!startupReady) {
@@ -1756,130 +1093,44 @@ function MainApp() {
       onExit={exitDesktopApp}
     />
     {!ui.settingsDialogOpen && (
-    <div
-      className={cn(
-        'quickforge-window-toolbar fixed right-2 z-30 flex items-center gap-1',
-        workspaceInspectorFullscreen && 'pointer-events-none invisible',
-      )}
-      aria-hidden={workspaceInspectorFullscreen || undefined}
-      aria-label={t('workspacePanel')}
-    >
-      {!remoteClient && !workspaceInspectorOpen ? (
-        <ProjectOpenMenu
-          project={agentManager.currentToolProject}
-          disabled={needsModelSetup}
-          onOpenInExplorer={openProjectInExplorerWithFeedback}
-          onOpenInVSCode={openProjectInVSCodeWithFeedback}
-          onOpenInIDEA={openProjectInIDEAWithFeedback}
-        />
-      ) : null}
-      {(
-        !workspaceInspectorOpen
-        || pinnedSummarySuspended
-      ) && (
-        pinnedSummaryTodos.length > 0
-        || pinnedSummarySubagentRuns.length > 0
-        || pinnedSummaryRunningSubagentRuns.length > 0
-        || pinnedSummaryBackgroundCommands.length > 0
-        || titleGitStatus?.isGitRepository
-        || Boolean(pinnedSummaryGoal)
-      ) ? (
-        <GitToolsPinnedSummary
-          projectId={agentManager.currentToolProject?.id}
-          status={titleGitStatus}
-          todos={pinnedSummaryTodos}
-          runningSubagentRuns={pinnedSummaryRunningSubagentRuns}
-          finishedSubagentRuns={pinnedSummarySubagentRuns}
-          backgroundCommands={pinnedSummaryBackgroundCommands}
-          onStopBackgroundCommand={(command) => {
-            const sessionId = command.sessionId || agentManager.agent?.sessionId
-            if (!sessionId || !command.toolCallId) return
-            void fetch(`/api/agents/${encodeURIComponent(sessionId)}/abort-tool`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ toolCallId: command.toolCallId }),
-            })
-          }}
-          onOpenBackgroundTasks={() => {
-            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
-              setGitToolsExpanded(false)
-            }
-            requestWorkspaceInspector({ projectId: workspaceInspectorProjectId, kind: 'background-tasks' })
-          }}
-          goal={pinnedSummaryGoal}
-          goalSessionId={pinnedSummaryGoalSessionId}
-          onGoalAction={handlePinnedGoalAction}
-          expanded={gitToolsExpanded}
-          suspended={pinnedSummarySuspended}
-          onExpandedChange={setGitToolsExpanded}
-          onOpenSubagentRun={(payload) => {
-            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
-              setGitToolsExpanded(false)
-            }
-            openSubagentRun(payload)
-          }}
-          onOpenChanges={() => {
-            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
-              setGitToolsExpanded(false)
-            }
-            openWorkspaceGitChanges()
-          }}
-          onOpenCommitPush={() => {
-            setGitToolsExpanded(false)
-            setGitCommitDialogOpen(true)
-          }}
-          onCheckout={handleCheckoutTitleBranch}
-          onCreated={handleBranchCreated}
-          onOpenGraph={() => setGitGraphOpen(true)}
-          mobileShell={mobileShell}
-          initialAnchorRef={conversationHeaderRef}
-        />
-      ) : null}
-      {!remoteClient ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => {
-            setArtifactPreviewOpen(false)
-            setTerminalDockOpen((value) => !value)
-          }}
-          disabled={!agentManager.currentToolProject?.id || needsModelSetup}
-          aria-label={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
-          title={terminalDockOpen ? t('terminalCollapse') : t('rightPanelTerminal')}
-          className={cn(
-            'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40',
-            terminalDockOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
-          )}
-        >
-          <SquareTerminal className="size-[18px] stroke-[1.85]" />
-        </Button>
-      ) : null}
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={() => {
-          setArtifactPreviewOpen(false)
-          if (workspaceInspectorOpen) {
-            setWorkspaceInspectorOpenScopeId(null)
-          } else {
-            if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {
-              setGitToolsExpanded(false)
-            }
-            setWorkspaceInspectorOpenScopeId(workspaceInspectorRuntimeScopeId)
-          }
-        }}
-        data-pinned-summary-inspector-toggle="true"
-        disabled={needsModelSetup}
-        aria-label={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
-        title={workspaceInspectorOpen ? t('workspaceCollapseRightPanel') : t('workspaceExpandRightPanel')}
-        className={cn(
-          'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex',
-          workspaceInspectorOpen ? 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground' : undefined,
-        )}
-      >
-        <PanelRight className="size-[18px] stroke-[1.85]" />
-      </Button>
-    </div>
+    <WindowToolbar
+      fullscreen={workspaceInspectorFullscreen}
+      remoteClient={remoteClient}
+      mobileShell={mobileShell}
+      workspaceInspectorOpen={workspaceInspectorOpen}
+      workspaceInspectorRuntimeScopeId={workspaceInspectorRuntimeScopeId}
+      workspaceInspectorProjectId={workspaceInspectorProjectId}
+      needsModelSetup={needsModelSetup}
+      terminalDockOpen={terminalDockOpen}
+      gitToolsExpanded={gitToolsExpanded}
+      pinnedSummarySuspended={pinnedSummarySuspended}
+      canSuspendPinnedSummaryOnInspectorOpen={canSuspendPinnedSummaryOnInspectorOpen}
+      currentToolProject={agentManager.currentToolProject}
+      currentAgentSessionId={agentManager.agent?.sessionId}
+      titleGitStatus={titleGitStatus}
+      conversationHeaderRef={conversationHeaderRef}
+      pinnedSummaryTodos={pinnedSummaryTodos}
+      pinnedSummarySubagentRuns={pinnedSummarySubagentRuns}
+      pinnedSummaryRunningSubagentRuns={pinnedSummaryRunningSubagentRuns}
+      pinnedSummaryBackgroundCommands={pinnedSummaryBackgroundCommands}
+      pinnedSummaryGoal={pinnedSummaryGoal}
+      pinnedSummaryGoalSessionId={pinnedSummaryGoalSessionId}
+      onGoalAction={handlePinnedGoalAction}
+      onCheckout={handleCheckoutTitleBranch}
+      onBranchCreated={handleBranchCreated}
+      onSetGitToolsExpanded={setGitToolsExpanded}
+      onSetGitCommitDialogOpen={setGitCommitDialogOpen}
+      onSetGitGraphOpen={setGitGraphOpen}
+      onOpenSubagentRun={openSubagentRun}
+      onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
+      onOpenProjectInExplorerWithFeedback={openProjectInExplorerWithFeedback}
+      onOpenProjectInVSCodeWithFeedback={openProjectInVSCodeWithFeedback}
+      onOpenProjectInIDEAWithFeedback={openProjectInIDEAWithFeedback}
+      onSetTerminalDockOpen={setTerminalDockOpen}
+      onSetArtifactPreviewOpen={setArtifactPreviewOpen}
+      onSetWorkspaceInspectorOpenScopeId={setWorkspaceInspectorOpenScopeId}
+      onRequestWorkspaceInspector={requestWorkspaceInspector}
+    />
     )}
     {ui.settingsDialogOpen ? (
       <Suspense fallback={<LazyPanelFallback />}>
@@ -2291,13 +1542,13 @@ function MainApp() {
       open={newBotOpen}
       pending={newBotPending}
       error={newBotError}
-      onCancel={() => setNewBotOpen(false)}
+      onCancel={closeNewBotDialog}
       onCreate={(name) => { void handleCreateBot(name) }}
     />
     <BotSettingsDialog
       key={botSettings?.id ?? 'no-bot'}
       bot={botSettings}
-      onClose={() => setBotSettings(null)}
+      onClose={() => { closeBotSettings(null) }}
       onChanged={handleBotChanged}
       onDeleted={(botId) => { void handleDeleteBot(botId) }}
     />

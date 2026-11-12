@@ -13,8 +13,11 @@ describe('Mobile H5 fullscreen adaptation', () => {
   })
 
   it('keeps the PanelRight Inspector toggle reachable on all viewport sizes', () => {
+    // PanelRight 按钮已随顶栏工具条拆入 WindowToolbar。
+    const toolbarSource = readFileSync(new URL('../../src/components/app/WindowToolbar.tsx', import.meta.url), 'utf8')
     expect(appSource).not.toContain("'hidden rounded-[10px]")
-    expect(appSource).toContain("'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex'")
+    expect(toolbarSource).not.toContain("'hidden rounded-[10px]")
+    expect(toolbarSource).toContain("'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex'")
   })
 
   it('shows the Workspace Inspector as a fullscreen overlay on narrow viewports', () => {

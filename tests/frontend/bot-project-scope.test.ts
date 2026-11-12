@@ -13,6 +13,8 @@ import type { ProjectInfo } from '../../src/lib/types'
  * - 切进 bot 模式：先等列表加载完，再自动打开第一个 bot。
  */
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const botWorkspaceSource = readFileSync(new URL('../../src/hooks/useBotWorkspace.ts', import.meta.url), 'utf8')
+const newChatStateSource = readFileSync(new URL('../../src/hooks/useNewChatEmptyState.ts', import.meta.url), 'utf8')
 const useProjectSource = readFileSync(new URL('../../src/hooks/useProject.ts', import.meta.url), 'utf8')
 const recoverySource = readFileSync(new URL('../../src/lib/deleted-project-recovery.ts', import.meta.url), 'utf8')
 const bootstrapSource = readFileSync(new URL('../../src/hooks/useAppBootstrap.ts', import.meta.url), 'utf8')
@@ -31,11 +33,11 @@ describe('isBotProject', () => {
 
 describe('新建对话不落到 bot 目录', () => {
   it('startNewDefaultSession 跳过 bot 的 activeProject', () => {
-    expect(appSource).toContain('if (activeProject && !isBotProject(activeProject))')
+    expect(newChatStateSource).toContain('if (activeProject && !isBotProject(activeProject))')
   })
 
   it('空态的「自动进项目会话」同样跳过 bot', () => {
-    expect(appSource).toContain('!activeProject || isBotProject(activeProject) || agentManager.chatScope !== \'global\'')
+    expect(newChatStateSource).toContain("!activeProject || isBotProject(activeProject) || chatScope !== 'global'")
   })
 
   it('useProject 写入「当前项目」的唯一出口拒绝 bot', () => {
@@ -60,17 +62,18 @@ describe('bot 语境不展示项目与分支', () => {
   })
 
   it('切进 bot 模式先刷新再自动打开第一个 bot', () => {
-    expect(appSource).toContain('const toggleBotMode = useCallback(async () => {')
-    expect(appSource).toContain('const list = bots.length > 0 ? bots : await refreshBots()')
-    expect(appSource).toContain('if (!belongsToBot && first) await openBotSession(first)')
-    expect(appSource).toContain('const refreshBots = useCallback(async (): Promise<BotSummary[]> => {')
+    // bot 列表与模式切换逻辑已迁入 useBotWorkspace（App 装配层挂载 hook）。
+    expect(botWorkspaceSource).toContain('const toggleBotMode = useCallback(async () => {')
+    expect(botWorkspaceSource).toContain('const list = bots.length > 0 ? bots : await refreshBots()')
+    expect(botWorkspaceSource).toContain('if (!belongsToBot && first) await openBotSession(first)')
+    expect(botWorkspaceSource).toContain('const refreshBots = useCallback(async (): Promise<BotSummary[]> => {')
   })
 })
 
 describe('退出 bot 模式不把 bot 的对话留在主区', () => {
-  const exitEffect = appSource.slice(
-    appSource.indexOf('const previousBotModeRef = useRef(botMode)'),
-    appSource.indexOf('const openNewBotDialog = useCallback('),
+  const exitEffect = botWorkspaceSource.slice(
+    botWorkspaceSource.indexOf('const previousBotModeRef = useRef(botMode)'),
+    botWorkspaceSource.indexOf('const openNewBotDialog = useCallback('),
   )
 
   it('当前会话属于某个 bot 时落到新对话空态', () => {
@@ -81,11 +84,11 @@ describe('退出 bot 模式不把 bot 的对话留在主区', () => {
   it('补偿延后一个任务执行，避免 effect 内同步 setState', () => {
     expect(exitEffect).toContain('const timer = setTimeout(() => {')
     expect(exitEffect).toContain('clearTimeout(timer)')
-    // 反向补偿不能塞回 toggleBotMode：那里读 agentManager.currentSessionId
+    // 反向补偿不能塞回 toggleBotMode：那里读 currentSessionId
     // 会被 react-hooks/refs 判成 render 期间读 ref。
-    const toggleBody = appSource.slice(
-      appSource.indexOf('const toggleBotMode = useCallback('),
-      appSource.indexOf('const previousBotModeRef = useRef(botMode)'),
+    const toggleBody = botWorkspaceSource.slice(
+      botWorkspaceSource.indexOf('const toggleBotMode = useCallback('),
+      botWorkspaceSource.indexOf('const previousBotModeRef = useRef(botMode)'),
     )
     expect(toggleBody).toContain('if (!next) return')
   })

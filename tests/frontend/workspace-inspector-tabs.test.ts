@@ -238,10 +238,12 @@ describe('workspace inspector tabs persistence', () => {
 
   it('scopes async Inspector requests to the originating runtime and invalidates chat-file resolution on session changes', () => {
     const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const chatFileOpenerSource = readFileSync(new URL('../../src/hooks/useChatFileOpener.ts', import.meta.url), 'utf8')
     const inspectorSource = readFileSync(new URL('../../src/components/workspace/WorkspaceInspector.tsx', import.meta.url), 'utf8')
 
     expect(appSource).toContain('setWorkspaceInspectorRequest({ ...request, scope, id: workspaceInspectorRequestIdRef.current })')
-    expect(appSource).toContain('workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)')
+    // 聊天文件路径解析的迟到响应守卫随 openLocalFilePathFromChat 迁入 useChatFileOpener。
+    expect(chatFileOpenerSource).toContain('workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)')
     expect(appSource).toContain('[agentManager.currentRuntimeScopeId, agentManager.currentToolProject?.id, titleGitAbortRef, titleGitRequestIdRef]')
     expect(inspectorSource).toContain("{ projectId: projectId ?? 'global-workspace', runtimeScopeId }")
   })

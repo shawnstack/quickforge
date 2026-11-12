@@ -40,11 +40,14 @@ const allDisabledCapabilities = Object.fromEntries(
 
 describe('Workspace side chat tab', () => {
   it('keeps the Inspector toolbar reachable without a project on all viewport sizes', () => {
-    expect(appSource).toContain('disabled={needsModelSetup}\n        aria-label={workspaceInspectorOpen')
-    expect(appSource).not.toContain('disabled={!agentManager.currentToolProject?.id || needsModelSetup}\n        aria-label={workspaceInspectorOpen')
+    // 顶栏工具条 JSX 已拆入 WindowToolbar（App 装配层传 props）。
+    const toolbarSource = readFileSync(new URL('../../src/components/app/WindowToolbar.tsx', import.meta.url), 'utf8')
+    expect(toolbarSource).toContain('disabled={needsModelSetup}\n        aria-label={workspaceInspectorOpen')
+    expect(toolbarSource).not.toContain('disabled={!currentToolProject?.id || needsModelSetup}\n        aria-label={workspaceInspectorOpen')
     expect(appSource).toContain('agentManager.currentToolProject?.id || agentManager.currentSessionId || workspaceInspectorOpen')
-    expect(appSource).toContain("'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex'")
+    expect(toolbarSource).toContain("'rounded-[10px] hover:bg-[var(--quickforge-sidebar-hover-bg)] disabled:opacity-40 inline-flex'")
     expect(appSource).not.toContain('lg:inline-flex')
+    expect(toolbarSource).not.toContain('lg:inline-flex')
   })
 
   it('is a single runtime-only tab excluded from persistence', () => {
@@ -58,12 +61,14 @@ describe('Workspace side chat tab', () => {
   })
 
   it('keeps stable agent/text memory and clears both on destructive lifecycles', () => {
-    expect(appSource).toContain('useState(() => new SideChatAgent(')
-    expect(appSource).toContain("const sideChatDraftRef = useRef('')")
-    expect(appSource).toContain('set: (text: string) =>')
-    expect(appSource).toContain("sideChatDraftRef.current = ''")
-    expect(appSource).toContain('sideChatAgent.reset()')
-    expect(appSource).toContain('sideChatAgent.setContext({ sessionId: agentManager.currentSessionId, model })')
+    // 侧聊宿主状态已迁入 useSideChatPanel（App 装配层挂载 hook）。
+    const sideChatPanelSource = readFileSync(new URL('../../src/hooks/useSideChatPanel.ts', import.meta.url), 'utf8')
+    expect(sideChatPanelSource).toContain('useState(() => new SideChatAgent(')
+    expect(sideChatPanelSource).toContain("const sideChatDraftRef = useRef('')")
+    expect(sideChatPanelSource).toContain('set: (text: string) =>')
+    expect(sideChatPanelSource).toContain("sideChatDraftRef.current = ''")
+    expect(sideChatPanelSource).toContain('sideChatAgent.reset()')
+    expect(sideChatPanelSource).toContain('sideChatAgent.setContext({ sessionId: currentSessionId, model })')
     expect(appSource).toContain('sideChatEnabled={Boolean(agentManager.currentSessionId) && !needsModelSetup}')
     expect(tabSource).toContain("if (closingTab?.kind === 'side-chat') clearSideChat()")
     expect(tabSource).toContain("if (activeTab.kind !== 'side-chat' && panelTabs.some((tab) => tab.kind === 'side-chat')) clearSideChat()")

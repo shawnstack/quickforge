@@ -15,11 +15,11 @@ src/
 │   ├── sidebar/         # 侧边栏
 │   ├── terminal/         # xterm.js 多终端 Dock
 │   ├── ui/              # 基础 UI 组件
-├── hooks/               # 自定义 React Hooks (29 个)，详见 [hooks 文档](hooks/README.md)
-├── lib/                 # 前端工具库 (119 个顶层模块，另含 types/、tool-renderers/ 子目录)，详见 [lib 文档](lib/README.md)
+├── hooks/               # 自定义 React Hooks (37 个)，详见 [hooks 文档](hooks/README.md)
+├── lib/                 # 前端工具库 (123 个顶层模块，另含 types/、tool-renderers/ 子目录)，详见 [lib 文档](lib/README.md)
 ├── stores/              # Zustand 状态仓库（App 级 UI/会话域内存状态，10 个 store；兼容层模式见 [状态管理迁移](../../architecture/zustand-migration.zh-CN.md)）
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
-├── App.tsx              # 主应用组件 (1970 行；区域组件在 components/app/，状态域 hooks 见 hooks 文档)
+├── App.tsx              # 主应用装配层 (1585 行；区域组件在 components/app/，业务规则 hooks 见 hooks 文档)
 ├── styles/              # 全局样式入口与领域模块，详见 [styles 文档](styles/README.md)
 └── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
 ```
@@ -29,7 +29,7 @@ src/
 | 文件 | 说明 | 行数 |
 |------|------|------|
 | [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 83 |
-| [App.tsx](../../../src/App.tsx) | 主组件，管理全局状态、Agent、路由、调度 | 1970 |
+| [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1585 |
 | [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 39 个 CSS 文件 |
 
 ### main.tsx (69 行)
@@ -43,13 +43,15 @@ src/
 - 渲染前调用 `lib/window-guard.ts` 的 `acquireAppWindowGuard()`（Web Locks 严格单窗口，ifAvailable 抢锁很快）：granted/unsupported 正常渲染 App；blocked 窗口只渲染 `WindowGuardNotice` 拦截页——不加载 App、不建立 SSE 连接，纯静态提示用户关闭本窗口并回到已有窗口使用（不提供关闭按钮：浏览器不允许脚本关闭手动打开的标签页）
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
-### App.tsx (684 行)
+### App.tsx (1585 行)
 
-**用途**: 应用主组件，协调所有子组件和 hooks。
+**用途**: 应用主组件（装配层），协调所有子组件和 hooks。
 
 终端请求、顶栏 Git 编排、启动/会话加载过渡已分别移入 `useAppTerminal.ts`、`useAppGit.ts`、`useAppLoadingTransitions.ts`（参见 [hooks 导航](hooks/README.md#app-三域编排phase-hooks)）。各模块按 state/effects/actions 分阶段调用，保留原 effect 相对顺序；跨域 project scope 失效处理、JSX、URL 基础 hooks 仍由原入口持有，不新增 context 或重建既有基础 hooks。
 
-上帝组件拆分（第二轮）：`MainApp` 从 2431 行收敛到 2019 行；本轮再把置顶摘要派生与 Agent 事件订阅迁到 `usePinnedSummaryModel`，当前 1970 行——侧栏排序持久化 / 项目外部打开 / 桌面标题栏菜单 / Agent 审批应答 / 轮次回滚 / 移动侧栏抽屉六个状态域移入 `useSidebarOrdering` / `useProjectExternalOpen` / `useDesktopTitlebarMenu` / `useAgentApprovalActions` / `useTurnFileRollback` / `useMobileSidebar`；桌面标题栏、会话头（标题/分支菜单/视图切换/⋯ 菜单）、启动屏移入 `components/app/`。`ChatPanelHostProps` 在 `ChatPanelHost.tsx` 内按「会话身份 / 消息操作 / 审批应答 / 产物跳转 / 视图状态」做类型级分组（运行时 props 仍是平铺结构，调用方零变化）。被测试钉死的接线（两处 `ChatSidebar` 实例、`GitToolsPinnedSummary` 工具条、`ChatPanelHost`/`WorkspaceInspector` 传参）刻意留在 `MainApp`。
+上帝组件拆分（第二轮）：`MainApp` 从 2431 行收敛到 2019 行；本轮再把置顶摘要派生与 Agent 事件订阅迁到 `usePinnedSummaryModel`——侧栏排序持久化 / 项目外部打开 / 桌面标题栏菜单 / Agent 审批应答 / 轮次回滚 / 移动侧栏抽屉六个状态域移入 `useSidebarOrdering` / `useProjectExternalOpen` / `useDesktopTitlebarMenu` / `useAgentApprovalActions` / `useTurnFileRollback` / `useMobileSidebar`；桌面标题栏、会话头（标题/分支菜单/视图切换/⋯ 菜单）、启动屏移入 `components/app/`。`ChatPanelHostProps` 在 `ChatPanelHost.tsx` 内按「会话身份 / 消息操作 / 审批应答 / 产物跳转 / 视图状态」做类型级分组（运行时 props 仍是平铺结构，调用方零变化）。
+
+上帝模块治理⑦（第三轮，2026-11-12）：`MainApp` 从约 2120 行收敛到 1520 行（App.tsx 2334 → 1585 行），业务规则按职责迁出视图层——对话文件路径打开（`useChatFileOpener`）、已删项目恢复策略（`useDeletedProjectRecovery`）、产物预览/自动预览/文件卡动作（`useArtifactPreviewActions`）、Agent 事件联动（`useAgentSessionEvents` + `lib/agent-event-guards.ts`）、Inspector 意图桥（`useAppEventBridges`）、bot 模式工作区（`useBotWorkspace`）、侧聊宿主（`useSideChatPanel`）、新对话空态与 taskLauncher（`useNewChatEmptyState`）；顶栏工具条与启动错误屏拆为 `components/app/WindowToolbar.tsx` / `StartupErrorScreen.tsx`。被测试钉死的接线（两处 `ChatSidebar` 实例、`ChatPanelHost`/`WorkspaceInspector` 传参）仍留在 `MainApp` 装配。
 
 **核心状态**:
 - `storageRef` — 存储实例引用

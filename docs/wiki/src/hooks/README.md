@@ -1,6 +1,6 @@
 # `src/hooks/` — 自定义 React Hooks
 
-包含 29 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
+包含 37 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
 
 ---
 
@@ -32,6 +32,14 @@
 | [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 101 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |
 | [usePinnedSummaryModel.ts](../../../../src/hooks/usePinnedSummaryModel.ts) | 126 | 置顶摘要 view-model：从 agent 快照派生 Todo/Subagent/后台命令/Goal，内部订阅相关 Agent 事件递增 revision，并同步 Goal UI store；ACP 会话排除 Goal，`invalidate()` 供 Goal 动作后强制刷新 |
 | [use-skills-manager.ts](../../../../src/hooks/use-skills-manager.ts) | 295 | Skills 面板数据层（从 skills-dialog 组件抽出）：列表/详情加载竞态守卫、选中集保存的串行队列 + generation/sequence 双版本号乐观更新与失败回滚到 confirmed 集、撤销 toast；HTTP 在 `@/lib/skills-client` |
+| [useAgentSessionEvents.ts](../../../../src/hooks/useAgentSessionEvents.ts) | 97 | Agent 事件 → 会话列表联动 / 任务 Toast / 系统通知的统一出口（scheduled_task_started 展开项目并拉会话分页、session_created/title_updated/agent_end/session_forked 同步列表、scheduled_task_notification 与 bot_heartbeat_notification 的 Toast+通知）；事件类型守卫在 `src/lib/agent-event-guards.ts` |
+| [useChatFileOpener.ts](../../../../src/hooks/useChatFileOpener.ts) | 73 | 对话内本地文件路径打开规则（原 MainApp 的 openLocalFilePathFromChat）：QuickForge 临时文本附件走 `/open-text-attachment`，其余按工作区相对路径 resolve 后开 Reader tab；带「当前项目 + 请求序号 + inspector scope」三重迟到守卫 |
+| [useDeletedProjectRecovery.ts](../../../../src/hooks/useDeletedProjectRecovery.ts) | 91 | 「当前会话的项目已被删除」恢复策略执行：判据来自 `src/lib/deleted-project-recovery.ts`（纯函数），发现项目消失时收起挂在该项目上的瞬态 UI（inspector/预览/终端/产物/请求序号）并按「激活项目或全局」新建空会话兜底，失败清恢复标记等待重试 |
+| [useArtifactPreviewActions.ts](../../../../src/hooks/useArtifactPreviewActions.ts) | 155 | 产物预览统一规则：openArtifactPreview 按 Reader/Document/Browser 分流（产物列表与工具卡片同源）；openLivePresentedArtifacts 是自动预览唯一入口（live `tool_execution_end` 事件驱动，非状态差分）；文件卡三动作（预览/审查 diff/外部打开）与工具卡片预览桥接（ui-store 请求信号） |
+| [useAppEventBridges.ts](../../../../src/hooks/useAppEventBridges.ts) | 145 | Inspector 子树之外的「意图桥」：view-command-log / background-tasks-open / goal-summary / subagent-run / workflow-run 五个窗口事件转 Inspector tab 打开请求；agent 开始驱动 desktop-browser 时自动切到内嵌浏览器标签 |
+| [useBotWorkspace.ts](../../../../src/hooks/useBotWorkspace.ts) | 279 | bot 模式工作区状态：bot 列表加载/增删改/拖动排序（乐观+失败回滚）/催醒；模式切换（进模式先刷新再自动打开第一个 bot、退模式反向补偿落到新对话空态）；主区吉祥物状态派生与 composer 显示开关 |
+| [useSideChatPanel.ts](../../../../src/hooks/useSideChatPanel.ts) | 63 | Workspace Inspector 侧聊宿主状态：独立 SideChatAgent 实例、上下文跟随当前会话、会话切换清空草稿与历史（bump revision），输入草稿放宿主避免 Inspector 卸载丢失 |
+| [useNewChatEmptyState.ts](../../../../src/hooks/useNewChatEmptyState.ts) | 169 | 「新对话」空态判定（真的没有会话，回滚产生的空消息会话不算）与新建会话路由：startNew* 三入口按「默认项目优先、显式全局其次」路由且 bot 项目永不落点；taskLauncher 显式新建意图的世代号可见性跟踪 |
 
 ---
 

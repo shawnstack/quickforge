@@ -48,7 +48,6 @@ const titleRefresh = readFileSync(new URL('../../src/lib/title-git-status-refres
 const approvalCard = readFileSync(new URL('../../src/components/chat/panel-decoration/approval-card.ts', import.meta.url), 'utf8')
 const css = appCss
 const i18n = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
-const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
 
 applyAppLanguageFromSnapshot('en')
 
@@ -810,8 +809,10 @@ describe('workflow renderer wiring and contracts', () => {
     expect(source).toContain('OPEN_WORKFLOW_RUN_EVENT')
     expect(source).toContain('workflowRunStore')
     expect(source).toContain('buildWorkflowRunPayload')
-    expect(app).toContain('OPEN_WORKFLOW_RUN_EVENT')
-    expect(app).toContain("kind: 'workflow'")
+    // 事件桥接与 tab 打开动作已迁入 useAppEventBridges（App 装配层挂载 hook）。
+    const bridgesSource = readFileSync(new URL('../../src/hooks/useAppEventBridges.ts', import.meta.url), 'utf8')
+    expect(bridgesSource).toContain('OPEN_WORKFLOW_RUN_EVENT')
+    expect(bridgesSource).toContain("kind: 'workflow'")
     // Tab 去重与按 runId 就地更新。
     expect(tabSource).toContain('upsertWorkflowRunTab')
     expect(tabSource).toContain('updateWorkflowRunTab')

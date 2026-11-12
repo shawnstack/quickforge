@@ -34,7 +34,9 @@ describe('bot 吉祥物「在输入框上方显示」开关', () => {
 
   it('App 的 composerMascot 受开关控制，且拿不到 activeBot 时默认显示', () => {
     expect(appSource).toContain('composerMascot={botMode && composerMascotVisible')
-    expect(appSource).toContain(
+    // 可见性派生随 bot 块迁入 useBotWorkspace；App 只接渲染条件。
+    const botWorkspaceSource = readFileSync(new URL('../../src/hooks/useBotWorkspace.ts', import.meta.url), 'utf8')
+    expect(botWorkspaceSource).toContain(
       'const composerMascotVisible = activeBot ? activeBot.mascot.showOnComposer !== false : true',
     )
   })

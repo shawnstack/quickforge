@@ -146,7 +146,9 @@ components/
 ├── app/                             # App 主装配层的独立 UI 区域（MainApp 保持接线，区域组件化）
 │   ├── ConversationHeader.tsx       # 主区顶栏：标题/项目 chip/Git 分支菜单/对话-轨迹切换/会话 ⋯ 菜单
 │   ├── DesktopTitlebarMenu.tsx      # 桌面标题栏入口与菜单（关于 / 检查更新 / 退出）
-│   └── StartupScreens.tsx           # 启动 splash 与会话加载屏（纯展示）
+│   ├── StartupErrorScreen.tsx       # 本地服务不可用的整屏错误页（重试 / 整页刷新）
+│   ├── StartupScreens.tsx           # 启动 splash 与会话加载屏（纯展示）
+│   └── WindowToolbar.tsx            # 右上角窗口工具条：项目打开菜单 / 置顶摘要（Git·subagent·后台命令·Goal）/ 终端与右侧面板开关（纯装配 + 回调转发）
 ├── sidebar/
 │   ├── ChatSidebar.tsx              # 聊天侧边栏装配层（Projects / Tasks 标题区支持鼠标、触摸与键盘排序）
 │   └── chat-sidebar/                # 侧栏内部模块：统一会话行/跑马灯/菜单/悬停提示/搜索/头部导航/底部栏 + resize 与渐进展示两个 hook

@@ -19,7 +19,6 @@ function src(rel: string): string {
 describe('bot 列表拖动排序', () => {
   const list = src('../../src/components/bots/BotSidebarList.tsx')
   const data = src('../../src/components/bots/bots-data.ts')
-  const app = src('../../src/App.tsx')
   const sidebar = src('../../src/components/sidebar/ChatSidebar.tsx')
 
   it('列表行由 dnd-kit 包裹，且只有多于一个 bot 时才可拖', () => {
@@ -46,9 +45,11 @@ describe('bot 列表拖动排序', () => {
   })
 
   it('宿主乐观重排，失败用 refreshBots 回滚（服务端持有顺序）', () => {
-    expect(app).toContain('handleReorderBots')
-    expect(app).toContain('await reorderBots(orderedIds)')
-    expect(app).toContain('void refreshBots()')
+    // 拖动排序的宿主逻辑已迁入 useBotWorkspace（App 装配层挂载 hook）。
+    const botWorkspace = src('../../src/hooks/useBotWorkspace.ts')
+    expect(botWorkspace).toContain('handleReorderBots')
+    expect(botWorkspace).toContain('await reorderBots(orderedIds)')
+    expect(botWorkspace).toContain('void refreshBots()')
   })
 
   it('ChatSidebar 把 onReorder 传进列表', () => {

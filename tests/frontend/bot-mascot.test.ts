@@ -150,8 +150,10 @@ describe('在输入框顶上溜达', () => {
 
   it('空闲不再被强行切成走路，只有散步窗口里才演 walk', () => {
     const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    // 散步窗口判定随 bot 块迁入 useBotWorkspace；App 侧只接渲染 props。
+    const botWorkspaceSource = readFileSync(new URL('../../src/hooks/useBotWorkspace.ts', import.meta.url), 'utf8')
     expect(appSource).not.toContain("mascotState === 'idle' ? 'walk'")
-    expect(appSource).toContain('useMascotStroll(botMode && mascotState')
+    expect(botWorkspaceSource).toContain('useMascotStroll(botMode && mascotState')
     expect(appSource).toContain("state={mascotStrolling ? 'walk' : mascotState}")
     expect(appSource).toContain('stroll={mascotStrolling}')
   })

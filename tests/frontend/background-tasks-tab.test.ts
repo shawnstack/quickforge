@@ -144,15 +144,19 @@ describe('background tasks tab registration', () => {
     expect(appSource).toContain('backgroundTasks={backgroundTasks}')
     expect(appSource).toContain('onOpenBackgroundTaskLog')
     expect(appSource).toContain('onStopBackgroundTask')
-    expect(appSource).toContain("kind: 'background-tasks'")
+    // 「打开后台任务面板」入口（工具条按钮 / 窗口事件桥）分别在 WindowToolbar 与 useAppEventBridges。
+    const toolbarSource = readFileSync(new URL('../../src/components/app/WindowToolbar.tsx', import.meta.url), 'utf8')
+    expect(toolbarSource).toContain("kind: 'background-tasks'")
   })
 
   it('opens the panel from the composer command icon through a window event', () => {
     // 入口只有一处：Composer 左下角的命令图标。它拿不到 requestWorkspaceInspector，
     // 因此发窗口事件，由 App 决定往哪个 project / runtime scope 打开。
-    expect(appSource).toContain('OPEN_BACKGROUND_TASKS_EVENT')
-    expect(appSource).toContain('normalizeOpenBackgroundTasksRequest')
-    expect(appSource).toContain("kind: 'background-tasks'")
+    // 窗口事件桥接已迁入 useAppEventBridges（App 装配层挂载 hook）。
+    const bridgesSource = readFileSync(new URL('../../src/hooks/useAppEventBridges.ts', import.meta.url), 'utf8')
+    expect(bridgesSource).toContain('OPEN_BACKGROUND_TASKS_EVENT')
+    expect(bridgesSource).toContain('normalizeOpenBackgroundTasksRequest')
+    expect(bridgesSource).toContain("kind: 'background-tasks'")
     expect(indicatorSource).toContain('dispatchOpenBackgroundTasks({ sessionId })')
     // 浮层菜单已被面板取代，不应再有第二套操作路径。
     expect(indicatorSource).not.toContain('openBackgroundCommandMenu')

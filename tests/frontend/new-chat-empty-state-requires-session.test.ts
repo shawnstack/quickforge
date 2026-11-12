@@ -9,16 +9,16 @@ import { describe, expect, it } from 'vitest'
  * 「空态自动切到项目会话」的副作用——表现就是「任务会话回滚第一条后，
  * 弹回新发起对话页面」，而项目会话因为 scope 不同看起来「没事」。
  */
-const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const newChatStateSource = readFileSync(new URL('../../src/hooks/useNewChatEmptyState.ts', import.meta.url), 'utf8')
 
 describe('new chat empty state', () => {
   it('requires the absence of a session, not just an empty message list', () => {
-    const start = appSource.indexOf('const showNewChatEmptyState =')
+    const start = newChatStateSource.indexOf('const showNewChatEmptyState =')
     expect(start).toBeGreaterThan(-1)
 
-    const declaration = appSource.slice(start, start + 600)
+    const declaration = newChatStateSource.slice(start, start + 600)
 
-    expect(declaration).toContain('(agentManager.agent?.state.messages.length ?? 0) === 0')
-    expect(declaration).toContain('!agentManager.currentSessionId')
+    expect(declaration).toContain('(agent?.state.messages.length ?? 0) === 0')
+    expect(declaration).toContain('!currentSessionId')
   })
 })

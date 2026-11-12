@@ -65,17 +65,20 @@ describe('findBestPreviewableArtifact', () => {
 
 describe('auto preview source contract', () => {
   const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+  const previewActionsSource = readFileSync(new URL('../../src/hooks/useArtifactPreviewActions.ts', import.meta.url), 'utf8')
   const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
   const utilsSource = readFileSync(new URL('../../src/components/workspace/artifact-preview-utils.ts', import.meta.url), 'utf8')
 
   it('drives auto preview from live tool_execution_end events, not message-state diffs', () => {
     expect(appSource).toContain('onLivePresentArtifacts={openLivePresentedArtifacts}')
-    expect(appSource).toContain('const openLivePresentedArtifacts = useCallback(')
+    expect(previewActionsSource).toContain('const openLivePresentedArtifacts = useCallback(')
     // 状态差分方案已移除：历史快照 / 差分判定 / 签名去重都不应残留。
-    expect(appSource).not.toContain('autoPreviewHistoryRef')
-    expect(appSource).not.toContain('autoPreviewSignatureRef')
-    expect(appSource).not.toContain('isNewlyPresentedArtifact')
-    expect(appSource).not.toContain('collectToolResultToolCallIds')
+    for (const source of [appSource, previewActionsSource]) {
+      expect(source).not.toContain('autoPreviewHistoryRef')
+      expect(source).not.toContain('autoPreviewSignatureRef')
+      expect(source).not.toContain('isNewlyPresentedArtifact')
+      expect(source).not.toContain('collectToolResultToolCallIds')
+    }
   })
 
   it('reports live artifacts only for the view that is on screen', () => {

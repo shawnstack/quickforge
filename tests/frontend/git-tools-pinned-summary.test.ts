@@ -20,6 +20,8 @@ const goalUiSource = readFileSync(new URL('../../src/lib/goal-ui.ts', import.met
 const goalInspectorSource = readFileSync(new URL('../../src/components/workspace/GoalInspectorContent.tsx', import.meta.url), 'utf8')
 const dragSource = readFileSync(new URL('../../src/lib/pinned-summary-drag.ts', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+// 顶栏工具条 JSX 已拆入 WindowToolbar（App 装配层传 props）。
+const toolbarSource = readFileSync(new URL('../../src/components/app/WindowToolbar.tsx', import.meta.url), 'utf8')
 const pinnedSummaryModelSource = readFileSync(new URL('../../src/hooks/usePinnedSummaryModel.ts', import.meta.url), 'utf8')
 const pinnedSummaryEventsSource = readFileSync(new URL('../../src/lib/pinned-summary-events.ts', import.meta.url), 'utf8')
 const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url), 'utf8')
@@ -52,12 +54,12 @@ describe('GitToolsPinnedSummary source contract', () => {
     expect(appSource).toContain('desktopInspectorViewport')
     expect(appSource).toContain('mobileShell')
     expect(appSource).toContain('const pinnedSummarySuspended = workspaceInspectorOpen && canSuspendPinnedSummaryOnInspectorOpen')
-    expect(appSource).toContain('!workspaceInspectorOpen\n        || pinnedSummarySuspended')
-    expect(appSource).toContain('suspended={pinnedSummarySuspended}')
-    expect(appSource).toContain('pinnedSummaryTodos.length > 0')
-    expect(appSource).toContain('pinnedSummarySubagentRuns.length > 0')
-    expect(appSource).toContain('pinnedSummaryRunningSubagentRuns.length > 0')
-    expect(appSource).toContain('titleGitStatus?.isGitRepository')
+    expect(toolbarSource).toContain('!workspaceInspectorOpen\n        || pinnedSummarySuspended')
+    expect(toolbarSource).toContain('suspended={pinnedSummarySuspended}')
+    expect(toolbarSource).toContain('pinnedSummaryTodos.length > 0')
+    expect(toolbarSource).toContain('pinnedSummarySubagentRuns.length > 0')
+    expect(toolbarSource).toContain('pinnedSummaryRunningSubagentRuns.length > 0')
+    expect(toolbarSource).toContain('titleGitStatus?.isGitRepository')
     expect(summarySource).toContain('suspended?: boolean')
     expect(summarySource).toContain('suspended = false')
     expect(summarySource).toContain('!hasGoalSection')
@@ -119,48 +121,48 @@ describe('GitToolsPinnedSummary source contract', () => {
   })
 
   it('marks the PanelRight toggle for compatibility without requiring desktop outside-dismiss exceptions', () => {
-    expect(appSource).toContain('data-pinned-summary-inspector-toggle="true"')
+    expect(toolbarSource).toContain('data-pinned-summary-inspector-toggle="true"')
     expect(allSummarySources).not.toContain("target?.closest('[data-pinned-summary-inspector-toggle=\"true\"]')")
   })
 
   it('uses the same future suspension capability for the direct PanelRight open branch and leaves close untouched', () => {
-    const panelRightClick = appSource.slice(
-      appSource.indexOf('onClick={() => {', appSource.indexOf('data-pinned-summary-inspector-toggle="true"') - 600),
-      appSource.indexOf('data-pinned-summary-inspector-toggle="true"'),
+    const panelRightClick = toolbarSource.slice(
+      toolbarSource.indexOf('onClick={() => {', toolbarSource.indexOf('data-pinned-summary-inspector-toggle="true"') - 600),
+      toolbarSource.indexOf('data-pinned-summary-inspector-toggle="true"'),
     )
     const closeBranch = panelRightClick.slice(
       panelRightClick.indexOf('if (workspaceInspectorOpen) {'),
       panelRightClick.indexOf('} else {'),
     )
     const openBranch = panelRightClick.slice(panelRightClick.indexOf('} else {'))
-    expect(closeBranch).toContain('setWorkspaceInspectorOpenScopeId(null)')
+    expect(closeBranch).toContain('onSetWorkspaceInspectorOpenScopeId(null)')
     expect(closeBranch).not.toContain('setGitToolsExpanded(false)')
     expect(openBranch).toContain('if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {')
-    expect(openBranch).toContain('setGitToolsExpanded(false)')
-    expect(openBranch.indexOf('setGitToolsExpanded(false)')).toBeLessThan(openBranch.indexOf('setWorkspaceInspectorOpenScopeId(workspaceInspectorRuntimeScopeId)'))
+    expect(openBranch).toContain('onSetGitToolsExpanded(false)')
+    expect(openBranch.indexOf('onSetGitToolsExpanded(false)')).toBeLessThan(openBranch.indexOf('onSetWorkspaceInspectorOpenScopeId(workspaceInspectorRuntimeScopeId)'))
   })
 
   it('closes mobile and overlay summaries before Inspector actions but preserves the desktop suspended panel; Commit/Push always closes', () => {
-    const subagentCallback = appSource.slice(
-      appSource.indexOf('onOpenSubagentRun={(payload) => {'),
-      appSource.indexOf('onOpenChanges={() => {'),
+    const subagentCallback = toolbarSource.slice(
+      toolbarSource.indexOf('onOpenSubagentRun={(payload) => {'),
+      toolbarSource.indexOf('onOpenChanges={() => {'),
     )
-    const changesCallback = appSource.slice(
-      appSource.indexOf('onOpenChanges={() => {'),
-      appSource.indexOf('onOpenCommitPush={() => {'),
+    const changesCallback = toolbarSource.slice(
+      toolbarSource.indexOf('onOpenChanges={() => {'),
+      toolbarSource.indexOf('onOpenCommitPush={() => {'),
     )
-    const commitCallback = appSource.slice(
-      appSource.indexOf('onOpenCommitPush={() => {'),
-      appSource.indexOf('mobileShell={mobileShell}'),
+    const commitCallback = toolbarSource.slice(
+      toolbarSource.indexOf('onOpenCommitPush={() => {'),
+      toolbarSource.indexOf('mobileShell={mobileShell}'),
     )
     for (const callback of [subagentCallback, changesCallback]) {
       expect(callback).toContain('if (shouldClosePinnedSummaryBeforeInspectorOpen(canSuspendPinnedSummaryOnInspectorOpen)) {')
-      expect(callback).toContain('setGitToolsExpanded(false)')
+      expect(callback).toContain('onSetGitToolsExpanded(false)')
     }
-    expect(subagentCallback).toContain('openSubagentRun(payload)')
-    expect(changesCallback).toContain('openWorkspaceGitChanges()')
-    expect(commitCallback).toContain('setGitToolsExpanded(false)')
-    expect(commitCallback).toContain('setGitCommitDialogOpen(true)')
+    expect(subagentCallback).toContain('onOpenSubagentRun(payload)')
+    expect(changesCallback).toContain('onOpenWorkspaceGitChanges()')
+    expect(commitCallback).toContain('onSetGitToolsExpanded(false)')
+    expect(commitCallback).toContain('onSetGitCommitDialogOpen(true)')
   })
 
   it('reuses directional layout safety on suspension exit without opening, minimizing, or focusing', () => {
@@ -398,7 +400,7 @@ describe('GitToolsPinnedSummary source contract', () => {
   it('anchors only the first desktop position below the conversation header and preserves toolbar-root then widget fallback order', () => {
     expect(appSource).toContain('const conversationHeaderRef = useRef<HTMLElement | null>(null)')
     expect(readFileSync(new URL('../../src/components/app/ConversationHeader.tsx', import.meta.url), 'utf8')).toContain('<header ref={headerRef}')
-    expect(appSource).toContain('initialAnchorRef={conversationHeaderRef}')
+    expect(toolbarSource).toContain('initialAnchorRef={conversationHeaderRef}')
     expect(summarySource).toContain('initialAnchorRef: RefObject<HTMLElement | null>')
 
     const initialPositionBranch = layoutSource.slice(
@@ -518,9 +520,9 @@ describe('GitToolsPinnedSummary goal section', () => {
     expect(html).toContain('quickforge-goal-icon')
     expect(html).not.toContain('lucide-target')
     // No git repo, todo list or subagent run is required for the summary.
-    expect(appSource).toContain('|| Boolean(pinnedSummaryGoal)')
-    expect(appSource).toContain('goal={pinnedSummaryGoal}')
-    expect(appSource).toContain('goalSessionId={pinnedSummaryGoalSessionId}')
+    expect(toolbarSource).toContain('|| Boolean(pinnedSummaryGoal)')
+    expect(toolbarSource).toContain('goal={pinnedSummaryGoal}')
+    expect(toolbarSource).toContain('goalSessionId={pinnedSummaryGoalSessionId}')
     expect(appSource).toContain('onGoalAction={handlePinnedGoalAction}')
   })
 
@@ -572,12 +574,14 @@ describe('GitToolsPinnedSummary goal section', () => {
 
   it('routes goal summary navigation to the existing Inspector without a new global mode', () => {
     expect(pinnedSummaryModelSource).toContain("const goalEnabled = goalSource !== 'acp'")
-    const goalOpenListener = appSource.indexOf('window.addEventListener(OPEN_GOAL_SUMMARY_EVENT')
+    // goal 摘要打开桥接已迁入 useAppEventBridges（App 装配层挂载 hook）。
+    const bridgesSource = readFileSync(new URL('../../src/hooks/useAppEventBridges.ts', import.meta.url), 'utf8')
+    const goalOpenListener = bridgesSource.indexOf('window.addEventListener(OPEN_GOAL_SUMMARY_EVENT')
     expect(goalOpenListener).toBeGreaterThan(-1)
-    const goalOpenHandler = appSource.slice(appSource.lastIndexOf('const handler = (event: Event) => {', goalOpenListener), goalOpenListener)
+    const goalOpenHandler = bridgesSource.slice(bridgesSource.lastIndexOf('const handler = (event: Event) => {', goalOpenListener), goalOpenListener)
     expect(goalOpenHandler).toContain('sessionId !== pinnedSummaryGoalSessionId')
     expect(goalOpenHandler).toContain('pinnedSummaryGoal.id !== goalId')
-    expect(goalOpenHandler).toContain("requestWorkspaceInspector({ projectId: workspaceInspectorScope.projectId, kind: 'goal', sessionId, goalId, view: detail.view === 'edit' ? 'edit' : 'progress' })")
+    expect(goalOpenHandler).toContain("requestWorkspaceInspector({ projectId: currentToolProjectId ?? 'global-workspace', kind: 'goal', sessionId, goalId, view: detail.view === 'edit' ? 'edit' : 'progress' })")
     expect(goalOpenHandler).not.toContain('setWorkspaceInspectorOpen(false)')
     expect(goalOpenHandler).not.toContain('setGitToolsExpanded(true)')
     expect(appSource).toContain('goalUnavailable')

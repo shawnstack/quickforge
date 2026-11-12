@@ -2,13 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+// 「新对话」空态与 startNew* 路由已迁入 useNewChatEmptyState（App 装配层挂载 hook）。
+const newChatStateSource = readFileSync(new URL('../../src/hooks/useNewChatEmptyState.ts', import.meta.url), 'utf8')
 const sidebarSource = readFileSync(new URL('../../src/components/sidebar/ChatSidebar.tsx', import.meta.url), 'utf8')
 const headerNavSource = readFileSync(new URL('../../src/components/sidebar/chat-sidebar/SidebarHeaderNav.tsx', import.meta.url), 'utf8')
 const mobileSidebarSource = readFileSync(new URL('../../src/hooks/useMobileSidebar.ts', import.meta.url), 'utf8')
 const agentManagerSource = readFileSync(new URL('../../src/hooks/useAgentManager.ts', import.meta.url), 'utf8')
 
 function callbackSource(name: string) {
-  const source = appSource.match(new RegExp(`const ${name} = useCallback\\(\\(\\) => \\{([\\s\\S]*?)
+  const source = newChatStateSource.match(new RegExp(`const ${name} = useCallback\\(\\(\\) => \\{([\\s\\S]*?)
   \\}, \\[`))?.[1]
   expect(source, `${name} callback`).toBeDefined()
   return source ?? ''
@@ -60,8 +62,8 @@ describe('sidebar new chat routing', () => {
     expect(explicitGlobalHandler.indexOf('setEmptyStateProjectDismissed(true)')).toBeLessThan(
       explicitGlobalHandler.indexOf('runNewChatWithLauncher(startNewGlobalChat)'),
     )
-    expect(appSource).toContain("if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || isBotProject(activeProject) || agentManager.chatScope !== 'global') return")
-    expect(appSource).toContain('if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current)')
+    expect(newChatStateSource).toContain("if (!showNewChatEmptyState || emptyStateProjectDismissed || !activeProject || isBotProject(activeProject) || chatScope !== 'global') return")
+    expect(newChatStateSource).toContain('if (!showNewChatEmptyState && wasNewChatEmptyStateRef.current)')
     expect(agentManagerSource).toContain("const project = scope === 'project' ? options.project : (options.project ?? defaultWorkspaceRef.current)")
   })
 

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Dispatch, SetStateAction } from 'react'
 import type { ProjectInfo, SkillsScope } from '@/lib/types'
-import type { SettingsInitialTab } from '@/lib/settings-tabs'
+import type { SettingsInitialTab } from '@/lib/settings-tab-definitions'
 import type { WorkspaceInspectorOpenRequest } from '@/components/workspace/workspace-types'
 import type { ArtifactKind } from '@/components/workspace/artifact-preview-utils'
 

@@ -197,12 +197,6 @@ function normalizeHeartbeat(input, previous = null) {
       : (typeof source.nextRunAt === 'string' ? source.nextRunAt : (previous?.nextRunAt ?? null)),
     lastWakeAt: typeof source.lastWakeAt === 'string' ? source.lastWakeAt : (previous?.lastWakeAt ?? null),
     lastSessionId: typeof source.lastSessionId === 'string' ? source.lastSessionId : (previous?.lastSessionId ?? null),
-    wakeCount: Number.isFinite(Number(source.wakeCount ?? previous?.wakeCount))
-      ? Number(source.wakeCount ?? previous?.wakeCount)
-      : 0,
-    idleCount: Number.isFinite(Number(source.idleCount ?? previous?.idleCount))
-      ? Number(source.idleCount ?? previous?.idleCount)
-      : 0,
     lastIdleReason: typeof source.lastIdleReason === 'string' ? source.lastIdleReason : (previous?.lastIdleReason ?? null),
     lastError: typeof source.lastError === 'string' ? source.lastError : (previous?.lastError ?? null),
   }

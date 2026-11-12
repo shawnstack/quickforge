@@ -936,8 +936,6 @@ function summarizeBotDetail(bot, extra = {}) {
       intervalMinutes: heartbeat.intervalMinutes ?? null,
       nextRunAt: heartbeat.nextRunAt ?? null,
       lastWakeAt: heartbeat.lastWakeAt ?? null,
-      wakeCount: heartbeat.wakeCount ?? null,
-      idleCount: heartbeat.idleCount ?? null,
       lastIdleReason: heartbeat.lastIdleReason ?? null,
       lastError: heartbeat.lastError ?? null,
     },

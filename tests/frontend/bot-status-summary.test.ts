@@ -28,8 +28,6 @@ function makeBot(
       nextRunAt: null,
       lastWakeAt: null,
       lastSessionId: null,
-      wakeCount: 0,
-      idleCount: 0,
       lastIdleReason: null,
       lastError: null,
     },

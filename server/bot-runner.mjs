@@ -127,7 +127,6 @@ export async function heartbeatInstruction(bot) {
 async function markIdle(bot, reason) {
   const heartbeat = {
     ...bot.heartbeat,
-    idleCount: (bot.heartbeat?.idleCount ?? 0) + 1,
     lastIdleReason: reason,
     nextRunAt: nextHeartbeatAt(bot),
   }
@@ -194,7 +193,6 @@ export async function runBotHeartbeat(bot, options = {}) {
       ...bot.heartbeat,
       lastWakeAt: startedAt,
       lastSessionId: bot.sessionId,
-      wakeCount: (bot.heartbeat?.wakeCount ?? 0) + 1,
       lastIdleReason: null,
       lastError: null,
       nextRunAt: nextHeartbeatAt(bot),

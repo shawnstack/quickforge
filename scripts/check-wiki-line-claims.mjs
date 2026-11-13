@@ -15,7 +15,7 @@
 //   3. 裸 basename：只剩唯一同名文件时才认（**多义即跳过，绝不取第一个**——三份
 //      message-queue.ts 让一处 593 vs 640 的漂移藏了很久）。
 //
-// 覆盖三种声明形态：paren「名 … (N 行)」、表格行「| [名](…) | … | N |」、目录树注释（同 paren）。
+// 覆盖五种声明形态：paren「名 … (N 行)」、CELL「| [名](…) | … | N |」（行数第三格）、LINKTABLE「| [名](…) | N |」（行数第二格，hooks 表）、BACKTICK「| `名` | N |」、目录树注释（同 paren）。
 // 历史叙述（数字前紧邻「原」，或整行含「→」迁移箭头）解析到但不比对，单列 historical。
 //
 // 计数口径（这是护栏，别拆）：matched = resolved + historical + unresolved + nonRepo
@@ -39,6 +39,10 @@ const CELL = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*
 // 反引号式表格行「| `名.ext` | N | …」——本仓库 wiki 的主流写法，2026-11-13 前一直无校验
 // （文档bot 用 backtick-claims.mjs 扫出 77 条隐身声明、2 条漂移后收编为第四形态）。
 const BACKTICK = new RegExp('^\\|\\s*`([A-Za-z0-9._/-]+?\\.' + EXT + ')`\\s*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
+// 链接式表格行「| [名](…) | N | …」——行数在第二格的变体（hooks/README 主表格等），
+// 2026-11-13 前 CELL（行数第三格）与 BACKTICK 都不匹配，35 条声明整表无人看守
+// （文档bot 用 linkback-claims.mjs 量化出 29 条过时后收编为第五形态）。
+const LINKTABLE = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git'])
 // 出现在 wiki 里但不是本仓库文件的第三方库名：只打印，不计入 unresolved。
 // 在途 WIP 的行数漂移不设豁免表：等改动落地后按当刻实测改声明即可（2026-11-13 机制随最后一批 WIP 落地移除）。
@@ -46,9 +50,12 @@ const NON_REPO_FILES = new Set(['xterm.js', 'highlight.js', 'jszip.min.js', 'ind
 const MIN_MATCHED = 100
 
 function wc(file) {
+  // wc -l 口径：数换行符个数。文件无末尾换行时最后一行不计——
+  // 与 split 长度口径差 1（曾让 useWorkbenchScreensaver.ts 74 vs 75 撕裂过）。
   const text = fs.readFileSync(file, 'utf8')
-  const lines = text.split('\n')
-  return lines[lines.length - 1] === '' ? lines.length - 1 : lines.length
+  let count = 0
+  for (let i = 0; i < text.length; i++) if (text.charCodeAt(i) === 10) count++
+  return count
 }
 
 function listWikiReadmes(dir, acc = []) {
@@ -156,6 +163,7 @@ for (const file of listWikiReadmes(WIKI)) {
     for (const match of line.matchAll(PAREN)) verify(match[1], match[2])
     for (const match of line.matchAll(CELL)) verify(match[1], match[2])
     for (const match of line.matchAll(BACKTICK)) verify(match[1], match[2])
+    for (const match of line.matchAll(LINKTABLE)) verify(match[1], match[2])
   })
 }
 

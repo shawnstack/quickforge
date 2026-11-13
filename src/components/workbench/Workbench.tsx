@@ -25,11 +25,10 @@ import './workbench.css'
 /**
  * 塔台工作台（设计稿 docs/design/workbench-redesign/workbench-v8-proposal.html）。
  *
- * 主体是「事件」而非空间：bot 心跳与定时任务的 nextRunAt 合并成出港队列，
- * 右栏回答谁在跑 / 谁刚完成 / 舰队名册，顶部 NOTAM 通告卡住的地方。
- * 「在跑」覆盖三类真实运行：busy 的 bot、running 的普通会话（GET /api/agents，
- * 排除 bot/任务会话）。数据全部来自现成端点；进港与到点未醒是会话内观察
- * （刷新即清），不外推未来班次。看板与时钟双主题恒暗（仪器），房间区吃全局 token。
+ * 主体是「事件」：bot 心跳与定时任务的 nextRunAt 合并成出港队列，右栏在跑/进港/舰队，
+ * 顶部 NOTAM 通告。在跑覆盖 busy bot 与 running 普通会话（排除 bot/任务会话）。
+ * 数据来自现成端点；进港与到点未醒为会话内观察，不外推。看板恒暗、房间随主题。
+ * 文案克制：只留数据标签与必要状态，解释性说明收进 tooltip。
  */
 
 const POLL_MS = 20_000
@@ -110,7 +109,6 @@ function mascotStateOf(bot: BotSummary): 'working' | 'idle' | 'sleepy' {
   return 'idle'
 }
 
-/** 出港/抽屉的状态章：在跑是事实优先于历史错误，催醒后立刻有反馈。 */
 function botChip(bot: BotSummary): Chip {
   if (isBusy(bot)) return { text: t('wbRunning'), tone: 'ok' }
   const summary = botStatusSummary(bot)
@@ -125,10 +123,11 @@ function taskChip(task: ScheduledTask): Chip {
   return { text: t('wbWaiting'), tone: 'idle' }
 }
 
-function Switch({ checked, disabled, label, onChange }: {
+function Switch({ checked, disabled, label, title, onChange }: {
   checked: boolean
   disabled?: boolean
   label: string
+  title?: string
   onChange: (next: boolean) => void
 }) {
   return (
@@ -137,6 +136,7 @@ function Switch({ checked, disabled, label, onChange }: {
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      title={title}
       disabled={disabled}
       className={cn('qf-wb__switch', checked && 'is-on')}
       onClick={() => onChange(!checked)}
@@ -185,7 +185,6 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
     }, 3600)
   }, [])
 
-  /** 会话内观察：busy→idle 记进港；到点超过宽限仍未醒记 warn 通告；普通会话 running→结束记进港。不写服务端。 */
   const observe = useCallback((nextBots: BotSummary[], nextTasks: ScheduledTask[], nextSessions: SessionSummary[], at: number) => {
     const newArrivals: Arrival[] = []
     const newMissed: MissedNotam[] = []
@@ -315,7 +314,6 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
     return () => { window.clearTimeout(kickoff); window.clearInterval(poll); window.clearInterval(tick) }
   }, [load, refreshTick])
 
-  // 抽屉开合的焦点管理：打开聚焦关闭按钮，关闭归还焦点给触发元素。
   useEffect(() => {
     if (drawer) {
       prevFocusRef.current = document.activeElement
@@ -357,7 +355,6 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
   const botFlightCount = allFlights.filter((f) => f.kind === 'bot').length
   const taskFlightCount = allFlights.length - botFlightCount
 
-  /** 普通会话在跑：status==='running' 且不属于任何 bot / 定时任务会话。 */
   const runningSessions = useMemo(() => {
     const botSessionIds = new Set((bots ?? []).flatMap((b) => [b.sessionId, b.heartbeat?.lastSessionId]).filter((x): x is string => Boolean(x)))
     const taskSessionIds = new Set((tasks ?? []).flatMap((task) => [task.lastSessionId, ...(task.runs ?? []).map((r) => r.sessionId)]).filter((x): x is string => Boolean(x)))
@@ -380,7 +377,6 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
     return list.filter((item) => !dismissed[item.key])
   }, [bots, missed, dismissed])
 
-  // 统计互斥：异常 > 休眠 > 待醒，避免同一 bot 被重复计入两档。
   const stats = useMemo(() => {
     const list = bots ?? []
     return {
@@ -496,7 +492,6 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
     }
   }, [pushToast])
 
-  // Esc 优先级：先清搜索，再关抽屉，最后关工作台。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
@@ -529,10 +524,10 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
         </div>
         <span className="qf-wb__date">{date.getFullYear()}-{pad(date.getMonth() + 1)}-{pad(date.getDate())}</span>
         <div className="qf-wb__stats">
-          <span className="qf-wb__stat" title={t('wbNow')}><i className="qf-wb__dot qf-wb__dot--ok" />{t('wbNow')} <b>{stats.running}</b></span>
-          <span className="qf-wb__stat" title={t('wbStatWaiting')}><i className="qf-wb__dot qf-wb__dot--amber" />{t('wbStatWaiting')} <b>{stats.waiting}</b></span>
-          <span className="qf-wb__stat" title={t('wbStatAsleep')}><i className="qf-wb__dot" />{t('wbStatAsleep')} <b>{stats.asleep}</b></span>
-          <span className="qf-wb__stat" title={t('wbStatErrors')}><i className="qf-wb__dot qf-wb__dot--err" />{t('wbStatErrors')} <b>{stats.errors}</b></span>
+          <span className="qf-wb__stat"><i className="qf-wb__dot qf-wb__dot--ok" />{t('wbNow')} <b>{stats.running}</b></span>
+          <span className="qf-wb__stat"><i className="qf-wb__dot qf-wb__dot--amber" />{t('wbStatWaiting')} <b>{stats.waiting}</b></span>
+          <span className="qf-wb__stat"><i className="qf-wb__dot" />{t('wbStatAsleep')} <b>{stats.asleep}</b></span>
+          <span className="qf-wb__stat"><i className="qf-wb__dot qf-wb__dot--err" />{t('wbStatErrors')} <b>{stats.errors}</b></span>
           <span className="qf-wb__live" title={updatedTitle}><i />LIVE</span>
         </div>
         <button
@@ -553,37 +548,37 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
         {Array.from({ length: 26 }, (_, i) => <i key={i} style={{ animationDelay: `${i * 0.1}s` }} />)}
       </div>
 
-      <div className="qf-wb__notams" role="status">
-        {notams.length === 0 ? (
-          <div className="qf-wb__notam-clear">{t('wbNotamsClear')}</div>
-        ) : notams.map((item) => (
-          <div key={item.key} className={cn('qf-wb__notam', item.kind === 'error' && 'qf-wb__notam--error')}>
-            <span className="qf-wb__notam-icon">{item.kind === 'error' ? '!' : 'i'}</span>
-            <b className="qf-wb__notam-src">{item.name}</b>
-            <span className="qf-wb__notam-text">{item.text}</span>
-            <span className="qf-wb__notam-actions">
-              <button type="button" className="qf-wb__nbtn qf-wb__nbtn--primary" onClick={() => void doWake(item.bot.id)}>
-                {t('wbWakeRetry')}
-              </button>
-              <button type="button" className="qf-wb__nbtn" onClick={() => void enterSession(item.bot)}>
-                {t('wbOpenSession')}
-              </button>
-              <button
-                type="button"
-                className="qf-wb__nbtn"
-                onClick={() => setDismissed((d) => ({ ...d, [item.key]: true }))}
-              >
-                {t('wbDismiss')}
-              </button>
-            </span>
-          </div>
-        ))}
-      </div>
+      {notams.length > 0 ? (
+        <div className="qf-wb__notams" role="status">
+          {notams.map((item) => (
+            <div key={item.key} className={cn('qf-wb__notam', item.kind === 'error' && 'qf-wb__notam--error')}>
+              <span className="qf-wb__notam-icon">{item.kind === 'error' ? '!' : 'i'}</span>
+              <b className="qf-wb__notam-src">{item.name}</b>
+              <span className="qf-wb__notam-text">{item.text}</span>
+              <span className="qf-wb__notam-actions">
+                <button type="button" className="qf-wb__nbtn qf-wb__nbtn--primary" onClick={() => void doWake(item.bot.id)}>
+                  {t('wbWakeRetry')}
+                </button>
+                <button type="button" className="qf-wb__nbtn" onClick={() => void enterSession(item.bot)}>
+                  {t('wbOpenSession')}
+                </button>
+                <button
+                  type="button"
+                  className="qf-wb__nbtn"
+                  onClick={() => setDismissed((d) => ({ ...d, [item.key]: true }))}
+                >
+                  {t('wbDismiss')}
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="qf-wb__main">
         <section className="qf-wb__board" aria-label={t('wbDepartures')}>
           <div className="qf-wb__board-head">
-            <div className="qf-wb__board-title"><b>{t('wbDepartures')}</b><span>DEPARTURES · {t('wbDeparturesSub')}</span></div>
+            <div className="qf-wb__board-title"><b>{t('wbDepartures')}</b><span>DEPARTURES</span></div>
             <div className="qf-wb__board-tools">
               <div className="qf-wb__filters" role="group" aria-label={t('wbDepartures')}>
                 <button type="button" className={cn('qf-wb__filter', filter === 'all' && 'is-on')} onClick={() => setFilter('all')}>
@@ -645,6 +640,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
                   key={flight.key}
                   type="button"
                   className={cn('qf-wb__row', flight.key === nextKey && 'is-next')}
+                  title={t('wbOpenDetailHint')}
                   onClick={() => openDrawer(flight.kind === 'bot' ? { kind: 'bot', id: flight.bot.id } : { kind: 'task', id: flight.task.id })}
                 >
                   <span className="qf-wb__cell-time"><b>{fmtHm(flight.at)}</b><i>{dayLabel(flight.at, now)}</i></span>
@@ -665,11 +661,6 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
               )
             })}
           </div>
-          <div className="qf-wb__legend">
-            <span><i className="qf-wb__dot qf-wb__dot--ok" />{t('wbLegendBots')}</span>
-            <span><i className="qf-wb__diamond" />{t('wbLegendTasks')}</span>
-            <span>{t('wbLegendHonest')}</span>
-          </div>
         </section>
 
         <aside className="qf-wb__side">
@@ -680,7 +671,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
             ) : (
               <>
                 {running.map(({ bot, since }) => (
-                  <button key={bot.id} type="button" className="qf-wb__siderow" onClick={() => openDrawer({ kind: 'bot', id: bot.id })}>
+                  <button key={bot.id} type="button" className="qf-wb__siderow" title={t('wbOpenDetailHint')} onClick={() => openDrawer({ kind: 'bot', id: bot.id })}>
                     <BotMascot state="working" size={20} look={bot.mascot} />
                     <span className="qf-wb__siderow-name">{bot.name}</span>
                     <span className="qf-wb__siderow-meta" title={t('wbSinceObserved')}>{t('wbRunningFor', { time: fmtSpan(now - since) })}</span>
@@ -704,7 +695,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
             )}
           </section>
           <section className="qf-wb__panel">
-            <div className="qf-wb__panel-head"><PlaneLanding className="qf-wb__panel-icon size-3.5" /><b>{t('wbArrivals')}</b><span>{t('wbArrivalsSession')}</span></div>
+            <div className="qf-wb__panel-head" title={t('wbArrivalsSession')}><PlaneLanding className="qf-wb__panel-icon size-3.5" /><b>{t('wbArrivals')}</b><span>{arrivals.length}</span></div>
             {arrivals.length === 0 ? (
               <div className="qf-wb__panel-empty"><PlaneLanding className="size-4" /><span>{t('wbArrivalsEmpty')}</span></div>
             ) : arrivals.map((item) => (
@@ -729,7 +720,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
             ) : (bots ?? []).map((bot) => {
               const summary = botStatusSummary(bot, now)
               return (
-                <button key={bot.id} type="button" className="qf-wb__siderow" onClick={() => openDrawer({ kind: 'bot', id: bot.id })}>
+                <button key={bot.id} type="button" className="qf-wb__siderow" title={t('wbOpenDetailHint')} onClick={() => openDrawer({ kind: 'bot', id: bot.id })}>
                   <BotMascot state={mascotStateOf(bot)} size={18} look={bot.mascot} />
                   <span className="qf-wb__siderow-name">{bot.name}</span>
                   <span className={cn('qf-wb__siderow-meta', `qf-wb__tone--${summary.tone}`)}>{isBusy(bot) ? t('wbRunning') : summary.text}</span>
@@ -795,10 +786,10 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
                         checked={drawerBot.heartbeat?.alwaysWake === true}
                         disabled={actionBusy}
                         label={t('wbAlwaysWake')}
+                        title={t('wbAlwaysWakeHint')}
                         onChange={(next) => void doPatch(drawerBot, { alwaysWake: next })}
                       />
                     </div>
-                    <div className="qf-wb__hint">{t('wbAlwaysWakeHint')}</div>
                   </div>
                   <div className="qf-wb__d-actions">
                     <button type="button" className="qf-wb__btn qf-wb__btn--primary" disabled={actionBusy || isBusy(drawerBot)} onClick={() => void doWake(drawerBot.id)}>

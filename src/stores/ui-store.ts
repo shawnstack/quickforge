@@ -23,6 +23,8 @@ interface UIStore {
   conversationMenuOpen: boolean
   /** 工作台（塔台）开合：入口为侧栏左上角 QuickForge logo，顶栏不再放单独按钮。 */
   workbenchOpen: boolean
+  /** 工作台屏保开关（设置持久化）：开启后 30 分钟无操作自动进入工作台。 */
+  workbenchScreensaver: boolean
   workspaceInspectorRequest: WorkspaceInspectorOpenRequest | undefined
   /** 工作区检查器的「打开者」scope（在哪个 runtimeScope 里打开的）；派生 open = scopeId 与当前 scope 相等。 */
   workspaceInspectorOpenScopeId: string | null
@@ -46,6 +48,7 @@ interface UIStore {
   setShareDialogOpen: Dispatch<SetStateAction<boolean>>
   setConversationMenuOpen: Dispatch<SetStateAction<boolean>>
   setWorkbenchOpen: Dispatch<SetStateAction<boolean>>
+  setWorkbenchScreensaver: Dispatch<SetStateAction<boolean>>
   setWorkspaceInspectorRequest: Dispatch<SetStateAction<WorkspaceInspectorOpenRequest | undefined>>
   setWorkspaceInspectorOpenScopeId: Dispatch<SetStateAction<string | null>>
   setArtifactPreviewOpen: Dispatch<SetStateAction<boolean>>
@@ -99,6 +102,7 @@ export const useUIStore = create<UIStore>((set) => ({
   shareDialogOpen: false,
   conversationMenuOpen: false,
   workbenchOpen: false,
+  workbenchScreensaver: false,
   workspaceInspectorRequest: undefined,
   workspaceInspectorOpenScopeId: null,
   artifactPreviewOpen: false,
@@ -130,6 +134,8 @@ export const useUIStore = create<UIStore>((set) => ({
     set((s) => ({ conversationMenuOpen: typeof value === 'function' ? value(s.conversationMenuOpen) : value })),
   setWorkbenchOpen: (value) =>
     set((s) => ({ workbenchOpen: typeof value === 'function' ? value(s.workbenchOpen) : value })),
+  setWorkbenchScreensaver: (value) =>
+    set((s) => ({ workbenchScreensaver: typeof value === 'function' ? value(s.workbenchScreensaver) : value })),
   setWorkspaceInspectorRequest: (value) =>
     set((s) => ({
       workspaceInspectorRequest:

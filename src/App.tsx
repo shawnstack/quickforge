@@ -49,6 +49,7 @@ import { useCrossTabSync } from '@/hooks/useCrossTabSync'
 import { useAgentManager } from '@/hooks/useAgentManager'
 import { useSessionPagination } from '@/hooks/useSessionPagination'
 import { useTaskToasts } from '@/hooks/useTaskToasts'
+import { useWorkbenchScreensaver } from '@/hooks/useWorkbenchScreensaver'
 import { useAppBootstrap } from '@/hooks/useAppBootstrap'
 import { useAppTerminal, useAppTerminalState } from '@/hooks/useAppTerminal'
 import { useAppGit, useAppGitMenu, useAppGitState } from '@/hooks/useAppGit'
@@ -607,6 +608,7 @@ function MainApp() {
   // 另有无条件 403 兜底。判据用「侧栏在 bot 模式」或「当前会话落在 bot 项目」：
   // 后者是数据真相，前者覆盖刚切模式、项目还没切过来的那一瞬。
   const botMode = useUIStore((s) => s.botMode)
+  useWorkbenchScreensaver()
   const chatCapabilities = botMode || isBotProject(agentManager.currentToolProject)
     ? BOT_CHAT_CAPABILITIES
     : QUICKFORGE_CHAT_CAPABILITIES

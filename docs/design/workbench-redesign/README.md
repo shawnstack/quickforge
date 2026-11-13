@@ -11,7 +11,8 @@
 
 ### 落地与验证（2026-11-13）
 
-- 产品实现：`src/components/workbench/Workbench.tsx` + `workbench.css`；`WorkbenchPortal` 签名不变；入口为侧栏左上角 QuickForge logo（`SidebarHeaderNav.tsx`，展开/收起两态均可点），顶栏不再放单独按钮，开合状态入 ui-store（`workbenchOpen`）；i18n +73 键（en/zh）、-8 舞台键；测试改写到 v8 契约（13 例）。
+- 产品实现：`src/components/workbench/Workbench.tsx` + `workbench.css`；`WorkbenchPortal` 签名不变；入口为侧栏左上角 QuickForge logo（`SidebarHeaderNav.tsx`，展开/收起两态均可点），顶栏不再放单独按钮，开合状态入 ui-store（`workbenchOpen`）；i18n 新增工作台键（en/zh 双份）、删 8 舞台键；测试改写到 v8 契约（15 例）。
+- 评审精修（自评审一轮）：手动刷新按钮（旋转反馈 + 「更新于」tooltip）、搜索清除按钮、Esc 优先级（清搜索→关抽屉→关工作台）、抽屉焦点管理（开聚焦关闭、关归还触发元素）、focus-visible 焦点环、加载骨架屏、错误重试、统计互斥（异常>休眠>待醒）、右栏面板图标与带图标空态、进港行可点击回钻、toast 点击 dismiss、在跑时长「自观察起」tooltip、看板头部微光。
 - 验证：tsc -b / 定向 eslint / vitest / build / check:wiki(bad=0) 全绿；隔离实例（临时数据目录 + 假 provider 指向本机 discard 端口，不花真实模型调用）Electron offscreen 实测桌面 1440×900 与窄屏 375×844、浅/深、bot/任务抽屉、NOTAM 渲染/忽略/自动解除、催醒/投喂/开关、进港累积、Esc/重开稳定，零 console/page error。
 - 演示条（流速/快进/注入故障/重置）仅为设计稿 chrome，未进产品代码；产品版用真实端点轮询（20s）+ 1s 时钟。
 - 已知服务端语义：PATCH heartbeat.lastError=null 不清空（normalize 回退旧值），NOTAM 自动解除依赖成功唤醒清空；跨刷新保留进港/NOTAM 需服务端环形记录（拍板项 4，另排）。

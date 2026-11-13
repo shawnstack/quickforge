@@ -35,6 +35,7 @@
     enabled, intervalMinutes, nextRunAt,
     lastWakeAt, lastSessionId,
     lastIdleReason, lastError,
+    alwaysWake,          // 到点必醒（默认 false）：跳过「有没有活」的判定、每跳都真醒，见 §4
   },
   mascot: { body, eye, animated, showOnComposer },   // 吉祥物外观；showOnComposer 控制输入框上方那只（默认 true），见 §7.2
   createdAt, updatedAt,
@@ -74,6 +75,12 @@
 不醒的那一班**不往对话里写任何东西**——否则一小时一条「我醒了」，一天就把会话淹了。这是把「心跳」和「打卡」分开的地方。
 
 醒来时用的是 `runPrompt(bot.sessionId, ...)`，推进同一条会话；会话忙（用户正在跟它说话）时这一班直接跳过，不排队、不抢上下文。
+
+**唯一的例外是「到点必醒」（`heartbeat.alwaysWake`）。** 默认 `false`，心跳照上面的判活走，没信号就不真醒。打开后跳过 `inspectBotWork`，**每一跳都真的叫醒模型**——每次都要花一次模型调用，所以只适合「每跳都得干活」的值守型 bot，比如定时扫漂移、按拍对账这类。
+
+它在 `runBotHeartbeat` 里和手动催醒走同一条路：只有 `!options.manual && bot?.heartbeat?.alwaysWake !== true` 时才进判活分支，也就是手动触发和 alwaysWake 打开都会直接真醒。
+
+老记录没有这个字段时，保存沿用上次值、再没有就是 `false`；只认严格 `true`（字符串 `"true"` 不算）。开关入口是 bot 设置弹窗的心跳那一行，工作台抽屉里也有同一行。
 
 ### 4.1 心跳指令:固定头 + 可自我修改的操作模板 + 固定尾
 

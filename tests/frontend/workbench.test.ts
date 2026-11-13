@@ -72,7 +72,7 @@ describe('工作台（v8 塔台出港屏）', () => {
   it('CSS：减弱动效全关；窄屏抽屉满宽不越界、通告文本换行独占一行', () => {
     expect(cssSource).toContain('@media (prefers-reduced-motion: reduce)')
     expect(cssSource).toContain('animation: none !important;')
-    expect(cssSource).toContain('.qf-wb__drawer { left: 0; right: 0; width: auto; max-width: none; }')
+    expect(cssSource).toContain('.qf-wb__drawer { width: calc(100vw - 24px); max-height: 88vh; }')
     expect(cssSource).toContain('.qf-wb__notam-text { order: 5; flex: 1 1 100%; white-space: normal; overflow: visible; }')
   })
 
@@ -102,6 +102,42 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(componentSource).toContain("kind: 'session'")
     expect(componentSource).toContain('runningSessions.map((session) =>')
     expect(componentSource).toContain('list.filter(isBusy).length + runningSessions.length')
+  })
+
+  it('评审精修：刷新/搜索清除/Esc 优先级/焦点管理/可点进港/骨架/重试/互斥统计', () => {
+    expect(componentSource).toContain('const requestRefresh = useCallback(')
+    expect(componentSource).toContain('wbClearSearch')
+    expect(componentSource).toContain("if (query) { setQuery(''); return }")
+    expect(componentSource).toContain('drawerCloseRef.current?.focus()')
+    expect(componentSource).toContain('const openArrival = (item: Arrival) => {')
+    expect(componentSource).toContain('qf-wb__skeleton')
+    expect(componentSource).toContain('wbRetry')
+    expect(componentSource).toContain('asleep: list.filter((b) => !b.heartbeat?.lastError && b.heartbeat?.enabled === false).length')
+    expect(cssSource).toContain('.qf-wb :focus-visible')
+    expect(cssSource).toContain('qf-wb-shimmer')
+  })
+
+  it('文案克制：移除图例脚注/无通告占位/副标题解释，到点必醒说明收进 tooltip', () => {
+    expect(componentSource).not.toContain('wbLegendHonest')
+    expect(componentSource).not.toContain('wbNotamsClear')
+    expect(componentSource).not.toContain('wbDeparturesSub')
+    expect(componentSource).toContain('<span>DEPARTURES</span>')
+    expect(componentSource).toContain("title={t('wbAlwaysWakeHint')}")
+    expect(cssSource).not.toContain('.qf-wb__legend')
+    expect(cssSource).not.toContain('.qf-wb__notam-clear')
+  })
+
+  it('单击开居中弹窗而非侧抽屉：Esc 关闭、焦点管理保留、主色非黄', () => {
+    expect(componentSource).toContain('onClick={() => openDrawer(')
+    expect(componentSource).not.toContain('onDoubleClick={() => openDrawer(')
+    expect(componentSource).toContain("title={t('wbOpenDetailHint')}")
+    expect(cssSource).toContain('margin: auto;')
+    expect(cssSource).toContain('width: min(600px, calc(100vw - 48px));')
+    expect(cssSource).toContain('--qf-wb-accent: #3aa981;')
+    expect(cssSource).toContain('--qf-wb-numeral: #e7e2d4;')
+    expect(cssSource).not.toContain('#f0b429')
+    expect(cssSource).not.toContain('#3ec7f0')
+    expect(componentSource).toContain('drawerCloseRef.current?.focus()')
   })
 
   it('i18n：v8 键 en/zh 双份齐全，舞台专用键已删除', () => {

@@ -64,7 +64,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 4657 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键 |
+| `i18n.ts` | 4663 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键 |
 | `error-messages.ts` | 42 | 已知上游代码异常文案的展示层国际化：`translateErrorMessage(message)` 以「精确/参数正则 → i18n key」规则表映射 pi-ai（Request was aborted、流异常结束）、ai-http-logger（AI stream idle/total timeout）、undici fetch failed 与 server-agent prompt HTTP 兜底等已知英文异常串；数据层保持原文（持久化、appendAssistantErrorMessageOnce 去重、subagent trace 去重都依赖原始文本），仅在展示层（message-actions 错误红块装饰、local-tools subagent 错误原因卡）调用；未匹配的动态正文原样显示 |
 | `error-noise.ts` | 13 | 良性错误噪音识别：`isResizeObserverLoopError(value)` 对字符串或 `Error.message` 匹配 `ResizeObserver loop`（覆盖 "completed with undelivered notifications" 与 "loop limit exceeded" 变体，普通对象不识别）；`main.tsx` 全局 error/unhandledrejection 入口命中即降级 `logger.debug`（`quickforge_debug=1` 才可见），真实错误仍按 error 级别上报 |
 | `pi-chat.ts` | 497 | Pi Chat 初始化和模型管理 |
@@ -153,7 +153,7 @@
 
 ## 核心模块
 
-### i18n.ts (4657 行)
+### i18n.ts (4663 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 

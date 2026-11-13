@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { harness, nodes, text } from './settings-react-harness'
+vi.mock('@/stores/ui-store', () => ({ useUIStore: (selector: (s: unknown) => unknown) => selector({ workbenchScreensaver: false, setWorkbenchScreensaver: () => {} }) }))
 vi.mock('react', async (original) => ({ ...await original<typeof import('react')>(), ...(await import('./settings-react-harness')).hooks }))
 const mocks = vi.hoisted(() => ({ compact: vi.fn(), goal: vi.fn() }))
 vi.mock('@/storage', () => ({ getAppStorage: () => ({}) }))

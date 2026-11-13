@@ -19,7 +19,7 @@ src/
 ├── lib/                 # 前端工具库 (123 个顶层模块，另含 types/、tool-renderers/ 子目录)，详见 [lib 文档](lib/README.md)
 ├── stores/              # Zustand 状态仓库（App 级 UI/会话域内存状态，10 个 store；兼容层模式见 [状态管理迁移](../../architecture/zustand-migration.zh-CN.md)）
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
-├── App.tsx              # 主应用装配层 (1592 行；区域组件在 components/app/，业务规则 hooks 见 hooks 文档)
+├── App.tsx              # 主应用装配层 (1594 行；区域组件在 components/app/，业务规则 hooks 见 hooks 文档)
 ├── styles/              # 全局样式入口与领域模块，详见 [styles 文档](styles/README.md)
 └── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
 ```
@@ -29,7 +29,7 @@ src/
 | 文件 | 说明 | 行数 |
 |------|------|------|
 | [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 116 |
-| [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1592 |
+| [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1594 |
 | [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 39 个 CSS 文件 |
 
 ### main.tsx (116 行)
@@ -43,7 +43,7 @@ src/
 - 渲染前调用 `lib/window-guard.ts` 的 `acquireAppWindowGuard()`（Web Locks 严格单窗口，ifAvailable 抢锁很快）：granted/unsupported 正常渲染 App；blocked 窗口只渲染 `WindowGuardNotice` 拦截页——不加载 App、不建立 SSE 连接，纯静态提示用户关闭本窗口并回到已有窗口使用（不提供关闭按钮：浏览器不允许脚本关闭手动打开的标签页）
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
-### App.tsx (1592 行)
+### App.tsx (1594 行)
 
 **用途**: 应用主组件（装配层），协调所有子组件和 hooks。
 

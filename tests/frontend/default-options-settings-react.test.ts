@@ -10,6 +10,7 @@ const notifications = vi.hoisted(() => ({
   show: vi.fn(async () => true),
 }))
 const settings = vi.hoisted(() => ({ saveToolDisplay: vi.fn(), saveAutoCompact: vi.fn() }))
+vi.mock('@/stores/ui-store', () => ({ useUIStore: (selector: (s: unknown) => unknown) => selector({ workbenchScreensaver: false, setWorkbenchScreensaver: () => {} }) }))
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof import('react')>(),
   useEffect: (effect: () => void) => { harness.effects.push(effect) },

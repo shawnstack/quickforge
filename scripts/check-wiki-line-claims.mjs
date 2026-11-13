@@ -33,7 +33,7 @@ const REPO = path.resolve(import.meta.dirname, '..')
 const WIKI = path.join(REPO, 'docs', 'wiki')
 const verbose = process.argv.includes('--verbose')
 const strict = process.argv.includes('--strict')
-const EXT = '(?:tsx|mjs|cjs|ts)'
+const EXT = '(?:tsx|mjs|cjs|css|ts)'
 const PAREN = new RegExp('([A-Za-z0-9._/-]+?\\.' + EXT + ')[^()\\n]{0,60}?[（(]\\s*(\\d{2,5})\\s*行', 'g')
 const CELL = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|[^|]*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
 // 反引号式表格行「| `名.ext` | N | …」——本仓库 wiki 的主流写法，2026-11-13 前一直无校验

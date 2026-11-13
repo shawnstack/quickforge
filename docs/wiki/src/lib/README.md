@@ -150,6 +150,44 @@
 | `system-notifications.ts` | 349 | 浏览器 Notification/Service Worker、Electron Desktop 原生通知与 Capacitor Android 本地通知统一适配；管理默认开启的设备偏好、权限、安卓远程浏览器首次发送授权、后台展示、点击打开会话和短时去重 |
 | `pinned-summary-drag.ts` | 130 | 置顶摘要桌面浮动摘要的纯状态/拖动/布局 helper：`resolvePinnedSummaryInitialPosition` 仅为无历史位置的首次 desktop 定位解析主对话 header 锚点（`x = header.right - targetWidth - 12px`、`y = ceil(header.bottom) + 10px`，header 不可用时先回退 toolbar root rect，toolbar root 也不可用时再回退 widget rect）；`resolvePinnedSummaryLayout` 统一处理首次定位后、panel/capsule 切换、resize、drag 与 Inspector resume 的 viewport 安全策略——横向 12px inset，capsule 常规 clamp；panel 优先保留当前 y，并返回当前位置到 viewport bottom 12px 的 `panelMaxHeight`，让 flex 内容区滚动，只有下方不足 `PINNED_SUMMARY_PANEL_MIN_HEIGHT=180` 时才向上调整，极矮 viewport 使用全部安全区域，不按整屏自然高度上移。组件契约中 `panelMaxHeight` 只在 panel mode 更新/消费；ResizeObserver 若与拖动并发，必须以 `dragRef.current.current` 作为布局 position，不能用尚未收敛的拖动起点覆盖 max-height，结束/取消再由统一 drag cleanup 收敛。`getPinnedSummaryOutsideAction` API 已简化为 desktop `stay` / mobile `close`，不再存在 desktop minimize action；desktop 组件结构上不安装摘要级 outside/Escape listener，mobile/mobileShell 仍使用 close。`shouldSuspendPinnedSummary` 判定 Inspector 已打开时是否进入 `>=1024px` 且非 `mobileShell` 的真实桌面右侧栏暂停；`shouldClosePinnedSummaryBeforeInspectorOpen` 的参数明确表示“即将打开 Inspector 时是否具备暂停/保留能力”；另含兼容的矩形 clamp 与 4px 拖动阈值。供 `App` / `GitToolsPinnedSummary` 共用，配套纯函数测试 `tests/frontend/pinned-summary-drag.test.ts` |
 | `new-chat-greeting.ts` | 31 | 新对话空状态欢迎语的时段选择纯函数：`getNewChatGreetingSlot(hour)` 按本地小时映射 morning(06–11)/afternoon(12–17)/evening(18–22)/lateNight(23–05)，越界与 NaN 归一化；`getNewChatGreetingKeys(slot)` 返回该时段 3 个 i18n key，`pickNewChatGreetingKey(date, random)` 随机取 key（random 可注入便于单测）；`NEW_CHAT_GREETING_FALLBACK_KEY` 指向 `newChatEmptyTitle` 兜底。`src/App.tsx` 以 `useMemo([showNewChatEmptyState])` 锁定随机结果，避免重渲染抖动 |
+| `agent-event-guards.ts` | 45 | Agent 事件形状守卫：`isScheduledTaskNotification` / `isScheduledTaskStarted` / `isBotHeartbeatNotification` / `isBackgroundTaskStatus` 把 wire 上的 `unknown` 字段收窄成可消费类型（`BotHeartbeatNotificationEvent` 为其结果形状），不信任 SSE / 服务端载荷形状 |
+| `agent-task-retention.ts` | 44 | 驻留 agent 的空闲回收策略：`MAX_IDLE_AGENT_TASKS = 0`——空闲副本一律不缓存（每个 agent 都持有全量 messages，工具结果可达 MB 级），切走即销毁、切回走服务端 restore；`touchAgentTask` / `selectAgentTaskEvictions` 只淘汰 idle / error / aborted 且非当前会话的任务 |
+| `api-cache.ts` | 108 | 通用 GET 响应缓存（内存优先 + localStorage 兜底，键前缀 `quickforge:api-cache:v1:`）：业务写成功后 `invalidateApiCache(pattern)` 失效，跨标签页靠 storage 事件丢内存副本；缓存永不是唯一数据源，读失败或过期一律回源 |
+| `appearance-settings.ts` | 61 | 外观设置（`appearance-settings` 键）：主题 light / dark 的默认值与 `normalizeAppearanceSettings` 防御归一化 |
+| `auto-archive-settings.ts` | 24 | 自动归档设置（`auto-archive-settings` 键，默认关闭）：归一化 + `load` / `save` |
+| `auto-compact-settings.ts` | 41 | 自动压缩设置：默认开启、`thresholdPercent` 默认 80，`clampNumber` 夹取范围；缺字段按默认处理 |
+| `backend-url.ts` | 19 | 直连后端地址与 WebSocket 基址：构建期注入 `__QUICKFORGE_SERVER_PORT__`，端口与当前 `location.port` 相同时返回空串（走同源） |
+| `background-tasks-model.ts` | 211 | 后台任务统一视图模型：running 取自 `backgroundCommands` 快照、finished 派生自会话 toolResult（`details.running === false` 即终态，带 code / aborted / timedOut / durationMs），同一 taskId 两边都有时以消息终态为准，因此不需要服务端新增列表接口；`buildBackgroundTasks` / `filterBackgroundTasks` / `matchesBackgroundTaskQuery` / `formatBackgroundTaskDuration` |
+| `bot-project.ts` | 14 | bot 专属目录也注册成项目（文件工具要它的 path 当 workspaceRoot），但不是「用户项目」：`isBotProject` 收 `kind === 'bot'` 这一条判据，供 `activeProject`、会话自带 project、按 projectId 拉 git 状态等通道复用——`project-store` 只过滤得到「项目列表」那一层 |
+| `deleted-project-recovery.ts` | 46 | 项目被删后的恢复决策：`ready` / 当前会话项目 / 项目列表（刻意不含 bot 目录）/ `activeProject` / `recoveringProjectId` → `none` / `project` / `global` 三选一 |
+| `desktop-app.ts` | 13 | 「是否运行在桌面端」唯一判定：`isDesktopApp()` 读主进程注入的 `__quickforgeDesktopApp` 与 `body.quickforge-desktop-app`，取代此前散在更新检查 / 连接提示 / 关于页的几份表达式 |
+| `desktop-browser-bridge.ts` | 69 | 内嵌浏览器的窄桥：渲染进程只拿到 `isAvailable` / `getState` / `setBounds` / `setVisible` / `onStateChange`，既拿不到 `webContents` 也读不到网页内容；非桌面端返回 null |
+| `font-size-settings.ts` | 123 | 字号设置：界面 / 消息两套 px（范围 12–18、默认 13），含一次性强制 13px 迁移键 `font-size-settings-force-13px-v1` |
+| `global-memory-tool-output.ts` | 39 | `manage_global_memory` 的输出文案投影：`formatManageGlobalMemoryOutput` 把空内容 / 已保存映射成 i18n key，流式中不提前报结果 |
+| `mcp-helpers.ts` | 117 | MCP 服务器表单与线上数据互转：`emptyMcpDraft` / `serverToDraft` / `draftToJson` / `jsonToDraft`，以及 args（每行一条）与 env（`key=value`）在文本和数组 / 对象间的互转 |
+| `memory-settings.ts` | 25 | 记忆设置（`memory-settings` 键）：归一化写成 `enabled !== false`，缺字段按开启处理 |
+| `mobile-server.ts` | 183 | 移动端服务器连接：URL 列表与别名（`quickforge:mobile-server-url` / `quickforge:mobile-server-settings:v1`）、`quickforgeMobile` / `quickforgeAlias` 查询参数把别名从原生设置页（不同源、不共享 localStorage）带到远端页面 |
+| `model-aggregation.ts` | 28 | 模型分组聚合：`mergeModelGroups` 按 `id + provider + api + 归一化 baseUrl` 判同，合并各来源可用模型并做归一化 / 可用性过滤 |
+| `model-list-cache.ts` | 74 | 模型列表本地缓存：`quickforge:model-list-cache:v1`、schemaVersion 1、TTL 10 分钟，内存缓存优先 + localStorage 兜底 |
+| `model-preference.ts` | 25 | 模型偏好的存取形状：`storedModelPreference` 同时存 `modelRef` 与完整快照，`modelFromStoredPreference` 读取时容忍坏数据 |
+| `open-session-from-settings.ts` | 46 | 从设置页打开会话的编排：先关设置页再排加载，可跳过「有没有持久化元数据」的预检——bot 会话首次发言前正是空壳（服务端会清理空会话，metadata 查不到不等于会话不存在），存在性交给 `loadSession` |
+| `pinned-summary-events.ts` | 30 | 会改变置顶摘要投影的 agent 事件集合（todos / 终端 subagent / 运行中 subagent / 后台命令各自的**结构性**边界）；刻意不含 `tool_execution_update`——它按服务端合帧率（约 20fps）原地刷 toolResult 行 |
+| `plugin-ui-bridge.ts` | 55 | L2 插件面板 postMessage 桥的契约：封闭方法表 `kv.get` / `kv.set` / `notify` / `callTool`，`callTool` 只接受 `plugin__<本插件>__<tool>`；刻意是纯函数，可脱离 React 与 DOM 单测 |
+| `plugin-ui-client.ts` | 201 | 声明式插件 UI 的客户端 store：一次冷加载快照（`GET /api/plugins/ui`）+ 每次动作的 slot 覆盖（`POST /api/plugins/:name/ui`），放在 React 之外，让三处挂载点共享同一次请求与同一份真相 |
+| `plugin-ui-resolve.ts` | 34 | 插件 UI 载荷的纯替换：`resolvePluginUiPayload` 把 `$slot.*` / `$state.*` 换成当前作用域的值；独立成文件，既让渲染器保持组件模块（react-refresh），又可无 React 单测 |
+| `plugin-ui-types.ts` | 91 | 插件 UI 共享类型（节点类型 / slot 名 / 快照 / 事件 / toast），刻意零依赖，store 与展示组件都能直接导入 |
+| `project-expanded-ids.ts` | 58 | 项目树展开状态持久化（`quickforge:expanded-project-ids:v1`）：归一化、`load` / `save`、`pruneExpandedProjectIds` 清理已不存在的 id；localStorage 不可用时静默降级 |
+| `project-request-guard.ts` | 12 | 项目请求竞态守卫：`isCurrentProjectRequest` 同时校验 projectId 与 requestId，过期响应直接丢弃 |
+| `schedule-after-paint.ts` | 28 | 把工作排到一次完整绘制之后：从第二帧排队（第一帧的回调仍在该帧绘制前跑），用于首屏之后再做重活 |
+| `scheduled-task-form.ts` | 106 | 定时任务表单的领域形状：六种排期（once / interval / daily / weekly / monthly / cron）与各字段类型（cron 表达式、`executeAt`、`executeTime`、`weekDays`、`monthDay`、`intervalValue` 等） |
+| `session-list-updates.ts` | 67 | 会话分页纯函数：`sortSessions` / `uniqueSessions` / `upsertSessionPage` / `patchSessionTitleInPage` / `removeSessionFromPage`；`appending` 只在 offset>0 的「加载更多」为真，offset=0 的静默刷新不扰动已挂载 UI |
+| `session-reload-guard.ts` | 28 | 同会话重复打开的加载短路（session-open-fast-path §2.2 的加载半边）：runningTask 存在、sessionId 相同、viewAgent 引用相同三者齐全才早退；少一条就必须重载，否则中间态跨渲染周期会触发「正在加载对话」兜底遮罩 |
+| `session-sidebar-mode.ts` | 47 | 侧栏模式的唯一判据：`isBotSession(sessionId, bots)` 先用已知 bots 的 `sessionId` 精确匹配（数据真相，服务端改 id 规则也不受影响），再用 `bot-` 前缀兜底（列表未加载或已过期）；普通会话是 UUID，前缀兜底不会误判 |
+| `subagent-process-trace.ts` | 25 | 从消息流里裁 subagent 过程 trace：`subagentProcessTraceMessages` 先收集 assistant 的 `toolCall` id，再过滤掉对应的过程消息 |
+| `title-git-status-refresh.ts` | 24 | 何时刷新标题栏 Git 状态：`shouldRefreshTitleGitStatusOnToolEnd` 只在会改工作区的工具（write_file / edit_file / run_command / run_subagent / run_workflow）结束时返回真 |
+| `update-check-settings.ts` | 66 | 更新检查设置（`update-check-settings` 键）：频率 startup / daily / weekly / off、上次成功检查时间、用户点「稍后」忽略的版本（只有更新的版本才再次提示） |
+| `workbench-screensaver-settings.ts` | 17 | 工作台屏保设置与纯判定：30 分钟 idle 阈值、`workbenchScreensaver` 存储键、`screensaverDue(lastActivity, now, enabled, workbenchOpen)` |
+| `workbench-today-stats.ts` | 99 | 工作台 TODAY 统计带数据层：今日会话数 / token / 任务运行数与成功率全部取自现成端点（sessions-metadata 按 `lastModified` 倒序翻到今天零点、`/api/scheduled-tasks/runs` 按 status 计数）；token 是「今日活跃会话」累计用量近似，usage 按会话累计、无按日切片 |
 
 ---
 

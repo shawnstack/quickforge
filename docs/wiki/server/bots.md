@@ -105,7 +105,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/bots` | 列表（附 `busy` / `status`），按 `sortOrder` → `createdAt` 排序 |
+| GET | `/api/bots` | 列表（附 `busy` / `status` / `lastActivityAt`），按 `sortOrder` → `createdAt` 排序 |
 | POST | `/api/bots` | 建 bot：`{ name }`。会建目录、`MEMORY.md`、注册项目、建会话；新 bot 排在列表末尾 |
 | PUT | `/api/bots/reorder` | 整组重排：`{ orderedIds }` 重编 `sortOrder`（0,1,2…），漏掉的按原相对顺序追在后面，返回新顺序的完整列表。与 `PUT /api/project/reorder` 同构 |
 | GET | `/api/bots/:id` | 单条 |
@@ -116,6 +116,8 @@
 | POST | `/api/bots/:id/wake` | 立刻催醒一次（跳过「有没有活」的判断） |
 | POST | `/api/bots/:id/inbox` | 投喂：`{ text }` 追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间 |
 | POST | `/api/bots/:id/open-in-explorer` | 在系统文件管理器里打开这个 bot 的目录（`workspacePath`）；**只放行本机调用**，远端 / 局域网请求 403（与 `POST /api/project/:id/open-in-explorer` 同一条边界） |
+
+`lastActivityAt` 是**实时算出来**的，不落库：取该 bot 会话 metadata 的 `lastModified`，用户直聊和心跳真醒都会刷新。侧栏的「X 分钟前」优先用它，缺失才回退 `heartbeat.lastWakeAt`——后者只在**整跳心跳完成**时才写，用户刚聊完几句侧栏却显示几小时前，就是这条差异造成的。
 
 内置 `quickforge-api` skill 为上表提供命令行入口：`bots`（列表）、`bot`（详情）、`bot-create`（创建，心跳默认开，`--no-heartbeat` 建完即睡）、`bot-messages`（读会话尾部，只读不唤醒）、`bot-memory`（读记忆）、`bot-wake`（催醒）。删/改/写记忆没有子命令，界面专属（白名单裁决见 `docs/architecture/quickforge-api-skill.zh-CN.md` §4.1）。
 

@@ -175,6 +175,9 @@ export function createGoalReportTool(sessionOrGetter) {
     ...goalReportTool,
     execute: async (_toolCallId, params) => {
       const session = getSession()
+      // 刻意留在 try 外：会话不存在说明调用方拿错了对象，这不是可重试的工具
+      // 失败（400 校验错走下方 catch 转 error result），而是编程错误——直接抛。
+      // 2026-11-13 主助手核查：GOAL_REPORT_NO_SESSION 全仓零消费方，行为保持不变。
       if (!session) throw goalReportError('No active session for goal_report.', 'GOAL_REPORT_NO_SESSION')
       try {
         return await applyGoalReport(session, params || {})

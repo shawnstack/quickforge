@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   persistSession: vi.fn(async () => ({ id: 'persisted' })),
   emitSessionEvent: vi.fn(),
   refreshTools: vi.fn(async () => {}),
+  refreshRuntime: vi.fn(async () => {}),
   pendingApproval: vi.fn(() => null),
   pendingAsk: vi.fn(() => null),
   pendingTools: vi.fn(() => []),
@@ -404,6 +405,18 @@ describe('goal runner', () => {
     expect(session.goal.status).toBe('blocked')
     expect(session.goalContinuationPending).toBe(false)
     expect(session.agent.prompt).not.toHaveBeenCalled()
+  })
+
+  it('reconciles runtime settings at the goal round boundary, before the round prompt', async () => {
+    const session = makeSession()
+    await confirmedGoal(session)
+    expect(mocks.refreshRuntime).toHaveBeenCalledWith(session)
+    // The reconciliation belongs to the turn boundary: it must settle before
+    // agent.prompt starts the round, so a settings change made while the goal
+    // was waiting lands on this round instead of a later one.
+    expect(mocks.refreshRuntime.mock.invocationCallOrder[0]).toBeLessThan(
+      session.agent.prompt.mock.invocationCallOrder[0],
+    )
   })
 
   it.each(['abort', 'cancel', 'ask'])('preserves %s after plan submission', async (action) => {
@@ -976,6 +989,7 @@ describe('goal runner', () => {
       beginTurn: () => 'turn-1',
       endTurn: () => {},
       refreshTools: mocks.refreshTools,
+      refreshRuntime: mocks.refreshRuntime,
     })
   })
 

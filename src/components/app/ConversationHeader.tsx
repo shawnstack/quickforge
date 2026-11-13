@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PluginSlot } from '@/components/plugins/PluginSlot'
+import { WorkbenchPortal } from '@/components/workbench/Workbench'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { SessionTitleMarquee } from '@/components/sidebar/chat-sidebar/SessionTitleMarquee'
 import { cn } from '@/lib/utils'
@@ -80,9 +81,12 @@ export function ConversationHeader({
   const setConversationMenuOpen = useUIStore((s) => s.setConversationMenuOpen)
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen)
   const toggleConversationMenu = useCallback(() => setConversationMenuOpen((v) => !v), [setConversationMenuOpen])
+  const workbenchOpen = useUIStore((s) => s.workbenchOpen)
+  const setWorkbenchOpen = useUIStore((s) => s.setWorkbenchOpen)
 
   return (
     <header ref={headerRef} className="flex h-14 shrink-0 items-center gap-2 border-b border-[color-mix(in_oklab,var(--border)_60%,transparent)] px-3 pr-20">
+      <WorkbenchPortal open={workbenchOpen} onClose={() => setWorkbenchOpen(false)} />
       <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileSidebarOpen(true)} aria-label={t('toggleSidebar')}>
         <Menu className="size-[18px]" />
       </Button>

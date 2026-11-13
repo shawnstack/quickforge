@@ -8,9 +8,7 @@ import { agentSessions } from './agent-session-store.mjs'
 import {
   syncSessionFromStorage,
   restoreAgent,
-  refreshSessionModelBinding,
-  refreshMemoryState,
-  refreshWorkingMemoryState,
+  refreshSessionRuntime,
 } from './agent-session-lifecycle.mjs'
 import { resetIdleTimer } from './agent-idle-recycler.mjs'
 import { resolveCommandState } from './agent-prompt-commands.mjs'
@@ -105,9 +103,10 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   const requestSource = modelAccessContext && typeof modelAccessContext === 'object'
     ? modelAccessContext.source ?? null
     : null
-  await refreshSessionModelBinding(session)
-  await refreshMemoryState(session)
-  await refreshWorkingMemoryState(session)
+  // Turn boundary: reconcile the session's snapshotted runtime settings
+  // (model binding, memory switches, skill selections) with current config
+  // before the run starts, so a settings change lands on the very next turn.
+  await refreshSessionRuntime(session)
   resetIdleTimer(session)
 
   const commandState = await resolveCommandState(session, canonicalInitialUserMessage, promptCommand, requestSource)
@@ -348,7 +347,10 @@ export async function continueSession(sessionId, modelAccessContext = null, appe
   const requestSource = modelAccessContext && typeof modelAccessContext === 'object'
     ? modelAccessContext.source ?? null
     : null
-  await refreshSessionModelBinding(session)
+  // Same turn-boundary reconciliation as runPrompt: retrying counts as a new
+  // turn and must see current settings (previously only the model binding was
+  // refreshed here).
+  await refreshSessionRuntime(session)
 
   const messages = Array.isArray(session.agent.state.messages) ? session.agent.state.messages : []
 

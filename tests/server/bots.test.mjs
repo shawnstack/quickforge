@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import {
   BOT_HEARTBEAT_TEMPLATE_FILE,
   BOT_MEMORY_FILE,
@@ -447,5 +448,123 @@ describe('runBotHeartbeat alwaysWake', () => {
     expect(result.woke).toBe(false)
     expect(result.reason).toBe('idle')
     expect(promptCalls).toHaveLength(0)
+  })
+})
+
+describe('DELETE /api/bots/:id destroys the bot session', () => {
+  // 「删了 bot 实时显示还在滚」的回归锁：删除必须销毁会话（abort 在途生成、
+  // 从 agentSessions 移除），否则 SSE 总线继续广播已删 bot 的事件。
+  let tmpDir
+  let previousDataDir
+  let previousHome
+  let previousUserProfile
+  let destroyAgentMock
+
+  beforeEach(() => {
+    destroyAgentMock = vi.fn(async () => {})
+    vi.resetModules()
+  })
+
+  async function importBotsRoute() {
+    vi.doMock('../../server/agent-manager.mjs', () => ({
+      agentEvents: { emit: () => {} },
+      getSessionEventBus: () => null,
+      isSessionFileRollbackBusy: () => false,
+      destroyAgent: destroyAgentMock,
+      getSessionStatus: vi.fn(() => ({ status: 'idle' })),
+      runPrompt: vi.fn(async () => ({})),
+      updateSessionTitle: vi.fn(async () => ({})),
+    }))
+    vi.doMock('../../server/bot-session.mjs', () => ({
+      sessionExists: vi.fn(async () => true),
+      ensureBotSession: vi.fn(async (bot) => bot),
+    }))
+    return import('../../server/routes/bots.mjs')
+  }
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-bot-del-'))
+    previousDataDir = process.env.QUICKFORGE_DATA_DIR
+    previousHome = process.env.HOME
+    previousUserProfile = process.env.USERPROFILE
+    process.env.QUICKFORGE_DATA_DIR = path.join(tmpDir, 'data')
+    process.env.HOME = tmpDir
+    process.env.USERPROFILE = tmpDir
+  })
+
+  afterEach(async () => {
+    if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
+    else process.env.QUICKFORGE_DATA_DIR = previousDataDir
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
+    vi.resetModules()
+    vi.doUnmock('../../server/agent-manager.mjs')
+    vi.doUnmock('../../server/bot-session.mjs')
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true })
+  })
+
+  function mockRes() {
+    const chunks = []
+    return {
+      chunks,
+      writeHead: vi.fn(() => {}),
+      end: vi.fn((body) => { chunks.push(String(body ?? '')) }),
+    }
+  }
+
+  async function deleteBotRequest(id) {
+    const req = Readable.from([])
+    req.method = 'DELETE'
+    return req
+  }
+
+  /** 落一条真实 bot 记录（带 sessionId），再返回它。 */
+  async function seedBotRecord(name, sessionId) {
+    const { normalizeBotRecord, saveBotRecord } = await import('../../server/bots.mjs')
+    const base = normalizeBotRecord({ name })
+    return saveBotRecord({ ...base, sessionId: sessionId ?? `bot-${base.id}-stub` })
+  }
+
+  it('destroys the session exactly once for a bot that owns one', async () => {
+    const { handleBotsApi } = await importBotsRoute()
+    const bot = await seedBotRecord('doomed', 'sess-doomed')
+    const res = mockRes()
+    await handleBotsApi(await deleteBotRequest(bot.id), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything())
+    expect(JSON.parse(res.chunks[0])).toEqual({ ok: true })
+    expect(destroyAgentMock).toHaveBeenCalledTimes(1)
+    expect(destroyAgentMock).toHaveBeenCalledWith('sess-doomed')
+    // 记录已删（二次删除 404）
+    const res2 = mockRes()
+    await expect(handleBotsApi(await deleteBotRequest(bot.id), res2, new URL(`http://localhost/api/bots/${bot.id}`), {}))
+      .rejects.toMatchObject({ statusCode: 404, errorCode: 'BOT_NOT_FOUND' })
+    expect(destroyAgentMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('survives destroyAgent failures (record removal is still the source of truth)', async () => {
+    const { handleBotsApi } = await importBotsRoute()
+    destroyAgentMock.mockRejectedValue(new Error('destroy boom'))
+    const bot = await seedBotRecord('stubborn', 'sess-stubborn')
+    const res = mockRes()
+    await handleBotsApi(await deleteBotRequest(bot.id), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything())
+    expect(JSON.parse(res.chunks[0])).toEqual({ ok: true })
+    // destroyAgent 炸了不回滚删除：bot 记录仍然没了。
+    const res2 = mockRes()
+    await expect(handleBotsApi(await deleteBotRequest(bot.id), res2, new URL(`http://localhost/api/bots/${bot.id}`), {}))
+      .rejects.toMatchObject({ statusCode: 404, errorCode: 'BOT_NOT_FOUND' })
+  })
+
+  it('skips destroyAgent when the record never got a session', async () => {
+    const { handleBotsApi } = await importBotsRoute()
+    const { normalizeBotRecord, saveBotRecord } = await import('../../server/bots.mjs')
+    const base = normalizeBotRecord({ name: 'no-session' })
+    const bot = await saveBotRecord({ ...base, sessionId: null })
+    const res = mockRes()
+    await handleBotsApi(await deleteBotRequest(bot.id), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
+    expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything())
+    expect(destroyAgentMock).not.toHaveBeenCalled()
   })
 })

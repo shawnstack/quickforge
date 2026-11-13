@@ -8,8 +8,6 @@ export type BotHeartbeat = {
   nextRunAt: string | null
   lastWakeAt: string | null
   lastSessionId: string | null
-  wakeCount: number
-  idleCount: number
   lastIdleReason: string | null
   lastError: string | null
 }

@@ -8,6 +8,7 @@ import {
   wakeBot as wakeBotRequest,
   type BotSummary,
 } from '@/components/bots/bots-data'
+import { containsPraise, useMascotActions } from '@/components/bots/mascot/use-mascot-actions'
 import { useMascotStroll } from '@/components/bots/mascot/use-mascot-stroll'
 import { useMascotState } from '@/components/bots/mascot/use-mascot-state'
 import { showAlert } from '@/components/ui/confirm-dialog'
@@ -155,12 +156,20 @@ export function useBotWorkspace(context: {
   const handleDeleteBot = useCallback(async (botId: string) => {
     try {
       await deleteBotRequest(botId)
+      const deleted = bots.find((bot) => bot.id === botId)
       setBots((previous) => previous.filter((bot) => bot.id !== botId))
       setBotSettings(null)
+      // 服务端已销毁该 bot 的会话（destroyAgent）。如果主区正停在这条会话上，
+      // 必须主动离开：SSE 订阅与消息落点都挂在 currentSessionId 上，不切走
+      // 的话实时显示会继续渲染已死会话的残留事件。与退出 bot 模式的补偿
+      // 逻辑同构——落到新对话空态。
+      if (deleted?.sessionId && deleted.sessionId === currentSessionId) {
+        startNewDefaultSession()
+      }
     } catch (error) {
       setBotsError(error instanceof Error ? error.message : String(error))
     }
-  }, [])
+  }, [bots, currentSessionId, startNewDefaultSession])
 
   // 催醒：立刻跑一跳（服务端跳过判活）。wake 请求本身很快返回（runPrompt 即回），
   // 真正的生成在后台跑；这里随后刷新一次列表，让状态小字尽快反映「在忙」。
@@ -257,6 +266,19 @@ export function useBotWorkspace(context: {
   // 拿不到 activeBot 时保持显示 —— 和「拿不到就用默认外观」同一语义，免得加载竞态
   // 被误读成「坏了」；列表到了之后才按用户的选择真正隐藏。侧栏行首的小吉祥物不受它管。
   const composerMascotVisible = activeBot ? activeBot.mascot.showOnComposer !== false : true
+  // 事件触发的小动作组（打招呼 / 伸懒腰 / 打哈欠 / 偷看打字 / 被夸），详见 use-mascot-actions。
+  const [praiseCounter, setPraiseCounter] = useState(0)
+  const mascotAction = useMascotActions(
+    botMode && composerMascotVisible && (activeBot?.mascot.animated ?? true),
+    mascotState,
+    mascotStrolling,
+    botShell.activeBotId,
+    praiseCounter,
+  )
+  /** 主面板发送的消息带夸奖词时记一笔，bot 回答完成的那一小会儿演「被夸」。 */
+  const handleComposerSend = useCallback((text: string) => {
+    if (containsPraise(text)) setPraiseCounter((n) => n + 1)
+  }, [])
 
   return {
     botMode,
@@ -264,7 +286,9 @@ export function useBotWorkspace(context: {
     activeBot,
     mascotState,
     mascotStrolling,
+    mascotAction,
     composerMascotVisible,
+    handleComposerSend,
     newBotOpen,
     newBotPending,
     newBotError,

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { t } from '@/lib/i18n'
+import { invalidateSlashCatalog } from '@/lib/slash-catalog'
 import {
   fetchSkillContent,
   fetchSkills,
@@ -214,6 +215,11 @@ export function useSkillsManager({ active, scope, project, onSaved }: UseSkillsM
       try {
         const payload = await saveSkillsSelection({ scope, projectId, selectedSkills: [...next] })
         if (generation !== saveGenerationRef.current) return
+        // The save is the write path for the composer "/" catalog: invalidate
+        // here (the data layer) so every surface that saves — project dialog,
+        // embedded settings tab, bulk enable — makes the new selection visible
+        // immediately, instead of relying on each UI to remember it.
+        invalidateSlashCatalog()
         const serverSelection = new Set(payload.selectedSkills)
         confirmedSkillsRef.current = serverSelection
         if (sequence === saveSequenceRef.current) setSelection(new Set(serverSelection))

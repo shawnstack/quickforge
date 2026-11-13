@@ -1,9 +1,9 @@
 // agent-manager 模块拆分（god-module-decomposition ⑤）会话生命周期编排：
 // createAgent / restoreAgent / syncSessionFromStorage / destroyAgent /
-// listSessions / shutdown / resetStaleTaskStatuses 及模型绑定与记忆状态
-// 刷新（refreshSessionModelBinding / refreshMemoryState /
-// refreshWorkingMemoryState）从 agent-manager.mjs 逐字搬移至此；
-// 公共 API 全部经 agent-manager.mjs facade re-export，行为与注释语义不变。
+// listSessions / shutdown / resetStaleTaskStatuses 与运行时刷新
+// （refreshSessionModelBinding / refreshSessionRuntime）从 agent-manager.mjs
+// 逐字搬移至此；公共 API 全部经 agent-manager.mjs facade re-export，
+// 行为与注释语义不变。
 
 import { EventEmitter } from 'node:events'
 import { Agent } from '@earendil-works/pi-agent-core'
@@ -60,6 +60,7 @@ import {
   takeStashedSubagentErrorDetails,
 } from './agent-session-store.mjs'
 import { createServerTools, rebuildSessionTools, appendGoalTools, workflowApprovalArgs } from './agent-tool-assembly.mjs'
+import { sessionSkillsContext } from './tool-wiring.mjs'
 import { transformSessionContext } from './agent-context-transform.mjs'
 import { resetIdleTimer } from './agent-idle-recycler.mjs'
 import { subscribeAgentSessionEvents } from './agent-run-events.mjs'
@@ -84,28 +85,62 @@ async function resolvedSessionSystemPrompt(projectId, agentProfile) {
   return `${await buildSystemPrompt(projectId)}${agentProfileSystemPrompt(agentProfile)}`
 }
 
-export async function refreshMemoryState(session) {
-  const memoryEnabled = await isGlobalMemoryEnabled()
-  const memoryRevision = memoryEnabled ? await getGlobalMemoryRevision() : null
-  if (session.memoryEnabled === memoryEnabled && session.memoryRevision === memoryRevision) return
-  session.memoryEnabled = memoryEnabled
-  session.memoryRevision = memoryRevision
-  if (session.managedSystemPrompt !== false) {
-    session.agent.state.systemPrompt = await resolvedSessionSystemPrompt(session.projectId, session.agentProfile)
+// --- Turn-boundary runtime reconciliation -----------------------------------
+//
+// A session snapshots runtime settings when it is created (model binding,
+// memory switches, skill selections). Snapshots exist so a running turn stays
+// coherent — but they used to be permanent, so a settings change only reached
+// sessions that were recreated (a live chat never saw a freshly enabled
+// skill: the activate_skill enum and the <available_skills> catalog were both
+// built from the creation-time names). Every top-level turn therefore starts
+// by reconciling the snapshot against current config here (runPrompt,
+// continueSession and goal rounds all funnel into this). One rebuild happens
+// at most per turn even when several sources changed, where the previous
+// per-source refreshes rebuilt twice (once for memory, once for working
+// memory) in the same turn.
+function skillsSelectionForSession(config, projectId) {
+  const project = projectId ? config.projects.find((item) => item.id === projectId) : null
+  return {
+    globalSkillNames: Array.isArray(config.globalSkills) ? config.globalSkills : [],
+    projectSkillNames: Array.isArray(project?.skills) ? project.skills : [],
   }
-  await rebuildSessionTools(session)
 }
 
-// Working memory (beta) adds a system-prompt section **and** decides whether the note
-// tools are registered at all (`createServerTools`), so a settings change has to
-// rebuild both. Rebuilding only the prompt was what left a live session with the
-// switch off still holding `write_memory_note`.
-export async function refreshWorkingMemoryState(session) {
+function sameSkillSelection(a, b) {
+  const sorted = (names) => (Array.isArray(names) ? [...names].sort() : [])
+  const sameList = (left, right) => {
+    const a2 = sorted(left)
+    const b2 = sorted(right)
+    return a2.length === b2.length && a2.every((name, index) => name === b2[index])
+  }
+  return sameList(a?.globalSkillNames, b?.globalSkillNames)
+    && sameList(a?.projectSkillNames, b?.projectSkillNames)
+}
+
+export async function refreshSessionRuntime(session) {
+  await refreshSessionModelBinding(session)
+
+  const memoryEnabled = await isGlobalMemoryEnabled()
+  const memoryRevision = memoryEnabled ? await getGlobalMemoryRevision() : null
   const workingMemoryEnabled = await isWorkingMemoryEnabled()
   const workingMemoryRevision = workingMemoryEnabled ? await getWorkingMemoryRevision() : null
-  if (session.workingMemoryEnabled === workingMemoryEnabled && session.workingMemoryRevision === workingMemoryRevision) return
+  // Skill selections live in the project config; readProjectConfig is served
+  // from the (mtime, size) validated cache, so this reconciliation costs one
+  // stat per turn when nothing changed.
+  const skillsSelection = skillsSelectionForSession(await readProjectConfig(), session.projectId)
+
+  const memoryChanged = session.memoryEnabled !== memoryEnabled || session.memoryRevision !== memoryRevision
+  const workingMemoryChanged = session.workingMemoryEnabled !== workingMemoryEnabled || session.workingMemoryRevision !== workingMemoryRevision
+  const skillsChanged = !sameSkillSelection(sessionSkillsContext(session), skillsSelection)
+  if (!memoryChanged && !workingMemoryChanged && !skillsChanged) return
+
+  session.memoryEnabled = memoryEnabled
+  session.memoryRevision = memoryRevision
   session.workingMemoryEnabled = workingMemoryEnabled
   session.workingMemoryRevision = workingMemoryRevision
+  session.globalSkillNames = skillsSelection.globalSkillNames
+  session.projectSkillNames = skillsSelection.projectSkillNames
+
   if (session.managedSystemPrompt !== false) {
     session.agent.state.systemPrompt = await resolvedSessionSystemPrompt(session.projectId, session.agentProfile)
   }

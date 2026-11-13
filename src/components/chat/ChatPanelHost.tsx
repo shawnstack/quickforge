@@ -246,6 +246,11 @@ type ChatPanelHostViewProps = {
    * 普通会话、分享页、Side Chat 都不传，等于没有这块装饰。
    */
   composerMascot?: React.ReactNode
+  /**
+   * 主面板发送消息时回调（拿到原始输入文本；Side Chat 不触发）。
+   * 目前只有 bot 吉祥物的「被夸」检测在用（use-mascot-actions 的夸奖词）。
+   */
+  onComposerSend?: (text: string) => void
   onModelSelect?: (anchor?: HTMLElement) => void
   onAccessModeChange: (mode: AgentAccessMode) => void
   onContextUsageDisplayChange?: (sessionId: string, info: ContextUsageDisplayInfo) => void
@@ -386,6 +391,7 @@ export function ChatPanelHost({
   rollbackConfirmDescription,
   capabilities = QUICKFORGE_CHAT_CAPABILITIES,
   composerMascot,
+  onComposerSend,
 }: ChatPanelHostProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const surfaceRef = useRef<WindowedChatSurfaceHandle | null>(null)
@@ -1319,10 +1325,11 @@ export function ChatPanelHost({
             capabilitySuggestions.syncChips()
             fileReferenceSuggestions.syncChips()
           },
-          onBeforeSend: () => {
+          onBeforeSend: (input = '') => {
             taskLauncher?.hide()
             taskLauncherStateRef.current.dismiss?.()
             if (sideChatMode) return
+            onComposerSend?.(input)
             requestAndroidRemoteSystemNotificationPermissionOnce()
             const capabilities = props.capabilities.capabilitySuggestions
               ? capabilitySuggestions.consumeSelectedCapabilities()
@@ -1641,7 +1648,7 @@ export function ChatPanelHost({
       // session id) and unmounts on its own; decorations injected into it are
       // dropped with the subtree.
     }
-  }, [agent, agentRuntimeScopeId, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, anchorSentUserMessage, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, the scope id (the activity channel is keyed by it), explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
+  }, [agent, agentRuntimeScopeId, sideChatMode, project?.id, projectId, readOnly, showTurnNavigation, taskLauncherEnabled, anchorSentUserMessage, onComposerSend, effectiveCapabilities.capabilitySuggestions, effectiveCapabilities.goal, cancelPendingDraftSave, cancelRestoredDraftRestore, consumeRestoredDraft, persistCurrentComposerDraft, restoreDraftForSession, schedulePersistDraft, sideChatInputMemory]) // Recreate only when the agent, the scope id (the activity channel is keyed by it), explicit host mode, project reference scope, or host-level navigation mode changes; callback deps are stable
 
   useEffect(() => {
     const host = hostRef.current

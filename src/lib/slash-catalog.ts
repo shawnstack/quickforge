@@ -25,7 +25,9 @@ export type SlashCatalog = {
 
 // Module-level cache keyed by projectId ("" when absent). Only successful
 // catalogs are cached; failures stay uncached so the next slash-menu open can
-// retry, and a different projectId simply fetches under its own key.
+// retry, and a different projectId simply fetches under its own key. The cache
+// is invalidated by the selection write paths (`invalidateSlashCatalog`), so a
+// freshly saved selection is visible the next time the menu opens.
 const catalogCache = new Map<string, SlashCatalog>()
 
 async function fetchJsonPayload(url: string): Promise<unknown> {
@@ -95,6 +97,14 @@ export async function fetchSlashCatalog(projectId?: string): Promise<SlashCatalo
   } catch {
     return null
   }
+}
+
+export function invalidateSlashCatalog() {
+  // The catalog mirrors server-side selections (skills + enabled subagents).
+  // Any write path that changes those selections must drop the cache so the
+  // next slash-menu open refetches — a permanent cache is what made a freshly
+  // enabled skill invisible in the composer until a full page reload.
+  catalogCache.clear()
 }
 
 export function __resetSlashCatalogCacheForTests() {

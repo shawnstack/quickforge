@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Q 版办公室工作台 · 三方案设计稿</title>
+<!-- ============================================================
+  Q 版办公室工作台（bot-office-workbench）· UIbot 设计稿 2026-11-13
+  需求（用户 02:08）：左上角 icon 进入 · Q 版办公室 · 工作中 bot 办公 /
+  闲 bot 打盹 · 项目黑板显示最近跟踪项目 · 双击 bot 进对话（转场用
+  启动页语言） · 有趣、办公室感。
+  · 三个方案：A 窗边办公室（侧视剖面·日间）/ B 俯视桌面（地图感）/
+    C 夜班模式（深色主题对照）。
+  · Q 版 bot 与产品同构：圆球 + 豆豆眼 + 定稿陶瓷光影（01:53 减法版），
+    落地时直接用 BotMascot 组件；此稿为视觉与交互示意。
+  · 少量内联 JS 仅做：方案切换 / 双击 toast / 转场演示（示意，非状态机）。
+  ============================================================ -->
+<style>
+:root{--ink:#1c1d21;--sub:#5b616e;--line:#e5e7eb;--page:#f6f4ef;--chip:#eeeae2;--acc:#c96f2d;--acc2:#3e6f8e;--rec:#b45309;--recbg:#fef3c7}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:14px/1.7 system-ui,"Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 24px 90px}
+header h1{font-size:24px;margin:0 0 4px}
+header .lead{color:var(--sub);max-width:900px}
+.tabs{display:flex;gap:10px;margin:22px 0 16px;flex-wrap:wrap}
+.tab{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 18px;font-size:13.5px;cursor:pointer;transition:.18s}
+.tab:hover{border-color:var(--acc)}
+.tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.panel{display:none}
+.panel.on{display:block}
+.note{font-size:12.5px;color:var(--sub);margin:0 0 14px}
+.note b{color:var(--ink)}
+
+/* ===== 共享：Q 版 bot（与产品同构：球+豆豆眼+陶瓷光影，01:53 定稿）===== */
+.qbot{width:76px;height:76px;display:block;overflow:visible;user-select:none}
+.qbot-tilt{transform-box:view-box;transform-origin:256px 258px}
+.qbot-ball{fill:var(--body,#0B0B0C)}
+.qbot-eye{fill:var(--eye,#fff)}
+.qbot-ovs ellipse{transform-box:view-box;transform-origin:256px 258px}
+.qbot-shade{fill:url(#qb-shade)} .qbot-sheen{fill:url(#qb-sheen)} .qbot-rim{fill:url(#qb-rim)}
+.qbot[data-mood="doze"] .qbot-eye-l,.qbot[data-mood="doze"] .qbot-eye-r{display:none}
+.qbot[data-mood="doze"] .qbot-lid-l,.qbot[data-mood="doze"] .qbot-lid-r{display:block}
+.qbot-lid-l,.qbot-lid-r{display:none;fill:none;stroke:var(--eye,#fff);stroke-width:9;stroke-linecap:round}
+/* 呼吸（产品同款参数） */
+.qb-live .qbot-tilt{animation:qb-breathe 3.2s ease-in-out infinite}
+@keyframes qb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.026,1.012)}}
+/* 工作中：轻微敲键盘律动 */
+.qb-working .qbot-tilt{animation:qb-type 0.7s ease-in-out infinite}
+@keyframes qb-type{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(2px) scale(1.015,.985)}}
+/* 打盹：缓慢点头 */
+.qb-doze .qbot-tilt{animation:qb-nod 3.2s ease-in-out infinite}
+@keyframes qb-nod{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg) translateY(3px)}}
+/* 状态符号 */
+.qb-sym{font:700 15px/1 system-ui;fill:var(--body,#0B0B0C);opacity:0}
+.qb-working .qb-sym-work{opacity:1;animation:qb-pulse 1.2s ease-in-out infinite}
+.qb-doze .qb-sym-zz{opacity:1;animation:qb-float 2.6s ease-in-out infinite}
+@keyframes qb-pulse{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes qb-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+
+/* ===== 通用工作台元素 ===== */
+.desk-card{position:relative}
+.hint-chip{position:absolute;top:10px;right:12px;font-size:11px;color:var(--sub);background:#ffffffcc;border:1px solid var(--line);border-radius:999px;padding:2px 10px;z-index:5;backdrop-filter:blur(4px)}
+.stagebox{border-radius:16px;overflow:hidden;border:1px solid var(--line);box-shadow:0 14px 40px -18px rgba(28,29,33,.25);cursor:default}
+.station{position:absolute;text-align:center;cursor:pointer;transition:transform .18s}
+.station:hover{transform:translateY(-3px)}
+.station .nm{font-size:12px;margin-top:4px;color:var(--ink);background:#fffdf8e6;border:1px solid var(--line);border-radius:8px;padding:1px 8px;display:inline-block}
+.station .st{font-size:10.5px;color:var(--sub)}
+.badge-dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:1px}
+.badge-dot.work{background:#2f9e63;box-shadow:0 0 0 3px #2f9e6326}
+.badge-dot.doze{background:#b7ad9b;box-shadow:0 0 0 3px #b7ad9b26}
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);background:var(--ink);color:#fff;padding:9px 20px;border-radius:12px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:99}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+/* 启动页式转场（对齐 StartupSplash 语言） */
+#splash{position:fixed;inset:0;background:var(--page);display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .22s;z-index:98}
+#splash.on{opacity:1}
+#splash .qbot{width:64px;height:64px;animation:qb-breathe 3.2s ease-in-out infinite}
+#splash p{color:var(--sub);margin-top:12px;font-size:13px}
+.legend{display:flex;gap:18px;font-size:12px;color:var(--sub);margin-top:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<!-- 共享渐变 defs（产品同款参数：顶光30% 压暗17% 反光15%） -->
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <radialGradient id="qb-sheen" gradientUnits="userSpaceOnUse" cx="210" cy="170" r="172"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qb-shade" gradientUnits="userSpaceOnUse" cx="256" cy="150" r="390"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".17"/></radialGradient>
+    <radialGradient id="qb-rim" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".15"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <clipPath id="qb-clip"><circle cx="256" cy="258" r="150"/></clipPath>
+  </defs>
+</svg>
+
+<div class="wrap">
+<header>
+  <h1>Q 版办公室工作台 <span style="font-size:13px;color:var(--sub);font-weight:400">三方案 · 2026-11-13</span></h1>
+  <p class="lead">左上角 icon 进入的全屏 Q 版办公室：<b>工作中的 bot 在工位办事</b>（敲键盘律动+任务符号），<b>没活的在打盹</b>（闭眼点头+zZ）；右侧/中央<b>项目黑板</b>挂着最近跟踪的项目；<b>双击 bot → 进入该 bot 对话，双击项目 → 进入项目对话</b>，转场复用启动页语言（见底部演示）。bot 造型与产品同构（01:53 定稿质感球），落地即 BotMascot。三个方案风格不同，切换看，末尾有对比与推荐。</p>
+</header>
+
+<div class="tabs">
+  <button class="tab on" data-p="pa">方案 A · 窗边办公室（日间剖面）</button>
+  <button class="tab" data-p="pb">方案 B · 俯视桌面（作战地图）</button>
+  <button class="tab" data-p="pc">方案 C · 夜班模式（深色对照）</button>
+</div>
+<p class="note">看稿提示：bot 可<b>双击</b>（会演示启动页式转场+toast）；黑板项目卡同理。状态：<span class="badge-dot work"></span>工作中 <span class="badge-dot doze"></span>打盹。</p>
+
+<!-- ================= 方案 A · 窗边办公室（日间剖面） ================= -->
+<section class="panel on" id="pa">
+  <div class="desk-card">
+    <span class="hint-chip">双击 bot / 项目卡 → 对话（转场演示）</span>
+    <div class="stagebox" id="stageA" style="position:relative;height:560px;background:linear-gradient(180deg,#f2ead9 0%,#efe6d4 60%,#e8ddc6 100%)">
+      <!-- 墙裙与地板 -->
+      <div style="position:absolute;left:0;right:0;bottom:0;height:118px;background:linear-gradient(180deg,#d9c9a8,#cdb98f);border-top:3px solid #b9a67e"></div>
+      <!-- 窗（左）：太阳、云、飞鸟 -->
+      <div style="position:absolute;left:26px;top:22px;width:214px;height:150px;background:linear-gradient(180deg,#bfdcec,#dcebf2);border:7px solid #f7f2e7;border-radius:8px;box-shadow:inset 0 0 0 2px #e3d9c4;overflow:hidden">
+        <div style="position:absolute;left:24px;top:20px;width:44px;height:44px;border-radius:50%;background:#f7d774;box-shadow:0 0 24px 8px #f7d77466"></div>
+        <div style="position:absolute;left:104px;top:34px;width:64px;height:16px;border-radius:999px;background:#fff;opacity:.9"></div>
+        <div style="position:absolute;left:88px;top:44px;width:44px;height:12px;border-radius:999px;background:#fff;opacity:.7"></div>
+        <svg style="position:absolute;left:150px;top:76px" width="36" height="14" viewBox="0 0 36 14" aria-hidden="true"><path d="M2 9 Q8 3 13 8 M19 6 Q25 1 30 6" stroke="#5d6a75" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+      </div>
+      <!-- 书架（窗右） -->
+      <div style="position:absolute;left:262px;top:26px;width:150px;height:110px;background:#e9dcc3;border:3px solid #c9b48a;border-radius:6px;padding:8px 10px;display:flex;flex-direction:column;gap:7px">
+        <div style="display:flex;gap:5px;align-items:flex-end;height:34px">
+          <div style="width:9px;height:32px;background:#c96f2d;border-radius:2px"></div><div style="width:8px;height:26px;background:#3e6f8e;border-radius:2px"></div><div style="width:10px;height:30px;background:#7a8b5c;border-radius:2px"></div><div style="width:7px;height:22px;background:#8e5a7a;border-radius:2px"></div><div style="flex:1"></div><span style="font-size:10px;color:#a4916d">docs</span>
+        </div>
+        <div style="display:flex;gap:5px;align-items:flex-end;height:30px">
+          <div style="width:8px;height:24px;background:#5c6f8e;border-radius:2px"></div><div style="width:11px;height:29px;background:#c9a42d;border-radius:2px"></div><div style="width:8px;height:21px;background:#8e4a3a;border-radius:2px"></div><div style="flex:1"></div><span style="font-size:10px;color:#a4916d">wiki</span>
+        </div>
+        <div style="height:16px;background:#fffdf6;border:1px dashed #cbb98f;border-radius:4px;display:grid;place-items:center"><span style="font-size:9.5px;color:#a4916d">☕ 快乐水</span></div>
+      </div>
+      <!-- 项目黑板（中央） -->
+      <div style="position:absolute;left:452px;top:18px;width:330px;height:210px;background:#2f4038;border:8px solid #a98956;border-radius:10px;box-shadow:0 10px 26px -12px rgba(0,0,0,.45),inset 0 0 40px rgba(0,0,0,.25);padding:12px 14px;color:#e8f0e4">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px dashed #e8f0e455;padding-bottom:6px;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:700;letter-spacing:2px">项目黑板</span>
+          <span style="font-size:10px;color:#bcd">最近跟踪 · 粉笔手写风</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="bb-item" data-chat="项目 quickforge" style="background:#3a4f44;border:1px solid #5b7164;border-radius:7px;padding:6px 10px;cursor:pointer">
+            <div style="font-size:12.5px;font-weight:600">quickforge <span style="font-size:10px;color:#9fd8b2">● 进行中</span></div>
+            <div style="font-size:10.5px;color:#cfe0d2">mascot 质感定稿 · bot-office 界面 · 3 个在办</div>
+          </div>
+          <div class="bb-item" data-chat="项目 uibot-design" style="background:#3a4f44;border:1px solid #5b7164;border-radius:7px;padding:6px 10px;cursor:pointer">
+            <div style="font-size:12.5px;font-weight:600">uibot-design <span style="font-size:10px;color:#9fd8b2">● 跟踪中</span></div>
+            <div style="font-size:10.5px;color:#cfe0d2">对话框走查 · 组件地图 · 1 个在办</div>
+          </div>
+          <div class="bb-item" data-chat="项目 report-2026" style="background:#33453d;border:1px dashed #5b7164;border-radius:7px;padding:6px 10px;cursor:pointer;opacity:.85">
+            <div style="font-size:12.5px;font-weight:600">report-2026 <span style="font-size:10px;color:#e8c46a">◐ 收尾</span></div>
+            <div style="font-size:10.5px;color:#cfe0d2">年度汇报长文 · 差最后校对</div>
+          </div>
+        </div>
+        <div style="position:absolute;right:12px;bottom:8px;font-size:10px;color:#9ab0a0">双击项目 → 进项目对话</div>
+      </div>
+      <!-- 挂钟 -->
+      <div style="position:absolute;left:806px;top:26px;width:64px;height:64px;background:#fffdf6;border:4px solid #c9b48a;border-radius:50%;box-shadow:0 4px 10px -4px rgba(0,0,0,.3)">
+        <div style="position:absolute;left:50%;top:50%;width:2px;height:18px;background:#5b616e;transform-origin:bottom;transform:translate(-50%,-100%) rotate(200deg)"></div>
+        <div style="position:absolute;left:50%;top:50%;width:2px;height:12px;background:#c96f2d;transform-origin:bottom;transform:translate(-50%,-100%) rotate(60deg)"></div>
+      </div>
+      <!-- 工位 1：主助手（工作中） -->
+      <div class="station qb-live qb-working" data-chat="主助手" style="left:70px;top:238px" title="双击进入对话">
+        <div style="position:relative;width:120px;height:120px">
+          <div style="position:absolute;left:0;bottom:0;width:120px;height:44px;background:#c9a86f;border-radius:6px;box-shadow:inset 0 3px 0 #ffffff40"></div>
+          <div style="position:absolute;left:8px;bottom:8px;width:104px;height:26px;background:#4a5568;border-radius:4px 4px 6px 6px;display:grid;place-items:center"><span style="font-size:9px;color:#9fd8b2;font-family:ui-monospace,Consolas">npm run dev…</span></div>
+          <svg class="qbot" style="position:absolute;left:22px;bottom:38px" viewBox="0 0 512 512" data-mood="work"></svg>
+        </div>
+        <div class="nm">主助手</div><div class="st"><span class="badge-dot work"></span>干活中 · 跑构建</div>
+      </div>
+      <!-- 工位 2：UIbot（工作中） -->
+      <div class="station qb-live qb-working" data-chat="UIbot" style="left:250px;top:238px" title="双击进入对话">
+        <div style="position:relative;width:120px;height:120px">
+          <div style="position:absolute;left:0;bottom:0;width:120px;height:44px;background:#c9a86f;border-radius:6px;box-shadow:inset 0 3px 0 #ffffff40"></div>
+          <div style="position:absolute;left:8px;bottom:8px;width:104px;height:26px;background:#4a5568;border-radius:4px 4px 6px 6px;display:grid;place-items:center"><span style="font-size:9px;color:#ffd98a;font-family:ui-monospace,Consolas">design.html ✓</span></div>
+          <svg class="qbot" style="position:absolute;left:22px;bottom:38px" viewBox="0 0 512 512" data-mood="work"></svg>
+        </div>
+        <div class="nm">UIbot</div><div class="st"><span class="badge-dot work"></span>干活中 · 出设计稿</div>
+      </div>
+      <!-- 打盹角：Docbot -->
+      <div class="station qb-live qb-doze" data-chat="Docbot" style="left:810px;top:262px" title="双击进入对话">
+        <div style="position:relative;width:110px;height:110px">
+          <div style="position:absolute;left:0;bottom:0;width:110px;height:30px;background:#d8cbb0;border-radius:8px 8px 4px 4px"></div>
+          <div style="position:absolute;right:2px;bottom:26px;font-size:20px">🛋️</div>
+          <svg class="qbot" style="position:absolute;left:14px;bottom:28px" viewBox="0 0 512 512" data-mood="doze"></svg>
+        </div>
+        <div class="nm">Docbot</div><div class="st"><span class="badge-dot doze"></span>打盹 · 无任务</div>
+      </div>
+      <!-- 盆栽与地毯 -->
+      <div style="position:absolute;left:16px;bottom:14px;font-size:26px">🪴</div>
+      <div style="position:absolute;right:16px;bottom:12px;font-size:24px">🗂️</div>
+      <div style="position:absolute;left:330px;bottom:26px;width:260px;height:56px;background:#c96f2d22;border-radius:50%;filter:blur(2px)"></div>
+      <!-- 便签 -->
+      <div style="position:absolute;left:800px;top:196px;width:86px;height:64px;background:#fff3a8;transform:rotate(-4deg);border-radius:3px;box-shadow:0 3px 8px -3px rgba(0,0,0,.3);padding:6px 8px;font-size:10px;color:#6b5b1e;line-height:1.5">别忘<br>1v1 @3pm<br>☐ 回邮件</div>
+    </div>
+    <div class="legend"><span>剖面构图：窗→书架→黑板→钟，底部工位一排。bot 复用定稿质感球。</span></div>
+  </div>
+  <p class="note" style="margin-top:10px"><b>A 的取与舍</b>：最「办公室」的一版——窗、书架、黑板、挂钟、便签，信息密度高；黑板在中央但偏右，与工位分层不抢。落地成本中等（纯 CSS 场景，无精灵图）。</p>
+</section>
+
+<!-- ================= 方案 B · 俯视桌面（作战地图） ================= -->
+<section class="panel" id="pb">
+  <div class="desk-card">
+    <span class="hint-chip">双击工位/项目 → 对话（转场演示）</span>
+    <div class="stagebox" id="stageB" style="position:relative;height:560px;background:radial-gradient(140% 110% at 50% 0%,#eef1ea,#e2e6dc 70%,#d8ddd0)">
+      <!-- 木质桌沿 -->
+      <div style="position:absolute;left:0;right:0;top:0;height:14px;background:linear-gradient(180deg,#cbb086,#bfa378);border-bottom:2px solid #a98c62"></div>
+      <!-- 咖啡渍与桌面纹理 -->
+      <div style="position:absolute;left:600px;top:120px;width:52px;height:52px;border-radius:50%;border:3px solid #b0a48855;background:#b0a48818"></div>
+      <svg style="position:absolute;left:0;top:0;width:100%;height:100%" aria-hidden="true"><defs><pattern id="wood" width="90" height="180" patternUnits="userSpaceOnUse"><path d="M0 0H90" stroke="#00000008" stroke-width="14"/></pattern></defs><rect width="100%" height="100%" fill="url(#wood)"/></svg>
+      <!-- 项目黑板（俯视=桌面中央的作战板/软木板） -->
+      <div style="position:absolute;left:50%;top:24px;transform:translateX(-50%);width:440px;background:#e8dcc0;border:10px solid #b98d5e;border-radius:10px;box-shadow:0 16px 34px -16px rgba(0,0,0,.4);padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <span style="font-size:14px;font-weight:700;letter-spacing:2px;color:#6b5b3a">📊 最近跟踪的项目</span>
+          <span style="font-size:10.5px;color:#9a8a68">作战板 · 便签钉</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div class="bb-item" data-chat="项目 quickforge" style="background:#fffbe8;box-shadow:0 4px 10px -4px rgba(0,0,0,.25);border-radius:4px;padding:8px 10px;transform:rotate(-1.2deg);cursor:pointer;position:relative">
+            <div style="position:absolute;left:-4px;top:-4px;width:12px;height:12px;border-radius:50%;background:#c0392b;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>
+            <div style="font-size:12.5px;font-weight:700">quickforge</div>
+            <div style="font-size:10.5px;color:#8a7a58">质感定稿 ✓ · 工作台方案中</div>
+          </div>
+          <div class="bb-item" data-chat="项目 uibot-design" style="background:#f3fbf0;box-shadow:0 4px 10px -4px rgba(0,0,0,.25);border-radius:4px;padding:8px 10px;transform:rotate(1deg);cursor:pointer;position:relative">
+            <div style="position:absolute;right:-4px;top:-4px;width:12px;height:12px;border-radius:50%;background:#2f6f4f;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>
+            <div style="font-size:12.5px;font-weight:700">uibot-design</div>
+            <div style="font-size:10.5px;color:#6f7a58">走查清单 · Dialog 基座</div>
+          </div>
+          <div class="bb-item" data-chat="项目 report-2026" style="background:#eef3fa;box-shadow:0 4px 10px -4px rgba(0,0,0,.25);border-radius:4px;padding:8px 10px;transform:rotate(-.6deg);cursor:pointer;position:relative">
+            <div style="position:absolute;left:46%;top:-5px;width:12px;height:12px;border-radius:50%;background:#b8862f;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>
+            <div style="font-size:12.5px;font-weight:700">report-2026</div>
+            <div style="font-size:10.5px;color:#5a6a80">长文收尾 · 校对中</div>
+          </div>
+          <div style="background:#f6f1e8;border:1.5px dashed #c9b98f;border-radius:4px;padding:8px 10px;display:grid;place-items:center;cursor:pointer">
+            <span style="font-size:11.5px;color:#a4916d">＋ 新建项目（空便签）</span>
+          </div>
+        </div>
+      </div>
+      <!-- 俯视工位：围成一圈的「工位岛」 -->
+      <div class="station qb-live qb-working" data-chat="主助手" style="left:80px;top:200px" title="双击进入对话">
+        <div style="position:relative;width:130px;height:118px">
+          <div style="position:absolute;left:0;top:0;width:130px;height:118px;background:#d9cbaa;border:3px solid #bda87e;border-radius:12px;box-shadow:0 10px 22px -10px rgba(0,0,0,.35)"></div>
+          <div style="position:absolute;left:12px;top:10px;width:106px;height:54px;background:#2f3b47;border-radius:5px;display:grid;place-items:center"><span style="font-size:9px;color:#9fd8b2;font-family:ui-monospace,Consolas">tsc -b ✓</span></div>
+          <svg class="qbot" style="position:absolute;left:27px;bottom:4px" viewBox="0 0 512 512" data-mood="work"></svg>
+        </div>
+        <div class="nm">主助手</div><div class="st"><span class="badge-dot work"></span>干活中</div>
+      </div>
+      <div class="station qb-live qb-working" data-chat="UIbot" style="left:300px;top:330px" title="双击进入对话">
+        <div style="position:relative;width:130px;height:118px">
+          <div style="position:absolute;left:0;top:0;width:130px;height:118px;background:#d9cbaa;border:3px solid #bda87e;border-radius:12px;box-shadow:0 10px 22px -10px rgba(0,0,0,.35)"></div>
+          <div style="position:absolute;left:12px;top:10px;width:106px;height:54px;background:#2f3b47;border-radius:5px;display:grid;place-items:center"><span style="font-size:9px;color:#ffd98a;font-family:ui-monospace,Consolas">design-v2.html</span></div>
+          <svg class="qbot" style="position:absolute;left:27px;bottom:4px" viewBox="0 0 512 512" data-mood="work"></svg>
+        </div>
+        <div class="nm">UIbot</div><div class="st"><span class="badge-dot work"></span>干活中</div>
+      </div>
+      <div class="station qb-live qb-doze" data-chat="Docbot" style="left:640px;top:300px" title="双击进入对话">
+        <div style="position:relative;width:130px;height:118px">
+          <div style="position:absolute;left:0;top:0;width:130px;height:118px;background:#cfc2a4;border:3px solid #b3a078;border-radius:12px;box-shadow:0 10px 22px -10px rgba(0,0,0,.35)"></div>
+          <div style="position:absolute;left:12px;top:10px;width:106px;height:54px;background:#39424c;border-radius:5px;display:grid;place-items:center"><span style="font-size:9px;color:#9aa5b0;font-family:ui-monospace,Consolas">— 待机 —</span></div>
+          <svg class="qbot" style="position:absolute;left:27px;bottom:4px" viewBox="0 0 512 512" data-mood="doze"></svg>
+        </div>
+        <div class="nm">Docbot</div><div class="st"><span class="badge-dot doze"></span>打盹 · 茶水间</div>
+      </div>
+      <!-- 俯视装饰：咖啡杯、键盘、马卡龙 -->
+      <div style="position:absolute;left:560px;top:470px;font-size:26px">☕</div>
+      <div style="position:absolute;left:830px;top:440px;font-size:22px;transform:rotate(8deg)">⌨️</div>
+      <div style="position:absolute;left:60px;top:480px;font-size:20px">📎</div>
+      <div style="position:absolute;right:40px;bottom:20px;font-size:11px;color:#a4916d">俯视视角：黑板是桌面作战板，工位是岛。适合项目多、要「排兵布阵」感。</div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:10px"><b>B 的取与舍</b>：视角最特别（俯视=作战地图），项目黑板用软木板+图钉便签，项目多时扩展性最好（网格加便签）；缺点是「办公室感」比 A 弱一点，更像策略游戏。</p>
+</section>
+
+<!-- ================= 方案 C · 夜班模式（深色对照） ================= -->
+<section class="panel" id="pc">
+  <div class="desk-card">
+    <span class="hint-chip">同一布局的夜间版 · 双击演示同上</span>
+    <div class="stagebox" id="stageC" style="position:relative;height:560px;background:linear-gradient(180deg,#14161c 0%,#181c24 55%,#12151b 100%)">
+      <!-- 窗（夜：月亮+星星） -->
+      <div style="position:absolute;left:26px;top:22px;width:214px;height:150px;background:linear-gradient(180deg,#0e1420,#16202e);border:7px solid #3a4150;border-radius:8px;box-shadow:inset 0 0 24px #00000080;overflow:hidden">
+        <div style="position:absolute;left:132px;top:26px;width:38px;height:38px;border-radius:50%;background:#f2e9c8;box-shadow:0 0 26px 6px #f2e9c840"></div>
+        <div style="position:absolute;left:120px;top:22px;width:30px;height:30px;border-radius:50%;background:#141a26;opacity:.92"></div>
+        <div style="position:absolute;left:36px;top:34px;width:3px;height:3px;background:#fff;border-radius:50%;box-shadow:0 0 6px #fff"></div>
+        <div style="position:absolute;left:70px;top:64px;width:2px;height:2px;background:#fffc;background-radius:50%"></div>
+        <div style="position:absolute;left:92px;top:24px;width:2px;height:2px;background:#fffc"></div>
+      </div>
+      <!-- 夜灯黑板（粉笔字更亮） -->
+      <div style="position:absolute;left:452px;top:18px;width:330px;height:210px;background:#232e2a;border:8px solid #55452f;border-radius:10px;box-shadow:0 0 34px -6px #6fcf9733,inset 0 0 40px #00000066;padding:12px 14px;color:#d5e8da">
+        <div style="display:flex;justify-content:space-between;border-bottom:1px dashed #d5e8da44;padding-bottom:6px;margin-bottom:8px">
+          <span style="font-size:13px;font-weight:700;letter-spacing:2px">夜班黑板</span>
+          <span style="font-size:10px;color:#8fa898">加班中的项目 · 灯还亮着</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div class="bb-item" data-chat="项目 quickforge" style="background:#2b3a34;border:1px solid #4f6355;border-radius:7px;padding:6px 10px;cursor:pointer">
+            <div style="font-size:12.5px;font-weight:600;color:#b9e6c9">quickforge <span style="font-size:10px">● 通宵中</span></div>
+            <div style="font-size:10.5px;color:#a9c2b0">构建夜跑 · 早上见报告</div>
+          </div>
+          <div class="bb-item" data-chat="项目 uibot-design" style="background:#2b3a34;border:1px solid #4f6355;border-radius:7px;padding:6px 10px;cursor:pointer">
+            <div style="font-size:12.5px;font-weight:600;color:#b9e6c9">uibot-design</div>
+            <div style="font-size:10.5px;color:#a9c2b0">稿子明早评审</div>
+          </div>
+        </div>
+      </div>
+      <!-- 工位（夜：屏幕发光照亮 bot） -->
+      <div class="station qb-live qb-working" data-chat="主助手" style="left:80px;top:250px">
+        <div style="position:relative;width:120px;height:120px">
+          <div style="position:absolute;left:0;bottom:0;width:120px;height:44px;background:#2a2f3a;border-radius:6px"></div>
+          <div style="position:absolute;left:8px;bottom:8px;width:104px;height:26px;background:#0d1117;border:1px solid #2f3b47;border-radius:4px;display:grid;place-items:center"><span style="font-size:9px;color:#9fd8b2;font-family:ui-monospace,Consolas">night build…</span></div>
+          <div style="position:absolute;left:8px;bottom:8px;width:104px;height:26px;background:#9fd8b215;border-radius:4px;filter:blur(6px)"></div>
+          <svg class="qbot" style="position:absolute;left:22px;bottom:38px" viewBox="0 0 512 512" data-mood="work"></svg>
+        </div>
+        <div class="nm" style="background:#1e242dd9;color:#e8ecf2;border-color:#39424e">主助手</div><div class="st" style="color:#9aa5b0"><span class="badge-dot work"></span>夜班 · 跑构建</div>
+      </div>
+      <!-- 打盹角（夜灯） -->
+      <div class="station qb-live qb-doze" data-chat="Docbot" style="left:810px;top:262px">
+        <div style="position:relative;width:110px;height:110px">
+          <div style="position:absolute;left:0;bottom:0;width:110px;height:30px;background:#242933;border-radius:8px 8px 4px 4px"></div>
+          <div style="position:absolute;right:2px;bottom:26px;font-size:20px;filter:brightness(.8)">🛋️</div>
+          <svg class="qbot" style="position:absolute;left:14px;bottom:28px" viewBox="0 0 512 512" data-mood="doze"></svg>
+        </div>
+        <div class="nm" style="background:#1e242dd9;color:#e8ecf2;border-color:#39424e">Docbot</div><div class="st" style="color:#9aa5b0"><span class="badge-dot doze"></span>睡了 · 明早见</div>
+      </div>
+      <!-- 夜间氛围：月光带、台灯 -->
+      <div style="position:absolute;left:0;right:0;top:172px;height:90px;background:linear-gradient(180deg,#f2e9c810,transparent);pointer-events:none"></div>
+      <div style="position:absolute;left:420px;bottom:30px;font-size:24px;filter:drop-shadow(0 0 10px #ffca7a66)">💡</div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:10px"><b>C 的取与舍</b>：A 的夜间孪生版（同一布局直接换肤），情绪价值高——「夜里有 bot 替你加班」。落地时与 A 合并为一个方案的主题切换（日/夜跟随系统或手动）。</p>
+</section>
+
+<!-- 方案对比与推荐 -->
+<section style="margin-top:26px">
+  <div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 24px">
+    <div style="font-size:15px;font-weight:700;margin-bottom:10px">三方案对比（供拍板）</div>
+    <table style="border-collapse:collapse;width:100%;font-size:12.5px">
+      <tr style="background:var(--chip)"><th style="text-align:left;padding:7px 10px;border:1px solid var(--line)">维度</th><th style="text-align:left;padding:7px 10px;border:1px solid var(--line)">A 窗边办公室</th><th style="text-align:left;padding:7px 10px;border:1px solid var(--line)">B 俯视作战图</th><th style="text-align:left;padding:7px 10px;border:1px solid var(--line)">C 夜班模式</th></tr>
+      <tr><td style="padding:6px 10px;border:1px solid var(--line)">办公室感</td><td style="padding:6px 10px;border:1px solid var(--line)">★★★★★ 剖面全要素</td><td style="padding:6px 10px;border:1px solid var(--line)">★★★☆ 地图感更强</td><td style="padding:6px 10px;border:1px solid var(--line)">★★★★★ A 的夜版</td></tr>
+      <tr><td style="padding:6px 10px;border:1px solid var(--line)">项目扩展性</td><td style="padding:6px 10px;border:1px solid var(--line)">★★★ 黑板纵向可加</td><td style="padding:6px 10px;border:1px solid var(--line)">★★★★★ 网格便签随便加</td><td style="padding:6px 10px;border:1px solid var(--line)">同 A</td></tr>
+      <tr><td style="padding:6px 10px;border:1px solid var(--line)">落地成本</td><td style="padding:6px 10px;border:1px solid var(--line)">中（纯 CSS 场景）</td><td style="padding:6px 10px;border:1px solid var(--line)">中</td><td style="padding:6px 10px;border:1px solid var(--line)">低（复用 A 换肤）</td></tr>
+      <tr><td style="padding:6px 10px;border:1px solid var(--line)">风险</td><td style="padding:6px 10px;border:1px solid var(--line)">bot 多时横向拥挤</td><td style="padding:6px 10px;border:1px solid var(--line)">俯视 bot 辨识度</td><td style="padding:6px 10px;border:1px solid var(--line)">单独用略丧，宜配 A</td></tr>
+    </table>
+    <p style="font-size:12.5px;color:var(--sub);margin:12px 0 0"><b style="color:var(--rec)">UIbot 推荐：A + C 合体</b>——白天窗边办公室（C 是它的夜间主题，跟随系统昼夜切换），项目黑板用 A 的吊挂黑板；B 的「图钉便签」作为黑板卡片样式并入 A。理由：办公室感最强、黑板可扩展、一次开发两倍氛围。</p>
+  </div>
+</section>
+</div>
+
+<div id="toast"></div>
+<div id="splash"><div style="text-align:center"><svg class="qbot" viewBox="0 0 512 512" data-mood="work"></svg><p>正在进入对话…</p></div></div>
+
+<script>
+// 方案切换
+document.querySelectorAll('.tab').forEach(function(tb){
+  tb.addEventListener('click',function(){
+    document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')})
+    document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('on')})
+    tb.classList.add('on')
+    document.getElementById(tb.dataset.p).classList.add('on')
+  })
+})
+// 双击 → 启动页式转场 + toast（示意；产品里是路由切换）
+var toast=document.getElementById('toast'),splash=document.getElementById('splash'),tm
+function enter(name){
+  splash.classList.add('on')
+  clearTimeout(tm)
+  tm=setTimeout(function(){splash.classList.remove('on');toast.textContent='已进入「'+name+'」对话（示意）';toast.classList.add('on');setTimeout(function(){toast.classList.remove('on')},1600)},650)
+}
+document.addEventListener('dblclick',function(e){
+  var t=e.target.closest('.station,.bb-item')
+  if(t&&t.dataset.chat)enter(t.dataset.chat)
+})
+// 生成所有 Q 版 bot（与产品同构：circle+豆豆眼+定稿光影）
+var BODIES=[['#0B0B0C','#FFFFFF'],['#3E6F8E','#FFFFFF'],['#8E5A7A','#FFFFFF'],['#B8862F','#FFFFFF'],['#4F6355','#FFFFFF']]
+document.querySelectorAll('.qbot').forEach(function(svg,i){
+  var b=BODIES[i%BODIES.length]
+  svg.innerHTML='<g class="qbot-tilt"><circle class="qbot-ball" cx="256" cy="258" r="150"/><g class="qbot-ovs" clip-path="url(#qb-clip)"><ellipse class="qbot-ov qbot-shade" cx="256" cy="258" rx="150" ry="150"/><ellipse class="qbot-ov qbot-sheen" cx="256" cy="258" rx="150" ry="150"/><ellipse class="qbot-ov qbot-rim" cx="256" cy="258" rx="150" ry="150"/></g><g><g transform="translate(210 262)"><ellipse class="qbot-eye qbot-eye-l" rx="18" ry="32"/><path class="qbot-lid qbot-lid-l" d="M -18 6 Q 0 -12 18 6"/></g><g transform="translate(302 262)"><ellipse class="qbot-eye qbot-eye-r" rx="18" ry="32"/><path class="qbot-lid qbot-lid-r" d="M -18 6 Q 0 -12 18 6"/></g></g><text class="qb-sym qb-sym-work" x="360" y="120" font-size="52">…</text><text class="qb-sym qb-sym-zz" x="380" y="110" font-size="44">zZ</text></g>'
+  svg.style.setProperty('--body',b[0]);svg.style.setProperty('--eye',b[1])
+})
+</script>
+</body>
+</html>

@@ -27,6 +27,7 @@ let runnerDeps = {
   beginTurn: () => null,
   endTurn: () => {},
   refreshTools: async () => {},
+  refreshRuntime: async () => {},
   syncMessages: () => {},
 }
 
@@ -280,6 +281,10 @@ async function startGoalRun(session, kind) {
   })
   let promptPromise = null
   try {
+    // Goal rounds call agent.prompt directly (not runPrompt), so the same
+    // turn-boundary reconciliation has to happen here: a settings change made
+    // while the goal was waiting must reach this round, not a later one.
+    await runnerDeps.refreshRuntime(session)
     promptPromise = session.agent.prompt({
       role: 'user',
       content: planning ? planningVisibleText(Math.max(1, goalStats(session).planningAttempts + 1)) : continuationVisibleText(round, session.goal.budget.maxIterations),

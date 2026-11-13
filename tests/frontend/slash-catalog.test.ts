@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { __resetSlashCatalogCacheForTests, fetchSlashCatalog } from '../../src/lib/slash-catalog'
+import { __resetSlashCatalogCacheForTests, fetchSlashCatalog, invalidateSlashCatalog } from '../../src/lib/slash-catalog'
 
 // ---------------------------------------------------------------------------
 // Fetch mock. Responses are routed by URL so the two parallel requests inside
@@ -138,5 +138,18 @@ describe('fetchSlashCatalog', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4)
     expect(fetchUrls()).toContain('/api/skills?available=true&projectId=p2')
     expect(fetchUrls()).toContain('/api/agent-profiles?projectId=p2')
+  })
+
+  it('drops the cache when the selection write path invalidates it', async () => {
+    // The catalog mirrors server-side selections; saving a new selection must
+    // make the very next slash-menu open refetch instead of serving the stale
+    // list until a full page reload.
+    await fetchSlashCatalog('p1')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    invalidateSlashCatalog()
+    await fetchSlashCatalog('p1')
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 })

@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Q 版办公室工作台 v2 · 单一视觉语言重做</title>
+<!-- ============================================================
+  v2 重做原则（v1 诊断后的整改）：
+  1) 一种语言：全扁平图形，统一圆角家族（10/14/999px），统一阴影令牌，
+     禁 emoji、禁渐变家具、禁系统字体假装粉笔字
+  2) bot 是主角：110-130px，占视觉权重 60%+
+  3) 统一色板：暖纸 #F4F1EA / 炭墨 #1F2328 / 琥珀 #E8833A / 苔绿 #3E8E62，
+     全场景只用这四个家族
+  4) 一致光源：左上顶光（与 mascot 定稿光影同向）
+  两方向：D 扁平插画办公室（完整氛围）/ E 极简舞台（克制耐看）
+  ============================================================ -->
+<style>
+:root{
+  --paper:#F4F1EA;--panel:#FFFFFF;--ink:#1F2328;--muted:#8A8F98;--line:#E4E0D6;
+  --accent:#E8833A;--green:#3E8E62;--sky:#CFE3EC;--sun:#F2C94C;
+  --floor:#E9E3D6;--shadow:0 10px 24px -12px rgba(31,35,40,.18);
+  --r-lg:14px;--r-md:10px;--r-pill:999px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.7 system-ui,"Segoe UI","Microsoft YaHei",sans-serif}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 24px 90px}
+header h1{font-size:24px;margin:0 0 4px}
+header .lead{color:var(--muted);max-width:920px}
+.diag{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 20px;margin:18px 0 6px}
+.diag b{color:var(--ink)}
+.diag li{color:var(--muted);font-size:13px;margin:4px 0}
+.tabs{display:flex;gap:10px;margin:18px 0 14px}
+.tab{border:1px solid var(--line);background:var(--panel);border-radius:var(--r-pill);padding:7px 18px;font-size:13.5px;cursor:pointer;transition:.18s}
+.tab:hover{border-color:var(--ink)}
+.tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.panel{display:none}.panel.on{display:block}
+.note{font-size:12.5px;color:var(--muted);margin:10px 2px 0}
+
+/* ===== 场景基础（两方向共享的 token 纪律） ===== */
+.scene{position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--line);box-shadow:var(--shadow);background:var(--paper)}
+.station{position:absolute;text-align:center;cursor:pointer;transition:transform .18s}
+.station:hover{transform:translateY(-4px)}
+.nm{font-size:12.5px;margin-top:6px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);padding:2px 10px;display:inline-block}
+.st{font-size:10.5px;color:var(--muted)}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:1px}
+.dot.work{background:var(--green)}.dot.doze{background:#B9B29F}
+
+/* ===== Q bot（产品同构：定稿光影球） ===== */
+.qbot{width:110px;height:110px;display:block;overflow:visible;user-select:none}
+.qbot-tilt{transform-box:view-box;transform-origin:256px 258px}
+.qbot-ball{fill:var(--body,#0B0B0C)}
+.qbot-eye{fill:var(--eye,#fff)}
+.qbot-lid{display:none;fill:none;stroke:var(--eye,#fff);stroke-width:9;stroke-linecap:round}
+.qbot[data-mood="doze"] .qbot-eye{display:none}
+.qbot[data-mood="doze"] .qbot-lid{display:block}
+.qbot-ovs ellipse{transform-box:view-box;transform-origin:256px 258px}
+.qb-working .qbot-tilt{animation:qb-type .7s ease-in-out infinite}
+.qb-doze .qbot-tilt{animation:qb-nod 3.2s ease-in-out infinite}
+.qb-idle .qbot-tilt{animation:qb-breathe 3.2s ease-in-out infinite}
+@keyframes qb-type{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(2px) scale(1.015,.985)}}
+@keyframes qb-nod{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg) translateY(3px)}}
+@keyframes qb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.026,1.012)}}
+.qb-sym{font-weight:700;fill:var(--body,#0B0B0C);opacity:0}
+.qb-working .qb-sym-work{opacity:1;animation:qb-pulse 1.2s ease-in-out infinite}
+.qb-doze .qb-sym-zz{opacity:1;animation:qb-float 2.6s ease-in-out infinite}
+@keyframes qb-pulse{0%,100%{opacity:.25}50%{opacity:1}}
+@keyframes qb-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+
+/* toast / 转场 */
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);background:var(--ink);color:#fff;padding:9px 20px;border-radius:12px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:99}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#splash{position:fixed;inset:0;background:var(--paper);display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .22s;z-index:98}
+#splash.on{opacity:1}
+#splash .qbot{width:64px;height:64px}
+#splash .qbot-tilt{animation:qb-breathe 3.2s ease-in-out infinite}
+#splash p{color:var(--muted);margin-top:12px;font-size:13px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <radialGradient id="qb-sheen" gradientUnits="userSpaceOnUse" cx="210" cy="170" r="172"><stop offset="0" stop-color="#fff" stop-opacity=".3"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qb-shade" gradientUnits="userSpaceOnUse" cx="256" cy="150" r="390"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".17"/></radialGradient>
+    <radialGradient id="qb-rim" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".15"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <clipPath id="qb-clip"><circle cx="256" cy="258" r="150"/></clipPath>
+  </defs>
+</svg>
+
+<div class="wrap">
+<header>
+  <h1>工作台 v2 <span style="font-size:13px;color:var(--muted);font-weight:400">单一视觉语言重做 · 2026-11-13</span></h1>
+  <p class="lead">v1「不好看」的病因与整改见下；两个新方向都遵守同一纪律：全扁平图形、统一圆角与阴影、四色板（暖纸/炭墨/琥珀/苔绿）、bot 放大当主角、光源统一左上。<b>双击 bot / 项目卡仍有转场演示。</b></p>
+</header>
+
+<div class="diag">
+  <div style="font-weight:700;margin-bottom:4px">v1 病因诊断（为什么「不好看」）</div>
+  <ol style="margin:0;padding-left:20px">
+    <li><b>语言打架</b>：渐变质感球 + emoji 家具 + 生硬色块，三种画风拼贴 → 大脑判廉价。v2：一种语言。</li>
+    <li><b>主角太小</b>：bot 76px 淹没在装饰里。v2：110–130px，视觉权重过半。</li>
+    <li><b>没有色板</b>：随手取色互不相识。v2：四色家族管全场景。</li>
+    <li><b>假材质</b>：系统字体冒充粉笔字。v2：黑板卡走干净卡片风，不装。</li>
+  </ol>
+</div>
+
+<div class="tabs">
+  <button class="tab on" data-p="pd">方向 D · 扁平插画办公室</button>
+  <button class="tab" data-p="pe">方向 E · 极简舞台</button>
+</div>
+
+<!-- ============ 方向 D · 扁平插画办公室（无 emoji，全图形） ============ -->
+<section class="panel on" id="pd">
+  <div class="scene" style="height:580px">
+    <!-- 墙面与地板（统一暖纸家族） -->
+    <div style="position:absolute;inset:0 0 130px 0;background:var(--paper)"></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;height:130px;background:var(--floor);border-top:2px solid #DCD5C4"></div>
+    <!-- 窗：扁平几何（左上光源） -->
+    <div style="position:absolute;left:34px;top:30px;width:210px;height:148px;background:var(--sky);border:8px solid #fff;border-radius:var(--r-md);box-shadow:var(--shadow)">
+      <div style="position:absolute;left:20px;top:18px;width:40px;height:40px;border-radius:50%;background:var(--sun)"></div>
+      <div style="position:absolute;left:98px;top:34px;width:70px;height:16px;border-radius:var(--r-pill);background:#fff;opacity:.92"></div>
+      <div style="position:absolute;left:84px;top:52px;width:44px;height:12px;border-radius:var(--r-pill);background:#fff;opacity:.7"></div>
+      <div style="position:absolute;left:0;top:0;bottom:0;width:4px;background:#ffffffd9"></div>
+    </div>
+    <!-- 吊挂项目板（中央偏右；卡片化，不装粉笔） -->
+    <div style="position:absolute;left:470px;top:22px;width:330px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:10px">
+        <span style="font-size:13.5px;font-weight:700">最近跟踪的项目</span>
+        <span style="font-size:10.5px;color:var(--muted)">双击进入项目对话</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="bb-item" data-chat="项目 quickforge" style="border:1px solid var(--line);border-left:4px solid var(--green);border-radius:var(--r-md);padding:8px 12px;cursor:pointer;background:var(--paper)">
+          <div style="display:flex;justify-content:space-between"><b style="font-size:12.5px">quickforge</b><span style="font-size:10px;color:var(--green)">● 进行中</span></div>
+          <div style="font-size:10.5px;color:var(--muted)">质感定稿 · 工作台方案 · 3 在办</div>
+        </div>
+        <div class="bb-item" data-chat="项目 uibot-design" style="border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--r-md);padding:8px 12px;cursor:pointer;background:var(--paper)">
+          <div style="display:flex;justify-content:space-between"><b style="font-size:12.5px">uibot-design</b><span style="font-size:10px;color:var(--accent)">● 跟踪中</span></div>
+          <div style="font-size:10.5px;color:var(--muted)">对话框走查 · 组件地图 · 1 在办</div>
+        </div>
+        <div class="bb-item" data-chat="项目 report-2026" style="border:1px solid var(--line);border-left:4px solid #B9B29F;border-radius:var(--r-md);padding:8px 12px;cursor:pointer;background:var(--paper)">
+          <div style="display:flex;justify-content:space-between"><b style="font-size:12.5px">report-2026</b><span style="font-size:10px;color:#B9B29F">◐ 收尾</span></div>
+          <div style="font-size:10.5px;color:var(--muted)">年度汇报 · 校对中</div>
+        </div>
+      </div>
+    </div>
+    <!-- 时钟（几何化） -->
+    <div style="position:absolute;left:836px;top:30px;width:64px;height:64px;background:#fff;border:1px solid var(--line);border-radius:50%;box-shadow:var(--shadow);position:absolute">
+      <div style="position:absolute;left:50%;top:50%;width:2.5px;height:20px;background:var(--ink);border-radius:2px;transform-origin:bottom;transform:translate(-50%,-100%) rotate(215deg)"></div>
+      <div style="position:absolute;left:50%;top:50%;width:2.5px;height:14px;background:var(--accent);border-radius:2px;transform-origin:bottom;transform:translate(-50%,-100%) rotate(65deg)"></div>
+      <div style="position:absolute;left:50%;top:50%;width:4px;height:4px;background:var(--ink);border-radius:50%;transform:translate(-50%,-50%)"></div>
+    </div>
+    <!-- 盆栽（几何化：无 emoji） -->
+    <div style="position:absolute;left:26px;bottom:18px;width:56px;height:78px">
+      <div style="position:absolute;left:8px;bottom:0;width:40px;height:30px;background:#C9A227;border-radius:6px 6px 10px 10px"></div>
+      <div style="position:absolute;left:20px;bottom:26px;width:5px;height:26px;background:#3E8E62"></div>
+      <div style="position:absolute;left:6px;bottom:40px;width:26px;height:34px;background:#3E8E62;border-radius:50% 50% 46% 54%/60% 60% 40% 40%"></div>
+      <div style="position:absolute;left:28px;bottom:46px;width:22px;height:28px;background:#4DA274;border-radius:50% 50% 46% 54%/60% 60% 40% 40%"></div>
+    </div>
+    <!-- 工位排：工作中两只（主角尺寸 120px） -->
+    <div class="station qb-working" data-chat="主助手" style="left:88px;top:266px" title="双击进入对话">
+      <div style="position:relative;width:150px;height:150px">
+        <div style="position:absolute;left:0;bottom:0;width:150px;height:46px;background:#E1D8C2;border-radius:var(--r-md);border:1px solid var(--line)"></div>
+        <div style="position:absolute;left:16px;bottom:12px;width:118px;height:26px;background:var(--ink);border-radius:6px 6px 8px 8px;display:grid;place-items:center"><span style="font-size:9.5px;color:#9FE3B4;font-family:ui-monospace,Consolas">npm run dev…</span></div>
+        <svg class="qbot" style="position:absolute;left:20px;bottom:36px" viewBox="0 0 512 512" data-mood="work"></svg>
+      </div>
+      <div class="nm">主助手</div><div class="st"><span class="dot work"></span>干活中 · 跑构建</div>
+    </div>
+    <div class="station qb-working" data-chat="UIbot" style="left:288px;top:266px" title="双击进入对话">
+      <div style="position:relative;width:150px;height:150px">
+        <div style="position:absolute;left:0;bottom:0;width:150px;height:46px;background:#E1D8C2;border-radius:var(--r-md);border:1px solid var(--line)"></div>
+        <div style="position:absolute;left:16px;bottom:12px;width:118px;height:26px;background:var(--ink);border-radius:6px 6px 8px 8px;display:grid;place-items:center"><span style="font-size:9.5px;color:#FFD9A0;font-family:ui-monospace,Consolas">design-v2.html</span></div>
+        <svg class="qbot" style="position:absolute;left:20px;bottom:36px" viewBox="0 0 512 512" data-mood="work"></svg>
+      </div>
+      <div class="nm">UIbot</div><div class="st"><span class="dot work"></span>干活中 · 出设计稿</div>
+    </div>
+    <!-- 休息区：打盹一只（豆袋沙发，几何化） -->
+    <div class="station qb-doze" data-chat="Docbot" style="left:820px;top:300px" title="双击进入对话">
+      <div style="position:relative;width:140px;height:130px">
+        <div style="position:absolute;left:0;bottom:0;width:140px;height:44px;background:#E8DFCB;border-radius:60px 60px var(--r-md) var(--r-md);border:1px solid var(--line)"></div>
+        <svg class="qbot" style="position:absolute;left:16px;bottom:34px" viewBox="0 0 512 512" data-mood="doze"></svg>
+      </div>
+      <div class="nm">Docbot</div><div class="st"><span class="dot doze"></span>打盹 · 无任务</div>
+    </div>
+    <!-- 地毯 -->
+    <div style="position:absolute;left:340px;bottom:34px;width:280px;height:54px;background:#E8833A1f;border-radius:50%;filter:blur(1px)"></div>
+  </div>
+  <p class="note"><b>D</b>：完整办公室叙事，但所有元素都是统一纪律的扁平图形——同一个圆角家族、同一支色板、同一套阴影。bot 120px 主角位。</p>
+</section>
+
+<!-- ============ 方向 E · 极简舞台（克制耐看） ============ -->
+<section class="panel" id="pe">
+  <div class="scene" style="height:580px;background:linear-gradient(180deg,var(--paper) 62%,#EFEBE1 100%)">
+    <!-- 顶栏：黑板卡横排 -->
+    <div style="position:absolute;left:24px;right:24px;top:22px;display:flex;gap:12px">
+      <div class="bb-item" data-chat="项目 quickforge" style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:12px 16px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><b>quickforge</b><span style="font-size:10px;color:var(--green)">● 进行中</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">3 在办 · 最近 5 分钟前</div>
+      </div>
+      <div class="bb-item" data-chat="项目 uibot-design" style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:12px 16px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><b>uibot-design</b><span style="font-size:10px;color:var(--accent)">● 跟踪中</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">1 在办 · 2 小时前</div>
+      </div>
+      <div class="bb-item" data-chat="项目 report-2026" style="flex:1;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:12px 16px;cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:baseline"><b>report-2026</b><span style="font-size:10px;color:#B9B29F">◐ 收尾</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">差最后校对</div>
+      </div>
+    </div>
+    <!-- 舞台聚光：工作中的 bot 站中央（130px 绝对主角） -->
+    <div style="position:absolute;left:50%;top:150px;transform:translateX(-50%);width:420px;height:320px;pointer-events:none">
+      <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:360px;height:320px;background:radial-gradient(60% 55% at 50% 30%,#ffffffcc,transparent 70%)"></div>
+    </div>
+    <div class="station qb-working" data-chat="主助手" style="left:50%;top:250px;transform:translateX(-50%)" title="双击进入对话">
+      <div style="position:relative;width:170px;height:150px">
+        <div style="position:absolute;left:6px;bottom:0;width:158px;height:40px;background:#E1D8C2;border-radius:var(--r-md);border:1px solid var(--line)"></div>
+        <div style="position:absolute;left:20px;bottom:12px;width:130px;height:24px;background:var(--ink);border-radius:6px 6px 8px 8px;display:grid;place-items:center"><span style="font-size:9.5px;color:#9FE3B4;font-family:ui-monospace,Consolas">tsc -b ✓ 03:12</span></div>
+        <svg class="qbot" style="position:absolute;left:30px;bottom:32px;width:120px;height:120px" viewBox="0 0 512 512" data-mood="work"></svg>
+      </div>
+      <div class="nm">主助手 · <span class="dot work"></span>干活中</div>
+    </div>
+    <!-- 两翼：次角色（更小更暗，不打架） -->
+    <div class="station qb-working" data-chat="UIbot" style="left:120px;top:330px" title="双击进入对话">
+      <div style="position:relative;width:120px;height:110px">
+        <div style="position:absolute;left:0;bottom:0;width:120px;height:34px;background:#E7DECA;border-radius:var(--r-md);border:1px solid var(--line)"></div>
+        <svg class="qbot" style="position:absolute;left:12px;bottom:26px;width:96px;height:96px" viewBox="0 0 512 512" data-mood="work"></svg>
+      </div>
+      <div class="nm">UIbot</div><div class="st"><span class="dot work"></span>设计稿中</div>
+    </div>
+    <div class="station qb-doze" data-chat="Docbot" style="left:820px;top:330px" title="双击进入对话">
+      <div style="position:relative;width:120px;height:110px">
+        <div style="position:absolute;left:0;bottom:0;width:120px;height:34px;background:#E7DECA;border-radius:var(--r-md);border:1px solid var(--line)"></div>
+        <svg class="qbot" style="position:absolute;left:12px;bottom:26px;width:96px;height:96px" viewBox="0 0 512 512" data-mood="doze"></svg>
+      </div>
+      <div class="nm">Docbot</div><div class="st"><span class="dot doze"></span>打盹</div>
+    </div>
+  </div>
+  <p class="note"><b>E</b>：去掉「房间」概念，项目卡横排当顶栏，bot 站舞台中央（聚光），配角两翼暗一档。<b>最耐看的一版</b>，落地成本最低（无场景绘制，就是布局+卡片）；氛围感弱于 D。</p>
+</section>
+
+<div style="background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 22px;margin-top:22px">
+  <div style="font-weight:700;margin-bottom:6px">怎么选</div>
+  <p style="font-size:13px;color:var(--muted);margin:0"><b style="color:var(--ink)">D</b> = 氛围优先（有趣、办公室叙事完整）；<b style="color:var(--ink)">E</b> = 克制优先（信息效率高、最耐看、落地最快）。也可以 E 为骨架、D 的窗/绿植做点缀（第三条路，你说了算）。还是觉得不对劲就把这两版截图圈出不顺眼的地方发我，继续收敛。</p>
+</div>
+</div>
+
+<div id="toast"></div>
+<div id="splash"><div style="text-align:center"><svg class="qbot" viewBox="0 0 512 512" data-mood="work"></svg><p>正在进入对话…</p></div></div>
+
+<script>
+document.querySelectorAll('.tab').forEach(function(tb){
+  tb.addEventListener('click',function(){
+    document.querySelectorAll('.tab').forEach(function(x){x.classList.remove('on')})
+    document.querySelectorAll('.panel').forEach(function(x){x.classList.remove('on')})
+    tb.classList.add('on');document.getElementById(tb.dataset.p).classList.add('on')
+  })
+})
+var toast=document.getElementById('toast'),splash=document.getElementById('splash'),tm
+function enter(name){
+  splash.classList.add('on');clearTimeout(tm)
+  tm=setTimeout(function(){splash.classList.remove('on');toast.textContent='已进入「'+name+'」对话（示意）';toast.classList.add('on');setTimeout(function(){toast.classList.remove('on')},1600)},650)
+}
+document.addEventListener('dblclick',function(e){
+  var t=e.target.closest('.station,.bb-item')
+  if(t&&t.dataset.chat)enter(t.dataset.chat)
+})
+var BODIES=[['#0B0B0C','#FFFFFF'],['#3E6F8E','#FFFFFF'],['#8E5A7A','#FFFFFF'],['#B8862F','#FFFFFF'],['#4F6355','#FFFFFF'],['#0B0B0C','#FFFFFF']]
+document.querySelectorAll('.qbot').forEach(function(svg,i){
+  var b=BODIES[i%BODIES.length]
+  svg.innerHTML='<g class="qbot-tilt"><circle class="qbot-ball" cx="256" cy="258" r="150"/><g class="qbot-ovs" clip-path="url(#qb-clip)"><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-shade)"/><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-sheen)"/><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-rim)"/></g><g><g transform="translate(210 262)"><ellipse class="qbot-eye qbot-eye-l" rx="18" ry="32"/><path class="qbot-lid qbot-lid-l" d="M -18 6 Q 0 -12 18 6"/></g><g transform="translate(302 262)"><ellipse class="qbot-eye qbot-eye-r" rx="18" ry="32"/><path class="qbot-lid qbot-lid-r" d="M -18 6 Q 0 -12 18 6"/></g></g><text class="qb-sym qb-sym-work" x="360" y="120" font-size="52">…</text><text class="qb-sym qb-sym-zz" x="380" y="110" font-size="44">zZ</text></g>'
+  svg.style.setProperty('--body',b[0]);svg.style.setProperty('--eye',b[1])
+})
+</script>
+</body>
+</html>

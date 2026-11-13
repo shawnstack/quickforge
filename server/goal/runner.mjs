@@ -34,6 +34,7 @@ let runnerDeps = {
   beginTurn: () => null,
   endTurn: () => {},
   refreshTools: async () => {},
+  refreshRuntime: async () => {},
   syncMessages: () => {},
 }
 
@@ -304,6 +305,10 @@ async function startGoalRun(session) {
 
   let promptPromise = null
   try {
+    // Goal rounds call agent.prompt directly (not runPrompt), so the same
+    // turn-boundary reconciliation has to happen here: a settings change made
+    // while a goal runs must reach the next round too.
+    await runnerDeps.refreshRuntime(session)
     promptPromise = session.agent.prompt({
       role: 'user',
       content: `继续执行目标（第 ${round}/${goal.maxRounds} 轮）`,

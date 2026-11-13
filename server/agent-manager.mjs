@@ -119,6 +119,7 @@ agentEvents.setMaxListeners(100)
 import { configureGoalRunner } from './goal/engine.mjs'
 import { beginSessionTurn, endSessionTurn } from './agent-turn-ids.mjs'
 import { rebuildSessionTools } from './agent-tool-assembly.mjs'
+import { refreshSessionRuntime } from './agent-session-lifecycle.mjs'
 
 // Goal continuations keep the full history and start a fresh turn id; the goal
 // runner gets the turn helpers injected so it never imports this module.
@@ -129,5 +130,8 @@ configureGoalRunner({
   // `goal_report`, v2 `get_goal`/`create_goal`/`update_goal`), so the tool set
   // is rebuilt whenever that flips (created/confirmed/finished).
   refreshTools: (session) => rebuildSessionTools(session),
+  // Goal rounds bypass runPrompt and call agent.prompt directly, so they get
+  // the same turn-boundary reconciliation (model/memory/skills) injected.
+  refreshRuntime: (session) => refreshSessionRuntime(session),
   syncMessages: (session) => emitSessionEvent(session, { type: 'state', ...getSessionState(session.sessionId) }),
 })

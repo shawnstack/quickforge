@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 v7 设计稿 · 班表 / 网格墙 / 指挥台</title>
+<style>
+/* ==========================================================================
+   工作台 v7 设计稿
+   目的：验证「工作台」从具象剧场（v1–v6：办公室、舞台、丁达尔光、演员站位）
+        换向为「调度视图」是否成立。
+   本文件是设计稿，不是产品代码：所有颜色取自 src/styles/foundation.css 的
+   token 近似值（hex 便于肉眼校验），零外部依赖、零渐变、零装饰阴影。
+   ========================================================================== */
+
+:root{
+  --bg:#ffffff;
+  --bg-sub:#f7f7f7;
+  --bg-hover:#f3f4f5;
+  --bg-active:#eceef0;
+  --fg:#262626;
+  --fg-mid:#5c5c5c;
+  --fg-muted:#8b8b8b;
+  --fg-faint:#a8a8a8;
+  --line:#e6e6e6;
+  --line-soft:#efefef;
+  --ok:#1c7a55;
+  --warn:#9a6414;
+  --info:#2f4b8f;
+  --err:#bf3b2c;
+  --ok-bg:#eef7f2;
+  --warn-bg:#fbf4e6;
+  --info-bg:#eef1f9;
+  --err-bg:#fbeeec;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+}
+[data-theme="dark"]{
+  --bg:#1c1c1c;
+  --bg-sub:#242424;
+  --bg-hover:#2b2b2b;
+  --bg-active:#333333;
+  --fg:#f2f2f2;
+  --fg-mid:#c4c4c4;
+  --fg-muted:#8f8f8f;
+  --fg-faint:#6f6f6f;
+  --line:#343434;
+  --line-soft:#2b2b2b;
+  --ok:#4dc08d;
+  --warn:#e0a94a;
+  --info:#8fa9e6;
+  --err:#ec7b6d;
+  --ok-bg:#1d2a25;
+  --warn-bg:#2b2419;
+  --info-bg:#1e2230;
+  --err-bg:#2c1f1d;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--fg);
+  font:13px/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+::selection{background:var(--bg-active)}
+
+/* ===== 设计稿自身的导航条（不属于产品） ===== */
+.docbar{
+  flex:none;height:40px;display:flex;align-items:center;gap:14px;
+  padding:0 14px;border-bottom:1px solid var(--line);
+  background:var(--bg-sub);font-size:12px;color:var(--fg-muted);
+}
+.docbar__brand{color:var(--fg);font-weight:500;letter-spacing:.2px}
+.docbar__brand span{color:var(--fg-muted);font-weight:400;margin-left:6px}
+.docbar__tabs{display:flex;gap:2px;margin-left:auto}
+.docbar__tabs button{
+  padding:5px 10px;border-radius:7px;color:var(--fg-muted);font-size:12px;
+  transition:color 120ms ease,background 120ms ease;
+}
+.docbar__tabs button:hover{color:var(--fg);background:var(--bg-hover)}
+.docbar__tabs button.is-on{color:var(--fg);background:var(--bg-active);font-weight:500}
+.docbar__theme{
+  padding:5px 10px;border-radius:7px;border:1px solid var(--line);color:var(--fg-mid);
+  font-size:12px;transition:background 120ms ease;
+}
+.docbar__theme:hover{background:var(--bg-hover);color:var(--fg)}
+
+/* ===== 产品表面（模拟全屏工作台） ===== */
+.surface{
+  flex:1;min-height:0;display:none;flex-direction:column;background:var(--bg);
+}
+.surface.is-active{display:flex}
+
+/* 顶栏：与 ConversationHeader 同高（56px）同一分割线强度 */
+.appbar{
+  flex:none;height:56px;display:flex;align-items:center;gap:16px;
+  padding:0 16px;
+  border-bottom:1px solid color-mix(in oklab,var(--line) 60%,transparent);
+}
+.appbar__title{font-size:13px;font-weight:500;letter-spacing:.3px}
+.appbar__summary{display:flex;align-items:center;gap:14px;font-size:12px;color:var(--fg-muted)}
+.appbar__summary b{font-weight:500;color:var(--fg-mid)}
+.stat{display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.appbar__right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.clock{font:12px/1 var(--mono);color:var(--fg-mid);letter-spacing:.4px}
+.iconbtn{
+  width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;
+  justify-content:center;color:var(--fg-muted);transition:background 120ms ease,color 120ms ease;
+}
+.iconbtn:hover{background:var(--bg-hover);color:var(--fg)}
+
+/* 工具条 */
+.toolbar{
+  flex:none;height:42px;display:flex;align-items:center;gap:14px;padding:0 16px;
+  border-bottom:1px solid var(--line-soft);
+}
+.seg{display:inline-flex;gap:2px;background:var(--bg-sub);border-radius:8px;padding:3px}
+.seg button{
+  padding:4px 10px;border-radius:6px;font-size:12px;color:var(--fg-muted);
+  transition:color 120ms ease,background 120ms ease;
+}
+.seg button.is-on{background:var(--bg);color:var(--fg);box-shadow:0 1px 2px rgb(0 0 0/.06)}
+.check{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--fg-mid);cursor:pointer}
+.check input{width:13px;height:13px;accent-color:var(--fg-mid);margin:0}
+.toolbar__spacer{flex:1}
+.toolbar__hint{font-size:11.5px;color:var(--fg-faint);font-variant-numeric:tabular-nums}
+
+/* ===== 主方案：班表 ===== */
+.board{flex:1;min-height:0;overflow:auto}
+.board__head,.row__main{
+  display:grid;
+  grid-template-columns:250px 152px minmax(320px,1fr) 76px;
+  align-items:center;
+}
+.board__head{
+  position:sticky;top:0;z-index:3;height:30px;background:var(--bg-sub);
+  border-bottom:1px solid var(--line);font-size:11px;color:var(--fg-muted);
+  padding-left:0;
+}
+.board__head>div{padding-left:16px}
+.ticks{position:relative;height:100%;margin:0 16px 0 0}
+.ticks span{
+  position:absolute;top:50%;transform:translate(-50%,-50%);
+  font:10.5px/1 var(--mono);color:var(--fg-faint);white-space:nowrap;
+}
+.ticks span:first-of-type{transform:translate(0,-50%)}
+
+.row{border-bottom:1px solid var(--line-soft)}
+.row:last-child{border-bottom:0}
+.row__main{
+  width:100%;height:58px;text-align:left;padding:0;
+  transition:background 120ms ease;
+}
+.row__main:hover{background:var(--bg-hover)}
+.row.is-open>.row__main{background:var(--bg-sub)}
+.row.is-off{opacity:.6}
+
+.row__who{display:flex;align-items:center;gap:10px;padding-left:16px;min-width:0}
+.face{
+  width:22px;height:22px;border-radius:50%;background:var(--face);
+  position:relative;flex:none;display:inline-block;
+}
+.face i{position:absolute;top:8px;width:3px;height:3px;border-radius:50%;background:var(--eye)}
+.face i:first-child{left:6px}
+.face i:last-child{right:6px}
+.who__text{display:flex;flex-direction:column;gap:1px;min-width:0}
+.who__name{font-size:13px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who__sub{font-size:11px;color:var(--fg-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.dot{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none}
+.dot--run{background:var(--ok)}
+.dot--err{background:var(--err)}
+.dot--idle{background:var(--fg-faint)}
+.dot--off{background:var(--line);box-shadow:inset 0 0 0 1px var(--fg-faint)}
+.dot--task{background:var(--info)}
+
+.row__state{
+  display:flex;align-items:center;gap:7px;font-size:12px;color:var(--fg-mid);
+  padding-left:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.row__state.is-run{color:var(--ok)}
+.row__state.is-err{color:var(--err)}
+.row__state.is-off{color:var(--fg-faint)}
+.row__state small{color:var(--fg-faint);font-size:11px}
+
+/* 轨道 */
+.lane{position:relative;height:58px;margin-right:16px}
+.lane__grid{position:absolute;inset:0;pointer-events:none}
+.lane__grid i{
+  position:absolute;top:0;bottom:0;width:1px;
+  background:color-mix(in oklab,var(--line) 55%,transparent);
+}
+.lane__now{position:absolute;top:0;bottom:0;width:1px;background:var(--fg-faint)}
+.lane__now b{
+  position:absolute;top:0;left:0;transform:translateX(-50%);
+  font:10px/1 var(--mono);color:var(--fg-mid);background:var(--bg);
+  padding:2px 4px;border-radius:4px;white-space:nowrap;
+}
+.row.is-open .lane__now b{background:var(--bg-sub)}
+.row__main:hover .lane__now b{background:var(--bg-hover)}
+.beat{
+  position:absolute;top:24px;width:8px;height:8px;border-radius:50%;
+  transform:translate(-50%,0);
+}
+.beat--ok{background:var(--ok)}
+.beat--err{background:var(--err)}
+.beat--skip{background:transparent;box-shadow:inset 0 0 0 1px var(--fg-faint)}
+.beat--next{background:transparent;box-shadow:inset 0 0 0 1.5px var(--fg-faint)}
+.beat--now{box-shadow:0 0 0 3px var(--ok-bg)}
+.taskbar{
+  position:absolute;top:39px;height:5px;border-radius:3px;
+  background:color-mix(in oklab,var(--info) 22%,transparent);
+  transform:translateX(-50%);
+}
+.taskbar::after{
+  content:"";position:absolute;left:0;right:0;top:0;bottom:0;border-radius:3px;
+  border:1px solid color-mix(in oklab,var(--info) 45%,transparent);
+  border-style:dashed;opacity:.9;
+}
+.taskbar.is-done::after{border-style:solid}
+
+.row__act{display:flex;justify-content:flex-end;padding-right:16px}
+.row__act span{
+  font-size:11.5px;color:var(--fg-muted);opacity:0;transition:opacity 120ms ease;
+  border:1px solid var(--line);border-radius:6px;padding:3px 8px;white-space:nowrap;
+}
+.row__main:hover .row__act span{opacity:1}
+.row.is-open .row__act span{opacity:1}
+
+/* 展开详情 */
+.row__detail{
+  display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;
+  border-top:1px solid var(--line-soft);
+  background:var(--bg-sub);
+  padding:14px 16px 16px 16px;
+}
+.detail__cell{padding-right:22px}
+.detail__cell+.detail__cell{border-left:1px solid var(--line-soft);padding-left:22px}
+.detail__k{font-size:11px;color:var(--fg-faint);margin-bottom:7px;letter-spacing:.2px}
+.detail__line{display:flex;gap:8px;font-size:12px;color:var(--fg-mid);line-height:1.7}
+.detail__line b{font-weight:400;color:var(--fg);font-variant-numeric:tabular-nums}
+.detail__mono{font:11.5px/1.65 var(--mono);color:var(--fg-mid);white-space:pre-wrap;word-break:break-all}
+.chip{
+  display:inline-flex;align-items:center;gap:5px;font-size:11px;border-radius:999px;
+  padding:2px 8px;background:var(--info-bg);color:var(--info);
+}
+.chip--ok{background:var(--ok-bg);color:var(--ok)}
+.chip--warn{background:var(--warn-bg);color:var(--warn)}
+.chip--err{background:var(--err-bg);color:var(--err)}
+
+/* 页面脚注 */
+.footnote{
+  flex:none;height:34px;display:flex;align-items:center;gap:14px;padding:0 16px;
+  border-top:1px solid var(--line-soft);font-size:11px;color:var(--fg-faint);
+}
+.footnote b{font-weight:400;color:var(--fg-muted)}
+
+/* ===== 备选 A：网格墙 ===== */
+.wall{flex:1;overflow:auto;padding:18px 16px 28px}
+.wall__grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:12px}
+.card{
+  border:1px solid var(--line);border-radius:12px;padding:13px 14px 12px;
+  background:var(--bg);transition:border-color 120ms ease,background 120ms ease;
+  cursor:pointer;
+}
+.card:hover{border-color:color-mix(in oklab,var(--fg-muted) 40%,var(--line));background:var(--bg-sub)}
+.card.is-err{border-color:color-mix(in oklab,var(--err) 32%,var(--line))}
+.card__top{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+.card__name{font-size:13px;color:var(--fg)}
+.card__state{margin-left:auto;font-size:11.5px;display:flex;align-items:center;gap:6px;color:var(--fg-muted);white-space:nowrap}
+.card__lane{position:relative;height:26px;margin:2px 0 9px}
+.card__lane i{position:absolute;top:9px;width:7px;height:7px;border-radius:50%;transform:translate(-50%,0)}
+.card__lane .base{position:absolute;left:0;right:0;top:12px;height:1px;background:var(--line)}
+.card__foot{display:flex;gap:10px;font:11px/1 var(--mono);color:var(--fg-faint)}
+.card__foot b{font-weight:400;color:var(--fg-mid)}
+
+/* ===== 备选 B：指挥台 ===== */
+.console{flex:1;min-height:0;display:grid;grid-template-columns:236px 1fr 292px}
+.pane{min-height:0;overflow:auto}
+.pane+.pane{border-left:1px solid var(--line-soft)}
+.pane__head{
+  position:sticky;top:0;z-index:2;height:32px;display:flex;align-items:center;
+  padding:0 14px;background:var(--bg-sub);border-bottom:1px solid var(--line-soft);
+  font-size:11px;color:var(--fg-muted);
+}
+.blist{padding:6px}
+.bitem{
+  width:100%;display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;
+  text-align:left;transition:background 120ms ease;
+}
+.bitem:hover{background:var(--bg-hover)}
+.bitem.is-on{background:var(--bg-active)}
+.bitem__text{min-width:0;flex:1}
+.bitem__name{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bitem__sub{font-size:11px;color:var(--fg-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.detail{padding:20px 22px 28px}
+.detail__hero{display:flex;align-items:center;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--line-soft)}
+.face--lg{width:40px;height:40px}
+.face--lg i{top:15px;width:4px;height:4px}
+.face--lg i:first-child{left:11px}
+.face--lg i:last-child{right:11px}
+.hero__name{font-size:15px;font-weight:500}
+.hero__sub{font-size:11.5px;color:var(--fg-muted);margin-top:2px}
+.hero__act{margin-left:auto;display:flex;gap:7px}
+.btn{
+  border:1px solid var(--line);border-radius:7px;padding:5px 11px;font-size:12px;
+  color:var(--fg-mid);transition:background 120ms ease,color 120ms ease;
+}
+.btn:hover{background:var(--bg-hover);color:var(--fg)}
+.btn--primary{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.btn--primary:hover{background:var(--fg);color:var(--bg);opacity:.9}
+.sect{padding:16px 0;border-bottom:1px solid var(--line-soft)}
+.sect:last-child{border-bottom:0}
+.sect__h{font-size:11px;color:var(--fg-faint);margin-bottom:10px;letter-spacing:.2px}
+.kv{display:grid;grid-template-columns:88px 1fr;gap:6px 14px;font-size:12px}
+.kv dt{color:var(--fg-muted)}
+.kv dd{margin:0;color:var(--fg);font-variant-numeric:tabular-nums}
+.mem{font:11.5px/1.7 var(--mono);color:var(--fg-mid);white-space:pre-wrap;margin:0}
+.issue{display:flex;gap:9px;padding:10px 14px;border-bottom:1px solid var(--line-soft)}
+.issue__body{min-width:0;flex:1}
+.issue__t{font-size:12px;color:var(--fg)}
+.issue__s{font-size:11px;color:var(--fg-muted);margin-top:2px}
+.issue__a{font-size:11.5px;color:var(--info);white-space:nowrap;align-self:center}
+
+/* ===== 说明 tab ===== */
+.notes{flex:1;overflow:auto;padding:26px 32px 60px}
+.notes__inner{max-width:760px;margin:0 auto}
+.notes h1{font-size:17px;font-weight:500;margin:0 0 6px}
+.notes .lead{color:var(--fg-muted);font-size:12.5px;margin:0 0 24px}
+.notes h2{font-size:13px;font-weight:500;margin:26px 0 8px;padding-top:16px;border-top:1px solid var(--line-soft)}
+.notes p,.notes li{font-size:12.5px;color:var(--fg-mid);line-height:1.85}
+.notes ul{padding-left:18px;margin:8px 0}
+.notes code{font:11.5px var(--mono);background:var(--bg-sub);border-radius:4px;padding:1px 5px;color:var(--fg)}
+.notes table{border-collapse:collapse;width:100%;margin:10px 0;font-size:12px}
+.notes th,.notes td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line-soft);vertical-align:top}
+.notes th{color:var(--fg-faint);font-weight:400;font-size:11px}
+.notes td{color:var(--fg-mid)}
+.notes td:first-child{color:var(--fg);white-space:nowrap}
+.tag{display:inline-block;font-size:10.5px;border-radius:4px;padding:1px 6px;background:var(--ok-bg);color:var(--ok);margin-left:4px}
+.tag--new{background:var(--warn-bg);color:var(--warn)}
+.quote{
+  border-left:2px solid var(--line);padding:2px 0 2px 12px;margin:12px 0;
+  color:var(--fg-muted);font-size:12.5px;
+}
+</style>
+</head>
+<body>
+
+<!-- ===================== 设计稿导航 ===================== -->
+<header class="docbar">
+  <div class="docbar__brand">工作台 v7<span>设计稿 · 2026-11-13</span></div>
+  <div class="docbar__tabs" id="tabs">
+    <button data-view="shift" class="is-on">主方案 · 班表</button>
+    <button data-view="wall">备选 A · 网格墙</button>
+    <button data-view="console">备选 B · 指挥台</button>
+    <button data-view="notes">换向理由与落地</button>
+  </div>
+  <button class="docbar__theme" id="themeBtn">深色</button>
+</header>
+
+<!-- ===================== 主方案 · 班表 ===================== -->
+<section class="surface is-active" data-surface="shift">
+  <div class="appbar">
+    <div class="appbar__title">工作台</div>
+    <div class="appbar__summary">
+      <span class="stat"><i class="dot dot--run"></i><b id="sRun">1</b> 在跑</span>
+      <span class="stat"><i class="dot dot--err"></i><b id="sErr">1</b> 出错</span>
+      <span class="stat"><i class="dot dot--idle"></i><b id="sIdle">2</b> 待命</span>
+      <span class="stat"><i class="dot dot--off"></i><b id="sOff">1</b> 心跳关闭</span>
+    </div>
+    <div class="appbar__right">
+      <span class="clock" id="clock">14:06</span>
+      <button class="iconbtn" title="关闭工作台" aria-label="关闭工作台">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="seg" id="spanSeg">
+      <button data-span="360" class="is-on">6 小时</button>
+      <button data-span="1440">24 小时</button>
+    </div>
+    <label class="check"><input type="checkbox" id="onlyIssues">只看有问题的</label>
+    <div class="toolbar__spacer"></div>
+    <span class="toolbar__hint">每 20 秒轮询 · 预测按心跳间隔外推</span>
+  </div>
+
+  <div class="board" id="board">
+    <div class="board__head">
+      <div>机器人</div>
+      <div>状态</div>
+      <div style="padding:0"><div class="ticks" id="ticks"></div></div>
+      <div></div>
+    </div>
+    <div id="rows"></div>
+  </div>
+
+  <div class="footnote">
+    <span>点一行展开心跳 / 目标 / 记忆</span>
+    <span>点「进会话」进入该 bot 的对话</span>
+    <span style="margin-left:auto">数据：<b>/api/bots</b> 每 20 秒</span>
+  </div>
+</section>
+
+<!-- ===================== 备选 A · 网格墙 ===================== -->
+<section class="surface" data-surface="wall">
+  <div class="appbar">
+    <div class="appbar__title">工作台</div>
+    <div class="appbar__summary">
+      <span class="stat">适合 bot 数量多、扫一眼走人的场景</span>
+    </div>
+    <div class="appbar__right">
+      <span class="clock">14:06</span>
+      <button class="iconbtn" aria-label="关闭工作台">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="wall">
+    <div class="wall__grid" id="wallGrid"></div>
+  </div>
+  <div class="footnote">
+    <span>卡片无阴影、1px 线，只靠留白与状态点分层</span>
+    <span style="margin-left:auto">每卡一条 12 小时节拍条</span>
+  </div>
+</section>
+
+<!-- ===================== 备选 B · 指挥台 ===================== -->
+<section class="surface" data-surface="console">
+  <div class="appbar">
+    <div class="appbar__title">工作台</div>
+    <div class="appbar__summary"><span class="stat">适合盯一只 bot 的工作流</span></div>
+    <div class="appbar__right">
+      <span class="clock">14:06</span>
+      <button class="iconbtn" aria-label="关闭工作台">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="console">
+    <div class="pane">
+      <div class="pane__head">机器人 · 5</div>
+      <div class="blist" id="botList"></div>
+    </div>
+    <div class="pane">
+      <div class="detail" id="botDetail"></div>
+    </div>
+    <div class="pane">
+      <div class="pane__head">需要处理 · 3</div>
+      <div id="issueList"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 说明 ===================== -->
+<section class="surface" data-surface="notes">
+  <div class="notes">
+    <div class="notes__inner">
+      <h1>为什么这次不再画房间</h1>
+      <p class="lead">v1–v6 是同一个大类里的六次迭代：剖面办公室 → 俯视桌面 → 夜班 → 深夜工作室 → 丁达尔舞台。每次都更好看，但类没换过。</p>
+
+      <h2>1. 旧方向与项目设计语言冲突</h2>
+      <div class="quote">DESIGN_LANGUAGE.md：工具感——保持开发者工具的效率感，不做过度拟物或娱乐化视觉；背景保持干净；为了"高级感"加入不必要的渐变属于设计禁忌。</div>
+      <ul>
+        <li>工作台是硬编码深色 <code>#0e1015</code>，与浅色 token 体系（<code>--background: oklch(1 0 0)</code>）直接冲突，深浅切换时像另一款产品。</li>
+        <li>丁达尔光、尘埃、天空四层 crossfade 都是纯装饰；按设计语言应删。</li>
+        <li>四段表演位（<code>ACTOR_SLOTS</code>）只放得下 4 只 bot，第 5 只挤进 slot3 与第 4 只重叠——这是装饰结构决定信息结构。</li>
+      </ul>
+
+      <h2>2. 换向：工作台 = 调度视图，不是场景</h2>
+      <p>用户打开工作台只想知道三件事。新结构直接对应这三个问题，而不是对应"一间办公室"：</p>
+      <table>
+        <tr><th>问题</th><th>答案落在哪</th></tr>
+        <tr><td>谁在干活？</td><td>行内状态列：<code>在跑 · 2 分 12 秒</code>／<code>待命</code>／<code>心跳已关闭</code></td></tr>
+        <tr><td>接下来谁会醒？</td><td>行内轨道：实心点＝已发生，空心点＝按 <code>nextRunAt + intervalMinutes</code> 外推的预测</td></tr>
+        <tr><td>哪里卡住了？</td><td>红色状态点 + 行内错误摘要，展开看 <code>lastError</code> 与连续失败次数</td></tr>
+      </table>
+      <p>mascot 没有删，但降为 22px 的身份标记——它是"这是哪只 bot"的识别符，不再是舞台演员。</p>
+
+      <h2>3. 数据可行性（设计稿不画假能力）</h2>
+      <table>
+        <tr><th>界面元素</th><th>数据来源</th><th>状态</th></tr>
+        <tr><td>状态 / 心跳参数 / 下次唤醒</td><td><code>GET /api/bots</code> 的 <code>busy,status,heartbeat.*</code></td><td><span class="tag">现成</span></td></tr>
+        <tr><td>已发生的心跳点</td><td>只能从 <code>lastWakeAt</code> 按 <code>intervalMinutes</code> 向前回推</td><td><span class="tag">近似</span></td></tr>
+        <tr><td>预测的心跳点</td><td><code>nextRunAt</code> 按间隔外推</td><td><span class="tag">现成</span></td></tr>
+        <tr><td>失败 / 跳过标记</td><td>只有最近一次的 <code>lastError</code> / <code>lastIdleReason</code>；历史序列需服务端加环形记录，或前端会话内累积</td><td><span class="tag tag--new">需补</span></td></tr>
+        <tr><td>定时任务条</td><td><code>GET /api/scheduled-tasks</code>（含最近 5 条 runs）+ <code>/api/scheduled-tasks/runs</code></td><td><span class="tag">现成</span></td></tr>
+        <tr><td>展开里的目标</td><td><code>GET /api/agents/:sessionId/status</code> 的 <code>goal</code></td><td><span class="tag">现成</span></td></tr>
+        <tr><td>展开里的记忆片段</td><td><code>GET /api/bots/:id/memory</code></td><td><span class="tag">现成</span></td></tr>
+      </table>
+      <p><b>注意 N+1</b>：首屏只有一次 <code>/api/bots</code>；goal 与 memory 只在展开某一行时才按需请求。不要在渲染 5 只 bot 时打 10 个请求。</p>
+
+      <h2>4. 落地拆解（不改宿主文件）</h2>
+      <ul>
+        <li>重写 <code>src/components/workbench/Workbench.tsx</code> + <code>workbench.css</code>，<code>WorkbenchPortal</code> 对外签名不变 → <code>ConversationHeader.tsx</code> 零改动。</li>
+        <li>颜色改吃全局 token，删除硬编码 <code>--wb-*</code>；深浅主题自动跟随，不用再做一套。</li>
+        <li>复用 <code>botStatusSummary()</code>（<code>src/components/bots/bots-data.ts</code>）出状态文案与色档，不新增状态判定逻辑。</li>
+        <li>入口图标 <code>Theater</code> → 换成调度语义（如 <code>LayoutList</code> / <code>GanttChart</code>），并沿用同一个 <code>workbenchTitle</code> 文案键。</li>
+        <li>i18n 需要新增约 12 个键（在跑 / 待命 / 心跳关闭 / 每 N 分钟 / 下次 / 进会话 / 只看有问题的 / 6 小时 / 24 小时 / 目标 / 记忆 / 需要处理）。旧的 4 个时段键（dawn/day/dusk/night）可删。</li>
+      </ul>
+
+      <h2>5. 我推荐哪个</h2>
+      <p><b>主方案（班表）</b>：信息密度最高、每行都对应真实数据、能同时回答三个问题，且是三个方案里最省实现成本的（一张 grid + 一条绝对定位轨道，无图表库）。</p>
+      <p><b>网格墙</b>：bot 超过 8 只时更耐看，但每张卡能放的信息少，且卡片化与"避免重卡片"的约束有张力，需要严格压到 1px 边框 + 零阴影。</p>
+      <p><b>指挥台</b>：适合深挖单只 bot，但与设置页三栏观感重复，且把它当"工作台"等于让用户先选一只 bot，先答错了问题。</p>
+
+      <h2>6. 需要你拍的三件事</h2>
+      <ul>
+        <li>方向：班表 / 网格墙 / 指挥台，还是"班表为主、行展开吸收指挥台"。</li>
+        <li>工作台是否保留深色独立空间：我建议跟随主题，不再单独深色。</li>
+        <li>心跳历史：先接受"按间隔回推的近似点"，还是这轮就加服务端环形记录（约 1 个字段 + 一次写入）。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ================= 演示数据（非真实接口，仅用于校验信息密度） ================= */
+const NOW = 14 * 60 + 6;          // 14:06
+let T0 = 11 * 60;                 // 轨道起点（随窗口宽度重算：以此刻为中心）
+const state = { span: 360, onlyIssues: false, open: 'main', selected: 'main', theme: 'light' };
+
+const BOTS = [
+  {
+    id: 'main', name: '主助手', project: 'quickforge', face: '#f3ddc0', eye: '#3a352d',
+    state: 'run', stateText: '在跑 2m12s',
+    interval: 30, lastWake: 14 * 60 + 2, next: 14 * 60 + 32,
+    fails: 0, alwaysWake: false, enabled: true,
+    goal: '把工作台 v7 设计稿落地', goalPhase: 'active',
+    memory: '质检bot，主助手是我的上级。\n守 D:\\quickforge 质量门。\n工作台换向：去掉剧场舞台。',
+    lastRun: '心跳 · 14:02 成功 · 1 分 48 秒',
+  },
+  {
+    id: 'qa', name: '质检bot', project: 'quickforge', face: '#d8e4f2', eye: '#2f3b4a',
+    state: 'err', stateText: '失败 3 次',
+    interval: 180, lastWake: 11 * 60 + 33, next: 14 * 60 + 33,
+    fails: 3, alwaysWake: true, enabled: true,
+    error: '模型调用超时（连续 3 次）',
+    goal: '', goalPhase: '',
+    memory: '每跳三查：git status / 行数 / eslint。\n只读不改仓库文件。',
+    lastRun: '心跳 · 11:33 失败 · 模型调用超时',
+  },
+  {
+    id: 'ui', name: 'UIbot', project: 'quickforge', face: '#e6ddf5', eye: '#3c3348',
+    state: 'idle', stateText: '待命',
+    interval: 60, lastWake: 13 * 60 + 30, next: 14 * 60 + 30,
+    fails: 0, alwaysWake: false, enabled: true,
+    goal: '工作台 v7 前端实现', goalPhase: 'active',
+    memory: '按 DESIGN_LANGUAGE.md 做，不引新视觉模式。',
+    lastRun: '心跳 · 13:30 跳过 · 无新消息，保持沉默',
+  },
+  {
+    id: 'ops', name: '运维bot', project: 'quickforge', face: '#f6e2c8', eye: '#42372a',
+    state: 'idle', stateText: '待命',
+    interval: 240, lastWake: 12 * 60 + 10, next: 16 * 60 + 10,
+    fails: 0, alwaysWake: false, enabled: true,
+    goal: '', goalPhase: '',
+    memory: '定时任务三条：每日巡检 / 周报 / 备份。',
+    lastRun: '心跳 · 12:10 成功 · 22 秒',
+    tasks: [
+      { name: '每日巡检', start: 9 * 60, end: 9 * 60 + 25, done: true },
+      { name: '每日巡检', start: 15 * 60, end: 15 * 60 + 25, done: false },
+    ],
+  },
+  {
+    id: 'doc', name: 'Docbot', project: '—', face: '#e3e3e3', eye: '#3a3a3a',
+    state: 'off', stateText: '心跳关闭',
+    interval: 0, lastWake: null, next: null,
+    fails: 0, alwaysWake: false, enabled: false,
+    goal: '', goalPhase: '',
+    memory: '文档整理。',
+    lastRun: '—',
+  },
+];
+
+/* ================= 工具 ================= */
+const pct = (min) => ((min - T0) / state.span) * 100;
+const inSpan = (min) => min >= T0 && min <= T0 + state.span;
+const hhmm = (min) => {
+  if (min == null) return '—';
+  const m = ((min % 1440) + 1440) % 1440;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+};
+const faceHtml = (b) => `<span class="face" style="--face:${b.face};--eye:${b.eye}"><i></i><i></i></span>`;
+const stateDot = (b) => b.state === 'run' ? 'dot--run' : b.state === 'err' ? 'dot--err' : b.state === 'off' ? 'dot--off' : 'dot--idle';
+
+function visibleBots() {
+  return state.onlyIssues ? BOTS.filter((b) => b.state === 'err' || b.state === 'off') : BOTS;
+}
+
+/* ================= 刻度 ================= */
+function renderTicks() {
+  const el = document.getElementById('ticks');
+  const step = state.span <= 360 ? 60 : 180;
+  let out = '';
+  for (let m = T0; m <= T0 + state.span; m += step) {
+    const p = ((m - T0) / state.span) * 100;
+    if (p > 100) break;
+    out += `<span style="left:${p.toFixed(2)}%">${hhmm(m)}</span>`;
+  }
+  el.innerHTML = out;
+}
+
+/* ================= 轨道 ================= */
+function laneHtml(b) {
+  const step = state.span <= 360 ? 60 : 240;
+  let grid = '';
+  for (let m = T0 + step; m < T0 + state.span; m += step) {
+    grid += `<i style="left:${(((m - T0) / state.span) * 100).toFixed(2)}%"></i>`;
+  }
+
+  // 稀疏化：可见点超过 26 个时抽稀
+  const raw = b.interval ? state.span / b.interval : 0;
+  const everyN = raw > 26 ? Math.ceil(raw / 26) : 1;
+
+  let beats = '';
+  if (b.interval > 0) {
+    // 已发生：从 lastWake 向前回推（近似）
+    for (let i = 0; i <= 12; i++) {
+      const m = b.lastWake - i * b.interval;
+      if (!inSpan(m) || m < T0) break;
+      if (i % everyN !== 0) continue;
+      const tone = b.state === 'err' && i === 0 ? 'beat--err' : (i === 0 && b.lastRun.includes('跳过') ? 'beat--skip' : 'beat--ok');
+      beats += `<span class="beat ${tone}" style="left:${pct(m).toFixed(2)}%"></span>`;
+    }
+    // 预测：从 next 向后外推
+    for (let i = 0; i < 20; i++) {
+      const m = b.next + i * b.interval;
+      if (!inSpan(m)) break;
+      if (i % everyN !== 0) continue;
+      beats += `<span class="beat beat--next" style="left:${pct(m).toFixed(2)}%"></span>`;
+    }
+  } else {
+    beats = `<span class="beat beat--skip" style="left:0%"></span>
+             <span style="position:absolute;left:16px;top:20px;font-size:11px;color:var(--fg-faint)">心跳未开启 · 不会自动醒</span>`;
+  }
+
+  let bars = '';
+  (b.tasks || []).forEach((t) => {
+    const w = ((t.end - t.start) / state.span) * 100;
+    if (t.start + (t.end - t.start) < T0) return;
+    bars += `<span class="taskbar ${t.done ? 'is-done' : ''}" style="left:${pct(t.start).toFixed(2)}%;width:${Math.max(w, 0.8).toFixed(2)}%" title="${t.name} ${hhmm(t.start)}–${hhmm(t.end)}"></span>`;
+  });
+
+  const nowLeft = pct(NOW);
+  const nowMark = nowLeft >= 0 && nowLeft <= 100
+    ? `<span class="lane__now" style="left:${nowLeft.toFixed(2)}%"><b>${hhmm(NOW)}</b></span>`
+    : '';
+
+  return `<div class="lane">
+    <div class="lane__grid">${grid}</div>
+    ${nowMark}
+    ${beats}
+    ${bars}
+  </div>`;
+}
+
+function detailHtml(b) {
+  if (b.state === 'off') {
+    return `<div class="row__detail">
+      <div class="detail__cell">
+        <div class="detail__k">心跳</div>
+        <div class="detail__line"><span>开关</span><b>关闭</b></div>
+        <div class="detail__line"><span>状态</span><b>不会自动唤醒，只能手动催醒</b></div>
+      </div>
+      <div class="detail__cell">
+        <div class="detail__k">目标</div>
+        <div class="detail__line"><span>—</span></div>
+      </div>
+      <div class="detail__cell">
+        <div class="detail__k">记忆</div>
+        <div class="detail__mono">${b.memory}</div>
+      </div>
+    </div>`;
+  }
+  const failChip = b.fails > 0
+    ? `<span class="chip chip--err">连续失败 ${b.fails} 次</span>`
+    : `<span class="chip chip--ok">连续失败 0 次</span>`;
+  const goalChip = b.goal
+    ? `<span class="chip">${b.goalPhase === 'active' ? '进行中' : b.goalPhase}</span>`
+    : '<span class="chip" style="background:var(--bg-active);color:var(--fg-muted)">无目标</span>';
+  return `<div class="row__detail">
+    <div class="detail__cell">
+      <div class="detail__k">心跳</div>
+      <div class="detail__line"><span>间隔</span><b>每 ${b.interval} 分钟</b>${b.alwaysWake ? '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">到点必醒</span>' : ''}</div>
+      <div class="detail__line"><span>上次</span><b>${hhmm(b.lastWake)}</b><span>下次</span><b>${hhmm(b.next)}</b></div>
+      <div class="detail__line">${failChip}</div>
+      ${b.error ? `<div class="detail__line" style="color:var(--err)">${b.error}</div>` : ''}
+    </div>
+    <div class="detail__cell">
+      <div class="detail__k">目标</div>
+      <div class="detail__line">${goalChip}<b style="font-weight:400">${b.goal || '当前会话没有进行中的目标'}</b></div>
+      <div class="detail__line" style="color:var(--fg-faint)">${b.lastRun}</div>
+    </div>
+    <div class="detail__cell">
+      <div class="detail__k">记忆（前 3 行）</div>
+      <div class="detail__mono">${b.memory}</div>
+    </div>
+  </div>`;
+}
+
+function renderBoard() {
+  // 以此刻为中心的整点窗口：切换 6h/24h 时「现在」始终居中
+  T0 = Math.floor((NOW - state.span / 2) / 60) * 60;
+  renderTicks();
+  const rows = visibleBots().map((b) => {
+    const open = state.open === b.id;
+    return `<div class="row ${open ? 'is-open' : ''} ${b.state === 'off' ? 'is-off' : ''}" data-id="${b.id}">
+      <button class="row__main" data-act="toggle" data-id="${b.id}">
+        <div class="row__who">
+          ${faceHtml(b)}
+          <span class="who__text">
+            <span class="who__name">${b.name}</span>
+            <span class="who__sub">${b.project}${b.interval ? ' · 每 ' + b.interval + ' 分钟' : ''}</span>
+          </span>
+        </div>
+        <div class="row__state is-${b.state}"><i class="dot ${stateDot(b)}"></i>${b.stateText}</div>
+        ${laneHtml(b)}
+        <div class="row__act"><span>进会话</span></div>
+      </button>
+      ${open ? detailHtml(b) : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('rows').innerHTML = rows;
+
+  const c = (s) => BOTS.filter((b) => b.state === s).length;
+  document.getElementById('sRun').textContent = c('run');
+  document.getElementById('sErr').textContent = c('err');
+  document.getElementById('sIdle').textContent = c('idle');
+  document.getElementById('sOff').textContent = c('off');
+}
+
+/* ================= 网格墙 ================= */
+function renderWall() {
+  document.getElementById('wallGrid').innerHTML = BOTS.map((b) => {
+    const span = 720; // 12h
+    const t0 = NOW - 360;
+    let dots = '';
+    let base = '';
+    if (b.interval > 0) {
+      for (let i = 0; i < 24; i++) {
+        const m = b.lastWake - i * b.interval;
+        if (m < t0) break;
+        const p = ((m - t0) / span) * 100;
+        const tone = (i === 0 && b.state === 'err') ? 'var(--err)'
+          : (i === 0 && b.lastRun.includes('跳过')) ? 'transparent' : 'var(--ok)';
+        const ring = tone === 'transparent' ? 'box-shadow:inset 0 0 0 1px var(--fg-faint)' : '';
+        dots += `<i style="left:${p.toFixed(2)}%;background:${tone};${ring}"></i>`;
+      }
+      for (let i = 0; i < 24; i++) {
+        const m = b.next + i * b.interval;
+        const p = ((m - t0) / span) * 100;
+        if (p > 100) break;
+        dots += `<i style="left:${p.toFixed(2)}%;background:transparent;box-shadow:inset 0 0 0 1.5px var(--fg-faint)"></i>`;
+      }
+      const nowP = ((NOW - t0) / span) * 100;
+      base = `<span class="base"></span><i style="left:${nowP.toFixed(2)}%;background:var(--fg-faint);width:1px;height:14px;top:5px;border-radius:0"></i>`;
+    }
+    return `<div class="card ${b.state === 'err' ? 'is-err' : ''}" data-act="card" data-id="${b.id}">
+      <div class="card__top">
+        ${faceHtml(b)}
+        <span class="card__name">${b.name}</span>
+        <span class="card__state"><i class="dot ${stateDot(b)}"></i>${b.state === 'run' ? '在跑' : b.state === 'err' ? '失败' : b.state === 'off' ? '关闭' : '待命'}</span>
+      </div>
+      <div class="card__lane">${base}${dots}</div>
+      <div class="card__foot">
+        <span>下次 <b>${hhmm(b.next)}</b></span>
+        <span>每 <b>${b.interval || '—'}</b> 分</span>
+        ${b.fails ? `<span style="color:var(--err)">失败 ${b.fails}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ================= 指挥台 ================= */
+function renderConsole() {
+  document.getElementById('botList').innerHTML = BOTS.map((b) => `
+    <button class="bitem ${state.selected === b.id ? 'is-on' : ''}" data-act="select" data-id="${b.id}">
+      ${faceHtml(b)}
+      <span class="bitem__text">
+        <span class="bitem__name">${b.name}</span>
+        <span class="bitem__sub">${b.stateText}</span>
+      </span>
+      <i class="dot ${stateDot(b)}"></i>
+    </button>`).join('');
+
+  const b = BOTS.find((x) => x.id === state.selected) || BOTS[0];
+  const disabled = b.state === 'off' ? 'disabled style="opacity:.45;cursor:default"' : '';
+  document.getElementById('botDetail').innerHTML = `
+    <div class="detail__hero">
+      <span class="face face--lg" style="--face:${b.face};--eye:${b.eye}"><i></i><i></i></span>
+      <div>
+        <div class="hero__name">${b.name}</div>
+        <div class="hero__sub"><i class="dot ${stateDot(b)}"></i>${b.stateText} · ${b.project}</div>
+      </div>
+      <div class="hero__act">
+        <button class="btn btn--primary" ${disabled}>进会话</button>
+        <button class="btn" ${disabled}>催醒</button>
+      </div>
+    </div>
+
+    <div class="sect">
+      <div class="sect__h">心跳</div>
+      <dl class="kv">
+        <dt>开关</dt><dd>${b.enabled ? '开启' : '关闭'}</dd>
+        <dt>间隔</dt><dd>${b.interval ? '每 ' + b.interval + ' 分钟' : '—'}</dd>
+        <dt>到点必醒</dt><dd>${b.alwaysWake ? '是（每跳都花一次模型调用）' : '否（先判活）'}</dd>
+        <dt>上次</dt><dd>${hhmm(b.lastWake)}</dd>
+        <dt>下次</dt><dd>${hhmm(b.next)}</dd>
+        <dt>连续失败</dt><dd style="${b.fails ? 'color:var(--err)' : ''}">${b.fails} 次</dd>
+      </dl>
+      ${b.error ? `<div style="margin-top:10px"><span class="chip chip--err">${b.error}</span></div>` : ''}
+    </div>
+
+    <div class="sect">
+      <div class="sect__h">目标</div>
+      ${b.goal
+        ? `<div style="display:flex;align-items:center;gap:9px"><span class="chip">进行中</span><span style="font-size:12.5px">${b.goal}</span></div>`
+        : `<div style="font-size:12.5px;color:var(--fg-muted)">当前会话没有进行中的目标</div>`}
+    </div>
+
+    <div class="sect">
+      <div class="sect__h">记忆（MEMORY.md 前几行）</div>
+      <pre class="mem">${b.memory}</pre>
+    </div>
+
+    <div class="sect">
+      <div class="sect__h">最近一次运行</div>
+      <div style="font-size:12px;color:var(--fg-mid)">${b.lastRun}</div>
+    </div>`;
+
+  const issues = BOTS.filter((x) => x.state === 'err' || x.state === 'off');
+  document.getElementById('issueList').innerHTML = issues.map((x) => `
+    <div class="issue">
+      <i class="dot ${stateDot(x)}" style="margin-top:6px"></i>
+      <div class="issue__body">
+        <div class="issue__t">${x.name}</div>
+        <div class="issue__s">${x.state === 'err' ? (x.error || '心跳连续失败') : '心跳已关闭，不会自动醒'}</div>
+      </div>
+      <span class="issue__a">${x.state === 'err' ? '重试' : '开启'}</span>
+    </div>`).join('') + `
+    <div class="issue">
+      <i class="dot dot--task" style="margin-top:6px"></i>
+      <div class="issue__body">
+        <div class="issue__t">运维bot · 每日巡检</div>
+        <div class="issue__s">下次 15:00 · 上次 09:00 成功</div>
+      </div>
+      <span class="issue__a">查看</span>
+    </div>`;
+}
+
+/* ================= 交互 ================= */
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-view]');
+  if (!btn) return;
+  document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('is-on', b === btn));
+  document.querySelectorAll('.surface').forEach((s) => s.classList.toggle('is-active', s.dataset.surface === btn.dataset.view));
+});
+
+document.getElementById('themeBtn').addEventListener('click', (e) => {
+  state.theme = state.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = state.theme;
+  e.currentTarget.textContent = state.theme === 'light' ? '深色' : '浅色';
+});
+
+document.getElementById('spanSeg').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-span]');
+  if (!btn) return;
+  state.span = Number(btn.dataset.span);
+  document.querySelectorAll('#spanSeg button').forEach((b) => b.classList.toggle('is-on', b === btn));
+  renderBoard();
+});
+
+document.getElementById('onlyIssues').addEventListener('change', (e) => {
+  state.onlyIssues = e.target.checked;
+  renderBoard();
+});
+
+document.getElementById('rows').addEventListener('click', (e) => {
+  const main = e.target.closest('[data-act="toggle"]');
+  if (!main) return;
+  const id = main.dataset.id;
+  state.open = state.open === id ? null : id;
+  renderBoard();
+});
+
+document.getElementById('wallGrid').addEventListener('click', (e) => {
+  const card = e.target.closest('[data-act="card"]');
+  if (!card) return;
+  state.selected = card.dataset.id;
+  renderConsole();
+  document.querySelector('#tabs button[data-view="console"]').click();
+});
+
+document.getElementById('botList').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-act="select"]');
+  if (!item) return;
+  state.selected = item.dataset.id;
+  renderConsole();
+});
+
+/* ================= 启动 ================= */
+renderBoard();
+renderWall();
+renderConsole();
+</script>
+</body>
+</html>

@@ -1781,5 +1781,115 @@
     "verification": "定向 3 files / 43 passed；npx eslint 0 problems；npx tsc -b 通过；npm run build 通过；全量 npm run test（后台运行中，完成后如失败跟进）。",
     "updatedAt": "2026-11-12",
     "boundaries": "不做：.bot/heartbeat.md 的独立 UI 查看入口（走现有文件途径）；模板版本管理/回滚（bot 自己留痕即可）；契约（[报告]/不 commit/自进化授权入口）的任何可配置化。"
+  },
+  {
+    "id": "mascot-action-pack",
+    "title": "吉祥物动作组：偷看打字 / 打招呼 / 伸懒腰 / 打哈欠 / 被夸 / 惊讶",
+    "status": "done",
+    "summary": "actions-preview.html 六个候选用户全要。两处按更优判断落地：惊讶=连点 3 下彩蛋（梯度 1 击戳/3 击惊讶/5 击转晕）；被夸=夸奖词消息 → 回答完成的 happy 窗口替换成 pleased（1.8s 对齐，冒 ♡）。只给输入框上方那只，触发全部要求 idle 且渲染层再 gate，业务状态永远优先。",
+    "dependencies": [],
+    "approach": "V3_ACTIONS 与 V3_WEB 同管道生成（wave/pleased 弯月笑眼；surprise 的 data-interact 绑定复用关键帧一次性播放）；use-mascot-actions.ts 管 wave（bot 边沿，挂载不算）/stretch（idle 35s+随机 35~55s）/yawn（idle 180s）/peek（document input 监听 composer，2.5s 保活）/pleased（containsPraise 词表 + happy 窗口消费，ChatPanelHost.onComposerSend 穿透 rawText）；interactions 加 surprise（不清 clicks，可继续升 dizzy）。",
+    "files": [
+      "docs/design/bot-mascot/generate-bot-gif.py（V3_ACTIONS + surprise 互动绑定 + ♡-pleased）",
+      "src/components/bots/mascot/{mascot-anim.css, mascot-geometry.ts}（生成产物重导）",
+      "src/components/bots/mascot/use-mascot-actions.ts（新增）",
+      "src/components/bots/mascot/mascot-interactions.ts（surprise）",
+      "src/hooks/useBotWorkspace.ts、src/App.tsx、src/components/chat/ChatPanelHost.tsx（接线）",
+      "docs/design/bot-mascot/{actions-preview.html, README.md}、docs/wiki/server/bots.md",
+      "tests/frontend/{bot-mascot.test.ts, mascot-interactions.test.ts}"
+    ],
+    "verification": "针对性 2 文件 58 例全绿（连点梯度/夸奖词表/idle gate/动作契约）；全量 lint 0 问题 + build 通过 + npm run test 全绿。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "小动作不进侧栏/设置预览；不给 bot 模式外的会话；ChatPanelHost 只加一个可选回调 prop（不扩大上帝模块）；GIF 与 palette.html 仍是旧动作；「?」几何化与 79px 下 zZ/星星加大仍是老待拍板项。"
+  },
+  {
+    "id": "god-module-decomposition",
+    "title": "上帝模块治理：按影响面从小到大拆分职责混杂的超大模块",
+    "status": "done",
+    "summary": "同一次代码健康扫描确认真正的上帝模块（一个文件承担 2 类以上没有共同主题的职责）共 7 处，按建议动手顺序排列。判定标准是职责混杂，不是行数：i18n.ts（4471 行，98% 是双语词条表）、code-highlight.ts（2654 行，语法规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs 都属于长但职责单一，不在治理范围内。2026-11-12：子项①已完成——scheduled-tasks.mjs（1120 行）拆为薄路由（194 行，只导出 handleScheduledTasksApi）+ server/scheduled-task-{store,executor,runner,instruction-parser}.mjs 四个职责模块，HTTP 行为与 API 契约不变，全量 test/lint/tsc/build 绿。②已完成——skills-dialog.tsx（1241 行）拆为：数据层 src/lib/skills-client.ts（/api/skills 系列 HTTP + 域类型）+ src/hooks/use-skills-manager.ts（加载竞态守卫、串行保存队列、saveGeneration/saveSequence 双版本号乐观更新与失败回滚、撤销 toast，按 zustand 迁移守则副作用留 hook）+ src/components/skills/ 组件目录（SkillsManagerPanel 薄面板 + SkillsPageHead / SkillsToolbar / SkillsSummary / SkillsList / SkillDetailDialog / SkillGlyph / skill-source.ts / index.ts barrel，chat/surface 同款组织），App.tsx 与 react-settings-tabs.tsx 改经 barrel import，motion-design.test.ts 断言路径同步指向新文件（意图不变），UI 行为与交互不变（纯重构），全量 test/lint/tsc/build 绿。③已完成——双重权威收敛：A）ChatPanelHost 的 pendingApprovalRef/pendingAskRef 本地重建删除，pending 审批/提问以 ServerAgent.state 为单一权威（types 补 sessionId 归属字段、事件写入带归属、tool_execution_start 补权威 CAS 清除、approval-cards 单源读取、回调不再双写清空）；B）App.tsx 的 sidebarWidth 与 workspaceInspectorOpenScopeId 迁入 ui-store（Dispatch 兼容 setter + selector 只读消费，render 期 scope 清空模式保留），对外行为不变，全量 test（524 文件）/lint/tsc/build 绿。④已完成——server/tools/index.mjs（1375 行）拆为九个职责模块 + 52 行薄注册表：file-search（read_file+grep_files，ripgrep 优先/Node 回退）、file-write（write/edit+会话锁+写前备份 journal）、skill-resources、present-files、run-command（toolRunCommand+tail 预览+命令日志）、process-control（killProcessTree+运行命令/后台任务注册表与 abort/list/stop 入口）、global-memory、todo-write、params（共享 clampNumber）；index.mjs 只留 toolHandlers 装配并再导出原公开面，agent-manager/routes/tool-wiring/agent-prompt-commands 与测试的 import 路径零改动；代码逐字迁移（仅三处注册表调用改走 process-control 的 registerRunningCommand/unregisterRunningCommand/getBackgroundTaskRecord），docs/wiki/server/tools/README.md 模块表同步，全量 test 524 文件 5800 passed/lint/tsc/build 绿。⑤已完成——server/agent-manager.mjs（2197 行，扇入 21，8 类职责混杂）按职责拆为 10 个独立模块 + 133 行薄 facade：agent-session-lifecycle（createAgent 509 行整体迁入/restore/sync/destroy/shutdown/resetStaleTaskStatuses）、agent-tool-assembly（createServerTools/rebuildSessionTools/goal 工具挂载）、agent-run-orchestration（runPrompt/continue/abort/steer/followUp/compaction 请求）、agent-run-events（事件扇出+落库/goal 结算/标题）、agent-context-transform（transformSessionContext）、agent-idle-recycler（resetIdleTimer/touchSession）、agent-rollback（回滚下标算术+rollbackSessionMessages）、agent-background-commands（后台命令通知投递）、agent-session-updaters（5 个 setter+模型/工具全量刷新）、agent-turn-ids（sessionTurnIds）；goal/engine.mjs 增补共享助手 activeGoalStatus。agent-manager.mjs 只留契约 re-export（54 名，tests/server/agent-manager-exports-contract.test.mjs 锁定）+ 查询工厂唯一实例 + goal runner 注入接线，21 个导入方零改动；两处读源码文本的断言测试（system-prompt、context-references）随 createAgent 迁移改指 agent-session-lifecycle.mjs；逐字搬移纯重构，全量 test/tsc/build 绿。⑥已完成——src/lib/server-agent.ts（2817 行，10 类职责）按职责拆到 src/lib/server-agent/ 目录 24 个职责模块 + 46 行门面：core.ts（ServerAgentState 状态形状 + ServerAgentCore 内部协作面，类构造时以闭包构建一次、模块经 core 读写私有状态，类是成员唯一实现来源）、agent.ts（类本体 ~940 行，27 字段状态机/构造/订阅/租约薄门面/委托；测试硬触点 handleSseEvent/refreshStateFromServer/stateVersion 字段/emitToListeners 私有签名与原型实例兼容的轮级回滚全部保留在类上；静态工厂经 factoryHooks 回接私有坐标落地）、prompt-actions/approval-actions/goal-actions/rollback-actions（HTTP 动作族，轮级回滚走轻量 AgentHttpTarget）、state-sync（/state·/status 执行体）、messages-channel + history-reconcile（分页拉取/拉尾对账退避重试/hydrate 补齐）、sse-dispatch + 8 个事件族 handler 模块（state 帧/运行生命周期/消息收敛/工具执行/审批与 ask/goal/压缩通知/会话杂项；分发契约：返回 true=原 break 由分发层转发、false=原 return 族内自管转发）、goal-iteration-markers、snapshot、factories（factories→agent 仅 type-only 引用，无 runtime 循环）、errors、runtime-status；26 个导出名经门面逐名保持，21 个消费方零改动；6 处读源码文本断言的测试改指新模块（语义不变）；全量 test 526 文件 5810 passed/tsc -b/build 绿，改动文件 eslint 0 problems。⑦已完成——App.tsx（1992 行）收敛到 1585 行装配层：新增 useAgentSessionEvents/useAppEventBridges/useArtifactPreviewActions/useBotWorkspace/useChatFileOpener/useDeletedProjectRecovery/useNewChatEmptyState/useSideChatPanel 八个职责 hooks 与 agent-event-guards，启动屏与标题栏迁 components/app/，业务规则（本地文件打开、删除项目恢复决策、artifact 预览挂起）迁出视图层，UI 行为不变；全量 test/tsc/build 绿。",
+    "dependencies": [
+      "dead-code-cleanup-2026-11"
+    ],
+    "approach": "① server/routes/scheduled-tasks.mjs（1104 行，扇入仅 1 个 server/index.mjs，性价比最高，建议首个动手）：同时是 HTTP 路由、常驻调度守护循环、Agent 会话编排（executeTask 单函数 530-863 共 333 行）和调大模型把自然语言转任务 JSON 的 LLM 功能，四件事无共同主题。② src/components/skills-dialog.tsx（1241 行）：SkillsManagerPanel 单组件 1045 行、20 个 useState，组件内自带完整数据层——loadSkills 直接 fetch /api/skills、queueSave 直接 PUT /api/skills/project 并手写乐观更新 + 回滚（saveGenerationRef / saveSequenceRef 双版本号）。src/lib 与 src/stores 里没有任何 skills 模块，这个数据层不被别处共用，是边界越得最典型的一例。③ 双重权威（非文件级问题，但同源）：ChatPanelHost 用 pendingApprovalRef / pendingAskRef 重建待审批与待回答状态，而 ServerAgent.state 里本来就有 pendingToolApproval / pendingAsk；App.tsx 的 sidebarWidth 与 workspaceInspectorOpenScopeId 又与 ui-store 重复。修这类不会立刻见效，但最容易产生偶发不一致的 bug。④ server/tools/index.mjs（1369 行）：六个互不相关的工具实现（读/搜/写改/技能资源/展示/命令/记忆/todo）加一整套子进程管理器；grepFilesWithRipgrep 段 335 行、toolRunCommand 单函数 361 行、killProcessTree 含 Windows taskkill 分支。tools/ 目录已存在，拆分落点现成。⑤ server/agent-manager.mjs（2197 行，扇入 21）：8 类职责（门面转发、工具装配、上下文压缩接线、空闲会话回收、事件扇出 + 落库、消息回滚下标算术、runPrompt/abort 编排、十几个 setter），createAgent 单函数 667-1176 共 509 行。风险最高：导出名被 tests/server/agent-manager-exports-contract.test.mjs 锁定，且历史上已拆过一轮又长回来了。⑥ src/lib/server-agent.ts（2807 行）：SSE 传输、27 字段状态机、26 种事件分发、工具审批、Goal、写租约、历史补齐、HTTP、快照持久化、压缩通知共 10 类；handleSseEvent 单函数 1448-2027 共 580 行 switch 26 种事件。⑦ src/App.tsx（1992 行）：MainApp 单函数 169-1977 共 1808 行，53 个 useCallback / 26 个 useEffect；越界证据是业务规则写在视图层——openLocalFilePathFromChat 自己拼路径并 fetch、getDeletedProjectRecoveryDecision 的恢复策略、artifact 预览挂起规则。另有 3 处中等可顺手治：server/index.mjs 的自更新/重启监督与 40 分支路由表、server/routes/agent.mjs 的 SSE 传输层（可并入已存在的 utils/sse-wire.mjs）、ChatSurface.tsx（第 1 行的 eslint-disable only-export-components 本身就是自白书）。",
+    "files": [
+      "server/routes/scheduled-tasks.mjs（首要目标，扇入 1）",
+      "src/components/skills-dialog.tsx",
+      "server/tools/index.mjs",
+      "server/agent-manager.mjs",
+      "src/lib/server-agent.ts",
+      "src/App.tsx",
+      "src/components/chat/ChatPanelHost.tsx",
+      "server/index.mjs / server/routes/agent.mjs / src/components/chat/surface/ChatSurface.tsx（中等优先级）"
+    ],
+    "verification": "每个子项独立验证：拆分前先跑该模块相关测试建立基线，拆分后要求相关测试全绿 + npx eslint 0 problems + npm run build 通过；涉及前端组件再跑 npx tsc -b。不得一次提交多个模块的拆分。",
+    "updatedAt": "2026-11-12",
+    "boundaries": "明确不要动：i18n.ts、code-highlight.ts（纯数据表/规则表）、process-folding.ts、ChatSidebar.tsx、storage.mjs（职责单一，只是长）。不要为了拆而拆——先确认文件里存在两类以上无共同主题的职责再动手。"
+  },
+  {
+    "id": "goal-runner-module-split",
+    "name": "agent-goal-runner 按职责拆分为 8 模块 + 薄门面（行为零变化）",
+    "status": "done",
+    "added": "2026-11-12",
+    "goal": "把 server/agent-goal-runner.mjs（1600 行、92 个顶层声明）按职责拆成 8 个模块 + 薄门面，行为零变化；26 个导出名经 agent-goal-runner.mjs re-export 保持不变；消费方 server/agent-goal-state.mjs、server/goal/engine.mjs 与 4 个测试文件零改动；不 commit。",
+    "approach": "用一次性切割脚本按精确行区间逐字搬移（非手工抄写，杜绝抄写漂移），再用独立等价性校验脚本对 8 个模块做字节级比对（剥掉新增头部/export 前缀/三处共享状态访问器替换后与原文件区间逐字一致）。切面：goal-policy（常量白名单+requestError）/ goal-session-state（会话记账+锁+准入+waitForGoalIdle）/ goal-waiters（三容器唯一持有者：durable 终态快照/stopped 会话/waiter Map + waitForGoalCompletion）/ goal-budget / goal-prompts / goal-run-orchestration（runnerDeps 唯一持有者，commit 屏障与运行生命周期）/ goal-actions / goal-report-tools。共享可变状态唯一性：waiters 三容器只在 goal-waiters（其余模块经 markGoalSessionStopped/getGoalCompletionWaiterSet/deleteDurableTerminalGoal 访问器）、每会话锁只在 goal-session-state、runnerDeps 只在 goal-run-orchestration。依赖图（DFS 验证）无环：policy/prompts 为叶子，session-state/waiters/budget 次之，orchestration 依赖前四者，actions 与 report-tools 只依赖 orchestration 及以下，门面 re-export 全部。测试 mock 有效性确认：vi.mock 按解析后模块路径拦截（tests 的 ../../server/X.mjs 与新模块的 ./X.mjs 解析同一路径），故 agent-goal-runner.test.mjs 的 8 个 mock 全部继续生效。",
+    "files": [
+      "server/agent-goal-runner.mjs",
+      "server/goal-policy.mjs",
+      "server/goal-session-state.mjs",
+      "server/goal-waiters.mjs",
+      "server/goal-budget.mjs",
+      "server/goal-prompts.mjs",
+      "server/goal-run-orchestration.mjs",
+      "server/goal-actions.mjs",
+      "server/goal-report-tools.mjs",
+      "docs/wiki/server/README.md",
+      "feature_list.json",
+      "progress.md",
+      "session-handoff.md"
+    ],
+    "verification": "定向 vitest 5 files（agent-goal-runner 138 / agent-goal-manager / agent-goal-runtime 15 / agent-goal-state / scheduled-tasks.commands）218/218 通过；npm run test 全量 526 files：525 passed、1 failed（tests/frontend/bot-mascot-composer-toggle.test.ts 断言 BotDialogs.tsx 的 SwitchRow 出现 3 次、实际 4 次——该文件是用户在途 bot-mascot WIP，与 server/goal-* 零关联，非本次引入，已记 Notes）；npx tsc -b 0 error；npm run build exit 0（仅既有 chunk 体积 warning）；npx eslint server/ 全目录 exit 0；node --check 9 文件全过；运行时 import 门面核对 26/26 导出名 defined（24 fn + 2 val）；逐行等价校验 8 模块全 IDENTICAL；依赖图 DFS 无环。",
+    "boundaries": "只调 import/export 与三处共享状态访问器替换（stoppedGoalSessions.add→markGoalSessionStopped 等），逐字搬移不改逻辑不改注释；未触碰 package-dist/package-offline 生成产物；消费方与测试零改动；未 commit。bot-mascot-composer-toggle 测试失败为用户 WIP 既有问题，未扩大范围处理。"
+  },
+  {
+    "id": "skills-toggle-live-reload",
+    "title": "Skills 开关实时生效：轮界对账统一运行时刷新（架构修复，非补丁）",
+    "status": "done",
+    "summary": "根因：会话在 createAgent 把 globalSkills/projects[].skills 快照到 session，且该快照终身不更新——设置页开关后，活跃会话的 activate_skill 枚举、<available_skills> 目录、/skill 列表全部停在创建时刻（memory/workingMemory 各有每轮刷新，skills 漏掉；goal 轮与 continueSession 重试连 memory 刷新都没有）；前端 / 菜单的模块级 slash catalog 缓存也永不失效。修复（契约：每个轮界与当前配置对账，下一轮立即可用）：① agent-session-lifecycle 新增 refreshSessionRuntime，把 refreshMemoryState/refreshWorkingMemoryState/refreshSessionModelBinding 三条每轮刷新统一为一次对账——model 绑定 + 全局记忆 + 工作记忆 + skills 选择（集合比较，readProjectConfig 走 mtime+size 缓存，无变化时成本≈一次 stat），任一变化才重建 system prompt 与工具集，且一轮至多重建一次（旧实现 memory+workingMemory 同轮变化会重建两次）；删除旧的两个单源 refresh。② 接入全部轮界入口：runPrompt（chat/ACP/bot/定时/分享共用）、continueSession 重试（原只刷模型）、v2 goal/runner.mjs 与 Legacy goal-run-orchestration.mjs 两个 startGoalRun（经 runnerDeps 注入，engine.configureGoalRunner 同时下发两引擎，goal 运行中改设置下一轮生效）。③ 前端：slash-catalog 新增 invalidateSlashCatalog()，失效挂在写路径 use-skills-manager 保存成功处（设置页/项目对话框/批量开关全入口覆盖），App 跨标签页回调（projects/settings-changed 与 visibilitychange）同步失效，其他窗口聚焦即收敛。契约文档化进 docs/wiki（server 工具管理节 + skills.mjs 会话消费节 + goal Round Driver 节 + src lib/hooks 表）。",
+    "files": [
+      "server/agent-session-lifecycle.mjs",
+      "server/agent-run-orchestration.mjs",
+      "server/goal/runner.mjs",
+      "server/goal-run-orchestration.mjs",
+      "server/agent-manager.mjs",
+      "src/lib/slash-catalog.ts",
+      "src/hooks/use-skills-manager.ts",
+      "src/App.tsx",
+      "tests/server/agent-skills-live-refresh.test.mjs",
+      "tests/server/agent-goal-runner.test.mjs",
+      "tests/frontend/slash-catalog.test.ts",
+      "tests/frontend/git-status-request-lifecycle.test.ts",
+      "docs/wiki/server/README.md",
+      "docs/wiki/src/README.md",
+      "docs/wiki/src/lib/README.md",
+      "docs/wiki/src/hooks/README.md"
+    ],
+    "verification": "新增 tests/server/agent-skills-live-refresh.test.mjs 4 例（开启→枚举+read_skill_resource 立即可用 / 无变化不重建（tools 引用同一性）/ 管理式 system prompt 的 <available_skills> 目录重建 / 项目作用域含插件技能基线的相对断言）；agent-goal-runner.test.mjs 增 goal 轮界 refreshRuntime 先于 prompt 的 invocationCallOrder 断言；slash-catalog.test.ts 增失效即重拉断言。定向 vitest 163/163；相关回归（abort/persist/context-references/goal-runtime/goal-manager/module-cycles/goal-budget/prompts/waiters/report-tools）150/150；eslint 改动文件 0 problems；npm run build exit 0；npm run check:wiki matched=160 resolved=160 bad=0（与基线一致）；全量 npm run test 复跑 532 files / 5903 passed + 2 skipped，exit 0（首跑仅 git-status-request-lifecycle 的 App.tsx 源码文本锚点断言过时，已随本 feature 更新）。",
+    "updatedAt": "2026-11-12"
+  },
+  {
+    "id": "workbench-v8-tower",
+    "title": "工作台 v8「塔台 TOWER」设计稿评审与落地",
+    "status": "done",
+    "summary": "已落地并验证（2026-11-13）。用户拍板「开始执行吧」后按设计 README 实现：重写 src/components/workbench/Workbench.tsx + workbench.css（出港队列合并 bot 心跳与定时任务 nextRunAt、倒计时+NEXT、筛选/搜索；右栏在跑/进港/舰队；顶部 NOTAM 渲染/忽略/自动解除；抽屉心跳开关/催醒/投喂/记忆/goal 按需），WorkbenchPortal 签名不变；入口 Theater→TowerControl；i18n +73 键(en/zh) -8 舞台键。诚实边界保留：不外推未来班次、进港会话内累积、首屏不逐 bot 拉 goal。演示条 chrome 未进产品代码。",
+    "files": [
+      "src/components/workbench/Workbench.tsx + workbench.css（重写为 v8 塔台）",
+      "src/components/app/ConversationHeader.tsx（入口图标 TowerControl）",
+      "src/lib/i18n.ts（+73 键 en/zh、-8 舞台键）",
+      "tests/frontend/workbench.test.ts（v8 契约 11 例）",
+      "docs/design/workbench-redesign/README.md + workbench-v8-proposal.html（设计稿与落地状态）"
+    ],
+    "verification": "npx tsc -b、定向 eslint、vitest tests/frontend/workbench.test.ts 11/11、npm run build、npm run check:wiki(bad=0) 全绿；隔离实例（临时 QUICKFORGE_DATA_DIR + 假 provider 指向本机 discard 端口）Electron offscreen 实测：出港合并 5 班、倒计时走动、筛选/搜索、bot/任务抽屉、NOTAM 错误态渲染/忽略/清空自动解除(ok)、催醒/投喂/开关 toast、进港会话累积、Esc 两级关闭、重开稳定、深色房间随 token 看板恒暗、窄屏无溢出/班次名不竖排/抽屉满宽；零 console/page error。",
+    "updatedAt": "2026-11-13",
+    "boundaries": "未 commit。进港/NOTAM 会话累积刷新即清；跨刷新保留需服务端心跳环形记录（另排）。服务端 PATCH heartbeat.lastError=null 不清空为既有语义（normalize 回退旧值），未改；自动解除依赖成功唤醒清空。wiki 无 workbench 条目且公共入口签名未变，故未改 wiki。"
   }
 ]

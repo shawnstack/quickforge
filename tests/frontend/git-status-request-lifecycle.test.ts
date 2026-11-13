@@ -192,7 +192,9 @@ describe('git status callers release connections', () => {
   })
 
   it('App reuses the cached project list when the tab becomes visible again', () => {
-    expect(appSource).toContain('onProjectsChanged: () => { loadProject() }')
+    // loadProject() 走 15s 缓存、不重复请求 /api/project；invalidateSlashCatalog
+    // 是纯内存 Map.clear（skills 选择变化后的目录失效），同样不发请求。
+    expect(appSource).toContain('onProjectsChanged: () => { loadProject(); invalidateSlashCatalog() }')
   })
 
   it('ChatPanelHost aborts its git status request on cleanup', () => {

@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 v3 · 深夜工作室</title>
+<!-- ============================================================
+  v3《深夜工作室》立场（放开手脚版）：
+  · 工作台=剧场，不是仪表盘。进入它是一个转场仪式（异质空间，
+    如同 macOS 启动台），深色是这个空间的身份，不受应用主题约束。
+  · 三个决定性修复（v2-E 的病根）：
+    1) 废牛皮纸色板：深炭蓝底（有层次的 #0F1116→#171A21），
+       光成为唯一的造型语言——产品定稿质感球在深底上高光/反光
+       首次被点亮（浅底浪费了它）
+    2) 废假聚光白斑：真光池=双层柔椭圆（内亮外消散）+ 缓慢明暗呼吸
+    3) 废卡片阵列：项目=剧场「节目单」（细线行式列表，hover 行亮起
+       琥珀），bot=舞台演员非对称站位（主角黄金分割位、配角错落、
+       打盹者退到后景半暗区）
+  · 元素清单收敛到 5 种：深底 / 光池 / 质感球 / 细线 / 一枚琥珀
+  · bot 与产品同构（circle+豆豆眼+定稿光影）；双击 bot/项目行→
+    黑场转场（对齐启动页语言）
+  ============================================================ -->
+<style>
+:root{
+  --bg0:#0F1116;--bg1:#171A21;--ink:#ECEAE4;--dim:#8B909B;--faint:#565B66;
+  --amber:#E8A04C;--cool:#7C8899;--line:#262A33;
+  --light:#F2EBDC;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg0);color:var(--ink);font:14px/1.75 system-ui,"Segoe UI","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1160px;margin:0 auto;padding:30px 26px 80px}
+header h1{font-size:22px;margin:0 0 4px;font-weight:600;letter-spacing:.5px}
+header .lead{color:var(--dim);max-width:940px;font-size:13.5px}
+header .lead b{color:var(--ink)}
+
+/* ===== 剧场主舞台 ===== */
+.stage{position:relative;height:640px;border-radius:20px;overflow:hidden;
+  background:radial-gradient(120% 90% at 70% 10%,var(--bg1) 0%,var(--bg0) 60%);
+  border:1px solid var(--line);margin-top:22px}
+/* 全屏轻噪点：去掉数码平涂感（feTurbulence） */
+.grain{position:absolute;inset:0;pointer-events:none;opacity:.05;mix-blend-mode:overlay}
+
+/* ===== 左：节目单（playbill） ===== */
+.playbill{position:absolute;left:44px;top:56px;width:300px}
+.playbill .kicker{font-size:10.5px;letter-spacing:4px;color:var(--faint);text-transform:uppercase;margin-bottom:6px}
+.playbill h2{font-size:19px;font-weight:600;margin:0 0 2px;letter-spacing:1px}
+.playbill .sub{font-size:11.5px;color:var(--dim);margin-bottom:18px}
+.bill-row{display:flex;align-items:baseline;gap:10px;padding:13px 6px;border-bottom:1px solid var(--line);cursor:pointer;transition:.18s;border-radius:6px}
+.bill-row:first-of-type{border-top:1px solid var(--line)}
+.bill-row:hover{background:#FFFFFF08;padding-left:12px}
+.bill-name{font-size:14px;font-weight:600;letter-spacing:.3px;flex:1}
+.bill-meta{font-size:10.5px;color:var(--dim);white-space:nowrap}
+.bill-dot{width:6px;height:6px;border-radius:50%;flex:0 0 auto;position:relative;top:-1px}
+.bill-dot.run{background:var(--amber);box-shadow:0 0 8px 1px #E8A04C66}
+.bill-dot.watch{background:var(--cool)}
+.bill-dot.wrap{background:var(--faint)}
+.bill-row:hover .bill-go{opacity:1;transform:none}
+.bill-go{opacity:0;transform:translateX(-4px);transition:.18s;font-size:11px;color:var(--amber)}
+.bill-new{margin-top:14px;font-size:11.5px;color:var(--faint);cursor:pointer;letter-spacing:1px}
+.bill-new:hover{color:var(--dim)}
+
+/* ===== bot 演员站位 ===== */
+.actor{position:absolute;text-align:center;cursor:pointer;transition:transform .2s}
+.actor:hover{transform:translateY(-4px)}
+.actor .plate{font-size:12px;margin-top:10px;color:var(--ink);letter-spacing:.5px}
+.actor .role{font-size:10.5px;color:var(--dim);letter-spacing:.5px}
+/* 光池（双层柔椭圆） */
+.pool{position:absolute;left:50%;bottom:-8px;transform:translateX(-50%);border-radius:50%;pointer-events:none}
+.pool.a{width:190px;height:44px;background:radial-gradient(50% 50% at 50% 50%,#F2EBDC2E,#F2EBDC0D 55%,transparent 75%);animation:pool-glow 3.6s ease-in-out infinite}
+.pool.b{width:150px;height:36px;background:radial-gradient(50% 50% at 50% 50%,#F2EBDC20,transparent 70%)}
+.pool.dim{width:130px;height:30px;background:radial-gradient(50% 50% at 50% 50%,#7C889914,transparent 70%);animation:none}
+@keyframes pool-glow{0%,100%{opacity:.75}50%{opacity:1}}
+/* 状态点 */
+.tick{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.tick.run{background:var(--amber);box-shadow:0 0 8px 1px #E8A04C77}
+.tick.rest{background:var(--cool)}
+
+/* ===== Q bot（产品同构） ===== */
+.qbot{width:130px;height:130px;display:block;overflow:visible;user-select:none}
+.qbot-tilt{transform-box:view-box;transform-origin:256px 258px}
+.qbot-ball{fill:var(--body,#0B0B0C)}
+.qbot-eye{fill:var(--eye,#fff)}
+.qbot-lid{display:none;fill:none;stroke:var(--eye,#fff);stroke-width:9;stroke-linecap:round}
+.qbot[data-mood="doze"] .qbot-eye{display:none}
+.qbot[data-mood="doze"] .qbot-lid{display:block}
+.qbot-ovs ellipse{transform-box:view-box;transform-origin:256px 258px}
+.a-working .qbot-tilt{animation:qb-type .7s ease-in-out infinite}
+.a-doze .qbot-tilt{animation:qb-nod 3.2s ease-in-out infinite}
+@keyframes qb-type{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(2px) scale(1.015,.985)}}
+@keyframes qb-nod{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg) translateY(3px)}}
+.qb-sym{font-weight:700;fill:var(--eye,#fff);opacity:0}
+.a-working .qb-sym-work{opacity:1;animation:qb-pulse 1.2s ease-in-out infinite}
+.a-doze .qb-sym-zz{opacity:1;animation:qb-float 2.6s ease-in-out infinite}
+@keyframes qb-pulse{0%,100%{opacity:.2}50%{opacity:.9}}
+@keyframes qb-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+
+/* 主角位：更大 + 演出标牌 */
+.hero .qbot{width:158px;height:158px}
+/* 幕布顶缘：一条极细的高光，暗示舞台深度 */
+.valance{position:absolute;left:0;right:0;top:0;height:2px;background:linear-gradient(90deg,transparent,#ffffff14 30%,#ffffff22 50%,#ffffff14 70%,transparent)}
+
+/* toast / 转场（黑场） */
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);background:#ECEAE4;color:#101216;padding:9px 20px;border-radius:12px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:99}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#blackout{position:fixed;inset:0;background:#0A0C0F;display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .26s;z-index:98}
+#blackout.on{opacity:1}
+#blackout .qbot{width:64px;height:64px}
+#blackout .qbot-tilt{animation:qb-breathe 3.2s ease-in-out infinite}
+@keyframes qb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.026,1.012)}}
+#blackout p{color:var(--dim);margin-top:12px;font-size:13px}
+.foot{color:var(--faint);font-size:12px;margin-top:26px;max-width:940px;line-height:1.8}
+.foot b{color:var(--dim)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <radialGradient id="qb-sheen" gradientUnits="userSpaceOnUse" cx="210" cy="170" r="172"><stop offset="0" stop-color="#fff" stop-opacity=".34"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qb-shade" gradientUnits="userSpaceOnUse" cx="256" cy="150" r="390"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".2"/></radialGradient>
+    <radialGradient id="qb-rim" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".2"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <clipPath id="qb-clip"><circle cx="256" cy="258" r="150"/></clipPath>
+    <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+  </defs>
+</svg>
+
+<div class="wrap">
+<header>
+  <h1>工作台 v3 ·《深夜工作室》</h1>
+  <p class="lead">立场：工作台是<b>剧场</b>，不是仪表盘——从左上角 icon 进入即换幕（异质空间，如启动台）。左侧<b>节目单</b>是最近跟踪的项目（细线行式，hover 亮琥珀）；右侧舞台上，<b>工作中的 bot 站在自己的光池里干活，打盹的退到后景半暗区</b>。全部造型语言只有五种：深底、光池、质感球、细线、一枚琥珀。<b>双击</b>任意演员或节目行 → 黑场转场进对话（对齐启动页）。</p>
+</header>
+
+<div class="stage" id="stage">
+  <div class="valance"></div>
+  <div class="grain" style="filter:url(#grain)"></div>
+
+  <!-- 左：节目单 -->
+  <div class="playbill">
+    <div class="kicker">Tonight</div>
+    <h2>节目单</h2>
+    <div class="sub">最近跟踪的项目 · 双击进入</div>
+    <div class="bill-row" data-chat="项目 quickforge">
+      <span class="bill-dot run"></span>
+      <span class="bill-name">quickforge</span>
+      <span class="bill-meta">3 在办 · 5 分钟前</span>
+      <span class="bill-go">→</span>
+    </div>
+    <div class="bill-row" data-chat="项目 uibot-design">
+      <span class="bill-dot watch"></span>
+      <span class="bill-name">uibot-design</span>
+      <span class="bill-meta">1 在办 · 2 小时前</span>
+      <span class="bill-go">→</span>
+    </div>
+    <div class="bill-row" data-chat="项目 report-2026">
+      <span class="bill-dot wrap"></span>
+      <span class="bill-name">report-2026</span>
+      <span class="bill-meta">收尾 · 校对中</span>
+      <span class="bill-go">→</span>
+    </div>
+    <div class="bill-new">＋ 新项目登记</div>
+  </div>
+
+  <!-- 主角：黄金分割位，158px -->
+  <div class="actor hero a-working" data-chat="主助手" style="left:420px;top:150px" title="双击进入对话">
+    <div style="position:relative;width:170px">
+      <div class="pool a"></div><div class="pool b"></div>
+      <svg class="qbot" style="position:relative;z-index:2" viewBox="0 0 512 512" data-mood="work"></svg>
+    </div>
+    <div class="plate">主助手</div>
+    <div class="role"><span class="tick run"></span>演出中 · npm run dev…</div>
+  </div>
+
+  <!-- 配角 1：右侧错落，130px -->
+  <div class="actor a-working" data-chat="UIbot" style="left:680px;top:250px" title="双击进入对话">
+    <div style="position:relative;width:140px">
+      <div class="pool b" style="width:150px;height:36px"></div>
+      <svg class="qbot" viewBox="0 0 512 512" data-mood="work"></svg>
+    </div>
+    <div class="plate">UIbot</div>
+    <div class="role"><span class="tick run"></span>出设计稿 v3</div>
+  </div>
+
+  <!-- 后景：打盹者，半暗区，110px -->
+  <div class="actor a-doze" data-chat="Docbot" style="left:880px;top:132px;opacity:.8" title="双击进入对话">
+    <div style="position:relative;width:120px">
+      <div class="pool dim"></div>
+      <svg class="qbot" style="width:110px;height:110px;position:relative;z-index:2" viewBox="0 0 512 512" data-mood="doze"></svg>
+    </div>
+    <div class="plate" style="color:var(--dim)">Docbot</div>
+    <div class="role" style="color:var(--faint)"><span class="tick rest"></span>候场 · 无任务</div>
+  </div>
+
+  <!-- 底景：第二只打盹，更低更暗 -->
+  <div class="actor a-doze" data-chat="Testbot" style="left:390px;top:420px;opacity:.62" title="双击进入对话">
+    <div style="position:relative;width:104px">
+      <div class="pool dim" style="width:110px;height:26px"></div>
+      <svg class="qbot" style="width:94px;height:94px;position:relative;z-index:2" viewBox="0 0 512 512" data-mood="doze"></svg>
+    </div>
+    <div class="plate" style="color:var(--dim)">Testbot</div>
+    <div class="role" style="color:var(--faint)"><span class="tick rest"></span>睡了</div>
+  </div>
+</div>
+
+<p class="foot"><b>为什么这版成立</b>：① 深底第一次点亮了质感球的高光与底缘反光（浅底一直在浪费它）；② 光池是唯一的新造型元素，但它同时完成了「站位、状态、景深」三件事；③ 节目单用细线与字重做层级，零卡片框——克制不是少放东西，是每种东西只干一件事。落地时深底即工作台空间的身份（不随应用主题），状态由 agentManager 驱动，双击转场复用启动 splash。</p>
+</div>
+
+<div id="toast"></div>
+<div id="blackout"><div style="text-align:center"><svg class="qbot" viewBox="0 0 512 512" data-mood="work"></svg><p>正在进入对话…</p></div></div>
+
+<script>
+var toast=document.getElementById('toast'),blackout=document.getElementById('blackout'),tm
+function enter(name){
+  blackout.classList.add('on');clearTimeout(tm)
+  tm=setTimeout(function(){blackout.classList.remove('on');toast.textContent='已进入「'+name+'」对话（示意）';toast.classList.add('on');setTimeout(function(){toast.classList.remove('on')},1600)},700)
+}
+document.addEventListener('dblclick',function(e){
+  var t=e.target.closest('.actor,.bill-row')
+  if(t&&t.dataset.chat)enter(t.dataset.chat)
+})
+var BODIES=[['#ECEAE4','#101216'],['#E8A04C','#101216'],['#7C8899','#101216'],['#9AA79B','#101216'],['#D8B4A0','#101216'],['#ECEAE4','#101216']]
+document.querySelectorAll('.qbot').forEach(function(svg,i){
+  var b=BODIES[i%BODIES.length]
+  svg.innerHTML='<g class="qbot-tilt"><circle class="qbot-ball" cx="256" cy="258" r="150"/><g class="qbot-ovs" clip-path="url(#qb-clip)"><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-shade)"/><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-sheen)"/><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-rim)"/></g><g><g transform="translate(210 262)"><ellipse class="qbot-eye qbot-eye-l" rx="18" ry="32"/><path class="qbot-lid qbot-lid-l" d="M -18 6 Q 0 -12 18 6"/></g><g transform="translate(302 262)"><ellipse class="qbot-eye qbot-eye-r" rx="18" ry="32"/><path class="qbot-lid qbot-lid-r" d="M -18 6 Q 0 -12 18 6"/></g></g><text class="qb-sym qb-sym-work" x="356" y="118" font-size="52" fill="#E8A04C">…</text><text class="qb-sym qb-sym-zz" x="372" y="108" font-size="44">zZ</text></g>'
+  svg.style.setProperty('--body',b[0]);svg.style.setProperty('--eye',b[1])
+})
+</script>
+</body>
+</html>

@@ -94,6 +94,34 @@ describe('退出 bot 模式不把 bot 的对话留在主区', () => {
   })
 })
 
+describe('删除 bot 不把它的实时对话留在主区', () => {
+  // 服务端销毁会话（destroyAgent）只停掉了 SSE 的源头；前端订阅挂在
+  // currentSessionId 上，主区若继续停留在被删 bot 的会话，残留事件
+  // 仍会被渲染。删除成功后必须主动离开这条会话。
+  const deleteHandler = botWorkspaceSource.slice(
+    botWorkspaceSource.indexOf('const handleDeleteBot = useCallback('),
+    botWorkspaceSource.indexOf('// 催醒：立刻跑一跳'),
+  )
+
+  it('删除成功后，主区正停在被删 bot 的会话时落到新对话空态', () => {
+    expect(deleteHandler).toContain('await deleteBotRequest(botId)')
+    expect(deleteHandler).toContain('if (deleted?.sessionId && deleted.sessionId === currentSessionId)')
+    expect(deleteHandler).toContain('startNewDefaultSession()')
+  })
+
+  it('离开动作在删除成功路径内，不在 catch 里', () => {
+    const catchAt = deleteHandler.indexOf('} catch (error) {')
+    const leaveAt = deleteHandler.indexOf('startNewDefaultSession()')
+    expect(catchAt).toBeGreaterThan(-1)
+    expect(leaveAt).toBeGreaterThan(-1)
+    expect(leaveAt).toBeLessThan(catchAt)
+  })
+
+  it('handleDeleteBot 的依赖数组带上 bots / currentSessionId / startNewDefaultSession', () => {
+    expect(deleteHandler).toContain('}, [bots, currentSessionId, startNewDefaultSession])')
+  })
+})
+
 describe('「项目被删除」恢复不认 bot 目录', () => {
   it('App 把整个 currentToolProject 交给恢复判据（而不是只传 id）', () => {
     // 只传 id 时判据只能问「在不在 projects 列表里」；bot 项目按设计永远不在，

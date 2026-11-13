@@ -18,6 +18,7 @@ import {
   initializePiStorage,
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { invalidateSlashCatalog } from '@/lib/slash-catalog'
 import { isBotProject } from '@/lib/bot-project'
 import { BOT_CHAT_CAPABILITIES, QUICKFORGE_CHAT_CAPABILITIES } from '@/lib/chat-capabilities'
 import { cn } from '@/lib/utils'
@@ -252,9 +253,10 @@ function MainApp() {
   const crossTab = useCrossTabSync({
     onSessionsChanged: () => { refreshSessions() },
     // 切回窗口/跨标签页通知只走 useProject 的 15s 缓存，避免 visibilitychange 时重复请求 /api/project。
-    onProjectsChanged: () => { loadProject() },
+    onProjectsChanged: () => { loadProject(); invalidateSlashCatalog() },
     onSettingsChanged: () => {
       refreshSessions()
+      invalidateSlashCatalog()
     },
   })
 
@@ -941,6 +943,8 @@ function MainApp() {
     activeBot,
     mascotState,
     mascotStrolling,
+    mascotAction,
+    handleComposerSend,
     composerMascotVisible,
     newBotOpen,
     newBotPending,
@@ -1324,7 +1328,9 @@ function MainApp() {
                       composerMascot={botMode && composerMascotVisible
                         ? (
                           <BotMascot
-                            state={mascotStrolling ? 'walk' : mascotState}
+                            // 小动作组（打招呼/伸懒腰/打哈欠/偷看打字/被夸）只在 idle 生效，
+                            // 由 use-mascot-actions gate；散步优先级最高。
+                            state={mascotStrolling ? 'walk' : mascotAction ?? mascotState}
                             // 画布 512 里球只占 300（余量留给跳跃），所以尺寸不等于球径：
                             // size=79 的实际球径约 46.3px。给过 64（球径 37px）被说「没在动」，
                             // 又给过 104（球径 61px）被说「太大了」—— 79 是球径下限 46px
@@ -1340,6 +1346,8 @@ function MainApp() {
                           />
                         )
                         : undefined}
+                      // 发送文本回调：bot 吉祥物的「被夸」检测（夸奖词 → 回答完演得意）
+                      onComposerSend={handleComposerSend}
                       onModelSelect={openCustomModelSelector}
                       revision={agentManager.chatPanelRevision}
                       agentAccessMode={agentAccessMode}

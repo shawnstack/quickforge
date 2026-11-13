@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 · 随时间而作</title>
+<!-- ============================================================
+  v5《随时间而作》· UIbot 2026-11-13
+  用户反馈执行：① 稿面零说明文字（说明全在本注释）；② 节目单概念废除；
+  ③ 贴合时间段——工作台随真实时间呈现四态：清晨(5-8)/白天(8-17)/黄昏(17-20)/深夜(20-5)，
+    打开时按本地时间自动进入对应态，右上可手动切换（crossfade 0.9s）；
+  ④ 项目陈列 = 底部时间轴：过去 24h 的最近活动落点，活跃项目靠近「现在」端，
+    光点呼吸=在办，hover 名字浮起，双击进入项目对话。
+  四态差异（同一舞台四种皮肤+演员调度）：
+    清晨：天空泛粉、薄雾缓移、3 睡 1 晨起；光池暖粉白
+    白天：蓝灰亮调、云影 90s 飘过、全员在工作；光池纯白
+    黄昏：琥珀主导、光池拉长(长影)、2 干 1 缓 1 睡；光池橙金
+    深夜：炭蓝、星点微闪、1 夜班 3 睡；光池暖白
+  细节纪律：造型元素七种（天空·地面·光·球·细线·时间轴·一琥珀）；
+  全动效 transform/opacity；演员随态切换次第重新入场；时钟真实走动。
+  ============================================================ -->
+<style>
+:root{
+  --ink:#EDEBE5;--dim:#9298A3;--faint:#5A606B;--line:#252A34;
+  --amber:#E8A04C;--cool:#7C8899;
+}
+*{box-sizing:border-box}
+body{margin:0;background:#0E1015;color:var(--ink);font:14px/1.8 system-ui,"Segoe UI","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1160px;margin:0 auto;padding:26px 26px 70px}
+
+/* 顶栏：只有标题、时钟、切换器 */
+.topbar{display:flex;align-items:baseline;gap:18px;padding:0 4px}
+.topbar h1{font-size:13px;font-weight:500;letter-spacing:4px;color:var(--dim);margin:0;flex:1}
+.clock{font-size:12px;color:var(--dim);letter-spacing:1px;font-variant-numeric:tabular-nums}
+.clock b{color:var(--ink);font-weight:600}
+.phases{display:flex;gap:2px}
+.ph{border:0;background:none;color:var(--faint);font:12px/1 inherit;letter-spacing:2px;padding:6px 10px;cursor:pointer;position:relative;transition:color .25s}
+.ph::after{content:"";position:absolute;left:10px;right:10px;bottom:2px;height:1px;background:var(--amber);opacity:0;transition:.25s}
+.ph:hover{color:var(--dim)}
+.ph.on{color:var(--ink)}
+.ph.on::after{opacity:.9}
+
+/* ===== 舞台 ===== */
+.stage{position:relative;height:700px;border-radius:20px;overflow:hidden;margin-top:18px;
+  border:1px solid var(--line);background:#0E1015}
+/* 微点阵 */
+.stage::after{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;z-index:30;
+  background-image:radial-gradient(#ffffff06 1px,transparent 1px);background-size:3px 3px}
+/* 天空四层（crossfade） */
+.sky{position:absolute;inset:0;opacity:0;transition:opacity .9s ease}
+.sky.on{opacity:1}
+.sky.dawn{background:linear-gradient(180deg,#232030 0%,#2E2836 42%,#241F2A 100%)}
+.sky.day{background:linear-gradient(180deg,#1A222E 0%,#212B3A 46%,#1B222E 100%)}
+.sky.dusk{background:linear-gradient(180deg,#241A12 0%,#2E2114 44%,#221810 100%)}
+.sky.night{background:linear-gradient(180deg,#0C0E13 0%,#141822 48%,#0E1015 100%)}
+/* 檐口细线 */
+.valance{position:absolute;left:0;right:0;top:0;height:2px;z-index:5;
+  background:linear-gradient(90deg,transparent,#ffffff14 30%,#ffffff20 50%,#ffffff14 70%,transparent)}
+/* 时段装饰 */
+.deco{position:absolute;pointer-events:none;opacity:0;transition:opacity .9s ease}
+.deco.on{opacity:1}
+/* 清晨薄雾 */
+.mist{left:-10%;right:-10%;bottom:120px;height:130px;
+  background:linear-gradient(90deg,transparent,#E8D8D244 25%,#E8D8D255 50%,#E8D8D244 75%,transparent);
+  filter:blur(18px);animation:mist 22s ease-in-out infinite}
+@keyframes mist{0%,100%{transform:translateX(-2.5%)}50%{transform:translateX(2.5%)}}
+/* 白天云影 */
+.cloud{left:0;right:0;top:90px;height:170px;
+  background:radial-gradient(46% 60% at 30% 50%,#00000018,transparent 70%),
+             radial-gradient(38% 55% at 72% 45%,#00000012,transparent 70%);
+  filter:blur(6px);animation:cloud 90s linear infinite}
+@keyframes cloud{from{transform:translateX(-45%)}to{transform:translateX(45%)}}
+/* 深夜星 */
+.stars{inset:0 0 40% 0}
+.stars i{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:.2}
+.stars i:nth-child(1){left:18%;top:22%;animation:tw 3.4s ease-in-out infinite}
+.stars i:nth-child(2){left:37%;top:12%;animation:tw 4.6s .8s ease-in-out infinite}
+.stars i:nth-child(3){left:58%;top:26%;animation:tw 5.2s 1.6s ease-in-out infinite}
+.stars i:nth-child(4){left:74%;top:15%;animation:tw 3.9s .4s ease-in-out infinite}
+.stars i:nth-child(5){left:88%;top:30%;animation:tw 4.8s 2.2s ease-in-out infinite}
+.stars i:nth-child(6){left:8%;top:38%;animation:tw 5.6s 1.1s ease-in-out infinite}
+@keyframes tw{0%,100%{opacity:.12}50%{opacity:.55}}
+/* 黄昏光带 */
+.duskband{left:0;right:0;top:64px;height:120px;
+  background:linear-gradient(180deg,#E8A04C12,transparent);filter:blur(4px)}
+/* 地面 */
+.floor{position:absolute;left:0;right:0;bottom:0;height:170px;z-index:4;
+  background:linear-gradient(180deg,#171B23 0%,#1B202A 42%,#141821 100%);
+  border-top:1px solid #ffffff0f;transition:background .9s ease}
+.stage[data-ph="dawn"] .floor{background:linear-gradient(180deg,#241F26 0%,#2A2430 42%,#1E1A24 100%)}
+.stage[data-ph="day"] .floor{background:linear-gradient(180deg,#20293A 0%,#253044 42%,#1D2536 100%)}
+.stage[data-ph="dusk"] .floor{background:linear-gradient(180deg,#2C2014 0%,#33261704 42%,#241A10 100%);background:linear-gradient(180deg,#2C2014 0%,#3326170 42%,#241A10 100%)}
+.floor::after{content:"";position:absolute;left:8%;right:8%;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,#ffffff12 20%,#ffffff1a 50%,#ffffff12 80%,transparent)}
+
+/* ===== 演员 ===== */
+.actor{position:absolute;text-align:center;cursor:pointer;z-index:10}
+.actor:hover{transform:translateY(-4px)}
+.actor:hover .pool{filter:brightness(1.3)}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+.plate{font-size:13px;margin-top:10px;color:var(--ink);letter-spacing:.5px}
+.role{font-size:11.5px;color:var(--dim);letter-spacing:.4px}
+.dimmed .plate{color:var(--dim)}
+.dimmed .role{color:var(--faint)}
+.pool{position:absolute;left:50%;bottom:-7px;transform:translateX(-50%);border-radius:50%;pointer-events:none;transition:filter .25s}
+.pool.pa{width:200px;height:46px;background:radial-gradient(50% 50% at 50% 50%,var(--poolc,#F2EBDC30),#F2EBDC0C 55%,transparent 75%);animation:pool-glow 3.6s ease-in-out infinite}
+.pool.pb{width:150px;height:36px;background:radial-gradient(50% 50% at 50% 50%,var(--poolc,#F2EBDC1E),transparent 70%)}
+.pool.pd{width:120px;height:28px;background:radial-gradient(50% 50% at 50% 50%,#7C889914,transparent 70%)}
+@keyframes pool-glow{0%,100%{opacity:.75}50%{opacity:1}}
+/* 黄昏长影 */
+.stage[data-ph="dusk"] .pool{scale:1.35 .85}
+/* 光池色随时段 */
+.stage[data-ph="dawn"]{--poolc:#F2D8CE38}
+.stage[data-ph="day"]{--poolc:#EDF2FA34}
+.stage[data-ph="dusk"]{--poolc:#E8A04C3D}
+.stage[data-ph="night"]{--poolc:#F2EBDC30}
+.cone{position:absolute;left:50%;top:-2px;transform:translateX(-50%);width:250px;height:150px;pointer-events:none;
+  background:linear-gradient(180deg,var(--poolc,#F2EBDC14),transparent 80%);
+  clip-path:polygon(40% 0,60% 0,100% 100%,0 100%)}
+.tick{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.tick.run{background:var(--amber);box-shadow:0 0 8px 1px #E8A04C77}
+.tick.rest{background:var(--cool)}
+.prog{width:150px;height:2px;background:#ffffff12;border-radius:2px;margin:8px auto 0;overflow:hidden}
+.prog i{display:block;height:100%;width:62%;background:var(--amber);border-radius:2px;box-shadow:0 0 6px #E8A04C66}
+
+/* Q bot（产品同构） */
+.qbot{width:130px;height:130px;display:block;overflow:visible;user-select:none;position:relative;z-index:2}
+.qbot-tilt{transform-box:view-box;transform-origin:256px 258px}
+.qbot-ball{fill:var(--body,#EDEBE5)}
+.qbot-eye{fill:var(--eye,#101216)}
+.qbot-lid{display:none;fill:none;stroke:var(--eye,#101216);stroke-width:9;stroke-linecap:round}
+.qbot[data-mood="doze"] .qbot-eye{display:none}
+.qbot[data-mood="doze"] .qbot-lid{display:block}
+.qbot-ovs ellipse{transform-box:view-box;transform-origin:256px 258px}
+.a-working .qbot-tilt{animation:qb-type .7s ease-in-out infinite}
+.a-slow .qbot-tilt{animation:qb-type 1.6s ease-in-out infinite}
+.a-doze .qbot-tilt{animation:qb-nod 3.2s ease-in-out infinite}
+@keyframes qb-type{0%,100%{transform:translateY(0) scale(1,1)}50%{transform:translateY(2px) scale(1.015,.985)}}
+@keyframes qb-nod{0%,100%{transform:rotate(0)}50%{transform:rotate(-4deg) translateY(3px)}}
+.qb-sym{font-weight:700;opacity:0}
+.a-working .qb-sym-work,.a-slow .qb-sym-work{opacity:1;animation:qb-pulse 1.2s ease-in-out infinite}
+.a-doze .qb-sym-zz{opacity:1;animation:qb-float 2.6s ease-in-out infinite}
+@keyframes qb-pulse{0%,100%{opacity:.2}50%{opacity:.9}}
+@keyframes qb-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+
+/* ===== 底部时间轴（项目陈列） ===== */
+.timeline{position:absolute;left:8%;right:8%;bottom:64px;height:44px;z-index:12}
+.tl-axis{position:absolute;left:0;right:0;top:26px;height:1px;background:linear-gradient(90deg,transparent,#ffffff22 8%,#ffffff22 92%,transparent)}
+.tl-cap{position:absolute;top:32px;font-size:10px;letter-spacing:2px;color:var(--faint)}
+.tl-cap.l{left:0}.tl-cap.r{right:0;color:var(--dim)}
+.tl-now{position:absolute;right:0;top:18px;width:16px;height:16px;transform:translateX(50%)}
+.tl-now::before{content:"";position:absolute;left:50%;top:50%;width:7px;height:7px;border-radius:50%;
+  background:var(--amber);box-shadow:0 0 10px 2px #E8A04C55;transform:translate(-50%,-50%);animation:pool-glow 2.8s ease-in-out infinite}
+.proj{position:absolute;top:0;transform:translateX(-50%);text-align:center;cursor:pointer}
+.proj i{display:block;width:5px;height:5px;border-radius:50%;background:var(--cool);margin:23px auto 0;opacity:.85}
+.proj.live i{background:var(--amber);box-shadow:0 0 8px 1px #E8A04C66}
+.proj span{font-size:11px;letter-spacing:.5px;color:var(--faint);white-space:nowrap;transition:.2s;opacity:.55}
+.proj:hover span{color:var(--ink);opacity:1;transform:translateY(-2px)}
+.proj.live span{color:var(--dim);opacity:.8}
+
+/* toast / 黑场 */
+#toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,16px);background:var(--ink);color:#101216;padding:9px 20px;border-radius:12px;font-size:13px;opacity:0;pointer-events:none;transition:.25s;z-index:99}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#blackout{position:fixed;inset:0;background:#0A0C0F;display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .26s;z-index:98}
+#blackout.on{opacity:1}
+#blackout .qbot{width:64px;height:64px}
+#blackout .qbot-tilt{animation:qb-breathe 3.2s ease-in-out infinite}
+@keyframes qb-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.026,1.012)}}
+#blackout p{color:var(--dim);margin-top:12px;font-size:13px}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <radialGradient id="qb-sheen" gradientUnits="userSpaceOnUse" cx="210" cy="170" r="172"><stop offset="0" stop-color="#fff" stop-opacity=".36"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <radialGradient id="qb-shade" gradientUnits="userSpaceOnUse" cx="256" cy="150" r="390"><stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".22"/></radialGradient>
+    <radialGradient id="qb-rim" gradientUnits="userSpaceOnUse" cx="256" cy="512" r="330"><stop offset="0" stop-color="#fff" stop-opacity=".22"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <clipPath id="qb-clip"><circle cx="256" cy="258" r="150"/></clipPath>
+  </defs>
+</svg>
+
+<div class="wrap">
+<div class="topbar">
+  <h1>工作台</h1>
+  <div class="clock"><b id="hhmm">--:--</b> · <span id="phname">—</span></div>
+  <div class="phases">
+    <button class="ph" data-ph="dawn">清晨</button>
+    <button class="ph" data-ph="day">白天</button>
+    <button class="ph" data-ph="dusk">黄昏</button>
+    <button class="ph" data-ph="night">深夜</button>
+  </div>
+</div>
+
+<div class="stage" id="stage" data-ph="night">
+  <div class="sky dawn"></div><div class="sky day"></div><div class="sky dusk"></div><div class="sky night on"></div>
+  <div class="valance"></div>
+  <div class="deco mist"><div style="width:100%;height:100%;background:inherit;filter:blur(0)"></div></div>
+  <div class="deco cloud"></div>
+  <div class="deco duskband"></div>
+  <div class="deco stars"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="floor"></div>
+
+  <!-- 演员（位置固定；态由 JS 调度 class 与 opacity） -->
+  <div class="actor" id="a1" data-chat="主助手" style="left:420px;bottom:150px" title="双击进入对话">
+    <div style="position:relative;width:172px;height:214px">
+      <div class="cone"></div>
+      <div class="pool pa"></div>
+      <svg class="qbot" style="width:158px;height:158px;left:50%;transform:translateX(-50%)" viewBox="0 0 512 512" data-mood="work"></svg>
+    </div>
+    <div class="plate">主助手</div>
+    <div class="role"><span class="tick run"></span><span class="role-txt">npm run dev…</span></div>
+    <div class="prog"><i></i></div>
+  </div>
+
+  <div class="actor" id="a2" data-chat="UIbot" style="left:700px;bottom:150px" title="双击进入对话">
+    <div style="position:relative;width:140px;height:130px">
+      <div class="pool pb"></div>
+      <svg class="qbot" viewBox="0 0 512 512" data-mood="work"></svg>
+    </div>
+    <div class="plate">UIbot</div>
+    <div class="role"><span class="tick rest"></span><span class="role-txt">—</span></div>
+  </div>
+
+  <div class="actor" id="a3" data-chat="Docbot" style="left:880px;bottom:150px" title="双击进入对话">
+    <div style="position:relative;width:120px;height:106px">
+      <div class="pool pd"></div>
+      <svg class="qbot" style="width:104px;height:104px;left:50%;transform:translateX(-50%)" viewBox="0 0 512 512" data-mood="doze"></svg>
+    </div>
+    <div class="plate">Docbot</div>
+    <div class="role"><span class="tick rest"></span><span class="role-txt">—</span></div>
+  </div>
+
+  <div class="actor" id="a4" data-chat="Testbot" style="left:180px;bottom:150px" title="双击进入对话">
+    <div style="position:relative;width:100px;height:88px">
+      <div class="pool pd" style="width:100px;height:24px"></div>
+      <svg class="qbot" style="width:86px;height:86px;left:50%;transform:translateX(-50%)" viewBox="0 0 512 512" data-mood="doze"></svg>
+    </div>
+    <div class="plate">Testbot</div>
+    <div class="role"><span class="tick rest"></span><span class="role-txt">—</span></div>
+  </div>
+
+  <!-- 底部时间轴：过去 24h 项目活动 -->
+  <div class="timeline">
+    <div class="tl-axis"></div>
+    <span class="tl-cap l">24h 前</span><span class="tl-cap r">现在</span>
+    <div class="tl-now"></div>
+    <div class="proj" data-chat="项目 report-2026" style="left:12%"><span>report-2026</span><i></i></div>
+    <div class="proj" data-chat="项目 uibot-design" style="left:34%"><span>uibot-design</span><i></i></div>
+    <div class="proj live" data-chat="项目 quickforge" style="left:66%"><span>quickforge</span><i></i></div>
+    <div class="proj" data-chat="项目 archive-2025" style="left:86%"><span>archive-2025</span><i></i></div>
+  </div>
+</div>
+</div>
+
+<div id="toast"></div>
+<div id="blackout"><div style="text-align:center"><svg class="qbot" viewBox="0 0 512 512" data-mood="work"></svg><p>正在进入对话…</p></div></div>
+
+<script>
+// ===== 时段引擎 =====
+var PH = {
+  dawn:{name:'清晨'},
+  day:{name:'白天'},
+  dusk:{name:'黄昏'},
+  night:{name:'深夜'}
+}
+// 演员调度：每时段 [a1..a4] 的 mood（work/slow/doze）与台词
+var CAST = {
+  dawn:{a1:['slow','整理昨夜的构建日志'],a2:['doze',''],a3:['doze',''],a4:['slow','晨间自检中']},
+  day:{a1:['work','npm run dev…'],a2:['work','出设计稿 v5'],a3:['work','归档文档'],a4:['slow','跑回归用例']},
+  dusk:{a1:['work','收尾今日提交'],a2:['slow','整理今日稿子'],a3:['doze',''],a4:['doze','']},
+  night:{a1:['work','夜班 · 守构建'],a2:['doze',''],a3:['doze',''],a4:['doze','']}
+}
+var stage=document.getElementById('stage')
+var current=null
+function setPhase(ph,animate){
+  if(current===ph)return
+  var first=!current
+  current=ph
+  stage.dataset.ph=ph
+  document.querySelectorAll('.sky').forEach(function(s){s.classList.toggle('on',s.classList.contains(ph))})
+  document.querySelectorAll('.deco').forEach(function(d){d.classList.toggle('on',d.dataset.deco===ph)})
+  document.querySelectorAll('.ph').forEach(function(b){b.classList.toggle('on',b.dataset.ph===ph)})
+  document.getElementById('phname').textContent=PH[ph].name
+  // 演员重排：换 class、台词、入场次第
+  var order=['a1','a2','a3','a4'],i=0
+  order.forEach(function(id){
+    var el=document.getElementById(id),m=CAST[ph][id]
+    el.className='actor'
+    var slow=m[0]==='slow',work=m[0]==='work',doze=m[0]==='doze'
+    if(work)el.classList.add('a-working')
+    else if(slow)el.classList.add('a-slow')
+    else el.classList.add('a-doze')
+    if(m[0]==='doze')el.classList.add('dimmed')
+    var svg=el.querySelector('.qbot');svg.setAttribute('data-mood',doze?'doze':'work')
+    var tick=el.querySelector('.tick');tick.className='tick '+(work||slow?'run':'rest')
+    el.querySelector('.role-txt').textContent=m[1]||'睡了'
+    var prog=el.querySelector('.prog');if(prog)prog.style.display=work?'':'none'
+    var pool=el.querySelector('.pool');if(pool)pool.className='pool '+(id==='a1'?'pa':(m[0]==='doze'?'pd':'pb'))
+    // 重新触发入场
+    el.style.animation='none';void el.offsetWidth
+    el.style.animation='rise .7s '+(0.35+i*0.15)+'s ease both'
+    i++
+  })
+  if(!first&&!animate){}
+}
+// 把 deco 标上 data-deco
+;(function(){var m={mist:'dawn',cloud:'day',duskband:'dusk',stars:'night'}
+  document.querySelectorAll('.deco').forEach(function(d){
+    for(var k in m)if(d.classList.contains(k))d.dataset.deco=m[k]
+  })})()
+// 时钟
+function tickClock(){
+  var d=new Date(),h=d.getHours(),m=String(d.getMinutes()).padStart(2,'0')
+  document.getElementById('hhmm').textContent=String(h).padStart(2,'0')+':'+m
+  var ph=h>=5&&h<8?'dawn':h>=8&&h<17?'day':h>=17&&h<20?'dusk':'night'
+  setPhase(ph)
+}
+tickClock();setInterval(tickClock,30000)
+// 手动切换（看稿用；产品里跟随系统时间）
+document.querySelectorAll('.ph').forEach(function(b){
+  b.addEventListener('click',function(){
+    // 解除自动时段：60s 后恢复
+    clearInterval(autoT);setPhase(b.dataset.ph,true)
+    autoT=setInterval(tickClock,30000)
+  })
+})
+var autoT=setInterval(tickClock,30000)
+
+// ===== 进入对话（黑场转场示意） =====
+var toast=document.getElementById('toast'),blackout=document.getElementById('blackout'),tm
+function enter(name){
+  blackout.classList.add('on');clearTimeout(tm)
+  tm=setTimeout(function(){blackout.classList.remove('on');toast.textContent='已进入「'+name+'」（示意）';toast.classList.add('on');setTimeout(function(){toast.classList.remove('on')},1600)},700)
+}
+document.addEventListener('dblclick',function(e){
+  var t=e.target.closest('.actor,.proj')
+  if(t&&t.dataset.chat)enter(t.dataset.chat)
+})
+
+// ===== Q bot 生成（产品同构） =====
+var BODIES={a1:['#EDEBE5','#101216'],a2:['#E8A04C','#101216'],a3:['#8FA0AE','#101216'],a4:['#7C8899','#101216']}
+document.querySelectorAll('.qbot').forEach(function(svg){
+  svg.innerHTML='<g class="qbot-tilt"><circle class="qbot-ball" cx="256" cy="258" r="150"/><g class="qbot-ovs" clip-path="url(#qb-clip)"><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-shade)"/><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-sheen)"/><ellipse class="qbot-ov" cx="256" cy="258" rx="150" ry="150" fill="url(#qb-rim)"/></g><g><g transform="translate(210 262)"><ellipse class="qbot-eye qbot-eye-l" rx="18" ry="32"/><path class="qbot-lid qbot-lid-l" d="M -18 6 Q 0 -12 18 6"/></g><g transform="translate(302 262)"><ellipse class="qbot-eye qbot-eye-r" rx="18" ry="32"/><path class="qbot-lid qbot-lid-r" d="M -18 6 Q 0 -12 18 6"/></g></g><text class="qb-sym qb-sym-work" x="356" y="118" font-size="52" fill="#E8A04C">…</text><text class="qb-sym qb-sym-zz" x="372" y="108" font-size="44">zZ</text></g>'
+  var p=svg.closest('.actor'),id=p?p.id:''
+  var b=BODIES[id]||['#EDEBE5','#101216']
+  svg.style.setProperty('--body',b[0]);svg.style.setProperty('--eye',b[1])
+})
+</script>
+</body>
+</html>

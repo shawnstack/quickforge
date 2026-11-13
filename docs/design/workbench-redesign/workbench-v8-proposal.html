@@ -1,0 +1,1160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作台 v8 设计稿 · 塔台 TOWER</title>
+<style>html,body{margin:0;height:100%}</style>
+</head>
+<body>
+<style>
+/* ==========================================================================
+   工作台 v8 设计稿 · 塔台 TOWER
+   概念：把 bot 舰队当成一个机场。出港屏回答「接下来谁会醒」，在跑/进港回答
+   「谁在干活、谁刚干完」，通告栏回答「哪里卡住了」。签名视觉 = 翻牌钟 +
+   出港信息屏（仪器恒暗），房间（顶栏/侧栏/抽屉）随深浅主题。
+   零外部依赖。所有选择器 scoped 在 #wb8 下，既是片段也是独立页面。
+   ========================================================================== */
+#wb8{
+  --bg:#f4f1ea; --surface:#fbf9f4; --overlay:#ffffff;
+  --fg:#23262d; --fg-mid:#565b66; --fg-muted:#8b8f99;
+  --line:#e2ddd0; --line-soft:#ece8dc; --hover:#ece8dd; --active:#e4dfd2;
+  --amber:#9a6414; --amber-fill:#e8a020; --amber-ink:#2a1d05;
+  --ok:#1e7a4f; --warn:#9a6414; --err:#bf3b2c; --info:#2f5aa8;
+  --ok-bg:#e7f2ec; --warn-bg:#f8f0dd; --err-bg:#f9e9e6; --info-bg:#e9eef7;
+  --bd-bg:#14161b; --bd-cell:#1f232b; --bd-cell2:#262b34; --bd-line:#2c313b;
+  --bd-fg:#f2efe6; --bd-muted:#8b909c; --bd-amber:#ffb454;
+  --bd-ok:#4dc08d; --bd-err:#ec7b6d; --bd-info:#8fa9e6; --bd-warn:#e0a94a;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+  --ease:cubic-bezier(.2,0,0,1);
+  height:100vh; min-height:600px; display:flex; flex-direction:column; overflow:hidden;
+  background:var(--bg); color:var(--fg); font:13px/1.5 var(--sans);
+  -webkit-font-smoothing:antialiased;
+}
+#wb8[data-theme="dark"]{
+  --bg:#131519; --surface:#1a1d23; --overlay:#21252d;
+  --fg:#efede6; --fg-mid:#b9bcc4; --fg-muted:#848893;
+  --line:#2b2f38; --line-soft:#242832; --hover:#232730; --active:#2b303a;
+  --amber:#ffb454; --amber-fill:#e8a020; --amber-ink:#2a1d05;
+  --ok:#4dc08d; --warn:#e0a94a; --err:#ec7b6d; --info:#8fa9e6;
+  --ok-bg:#1d2a25; --warn-bg:#2b2419; --err-bg:#2c1f1d; --info-bg:#1e2230;
+}
+#wb8,#wb8 *{box-sizing:border-box}
+#wb8 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+#wb8 button:disabled{cursor:not-allowed;opacity:.45}
+#wb8 ::selection{background:var(--active)}
+#wb8 :focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:6px}
+#wb8 ::-webkit-scrollbar{width:8px;height:8px}
+#wb8 ::-webkit-scrollbar-track{background:transparent}
+#wb8 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+#wb8 ::-webkit-scrollbar-thumb:hover{background:var(--fg-muted)}
+#wb8 .board ::-webkit-scrollbar-thumb{background:var(--bd-line)}
+#wb8 .board ::-webkit-scrollbar-thumb:hover{background:var(--bd-muted)}
+
+/* ===== 设计稿导航（不属于产品） ===== */
+#wb8 .docbar{
+  flex:none; min-height:40px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  padding:5px 14px; border-bottom:1px solid var(--line);
+  background:var(--surface); font-size:12px; color:var(--fg-muted);
+}
+#wb8 .docbar__brand{color:var(--fg);font-weight:600;letter-spacing:.2px}
+#wb8 .docbar__brand span{color:var(--fg-muted);font-weight:400;margin-left:6px}
+#wb8 .demobadge{
+  font:10px/1 var(--mono); letter-spacing:.8px; color:var(--amber);
+  border:1px solid color-mix(in oklab,var(--amber) 45%,transparent);
+  padding:3px 7px; border-radius:20px;
+}
+#wb8 .docbar__right{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#wb8 .seg{display:inline-flex;background:var(--hover);border-radius:8px;padding:2px;gap:2px}
+#wb8 .seg button{padding:4px 9px;border-radius:6px;font:11px/1.4 var(--mono);color:var(--fg-muted);transition:background 120ms var(--ease),color 120ms var(--ease)}
+#wb8 .seg button:hover{color:var(--fg)}
+#wb8 .seg button.is-on{background:var(--overlay);color:var(--fg);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+#wb8 .docbtn{
+  padding:5px 10px;border-radius:8px;border:1px solid var(--line);color:var(--fg-mid);
+  font-size:12px;transition:background 120ms var(--ease),color 120ms var(--ease);
+}
+#wb8 .docbtn:hover{background:var(--hover);color:var(--fg)}
+#wb8 .docbtn--warn{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 40%,transparent)}
+#wb8 .docbtn--warn:hover{background:var(--warn-bg)}
+
+/* ===== 产品顶栏 ===== */
+#wb8 .appbar{
+  flex:none; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  padding:10px 18px; border-bottom:1px solid color-mix(in oklab,var(--line) 60%,transparent);
+  animation:wb8-rise .3s var(--ease) both;
+}
+#wb8 .appbar__title{display:flex;align-items:baseline;gap:9px}
+#wb8 .appbar__title b{font-size:15px;font-weight:600;letter-spacing:.5px}
+#wb8 .appbar__title span{font:10px/1 var(--mono);letter-spacing:2.5px;color:var(--fg-muted)}
+#wb8 .clock{display:flex;align-items:center;gap:3px}
+#wb8 .flap{
+  position:relative; width:29px; height:40px; display:inline-flex; align-items:center; justify-content:center;
+  background:var(--bd-cell); border-radius:5px; box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 1px 2px rgba(0,0,0,.25);
+  perspective:120px;
+}
+#wb8 .flap>span{font:600 23px/1 var(--mono);color:var(--bd-amber);letter-spacing:0;display:block;backface-visibility:hidden}
+#wb8 .flap::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(0,0,0,.5)}
+#wb8 .flap--colon{background:none;box-shadow:none;width:11px}
+#wb8 .flap--colon::after{display:none}
+#wb8 .flap.flip-out>span{animation:wb8-flipout .12s ease-in both}
+#wb8 .flap.flip-in>span{animation:wb8-flipin .14s ease-out both}
+@keyframes wb8-flipout{from{transform:rotateX(0)}to{transform:rotateX(-88deg)}}
+@keyframes wb8-flipin{from{transform:rotateX(88deg)}to{transform:rotateX(0)}}
+#wb8 .appbar__date{font:11px/1.5 var(--mono);color:var(--fg-muted);letter-spacing:.5px}
+#wb8 .speedbadge{font:10px/1 var(--mono);color:var(--amber);border:1px solid color-mix(in oklab,var(--amber) 45%,transparent);padding:3px 6px;border-radius:4px;letter-spacing:.5px}
+#wb8 .stats{display:flex;align-items:center;gap:14px;margin-left:auto;flex-wrap:wrap}
+#wb8 .stat{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-muted);font-variant-numeric:tabular-nums}
+#wb8 .stat b{font:600 13px/1 var(--mono);color:var(--fg)}
+#wb8 .dot{width:7px;height:7px;border-radius:50%;background:var(--fg-muted);flex:none}
+#wb8 .dot--ok{background:var(--ok)} #wb8 .dot--err{background:var(--err)}
+#wb8 .dot--amber{background:var(--amber-fill)} #wb8 .dot--info{background:var(--info)}
+#wb8 .live{display:inline-flex;align-items:center;gap:6px;font:10px/1 var(--mono);letter-spacing:1.5px;color:var(--ok)}
+#wb8 .live i{width:7px;height:7px;border-radius:50%;background:var(--ok);animation:wb8-blink 1.6s ease-in-out infinite}
+@keyframes wb8-blink{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ===== 跑道灯（签名氛围，克制的一条） ===== */
+#wb8 .runway{flex:none;height:12px;display:flex;align-items:center;justify-content:center;gap:14px;border-bottom:1px solid color-mix(in oklab,var(--line) 60%,transparent);overflow:hidden}
+#wb8 .runway i{width:3px;height:3px;border-radius:50%;background:var(--amber-fill);opacity:.18;animation:wb8-runway 2.6s linear infinite}
+@keyframes wb8-runway{0%,100%{opacity:.18}12%{opacity:.95}24%{opacity:.18}}
+
+/* ===== 通告 NOTAM ===== */
+#wb8 .notams{flex:none;border-bottom:1px solid color-mix(in oklab,var(--line) 60%,transparent)}
+#wb8 .notam-clear{display:flex;align-items:center;gap:8px;padding:7px 18px;font-size:12px;color:var(--fg-muted)}
+#wb8 .notam{
+  display:flex;align-items:center;gap:10px;padding:7px 18px;font-size:12px;
+  border-left:3px solid var(--warn);background:var(--warn-bg);
+  animation:wb8-rise .18s var(--ease) both;
+}
+#wb8 .notam--error{border-left-color:var(--err);background:var(--err-bg)}
+#wb8 .notam+.notam{border-top:1px solid color-mix(in oklab,var(--line) 50%,transparent)}
+#wb8 .notam__icon{font:700 11px/1 var(--mono);color:var(--warn);flex:none;width:16px;height:16px;border:1.5px solid currentColor;border-radius:50%;display:inline-flex;align-items:center;justify-content:center}
+#wb8 .notam--error .notam__icon{color:var(--err)}
+#wb8 .notam__src{font-weight:600;color:var(--fg);flex:none}
+#wb8 .notam__text{color:var(--fg-mid);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#wb8 .notam__time{font:11px/1 var(--mono);color:var(--fg-muted);flex:none}
+#wb8 .notam__actions{margin-left:auto;display:flex;gap:6px;flex:none}
+#wb8 .nbtn{padding:3px 9px;border-radius:6px;border:1px solid color-mix(in oklab,var(--fg-muted) 40%,transparent);font-size:11px;color:var(--fg-mid);transition:background 120ms var(--ease)}
+#wb8 .nbtn:hover{background:color-mix(in oklab,var(--overlay) 70%,transparent);color:var(--fg)}
+#wb8 .nbtn--primary{color:var(--err);border-color:color-mix(in oklab,var(--err) 45%,transparent);font-weight:600}
+#wb8 .notam--warn .nbtn--primary{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 45%,transparent)}
+
+/* ===== 主区 ===== */
+#wb8 .main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 368px}
+#wb8 .board{
+  margin:14px 0 14px 14px; display:flex; flex-direction:column; min-height:0; overflow:hidden;
+  background:var(--bd-bg); border:1px solid var(--bd-line); border-radius:14px;
+  box-shadow:0 18px 44px -26px rgba(20,22,27,.55);
+  animation:wb8-rise .3s var(--ease) .05s both;
+}
+#wb8 .board__head{flex:none;display:flex;align-items:center;gap:12px;padding:12px 16px 10px;flex-wrap:wrap}
+#wb8 .board__title{display:flex;align-items:baseline;gap:8px;color:var(--bd-fg)}
+#wb8 .board__title b{font-size:13px;font-weight:600;letter-spacing:1px}
+#wb8 .board__title span{font:9px/1 var(--mono);letter-spacing:2.5px;color:var(--bd-muted)}
+#wb8 .board__tools{margin-left:auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#wb8 .fchip{padding:4px 10px;border-radius:16px;font-size:11px;color:var(--bd-muted);border:1px solid transparent;transition:all 120ms var(--ease)}
+#wb8 .fchip:hover{color:var(--bd-fg)}
+#wb8 .fchip.is-on{color:var(--bd-amber);border-color:color-mix(in oklab,var(--bd-amber) 45%,transparent);background:rgba(255,180,84,.07)}
+#wb8 .fchip b{font:600 10px/1 var(--mono);margin-left:4px}
+#wb8 .search{display:flex;align-items:center;gap:6px;background:var(--bd-cell);border:1px solid var(--bd-line);border-radius:8px;padding:4px 9px}
+#wb8 .search svg{flex:none;color:var(--bd-muted)}
+#wb8 .search input{background:none;border:0;outline:none;color:var(--bd-fg);font:12px/1.4 var(--sans);width:110px}
+#wb8 .search input::placeholder{color:var(--bd-muted)}
+#wb8 .dep-grid{display:grid;grid-template-columns:92px 92px minmax(0,1fr) 112px 82px;gap:12px;align-items:center}
+#wb8 .board__cols{flex:none;padding:6px 16px;border-top:1px solid var(--bd-line);border-bottom:1px solid var(--bd-line);font:9px/1.6 var(--mono);letter-spacing:1.6px;color:var(--bd-muted)}
+#wb8 .rows{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+#wb8 .dep-row{
+  width:100%; text-align:left; padding:9px 16px; border-top:1px solid var(--bd-line);
+  color:var(--bd-fg); transition:background 120ms var(--ease); position:relative;
+}
+#wb8 .dep-row:first-child{border-top:0}
+#wb8 .dep-row:hover{background:var(--bd-cell)}
+#wb8 .dep-row.is-next{background:var(--bd-cell)}
+#wb8 .dep-row.is-next::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--bd-amber)}
+#wb8 .dep-row.row-in{animation:wb8-rowin .34s var(--ease) both;transform-origin:top center}
+@keyframes wb8-rowin{from{opacity:0;transform:perspective(700px) rotateX(-55deg)}to{opacity:1;transform:perspective(700px) rotateX(0)}}
+#wb8 .dep-time{font:600 17px/1.2 var(--mono);color:var(--bd-fg);letter-spacing:.5px}
+#wb8 .dep-time small{display:block;font:10px/1.4 var(--mono);color:var(--bd-muted);letter-spacing:.5px}
+#wb8 .dep-cd{font:12px/1.4 var(--mono);color:var(--bd-amber);font-variant-numeric:tabular-nums}
+#wb8 .dep-cd.is-urgent{animation:wb8-blink 1s ease-in-out infinite;font-weight:700}
+#wb8 .dep-cd.is-overdue{color:var(--bd-err)}
+#wb8 .dep-flight{display:flex;align-items:center;gap:10px;min-width:0}
+#wb8 .dep-flight .dot{width:9px;height:9px}
+#wb8 .diamond{width:8px;height:8px;transform:rotate(45deg);background:var(--bd-info);flex:none;border-radius:1.5px}
+#wb8 .dep-name{font-size:13px;font-weight:500;color:var(--bd-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wb8 .dep-sub{font:10px/1.4 var(--mono);color:var(--bd-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wb8 .dep-rule{font-size:11px;color:var(--bd-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wb8 .dep-status{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--bd-muted)}
+#wb8 .dep-status i{width:5px;height:5px;border-radius:50%;background:currentColor}
+#wb8 .dep-status--ok{color:var(--bd-ok)} #wb8 .dep-status--err{color:var(--bd-err)}
+#wb8 .dep-status--amber{color:var(--bd-amber)} #wb8 .dep-status--warn{color:var(--bd-warn)}
+#wb8 .nexttag{font:700 8px/1 var(--mono);letter-spacing:1px;color:var(--bd-amber);border:1px solid color-mix(in oklab,var(--bd-amber) 55%,transparent);padding:2px 4px;border-radius:3px;margin-left:6px;vertical-align:2px}
+#wb8 .board__empty{padding:44px 16px;text-align:center;color:var(--bd-muted);font-size:12px}
+#wb8 .board__empty b{display:block;color:var(--bd-fg);font-size:13px;margin-bottom:5px;font-weight:500}
+#wb8 .board__foot{flex:none;display:flex;align-items:center;gap:14px;padding:8px 16px;border-top:1px solid var(--bd-line);font:10px/1.6 var(--mono);color:var(--bd-muted);letter-spacing:.4px;flex-wrap:wrap}
+#wb8 .board__foot .dot{width:6px;height:6px}
+#wb8 .board__foot .diamond{width:6px;height:6px}
+#wb8 .board__foot span{display:inline-flex;align-items:center;gap:5px}
+#wb8 .board__count{margin-left:auto}
+
+/* ===== 右侧栏 ===== */
+#wb8 .side{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px;animation:wb8-rise .3s var(--ease) .1s both}
+#wb8 .panel{border-bottom:1px solid var(--line-soft);padding:2px 2px 14px;margin-bottom:14px}
+#wb8 .panel:last-child{border-bottom:0;margin-bottom:0}
+#wb8 .panel__title{display:flex;align-items:baseline;gap:8px;padding:0 4px 8px}
+#wb8 .panel__title b{font-size:12px;font-weight:600;letter-spacing:.8px}
+#wb8 .panel__title span{font:9px/1 var(--mono);letter-spacing:2px;color:var(--fg-muted)}
+#wb8 .panel__title em{font:10px/1 var(--mono);font-style:normal;color:var(--fg-muted);margin-left:auto}
+#wb8 .nowitem{display:flex;align-items:center;gap:10px;padding:8px 6px;border-radius:9px}
+#wb8 .nowitem:hover{background:var(--hover)}
+#wb8 .nowitem__main{min-width:0;flex:1}
+#wb8 .nowitem__name{font-size:12.5px;font-weight:500;display:flex;align-items:center;gap:7px}
+#wb8 .nowitem__act{font-size:11px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+#wb8 .nowitem__elapsed{font:600 12px/1 var(--mono);color:var(--ok);font-variant-numeric:tabular-nums;flex:none}
+#wb8 .shimmer{height:2px;border-radius:1px;margin-top:6px;background:var(--line-soft);overflow:hidden;position:relative}
+#wb8 .shimmer i{position:absolute;inset:0;width:40%;border-radius:1px;background:linear-gradient(90deg,transparent,var(--ok),transparent);animation:wb8-shimmer 1.6s linear infinite}
+@keyframes wb8-shimmer{from{transform:translateX(-100%)}to{transform:translateX(260%)}}
+#wb8 .arritem{width:100%;display:flex;align-items:center;gap:9px;padding:6px;text-align:left;border-radius:8px;transition:background 120ms var(--ease)}
+#wb8 .arritem:hover{background:var(--hover)}
+#wb8 .arritem__ok{font:700 11px/1 var(--mono);flex:none;width:15px;text-align:center;color:var(--ok)}
+#wb8 .arritem__ok--no{color:var(--err)}
+#wb8 .arritem__main{min-width:0;flex:1}
+#wb8 .arritem__name{font-size:12px;font-weight:500}
+#wb8 .arritem__sum{font-size:11px;color:var(--fg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#wb8 .arritem__time{font:10px/1.5 var(--mono);color:var(--fg-muted);text-align:right;flex:none}
+#wb8 .fleetrow{width:100%;display:flex;align-items:center;gap:10px;padding:7px 6px;text-align:left;border-radius:9px;transition:background 120ms var(--ease)}
+#wb8 .fleetrow:hover{background:var(--hover)}
+#wb8 .fleetrow__main{min-width:0;flex:1}
+#wb8 .fleetrow__name{font-size:12.5px;font-weight:500;display:flex;align-items:baseline;gap:7px}
+#wb8 .fleetrow__name small{font:9px/1 var(--mono);color:var(--fg-muted);letter-spacing:.5px}
+#wb8 .fleetrow__status{font-size:11px;color:var(--fg-muted);margin-top:1px}
+#wb8 .fleetrow__status--err{color:var(--err)}
+#wb8 .fleetrow__status--ok{color:var(--ok)}
+#wb8 .fleetrow__next{font:10px/1.6 var(--mono);color:var(--fg-muted);text-align:right;flex:none}
+#wb8 .fleetrow__next b{display:block;font-size:11px;color:var(--fg-mid);font-weight:500}
+#wb8 .side-empty{padding:10px 6px;font-size:11.5px;color:var(--fg-muted)}
+
+/* ===== 抽屉 ===== */
+#wb8 .scrim{position:fixed;inset:0;background:rgba(18,20,25,.34);opacity:0;pointer-events:none;transition:opacity 180ms var(--ease);z-index:40}
+#wb8 .scrim.show{opacity:1;pointer-events:auto}
+#wb8 .drawer{
+  position:fixed;top:0;right:0;bottom:0;width:400px;max-width:100vw;z-index:50;
+  background:var(--overlay);border-left:1px solid var(--line);
+  transform:translateX(102%);transition:transform 200ms var(--ease);
+  display:flex;flex-direction:column;box-shadow:-24px 0 48px -28px rgba(18,20,25,.4);
+}
+#wb8 .drawer.open{transform:translateX(0)}
+#wb8 .drawer__scroll{flex:1;min-height:0;overflow-y:auto;padding:18px}
+#wb8 .d-head{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+#wb8 .d-head__main{min-width:0;flex:1}
+#wb8 .d-name{font-size:15px;font-weight:600}
+#wb8 .d-sub{font:10px/1.6 var(--mono);color:var(--fg-muted);letter-spacing:.5px}
+#wb8 .chip{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:3px 9px;border-radius:20px;border:1px solid var(--line);color:var(--fg-mid);flex:none}
+#wb8 .chip i{width:5px;height:5px;border-radius:50%;background:currentColor}
+#wb8 .chip--ok{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,transparent);background:var(--ok-bg)}
+#wb8 .chip--err{color:var(--err);border-color:color-mix(in oklab,var(--err) 40%,transparent);background:var(--err-bg)}
+#wb8 .chip--warn{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 40%,transparent);background:var(--warn-bg)}
+#wb8 .chip--amber{color:var(--amber);border-color:color-mix(in oklab,var(--amber) 45%,transparent);background:var(--warn-bg)}
+#wb8 .iconbtn{width:28px;height:28px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;color:var(--fg-muted);font-size:13px;transition:background 120ms var(--ease),color 120ms var(--ease);flex:none}
+#wb8 .iconbtn:hover{background:var(--hover);color:var(--fg)}
+#wb8 .d-sec{border-top:1px solid var(--line-soft);padding:13px 0}
+#wb8 .d-sec-title{font:9px/1 var(--mono);letter-spacing:2px;color:var(--fg-muted);margin-bottom:10px}
+#wb8 .kv{display:flex;align-items:baseline;gap:12px;padding:3px 0;font-size:12px}
+#wb8 .kv>span{color:var(--fg-muted);flex:none;width:64px}
+#wb8 .kv>b{font-weight:500;color:var(--fg);min-width:0;overflow:hidden;text-overflow:ellipsis}
+#wb8 .kv>b.mono{font:12px/1.5 var(--mono)}
+#wb8 .kv--err>b{color:var(--err)}
+#wb8 .ctl-row{display:flex;align-items:center;gap:12px;padding:5px 0;font-size:12px}
+#wb8 .ctl-row>span{color:var(--fg-mid);flex:1}
+#wb8 .sw{position:relative;width:35px;height:20px;border-radius:20px;background:var(--active);transition:background 150ms var(--ease);flex:none}
+#wb8 .sw i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--overlay);box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform 150ms var(--ease)}
+#wb8 .sw.is-on{background:var(--amber-fill)}
+#wb8 .sw.is-on i{transform:translateX(15px)}
+#wb8 select{font:12px/1.4 var(--sans);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:4px 8px;cursor:pointer}
+#wb8 .d-note{font-size:10.5px;color:var(--fg-muted);padding:4px 0 0}
+#wb8 .d-actions{display:flex;gap:8px;padding:13px 0;border-top:1px solid var(--line-soft);flex-wrap:wrap}
+#wb8 .btn{padding:7px 13px;border-radius:8px;border:1px solid var(--line);font-size:12px;color:var(--fg-mid);transition:all 120ms var(--ease)}
+#wb8 .btn:hover{background:var(--hover);color:var(--fg)}
+#wb8 .btn:active{transform:scale(.97)}
+#wb8 .btn--primary{background:var(--amber-fill);border-color:transparent;color:var(--amber-ink);font-weight:600}
+#wb8 .btn--primary:hover{background:color-mix(in oklab,var(--amber-fill) 88%,#000);color:var(--amber-ink)}
+#wb8 textarea{width:100%;min-height:64px;resize:vertical;font:12px/1.6 var(--sans);color:var(--fg);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px;outline:none;transition:border-color 120ms var(--ease)}
+#wb8 textarea:focus{border-color:color-mix(in oklab,var(--amber-fill) 65%,var(--line))}
+#wb8 textarea::placeholder{color:var(--fg-muted)}
+#wb8 .d-feedbtn{margin-top:8px}
+#wb8 pre{margin:0;font:11px/1.7 var(--mono);color:var(--fg-mid);background:var(--surface);border:1px solid var(--line-soft);border-radius:9px;padding:10px 12px;white-space:pre-wrap;word-break:break-word}
+#wb8 .goal{border:1px solid color-mix(in oklab,var(--info) 30%,transparent);background:var(--info-bg);border-radius:9px;padding:10px 12px}
+#wb8 .goal__text{font-size:12px;font-weight:500;color:var(--fg)}
+#wb8 .goal__meta{font:10px/1.6 var(--mono);color:var(--info);margin-top:4px}
+#wb8 .runitem{display:flex;align-items:center;gap:8px;font-size:11.5px;padding:4px 0;color:var(--fg-mid)}
+#wb8 .runitem__ok{font:700 10px/1 var(--mono);color:var(--ok);width:13px;text-align:center;flex:none}
+#wb8 .runitem__ok--no{color:var(--err)}
+#wb8 .runitem time{font:10px/1 var(--mono);color:var(--fg-muted);margin-left:auto;flex:none}
+
+/* ===== 说明浮层 ===== */
+#wb8 .info-overlay{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(18,20,25,.4);opacity:0;pointer-events:none;transition:opacity 180ms var(--ease)}
+#wb8 .info-overlay.show{opacity:1;pointer-events:auto}
+#wb8 .info-panel{width:680px;max-width:100%;max-height:84vh;overflow-y:auto;background:var(--overlay);border:1px solid var(--line);border-radius:14px;padding:22px 24px;transform:translateY(6px) scale(.98);transition:transform 180ms var(--ease)}
+#wb8 .info-overlay.show .info-panel{transform:none}
+#wb8 .info-panel h2{margin:0 0 2px;font-size:15px}
+#wb8 .info-panel .sub{font:10px/1 var(--mono);letter-spacing:2px;color:var(--fg-muted)}
+#wb8 .info-panel h3{font-size:12px;margin:18px 0 6px;color:var(--fg)}
+#wb8 .info-panel p,#wb8 .info-panel li{font-size:12px;color:var(--fg-mid);margin:4px 0}
+#wb8 .info-panel ul{padding-left:16px;margin:4px 0}
+#wb8 .info-panel table{width:100%;border-collapse:collapse;font-size:11.5px;margin:6px 0}
+#wb8 .info-panel th{font:9px/1.6 var(--mono);letter-spacing:1px;color:var(--fg-muted);text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+#wb8 .info-panel td{padding:5px 8px;border-bottom:1px solid var(--line-soft);color:var(--fg-mid);vertical-align:top}
+#wb8 .info-panel td:first{color:var(--fg);white-space:nowrap}
+#wb8 .info-close{margin-top:16px}
+
+/* ===== 广播 toast ===== */
+#wb8 .toasts{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:70;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;width:max-content;max-width:92vw}
+#wb8 .toast{
+  display:flex;align-items:center;gap:9px;background:#1d2129;color:#f2efe6;
+  border:1px solid #2c313b;border-radius:10px;padding:8px 14px;font-size:12px;
+  box-shadow:0 14px 34px -14px rgba(0,0,0,.5);animation:wb8-toastin .18s var(--ease) both;
+  max-width:92vw;
+}
+#wb8 .toast.out{animation:wb8-toastout .14s ease-in both}
+#wb8 .toast__tag{font:700 9px/1 var(--mono);letter-spacing:1.5px;color:var(--bd-amber);flex:none}
+#wb8 .toast--ok .toast__tag{color:var(--bd-ok)}
+#wb8 .toast--err .toast__tag{color:var(--bd-err)}
+#wb8 .toast--warn .toast__tag{color:var(--bd-warn)}
+#wb8 .toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@keyframes wb8-toastin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes wb8-toastout{from{opacity:1}to{opacity:0;transform:translateY(6px)}}
+@keyframes wb8-rise{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+
+/* ===== 响应式 ===== */
+@media (max-width:1080px){ #wb8 .main{grid-template-columns:minmax(0,1fr) 320px} }
+@media (max-width:920px){
+  #wb8{height:auto;min-height:100vh;overflow:visible}
+  #wb8 .main{grid-template-columns:1fr}
+  #wb8 .board{margin:10px;max-height:70vh}
+  #wb8 .side{overflow:visible;padding:4px 10px 16px}
+  #wb8 .stats{margin-left:0;gap:10px}
+  #wb8 .drawer{left:0;right:0;width:auto;max-width:none}
+  #wb8 .docbar{flex-wrap:nowrap;overflow-x:auto;gap:8px;padding:5px 10px}
+  #wb8 .docbar::-webkit-scrollbar{height:4px}
+  #wb8 .docbar__brand{flex:none;white-space:nowrap}
+  #wb8 .docbar__brand span{display:none}
+  #wb8 .demobadge{flex:none;white-space:nowrap}
+  #wb8 .docbar__right{flex:none;flex-wrap:nowrap;margin-left:0}
+  #wb8 .seg{flex:none}
+  #wb8 .seg button{white-space:nowrap}
+  #wb8 .docbtn{flex:none;white-space:nowrap}
+  #wb8 .appbar{gap:10px;padding:8px 12px}
+  #wb8 .appbar__date,#wb8 .speedbadge{display:none}
+  #wb8 .stats{flex-wrap:nowrap}
+  #wb8 .live{flex:none}
+  #wb8 .notam{flex-wrap:wrap;gap:6px 10px;padding:8px 12px}
+  #wb8 .notam__text{order:5;flex:1 1 100%;white-space:normal;overflow:visible}
+}
+@media (max-width:720px){
+  #wb8 .dep-grid{grid-template-columns:78px 80px minmax(0,1fr) 70px}
+  #wb8 .dep-rule,#wb8 .board__cols .col-rule{display:none}
+  #wb8 .dep-time{font-size:15px}
+  #wb8 .search input{width:70px}
+  #wb8 .flap{width:24px;height:34px}
+  #wb8 .flap>span{font-size:19px}
+}
+@media (prefers-reduced-motion: reduce){
+  #wb8 *,#wb8 *::before,#wb8 *::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+}
+</style>
+
+<div id="wb8" data-theme="light">
+  <!-- 设计稿导航 -->
+  <div class="docbar">
+    <span class="docbar__brand">QuickForge<span>工作台 v8 设计稿 · 塔台 TOWER</span></span>
+    <span class="demobadge">演示数据</span>
+    <div class="docbar__right">
+      <div class="seg" role="group" aria-label="演示流速">
+        <button type="button" data-action="speed" data-speed="1">×1 真实</button>
+        <button type="button" data-action="speed" data-speed="60" class="is-on">×60</button>
+        <button type="button" data-action="speed" data-speed="600">×600</button>
+      </div>
+      <button type="button" class="docbtn" data-action="jump">快进 10 分钟</button>
+      <button type="button" class="docbtn docbtn--warn" data-action="fault">注入故障</button>
+      <button type="button" class="docbtn" data-action="reset">重置</button>
+      <button type="button" class="docbtn" data-action="info">说明 ?</button>
+      <button type="button" class="docbtn" data-action="theme" aria-label="切换深浅主题">◐ 深色</button>
+    </div>
+  </div>
+
+  <!-- 产品顶栏 -->
+  <div class="appbar">
+    <div class="appbar__title"><b>工作台</b><span>TOWER</span></div>
+    <div class="clock" id="wb8-clock" aria-label="当前时间"></div>
+    <span class="appbar__date" id="wb8-date"></span>
+    <span class="speedbadge" id="wb8-speedbadge">×60 演示</span>
+    <div class="stats" id="wb8-stats"></div>
+    <span class="live"><i></i>LIVE</span>
+  </div>
+
+  <div class="runway" id="wb8-runway" aria-hidden="true"></div>
+
+  <!-- 通告 -->
+  <div class="notams" id="wb8-notams" role="status"></div>
+
+  <!-- 主区 -->
+  <div class="main">
+    <section class="board" aria-label="出港屏">
+      <div class="board__head">
+        <div class="board__title"><b>出港</b><span>DEPARTURES · 接下来谁会醒</span></div>
+        <div class="board__tools">
+          <div id="wb8-filters" role="group" aria-label="类型筛选"></div>
+          <label class="search">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.8-3.8"/></svg>
+            <input id="wb8-search" type="search" placeholder="搜索班次…" aria-label="搜索班次">
+          </label>
+        </div>
+      </div>
+      <div class="board__cols dep-grid" aria-hidden="true">
+        <span>时间 TIME</span><span>倒计时</span><span>班次 FLIGHT</span><span class="col-rule">周期 SCHED</span><span>状态</span>
+      </div>
+      <div class="rows" id="wb8-rows"></div>
+      <div class="board__foot">
+        <span><i class="dot" style="background:var(--bd-ok)"></i>心跳（bot 色）</span>
+        <span><i class="diamond"></i>定时任务</span>
+        <span>仅展示每班下一跳 · 不外推</span>
+        <span class="board__count" id="wb8-boardcount"></span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel" aria-label="在跑">
+        <div class="panel__title"><b>在跑</b><span>NOW</span><em id="wb8-nowcount"></em></div>
+        <div id="wb8-now"></div>
+      </section>
+      <section class="panel" aria-label="进港">
+        <div class="panel__title"><b>进港</b><span>ARRIVALS · 最近完成</span></div>
+        <div id="wb8-arrivals"></div>
+      </section>
+      <section class="panel" aria-label="舰队">
+        <div class="panel__title"><b>舰队</b><span>FLEET</span><em id="wb8-fleetcount"></em></div>
+        <div id="wb8-fleet"></div>
+      </section>
+    </aside>
+  </div>
+
+  <!-- 抽屉 -->
+  <div class="scrim" id="wb8-scrim" data-action="close-drawer"></div>
+  <div class="drawer" id="wb8-drawer" role="dialog" aria-modal="true" aria-label="班次详情">
+    <div class="drawer__scroll" id="wb8-drawer-body"></div>
+  </div>
+
+  <!-- 说明浮层 -->
+  <div class="info-overlay" id="wb8-info">
+    <div class="info-panel" role="dialog" aria-modal="true" aria-label="设计说明">
+      <h2>工作台 v8 · 塔台 TOWER</h2>
+      <span class="sub">DESIGN NOTES · 设计说明</span>
+      <h3>一句话</h3>
+      <p>把 bot 舰队当成一个机场：<b>出港屏</b>回答「接下来谁会醒」，<b>在跑 / 进港</b>回答「谁在干活、谁刚干完」，<b>通告栏</b>回答「哪里卡住了」。不再是一间办公室（v1–v6），也不是一张班表（v7），而是一座信息塔台。</p>
+      <h3>三屏分工</h3>
+      <ul>
+        <li><b>出港 DEPARTURES</b>：bot 心跳与定时任务合并排程，按时间排序，倒计时逐秒走动；最近一班标 NEXT。到点翻牌出局 → 进入「在跑」。</li>
+        <li><b>在跑 NOW / 进港 ARRIVALS</b>：执行中的班次带计时与流光；完成落地为进港记录（成功 / 失败 + 一句话结论）。</li>
+        <li><b>通告 NOTAM</b>：心跳失败、任务失败、判活跳过。每条带处置动作（催醒 / 进入会话 / 忽略），恢复后自动解除。</li>
+      </ul>
+      <h3>数据映射（全部来自现成端点）</h3>
+      <table>
+        <tr><th>界面</th><th>来源</th></tr>
+        <tr><td>出港行 / 倒计时</td><td>GET /api/bots → heartbeat.nextRunAt；GET /api/scheduled-tasks → nextRunAt</td></tr>
+        <tr><td>周期 / 状态文案</td><td>heartbeat.intervalMinutes / enabled / lastError + botStatusSummary()</td></tr>
+        <tr><td>在跑计时</td><td>busy / status + 前端会话内计时</td></tr>
+        <tr><td>进港记录</td><td>任务：/api/scheduled-tasks/runs 真实记录；bot：lastWakeAt 一条 + 打开期间会话内累积</td></tr>
+        <tr><td>通告</td><td>heartbeat.lastError / lastIdleReason；任务 runs[].error</td></tr>
+        <tr><td>抽屉：记忆 / 目标</td><td>GET /api/bots/:id/memory、/api/agents/:sid/status —— 打开时按需拉取，避免 N+1</td></tr>
+        <tr><td>动作</td><td>wake（催醒）、inbox（投喂，30 秒内提前唤醒）、PATCH bots（心跳/间隔/必醒）、ensureBotSessionOpen</td></tr>
+      </table>
+      <h3>诚实边界</h3>
+      <ul>
+        <li>出港只展示 <b>nextRunAt 一班</b>，不按间隔外推未来多班——预测越远越假。</li>
+        <li>bot 没有心跳历史端点：进港里 bot 只有「上次唤醒」+ 本次打开期间的累积，不画 24h 热力带。</li>
+        <li>本稿所有数据为演示种子；「演示流速」仅是设计稿引擎，产品中不存在。</li>
+      </ul>
+      <h3>需要拍板</h3>
+      <ul>
+        <li><b>仪器恒暗</b>：出港屏与翻牌钟在深浅主题下都保持深色（像真实信息屏这件「设备」），房间随主题。若评审认为割裂，可让屏幕也吃全局 token。</li>
+        <li>入口图标 Theater → TowerControl；WorkbenchPortal 签名不变，宿主零改动。</li>
+        <li>心跳环形记录（服务端可选第二轮）：让进港的 bot 记录从「近似」变「真实」。</li>
+      </ul>
+      <button type="button" class="btn info-close" data-action="close-info">关闭</button>
+    </div>
+  </div>
+
+  <div class="toasts" id="wb8-toasts" aria-live="polite"></div>
+</div>
+
+<script>
+(function(){
+'use strict';
+var root = document.getElementById('wb8');
+function $(s){ return root.querySelector(s); }
+function $all(s){ return Array.prototype.slice.call(root.querySelectorAll(s)); }
+function pad2(n){ return String(n).padStart(2,'0'); }
+function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+function byId(list,id){ for(var i=0;i<list.length;i++) if(list[i].id===id) return list[i]; return null; }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+var MIN = 60000;
+var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ================= 种子数据 ================= */
+var simNow = Date.now(), speed = 60, filter = 'all', query = '', selected = null, notamSeq = 0;
+var bots = [], tasks = [], arrivals = [], notams = [];
+var prevRowIds = {}, firstRender = true;
+
+var ACTIVITIES = ['正在执行：wiki 行数对账','正在执行：巡检服务健康','正在执行：整理工作记忆','正在执行：处理收件箱','正在执行：生成晨报','正在执行：检查 CI 状态'];
+var REPORTS = ['无新事项，继续待命','wiki 对账 237/234 全绿','巡检通过 · 0 异常','晨报已生成并推送','经验库新增 1 条','收件箱已处理 · 2 条'];
+var ERRORS = ['模型供应方 429 限流','工具调用超时（30s）','上下文压缩失败','网络抖动 · 连接重置'];
+
+function nextDaily(time, base){
+  var p = time.split(':'), d = new Date(base);
+  d.setHours(+p[0], +p[1], 0, 0);
+  if(d.getTime() <= base) d.setDate(d.getDate()+1);
+  return d.getTime();
+}
+function nextWeekly(day, time, base){
+  var p = time.split(':'), d = new Date(base);
+  d.setHours(+p[0], +p[1], 0, 0);
+  var add = (day - d.getDay() + 7) % 7;
+  if(add === 0 && d.getTime() <= base) add = 7;
+  d.setDate(d.getDate()+add);
+  return d.getTime();
+}
+function intervalText(min){
+  if(min % 1440 === 0) return '每 ' + (min/1440) + ' 天';
+  if(min % 60 === 0) return '每 ' + (min/60) + ' 小时';
+  return '每 ' + min + ' 分钟';
+}
+function seed(){
+  var now = Date.now(); simNow = now; notamSeq = 0;
+  bots = [
+    {id:'b1', name:'主助手', proj:'quickforge', color:'#3a3f4a', eye:'#ffffff', cs:'QF-B01', interval:30, enabled:true, alwaysWake:false,
+     busy:true, runStartedAt:now-3*MIN, runEndsAt:now+4*MIN, activity:'正在执行：wiki 行数校验器对账',
+     nextAt:null, lastAt:now-26*MIN, lastError:null, failStreak:0, fed:false, lastReport:'wiki 对账 237/234 全绿',
+     goal:{text:'收编反引号表格形态进 wiki 行数校验器', meta:'GOAL · 第 3 轮 · 验收 2/4'},
+     memory:'# 工作偏好\n- 一次一个 feature，改动最小化\n- 发布前 test / lint / build 必须全绿\n- 提交前先跑归档脚本'},
+    {id:'b2', name:'小跟班', proj:'quickforge', color:'#d98a16', eye:'#2b2118', cs:'QF-B02', interval:15, enabled:true, alwaysWake:false,
+     busy:false, nextAt:now+3*MIN, lastAt:now-12*MIN, lastError:null, failStreak:0, fed:false, lastReport:'无新事项，继续待命', lastIdle:'判活未通过：无新提交',
+     memory:'# 关注\n- 主会话的待办与阻塞\n-  heartbeat 报告优先写结论'},
+    {id:'b3', name:'质检bot', proj:'quickforge', color:'#3f6fd1', eye:'#ffffff', cs:'QF-B03', interval:60, enabled:true, alwaysWake:true,
+     busy:false, nextAt:now+6*MIN, lastAt:now-54*MIN, lastError:'模型供应方 429 限流', failStreak:2, fed:false, lastReport:'发现 2 处行数漂移',
+     memory:'# 质检章程\n- 每次心跳先跑 npm run check:wiki\n- 漂移即报告，不擅自改文档'},
+    {id:'b4', name:'文档bot', proj:'quickforge', color:'#2e8b6a', eye:'#ffffff', cs:'QF-B04', interval:120, enabled:true, alwaysWake:false,
+     busy:false, nextAt:now+34*MIN, lastAt:now-86*MIN, lastError:null, failStreak:0, fed:false, lastReport:'routes README 已补四行实测',
+     memory:'# 文档约定\n- 行数声明紧跟文件名\n- 表格行只有两种合法形态'},
+    {id:'b5', name:'夜班巡检', proj:null, color:'#7b6aa8', eye:'#ffffff', cs:'QF-B05', interval:360, enabled:false, alwaysWake:false,
+     busy:false, nextAt:null, lastAt:now-7*60*MIN, lastError:null, failStreak:0, fed:false, lastReport:'夜间巡检通过',
+     memory:'# 巡检范围\n- 磁盘占用 / 服务健康 / 日志体积'}
+  ];
+  tasks = [
+    {id:'t1', title:'整点巡检', cs:'QF-T01', rule:{type:'interval', ms:60*MIN}, ruleText:'每 1 小时', nextAt:now+12*MIN, enabled:true, running:false,
+     instruction:'检查本机服务 /api/health 与磁盘占用，异常时写工作记忆并报告。',
+     runs:[{at:now-48*MIN, ok:true, summary:'服务正常 · 磁盘 61%'},{at:now-108*MIN, ok:true, summary:'服务正常 · 磁盘 60%'}]},
+    {id:'t2', title:'每日晨报', cs:'QF-T02', rule:{type:'daily', time:'08:30'}, ruleText:'每天 08:30', nextAt:nextDaily('08:30', now), enabled:true, running:false,
+     instruction:'汇总昨夜 bot 心跳与任务运行，生成晨报推送到主会话。',
+     runs:[{at:now-6*60*MIN, ok:true, summary:'晨报已生成并推送'}]},
+    {id:'t3', title:'CI 复查', cs:'QF-T03', rule:{type:'once'}, ruleText:'单次', nextAt:now+8*MIN, enabled:true, running:false,
+     instruction:'复查 dev 分支最新 CI 结果，失败则定位到具体测试并报告。',
+     runs:[]},
+    {id:'t4', title:'经验库整理', cs:'QF-T04', rule:{type:'daily', time:'23:30'}, ruleText:'每天 23:30', nextAt:nextDaily('23:30', now), enabled:true, running:false,
+     instruction:'记忆整理员逐会话起 agent，提炼经验写入经验库索引。',
+     runs:[{at:now-15*60*MIN, ok:true, summary:'新增 2 条 · 升级候选 1 条'}]},
+    {id:'t5', title:'周一发布检查', cs:'QF-T05', rule:{type:'weekly', day:1, time:'09:00'}, ruleText:'每周一 09:00', nextAt:nextWeekly(1,'09:00', now), enabled:true, running:false,
+     instruction:'发布前检查：test / lint / build 全绿，CHANGELOG 与版本一致。',
+     runs:[]}
+  ];
+  arrivals = [
+    {at:now-5*MIN, kind:'task', id:'t1', name:'整点巡检', ok:true, summary:'服务正常 · 磁盘 61%'},
+    {at:now-12*MIN, kind:'bot', id:'b2', name:'小跟班', ok:true, summary:'心跳完成 · 无新事项'},
+    {at:now-26*MIN, kind:'bot', id:'b1', name:'主助手', ok:true, summary:'wiki 对账通过'},
+    {at:now-54*MIN, kind:'bot', id:'b3', name:'质检bot', ok:false, summary:'429 限流 · 已记入通告'},
+    {at:now-6*60*MIN, kind:'task', id:'t2', name:'每日晨报', ok:true, summary:'晨报已生成并推送'}
+  ];
+  notams = [
+    {id:'n'+(++notamSeq), level:'error', kind:'bot', sourceId:'b3', name:'质检bot', text:'心跳连续失败 2 次：模型供应方 429 限流', at:now-54*MIN},
+    {id:'n'+(++notamSeq), level:'warn', kind:'bot', sourceId:'b2', name:'小跟班', text:'上次心跳跳过：判活未通过（无新提交）', at:now-12*MIN}
+  ];
+  selected = null; filter = 'all'; query = '';
+  var si = $('#wb8-search'); if(si) si.value = '';
+}
+
+/* ================= 格式化 ================= */
+function fmtTime(ts){ var d = new Date(ts); return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function dayLabel(ts){
+  var d = new Date(ts), n = new Date(simNow);
+  var dd = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  var nn = new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  var diff = Math.round((dd - nn) / 86400000);
+  if(diff === 0) return '今天';
+  if(diff === 1) return '明天';
+  return (d.getMonth()+1) + '/' + d.getDate();
+}
+function fmtSmart(ts){ return dayLabel(ts) + ' ' + fmtTime(ts); }
+function fmtCd(ms){
+  var over = ms < 0;
+  if(over) ms = -ms;
+  var s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return (over ? '+' : '') + pad2(h) + ':' + pad2(m) + ':' + pad2(ss);
+}
+function fmtElapsed(ms){
+  if(ms < 0) ms = 0;
+  var s = Math.floor(ms/1000), h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
+  return h > 0 ? h + ':' + pad2(m) + ':' + pad2(ss) : pad2(m) + ':' + pad2(ss);
+}
+function fmtRel(ts){
+  var diff = simNow - ts;
+  if(diff < 60*1000) return '刚刚';
+  var m = Math.round(diff/MIN);
+  if(m < 60) return m + ' 分钟前';
+  var h = Math.round(m/60);
+  if(h < 24) return h + ' 小时前';
+  return Math.round(h/24) + ' 天前';
+}
+function mascot(b, size){
+  var eyes;
+  if(!b.enabled) eyes = '<path d="M8.5 13h4M15.5 13h4" stroke="'+b.eye+'" stroke-width="1.7" stroke-linecap="round"/>';
+  else if(b.lastError) eyes = '<path d="M8.5 11.5l3.5 3.5M12 11.5l-3.5 3.5M16 11.5l3.5 3.5M19.5 11.5L16 15" stroke="'+b.eye+'" stroke-width="1.5" stroke-linecap="round"/>';
+  else if(b.busy) eyes = '<path d="M8.5 14l2.2-2.2 2.2 2.2M15.1 14l2.2-2.2 2.2 2.2" stroke="'+b.eye+'" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
+  else eyes = '<circle cx="10.3" cy="13" r="1.6" fill="'+b.eye+'"/><circle cx="17.7" cy="13" r="1.6" fill="'+b.eye+'"/>';
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14.5" r="11.5" fill="'+b.color+'"/>'+eyes+'</svg>';
+}
+function botStatus(b){
+  if(b.busy) return {text:'执行中', cls:'chip--ok', dot:'ok'};
+  if(b.lastError) return {text:'延误', cls:'chip--err', dot:'err'};
+  if(!b.enabled) return {text:'休眠', cls:'', dot:''};
+  if(b.fed) return {text:'已投喂', cls:'chip--amber', dot:'amber'};
+  return {text:'待醒', cls:'', dot:''};
+}
+function fleetStatus(b){
+  if(b.busy) return {text:'执行中', cls:'fleetrow__status--ok'};
+  if(b.lastError) return {text:'出错 · 连续 ' + b.failStreak + ' 次', cls:'fleetrow__status--err'};
+  if(!b.enabled) return {text:'休眠 · 心跳已关闭', cls:''};
+  return {text:fmtRel(b.lastAt) + '醒来', cls:''};
+}
+
+/* ================= 渲染 ================= */
+function renderStats(){
+  var running = bots.filter(function(b){return b.busy;}).length + tasks.filter(function(t){return t.running;}).length;
+  var waiting = bots.filter(function(b){return b.enabled && !b.busy && b.nextAt;}).length + tasks.filter(function(t){return t.enabled && t.nextAt;}).length;
+  var asleep = bots.filter(function(b){return !b.enabled;}).length;
+  var errs = notams.filter(function(n){return n.level==='error';}).length;
+  $('#wb8-stats').innerHTML =
+    '<span class="stat"><i class="dot dot--ok"></i>在跑 <b>'+running+'</b></span>' +
+    '<span class="stat"><i class="dot dot--amber"></i>待醒 <b>'+waiting+'</b></span>' +
+    '<span class="stat"><i class="dot"></i>休眠 <b>'+asleep+'</b></span>' +
+    '<span class="stat"><i class="dot dot--err"></i>异常 <b>'+errs+'</b></span>';
+}
+function renderNotams(){
+  var el = $('#wb8-notams');
+  if(!notams.length){
+    el.innerHTML = '<div class="notam-clear"><i class="dot dot--ok"></i>通告栏清空 · 舰队运行正常</div>';
+    return;
+  }
+  el.innerHTML = notams.map(function(n){
+    var actions = '';
+    if(n.level === 'error' && n.kind === 'bot') actions += '<button type="button" class="nbtn nbtn--primary" data-action="notam-wake" data-id="'+n.sourceId+'">催醒重试</button>';
+    actions += '<button type="button" class="nbtn" data-action="notam-enter" data-id="'+n.sourceId+'" data-kind="'+n.kind+'">进入会话</button>';
+    actions += '<button type="button" class="nbtn" data-action="notam-dismiss" data-id="'+n.id+'">忽略</button>';
+    return '<div class="notam '+(n.level==='error'?'notam--error':'notam--warn')+'">' +
+      '<span class="notam__icon">'+(n.level==='error'?'!':'i')+'</span>' +
+      '<span class="notam__src">'+esc(n.name)+'</span>' +
+      '<span class="notam__text">'+esc(n.text)+'</span>' +
+      '<span class="notam__time" data-rel="'+n.at+'">'+fmtRel(n.at)+'</span>' +
+      '<span class="notam__actions">'+actions+'</span></div>';
+  }).join('');
+}
+function upcoming(){
+  var ev = [];
+  bots.forEach(function(b){
+    if(b.enabled && !b.busy && b.nextAt) ev.push({kind:'bot', id:b.id, at:b.nextAt, name:b.name, proj:b.proj, color:b.color, cs:b.cs, rule:intervalText(b.interval), err:!!b.lastError, fed:b.fed});
+  });
+  tasks.forEach(function(t){
+    if(t.enabled && !t.running && t.nextAt) ev.push({kind:'task', id:t.id, at:t.nextAt, name:t.title, proj:null, color:null, cs:t.cs, rule:t.ruleText, err:false, fed:false});
+  });
+  ev.sort(function(a,b){ return a.at - b.at; });
+  return ev;
+}
+function renderFilters(){
+  var all = upcoming();
+  var nb = all.filter(function(e){return e.kind==='bot';}).length;
+  var nt = all.length - nb;
+  var defs = [['all','全部',all.length],['bot','心跳',nb],['task','任务',nt]];
+  $('#wb8-filters').innerHTML = defs.map(function(d){
+    return '<button type="button" class="fchip'+(filter===d[0]?' is-on':'')+'" data-action="filter" data-filter="'+d[0]+'">'+d[1]+'<b>'+d[2]+'</b></button>';
+  }).join('');
+}
+function renderBoard(){
+  var all = upcoming();
+  var list = all.filter(function(e){
+    if(filter !== 'all' && e.kind !== filter) return false;
+    if(query){
+      var hay = (e.name + ' ' + (e.proj||'') + ' ' + e.cs).toLowerCase();
+      if(hay.indexOf(query) === -1) return false;
+    }
+    return true;
+  });
+  var shown = list.slice(0, 12);
+  var el = $('#wb8-rows');
+  if(!shown.length){
+    el.innerHTML = '<div class="board__empty"><b>'+(query || filter!=='all' ? '无匹配班次' : '今日无出港')+'</b>'+(query || filter!=='all' ? '换个筛选或搜索词试试' : '全部班次都在休眠或执行中')+'</div>';
+  } else {
+    el.innerHTML = shown.map(function(e, i){
+      var key = e.kind + ':' + e.id;
+      var isNew = !prevRowIds[key];
+      var status = e.err ? '<span class="dep-status dep-status--err"><i></i>延误</span>'
+        : e.fed ? '<span class="dep-status dep-status--amber"><i></i>已投喂</span>'
+        : '<span class="dep-status dep-status--ok"><i></i>待醒</span>';
+      var icon = e.kind === 'bot' ? '<i class="dot" style="background:'+e.color+'"></i>' : '<i class="diamond"></i>';
+      var sub = e.kind === 'bot' ? (e.proj ? e.proj + ' · ' : '') + e.cs : e.cs + ' · 定时任务';
+      return '<button type="button" class="dep-row dep-grid'+(i===0?' is-next':'')+(isNew?' row-in':'')+'" data-action="open" data-kind="'+e.kind+'" data-id="'+e.id+'"' +
+        (isNew && firstRender ? ' style="animation-delay:'+(i*45)+'ms"' : '') + '>' +
+        '<span class="dep-time">'+fmtTime(e.at)+'<small>'+dayLabel(e.at)+'</small></span>' +
+        '<span class="dep-cd" data-cd="'+e.at+'">'+fmtCd(e.at - simNow)+'</span>' +
+        '<span class="dep-flight">'+icon+'<span style="min-width:0"><span class="dep-name">'+esc(e.name)+(i===0?'<span class="nexttag">NEXT</span>':'')+'</span><span class="dep-sub" style="display:block">'+esc(sub)+'</span></span></span>' +
+        '<span class="dep-rule">'+esc(e.rule)+'</span>' +
+        status + '</button>';
+    }).join('');
+  }
+  prevRowIds = {};
+  shown.forEach(function(e){ prevRowIds[e.kind + ':' + e.id] = true; });
+  $('#wb8-boardcount').textContent = '显示 ' + shown.length + ' / 共 ' + list.length + ' 班';
+  firstRender = false;
+}
+function renderNow(){
+  var items = [];
+  bots.forEach(function(b){ if(b.busy) items.push({kind:'bot', o:b, at:b.runStartedAt}); });
+  tasks.forEach(function(t){ if(t.running) items.push({kind:'task', o:t, at:t.runStartedAt}); });
+  $('#wb8-nowcount').textContent = items.length ? items.length + ' 班执行中' : '';
+  $('#wb8-now').innerHTML = items.length ? items.map(function(it){
+    var b = it.o;
+    var icon = it.kind === 'bot' ? mascot(b, 26) : '<i class="diamond" style="background:var(--info)"></i>';
+    var act = it.kind === 'bot' ? (b.activity || '正在执行') : '正在执行定时任务';
+    return '<div class="nowitem" data-action="open" data-kind="'+it.kind+'" data-id="'+b.id+'" role="button" tabindex="0">' +
+      icon + '<span class="nowitem__main"><span class="nowitem__name">'+esc(b.name || b.title)+'</span>' +
+      '<span class="nowitem__act" style="display:block">'+esc(act)+'</span>' +
+      '<span class="shimmer"><i></i></span></span>' +
+      '<span class="nowitem__elapsed" data-elapsed="'+it.at+'">'+fmtElapsed(simNow - it.at)+'</span></div>';
+  }).join('') : '<div class="side-empty">当前无执行班次</div>';
+}
+function renderArrivals(){
+  $('#wb8-arrivals').innerHTML = arrivals.length ? arrivals.slice(0, 7).map(function(a){
+    return '<button type="button" class="arritem" data-action="open" data-kind="'+a.kind+'" data-id="'+a.id+'">' +
+      '<span class="arritem__ok'+(a.ok?'':' arritem__ok--no')+'">'+(a.ok?'✓':'✕')+'</span>' +
+      '<span class="arritem__main"><span class="arritem__name">'+esc(a.name)+'</span>' +
+      '<span class="arritem__sum" style="display:block">'+esc(a.summary)+'</span></span>' +
+      '<span class="arritem__time">'+fmtTime(a.at)+'<br><span data-rel="'+a.at+'">'+fmtRel(a.at)+'</span></span></button>';
+  }).join('') : '<div class="side-empty">暂无进港记录</div>';
+}
+function renderFleet(){
+  $('#wb8-fleetcount').textContent = bots.length + ' 只';
+  $('#wb8-fleet').innerHTML = bots.map(function(b){
+    var st = fleetStatus(b);
+    var next = b.busy ? '执行中' : (b.enabled && b.nextAt ? fmtTime(b.nextAt) : '—');
+    return '<button type="button" class="fleetrow" data-action="open" data-kind="bot" data-id="'+b.id+'">' +
+      mascot(b, 26) +
+      '<span class="fleetrow__main"><span class="fleetrow__name">'+esc(b.name)+'<small>'+b.cs+'</small></span>' +
+      '<span class="fleetrow__status '+st.cls+'" style="display:block">'+st.text+'</span></span>' +
+      '<span class="fleetrow__next"><b>'+next+'</b>'+intervalText(b.interval)+'</span></button>';
+  }).join('');
+}
+function renderAll(){
+  renderStats(); renderNotams(); renderFilters(); renderBoard(); renderNow(); renderArrivals(); renderFleet();
+  updateDrawerLive();
+}
+
+/* ================= 抽屉 ================= */
+function openDrawer(kind, id){
+  selected = {kind:kind, id:id};
+  renderDrawer();
+  $('#wb8-scrim').classList.add('show');
+  $('#wb8-drawer').classList.add('open');
+}
+function closeDrawer(){
+  selected = null;
+  $('#wb8-scrim').classList.remove('show');
+  $('#wb8-drawer').classList.remove('open');
+}
+function switchHtml(on, action, label){
+  return '<button type="button" class="sw'+(on?' is-on':'')+'" role="switch" aria-checked="'+on+'" aria-label="'+label+'" data-action="'+action+'"><i></i></button>';
+}
+function renderDrawer(){
+  if(!selected) return;
+  var body = $('#wb8-drawer-body');
+  if(selected.kind === 'bot'){
+    var b = byId(bots, selected.id); if(!b){ closeDrawer(); return; }
+    var st = botStatus(b);
+    var nextText = b.busy ? '执行中' : (b.enabled && b.nextAt ? fmtSmart(b.nextAt) : '—（休眠）');
+    var html =
+      '<div class="d-head">'+mascot(b, 34)+'<span class="d-head__main"><span class="d-name">'+esc(b.name)+'</span>' +
+      '<span class="d-sub" style="display:block">'+b.cs+' · '+esc(b.proj || '无绑定项目')+'</span></span>' +
+      '<span class="chip '+st.cls+'" data-drawer-status><i></i>'+st.text+'</span>' +
+      '<button type="button" class="iconbtn" data-action="close-drawer" aria-label="关闭">✕</button></div>' +
+      '<div class="d-sec"><div class="d-sec-title">状态 STATUS</div>' +
+      '<div class="kv"><span>下次唤醒</span><b class="mono" data-drawer-next>'+nextText+'</b></div>' +
+      '<div class="kv"><span>上次唤醒</span><b class="mono" data-drawer-last>'+(b.lastAt ? fmtSmart(b.lastAt) : '—')+'</b></div>' +
+      '<div class="kv"><span>心跳周期</span><b data-drawer-interval>'+intervalText(b.interval)+'</b></div>' +
+      '<div class="kv"><span>最近报告</span><b data-drawer-report>'+esc(b.lastReport || '—')+'</b></div>' +
+      '<div data-drawer-error>'+(b.lastError ? '<div class="kv kv--err"><span>最近错误</span><b>'+esc(b.lastError)+'</b></div>' : '')+'</div>' +
+      '</div>' +
+      '<div class="d-sec"><div class="d-sec-title">心跳 HEARTBEAT</div>' +
+      '<div class="ctl-row"><span>启用心跳</span>'+switchHtml(b.enabled, 'toggle-hb', '启用心跳')+'</div>' +
+      '<div class="ctl-row"><span>间隔</span><select data-change="interval" aria-label="心跳间隔">' +
+        [5,15,30,60,120,360,720,1440].map(function(v){ return '<option value="'+v+'"'+(v===b.interval?' selected':'')+'>'+intervalText(v).replace('每 ','')+'</option>'; }).join('') +
+      '</select></div>' +
+      '<div class="ctl-row"><span>到点必醒</span>'+switchHtml(b.alwaysWake, 'toggle-always', '到点必醒')+'</div>' +
+      '<div class="d-note">到点必醒 = 跳过判活，每跳都花一次模型调用</div></div>' +
+      '<div class="d-actions">' +
+      '<button type="button" class="btn btn--primary" data-action="wake" data-drawer-wake'+((b.busy || !b.enabled)?' disabled':'')+'>立即催醒</button>' +
+      '<button type="button" class="btn" data-action="enter-session">进入对话</button>' +
+      '<button type="button" class="btn" data-action="open-dir">打开目录</button></div>' +
+      '<div class="d-sec"><div class="d-sec-title">投喂 INBOX</div>' +
+      '<textarea id="wb8-feed" placeholder="写进它的收件箱，30 秒内提前唤醒…" aria-label="投喂内容"></textarea>' +
+      '<button type="button" class="btn d-feedbtn" data-action="feed-send">投喂</button></div>' +
+      (b.goal ? '<div class="d-sec"><div class="d-sec-title">目标 GOAL</div><div class="goal"><div class="goal__text">'+esc(b.goal.text)+'</div><div class="goal__meta">'+esc(b.goal.meta)+'</div></div></div>' : '') +
+      '<div class="d-sec"><div class="d-sec-title">记忆 MEMORY.md · 摘要</div><pre>'+esc(b.memory)+'</pre></div>';
+    body.innerHTML = html;
+  } else {
+    var t = byId(tasks, selected.id); if(!t){ closeDrawer(); return; }
+    var nexts = [], cur = t.nextAt;
+    for(var i = 0; i < 3 && cur; i++){ nexts.push(cur); cur = advanceRule(t, cur); }
+    var html2 =
+      '<div class="d-head"><i class="diamond" style="width:14px;height:14px;background:var(--info)"></i>' +
+      '<span class="d-head__main"><span class="d-name">'+esc(t.title)+'</span>' +
+      '<span class="d-sub" style="display:block">'+t.cs+' · 定时任务</span></span>' +
+      '<span class="chip '+(t.running?'chip--ok':t.enabled?'':'chip--warn')+'" data-drawer-status><i></i>'+(t.running?'执行中':t.enabled?'待醒':'已停用')+'</span>' +
+      '<button type="button" class="iconbtn" data-action="close-drawer" aria-label="关闭">✕</button></div>' +
+      '<div class="d-sec"><div class="d-sec-title">排程 SCHEDULE</div>' +
+      '<div class="kv"><span>规则</span><b>'+esc(t.ruleText)+'</b></div>' +
+      '<div class="kv"><span>下次运行</span><b class="mono" data-drawer-next>'+(t.enabled && t.nextAt ? fmtSmart(t.nextAt) : '—')+'</b></div>' +
+      (nexts.length ? '<div class="kv"><span>随后</span><b class="mono">'+nexts.slice(1).map(fmtSmart).join(' · ')+'</b></div>' : '') +
+      '<div class="ctl-row"><span>启用任务</span>'+switchHtml(t.enabled, 'toggle-task', '启用任务')+'</div></div>' +
+      '<div class="d-actions"><button type="button" class="btn btn--primary" data-action="task-run" data-drawer-wake'+((t.running || !t.enabled)?' disabled':'')+'>立即运行</button>' +
+      '<button type="button" class="btn" data-action="enter-session">进入会话</button></div>' +
+      '<div class="d-sec"><div class="d-sec-title">指令 INSTRUCTION</div><pre>'+esc(t.instruction)+'</pre></div>' +
+      '<div class="d-sec"><div class="d-sec-title">最近运行 RUNS</div>' +
+      (t.runs.length ? t.runs.slice(0,5).map(function(r){
+        return '<div class="runitem"><span class="runitem__ok'+(r.ok?'':' runitem__ok--no')+'">'+(r.ok?'✓':'✕')+'</span>'+esc(r.summary)+'<time>'+fmtSmart(r.at)+'</time></div>';
+      }).join('') : '<div class="side-empty">还没有运行记录</div>') +
+      '</div>';
+    body.innerHTML = html2;
+  }
+}
+function syncSwitch(action, on){
+  var sw = $('[data-action="' + action + '"]');
+  if(sw){ sw.classList.toggle('is-on', on); sw.setAttribute('aria-checked', String(on)); }
+}
+function updateDrawerLive(){
+  if(!selected) return;
+  var chip = $('[data-drawer-status]'), nx = $('[data-drawer-next]'), wk = $('[data-drawer-wake]');
+  if(selected.kind === 'bot'){
+    var b = byId(bots, selected.id); if(!b) return;
+    var st = botStatus(b);
+    if(chip){ chip.className = 'chip ' + st.cls; chip.innerHTML = '<i></i>' + st.text; }
+    if(nx) nx.textContent = b.busy ? '执行中' : (b.enabled && b.nextAt ? fmtSmart(b.nextAt) : '—（休眠）');
+    if(wk) wk.disabled = b.busy || !b.enabled;
+    var last = $('[data-drawer-last]'); if(last) last.textContent = b.lastAt ? fmtSmart(b.lastAt) : '—';
+    var rep = $('[data-drawer-report]'); if(rep) rep.textContent = b.lastReport || '—';
+    var iv = $('[data-drawer-interval]'); if(iv) iv.textContent = intervalText(b.interval);
+    var er = $('[data-drawer-error]'); if(er) er.innerHTML = b.lastError ? '<div class="kv kv--err"><span>最近错误</span><b>' + esc(b.lastError) + '</b></div>' : '';
+    var sel = $('[data-change="interval"]'); if(sel) sel.value = String(b.interval);
+    syncSwitch('toggle-hb', b.enabled);
+    syncSwitch('toggle-always', b.alwaysWake);
+  } else {
+    var t = byId(tasks, selected.id); if(!t) return;
+    if(chip){ chip.className = 'chip ' + (t.running?'chip--ok':t.enabled?'':'chip--warn'); chip.innerHTML = '<i></i>' + (t.running?'执行中':t.enabled?'待醒':'已停用'); }
+    if(nx) nx.textContent = t.enabled && t.nextAt ? fmtSmart(t.nextAt) : '—';
+    if(wk) wk.disabled = t.running || !t.enabled;
+    syncSwitch('toggle-task', t.enabled);
+  }
+}
+
+/* ================= 仿真引擎 ================= */
+function pushNotam(level, kind, sourceId, name, text){
+  for(var i = 0; i < notams.length; i++){
+    if(notams[i].sourceId === sourceId && notams[i].level === 'error' && level === 'error'){
+      notams[i].text = text; notams[i].at = simNow; return;
+    }
+  }
+  notams.unshift({id:'n'+(++notamSeq), level:level, kind:kind, sourceId:sourceId, name:name, text:text, at:simNow});
+  if(notams.length > 5) notams.pop();
+}
+function resolveNotams(sourceId){
+  notams = notams.filter(function(n){ return !(n.sourceId === sourceId && n.level === 'error'); });
+}
+function trimArrivals(){ if(arrivals.length > 14) arrivals.length = 14; }
+function startBotRun(b, manual){
+  b.busy = true; b.runStartedAt = simNow; b.runEndsAt = simNow + (2 + Math.random()*4)*MIN;
+  b.activity = pick(ACTIVITIES); b.nextAt = null; b.fed = false;
+  renderAll();
+  toast(manual ? '已催醒 ' + b.name : b.name + ' 到点唤醒', 'info');
+}
+function completeBotRun(b){
+  b.busy = false; b.lastAt = simNow;
+  var ok = b.failStreak > 0 ? Math.random() < 0.8 : Math.random() < 0.94;
+  if(ok){
+    b.lastError = null; b.failStreak = 0; b.lastReport = pick(REPORTS);
+    b.nextAt = b.enabled ? simNow + b.interval*MIN : null;
+    resolveNotams(b.id);
+    arrivals.unshift({at:simNow, kind:'bot', id:b.id, name:b.name, ok:true, summary:b.lastReport});
+    toast(b.name + ' 完成心跳 · ' + b.lastReport, 'ok');
+  } else {
+    b.failStreak++; b.lastError = pick(ERRORS);
+    b.nextAt = b.enabled ? simNow + b.interval*MIN : null;
+    pushNotam('error', 'bot', b.id, b.name, '心跳失败：' + b.lastError + (b.failStreak > 1 ? ' · 连续 ' + b.failStreak + ' 次' : ''));
+    arrivals.unshift({at:simNow, kind:'bot', id:b.id, name:b.name, ok:false, summary:b.lastError});
+    toast(b.name + ' 心跳失败 · ' + b.lastError, 'err');
+  }
+  trimArrivals(); renderAll();
+}
+function advanceRule(t, base){
+  if(t.rule.type === 'interval') return base + t.rule.ms;
+  if(t.rule.type === 'daily') return nextDaily(t.rule.time, base);
+  if(t.rule.type === 'weekly') return nextWeekly(t.rule.day, t.rule.time, base);
+  return null;
+}
+function startTaskRun(t, manual){
+  t.running = true; t.runStartedAt = simNow; t.runEndsAt = simNow + (1 + Math.random()*2)*MIN;
+  if(t.rule.type === 'once'){ t.nextAt = null; }
+  renderAll();
+  toast(manual ? '已手动运行 ' + t.title : t.title + ' 到点运行', 'info');
+}
+function completeTaskRun(t){
+  t.running = false;
+  var ok = Math.random() < 0.9;
+  var summary = ok ? pick(REPORTS) : pick(ERRORS);
+  t.runs.unshift({at:simNow, ok:ok, summary:summary});
+  if(t.runs.length > 8) t.runs.length = 8;
+  arrivals.unshift({at:simNow, kind:'task', id:t.id, name:t.title, ok:ok, summary:summary});
+  if(ok){ resolveNotams(t.id); }
+  else pushNotam('error', 'task', t.id, t.title, '任务失败：' + summary);
+  if(t.rule.type === 'once'){ t.enabled = false; t.nextAt = null; }
+  else if(t.enabled){ t.nextAt = advanceRule(t, simNow); }
+  trimArrivals(); renderAll();
+  toast(t.title + (ok ? ' 运行完成' : ' 运行失败'), ok ? 'ok' : 'err');
+}
+function fireDue(){
+  var guard = 0;
+  while(guard++ < 80){
+    var ev = null;
+    bots.forEach(function(b){ if(b.enabled && !b.busy && b.nextAt && b.nextAt <= simNow && (!ev || b.nextAt < ev.at)) ev = {kind:'bot', o:b, at:b.nextAt}; });
+    tasks.forEach(function(t){ if(t.enabled && !t.running && t.nextAt && t.nextAt <= simNow && (!ev || t.nextAt < ev.at)) ev = {kind:'task', o:t, at:t.nextAt}; });
+    if(!ev) break;
+    if(ev.kind === 'bot') startBotRun(ev.o, false); else startTaskRun(ev.o, false);
+  }
+  bots.forEach(function(b){ if(b.busy && b.runEndsAt <= simNow) completeBotRun(b); });
+  tasks.forEach(function(t){ if(t.running && t.runEndsAt <= simNow) completeTaskRun(t); });
+}
+function wakeBot(b, manual){
+  if(!b.enabled){ toast(b.name + ' 心跳已休眠，先恢复心跳', 'warn'); return; }
+  if(b.busy){ toast(b.name + ' 正在执行中', 'warn'); return; }
+  startBotRun(b, manual);
+}
+
+/* ================= 时钟 ================= */
+var clockCells = [];
+(function buildClock(){
+  var el = $('#wb8-clock');
+  for(var i = 0; i < 8; i++){
+    var c = document.createElement('span');
+    var colon = (i === 2 || i === 5);
+    c.className = 'flap' + (colon ? ' flap--colon' : '');
+    c.innerHTML = '<span>' + (colon ? ':' : '0') + '</span>';
+    el.appendChild(c);
+    clockCells.push(c);
+  }
+  var runway = $('#wb8-runway');
+  for(var j = 0; j < 26; j++){
+    var dot = document.createElement('i');
+    dot.style.animationDelay = (j * 0.1) + 's';
+    runway.appendChild(dot);
+  }
+})();
+function setFlap(cell, ch){
+  var inner = cell.firstChild;
+  if(inner.textContent === ch) return;
+  if(reduced || speed >= 600 || cell._busy || cell.classList.contains('flap--colon')){ inner.textContent = ch; return; }
+  cell._busy = true;
+  cell.classList.add('flip-out');
+  setTimeout(function(){
+    inner.textContent = ch;
+    cell.classList.remove('flip-out'); cell.classList.add('flip-in');
+    setTimeout(function(){ cell.classList.remove('flip-in'); cell._busy = false; }, 150);
+  }, 120);
+}
+function updateClock(){
+  var d = new Date(simNow);
+  var s = pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  for(var i = 0; i < 8; i++) setFlap(clockCells[i], s[i]);
+  $('#wb8-date').textContent = (d.getMonth()+1) + '月' + d.getDate() + '日 周' + '日一二三四五六'[d.getDay()];
+}
+function updateTimeTexts(){
+  $all('[data-cd]').forEach(function(el){
+    var ms = +el.getAttribute('data-cd') - simNow;
+    el.textContent = fmtCd(ms);
+    el.classList.toggle('is-urgent', ms < 60000 && ms >= 0);
+    el.classList.toggle('is-overdue', ms < 0);
+  });
+  $all('[data-elapsed]').forEach(function(el){ el.textContent = fmtElapsed(simNow - +el.getAttribute('data-elapsed')); });
+  $all('[data-rel]').forEach(function(el){ el.textContent = fmtRel(+el.getAttribute('data-rel')); });
+}
+
+/* ================= 广播 ================= */
+function toast(msg, tone){
+  var box = $('#wb8-toasts');
+  var el = document.createElement('div');
+  el.className = 'toast' + (tone && tone !== 'info' ? ' toast--' + tone : '');
+  el.innerHTML = '<span class="toast__tag">塔台</span><span>' + esc(msg) + '</span>';
+  box.appendChild(el);
+  while(box.children.length > 4) box.removeChild(box.firstChild);
+  setTimeout(function(){
+    el.classList.add('out');
+    setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 160);
+  }, 4200);
+}
+
+/* ================= 交互 ================= */
+root.addEventListener('click', function(e){
+  var el = e.target.closest('[data-action]');
+  if(!el || !root.contains(el)) return;
+  var a = el.getAttribute('data-action');
+  var b, t;
+  if(a === 'open'){ openDrawer(el.getAttribute('data-kind'), el.getAttribute('data-id')); }
+  else if(a === 'close-drawer'){ closeDrawer(); }
+  else if(a === 'wake'){ if(selected && selected.kind === 'bot'){ b = byId(bots, selected.id); if(b) wakeBot(b, true); } }
+  else if(a === 'feed-send'){
+    if(!selected || selected.kind !== 'bot') return;
+    b = byId(bots, selected.id);
+    var ta = $('#wb8-feed'), text = ta && ta.value.trim();
+    if(!text){ toast('先写点什么再投喂', 'warn'); return; }
+    ta.value = '';
+    if(!b.enabled){ toast('已写入收件箱 · 心跳休眠中，恢复后处理', 'warn'); return; }
+    b.fed = true;
+    b.nextAt = Math.min(b.nextAt == null ? Infinity : b.nextAt, simNow + 30*1000);
+    toast('已投喂 ' + b.name + ' · 30 秒内提前唤醒', 'ok');
+    renderAll();
+  }
+  else if(a === 'enter-session'){
+    var nm = selected ? (selected.kind === 'bot' ? (byId(bots, selected.id)||{}).name : (byId(tasks, selected.id)||{}).title) : '';
+    toast('设计稿演示：将打开 ' + (nm || '对应') + ' 的会话', 'info');
+  }
+  else if(a === 'open-dir'){ toast('设计稿演示：将在文件管理器打开目录', 'info'); }
+  else if(a === 'toggle-hb'){
+    if(!selected || selected.kind !== 'bot') return;
+    b = byId(bots, selected.id);
+    b.enabled = !b.enabled;
+    if(b.enabled && !b.busy) b.nextAt = simNow + b.interval*MIN;
+    if(!b.enabled) b.nextAt = null;
+    toast(b.name + (b.enabled ? ' 心跳已恢复' : ' 心跳已关闭 · 转入休眠'), b.enabled ? 'ok' : 'warn');
+    renderAll();
+  }
+  else if(a === 'toggle-always'){
+    if(!selected || selected.kind !== 'bot') return;
+    b = byId(bots, selected.id);
+    b.alwaysWake = !b.alwaysWake;
+    toast(b.name + (b.alwaysWake ? ' 已设为到点必醒' : ' 已恢复判活跳过'), 'info');
+    renderAll();
+  }
+  else if(a === 'toggle-task'){
+    if(!selected || selected.kind !== 'task') return;
+    t = byId(tasks, selected.id);
+    t.enabled = !t.enabled;
+    if(t.enabled && !t.nextAt) t.nextAt = t.rule.type === 'once' ? simNow + 5*MIN : advanceRule(t, simNow);
+    toast(t.title + (t.enabled ? ' 已启用' : ' 已停用'), t.enabled ? 'ok' : 'warn');
+    renderAll();
+  }
+  else if(a === 'task-run'){
+    if(!selected || selected.kind !== 'task') return;
+    t = byId(tasks, selected.id);
+    if(t.running){ toast(t.title + ' 正在执行中', 'warn'); return; }
+    if(!t.enabled){ toast(t.title + ' 已停用，先启用', 'warn'); return; }
+    startTaskRun(t, true);
+  }
+  else if(a === 'notam-wake'){ b = byId(bots, el.getAttribute('data-id')); if(b) wakeBot(b, true); }
+  else if(a === 'notam-dismiss'){
+    var nid = el.getAttribute('data-id');
+    notams = notams.filter(function(n){ return n.id !== nid; });
+    renderNotams(); renderStats();
+  }
+  else if(a === 'notam-enter'){ openDrawer(el.getAttribute('data-kind'), el.getAttribute('data-id')); }
+  else if(a === 'filter'){ filter = el.getAttribute('data-filter'); renderFilters(); renderBoard(); }
+  else if(a === 'speed'){
+    speed = +el.getAttribute('data-speed');
+    $all('[data-action="speed"]').forEach(function(x){ x.classList.toggle('is-on', +x.getAttribute('data-speed') === speed); });
+    $('#wb8-speedbadge').textContent = speed === 1 ? '真实时间' : '×' + speed + ' 演示';
+    toast(speed === 1 ? '已切回真实时间' : '演示流速 ×' + speed, 'info');
+  }
+  else if(a === 'jump'){ simNow += 10*MIN; fireDue(); updateClock(); updateTimeTexts(); toast('已快进 10 分钟（演示）', 'info'); }
+  else if(a === 'fault'){
+    var cands = bots.filter(function(x){ return x.enabled && !x.lastError; });
+    if(!cands.length){ toast('没有可注入的班次', 'warn'); return; }
+    b = null;
+    if(selected && selected.kind === 'bot'){
+      var sb = byId(bots, selected.id);
+      if(sb && sb.enabled && !sb.lastError) b = sb;
+    }
+    if(!b) b = pick(cands);
+    b.lastError = '演示注入：工具调用超时'; b.failStreak = Math.max(1, b.failStreak);
+    pushNotam('error', 'bot', b.id, b.name, '心跳失败：' + b.lastError + ' · 连续 ' + b.failStreak + ' 次');
+    renderAll();
+    toast('已注入演示故障 · ' + b.name, 'err');
+  }
+  else if(a === 'reset'){ closeDrawer(); seed(); firstRender = true; prevRowIds = {}; renderAll(); updateClock(); updateTimeTexts(); toast('已重置演示数据', 'info'); }
+  else if(a === 'info'){ $('#wb8-info').classList.add('show'); }
+  else if(a === 'close-info'){ $('#wb8-info').classList.remove('show'); }
+  else if(a === 'theme'){
+    var dark = root.getAttribute('data-theme') === 'dark';
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+    el.textContent = dark ? '◐ 深色' : '◑ 浅色';
+  }
+});
+root.addEventListener('change', function(e){
+  var el = e.target.closest('[data-change]');
+  if(!el) return;
+  if(el.getAttribute('data-change') === 'interval' && selected && selected.kind === 'bot'){
+    var b = byId(bots, selected.id);
+    b.interval = +el.value;
+    if(b.enabled && !b.busy) b.nextAt = simNow + b.interval*MIN;
+    toast(b.name + ' 心跳间隔已改为 ' + intervalText(b.interval).replace('每 ',''), 'ok');
+    renderAll();
+  }
+});
+root.addEventListener('input', function(e){
+  if(e.target.id === 'wb8-search'){
+    query = e.target.value.trim().toLowerCase();
+    renderBoard();
+  }
+});
+root.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && e.target.classList && e.target.classList.contains('nowitem')){
+    openDrawer(e.target.getAttribute('data-kind'), e.target.getAttribute('data-id'));
+  }
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape'){ closeDrawer(); $('#wb8-info').classList.remove('show'); }
+});
+$('#wb8-info').addEventListener('click', function(e){
+  if(e.target === this) this.classList.remove('show');
+});
+
+/* ================= 启动 ================= */
+seed();
+renderAll();
+updateClock();
+updateTimeTexts();
+var lastReal = Date.now();
+setInterval(function(){
+  var r = Date.now();
+  simNow += (r - lastReal) * speed;
+  lastReal = r;
+  fireDue();
+  updateClock();
+  updateTimeTexts();
+}, 200);
+})();
+</script>
+
+</body>
+</html>

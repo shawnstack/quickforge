@@ -1,6 +1,6 @@
 import { sendJson, readJsonBody, decodeSegment } from '../utils/response.mjs'
 import { logger } from '../utils/logger.mjs'
-import { getSessionStatus, isSessionFileRollbackBusy, updateSessionTitle } from '../agent-manager.mjs'
+import { destroyAgent, getSessionStatus, isSessionFileRollbackBusy, updateSessionTitle } from '../agent-manager.mjs'
 import { ensureBotSession } from '../bot-session.mjs'
 import {
   BOT_STORE,
@@ -225,6 +225,16 @@ export async function handleBotsApi(req, res, url, context = {}) {
     if (req.method === 'DELETE') {
       const existing = await removeBotRecord(botId)
       if (!existing) throw requestError('Bot not found', 404, 'BOT_NOT_FOUND')
+      // 先销毁会话再删项目登记：destroyAgent 会 abort 在途生成、停 goal/watcher、
+      // 做最终 persist 后把会话从内存移除。历史消息保留在存储里（只停机不删档），
+      // 但绝不能再留着活跃会话往 SSE 总线广播——那正是「删了 bot 实时显示还在滚」的根因。
+      if (existing.sessionId) {
+        try {
+          await destroyAgent(existing.sessionId)
+        } catch (error) {
+          logger.warn(`Failed to destroy session for deleted bot ${existing.id}:`, error)
+        }
+      }
       await deleteBotProject(existing.projectId)
       sendJson(res, 200, { ok: true })
       return

@@ -68,6 +68,7 @@ ServerAgent、converter、displayEntries 与 Goal 计划确认仍使用完整消
 `replaceTemplatePlugin` 在提交模板时同步替换上次模板自动选择的插件（办公切开发也撤回），保留用户已有及后来手动重选的插件；周报与 Word 共用 documents 不重复。自动选择来源仅保存在 controller 内存，按完整 capability key 区分，遵守最多四项限制；chip 取消、consume、草稿 restore 清理来源，恢复的草稿视为用户选择。等待冲突、保留草稿及过期异步操作不改变选择。
 
 针对性验证：`tests/frontend/task-launcher.test.ts` 及 capability-suggestions、composer-drafts、composer-draft-restoration 回归测试。浏览器视觉、窄屏和实际插件执行需另做冒烟验证。
+
 ## 目录结构
 
 ```
@@ -121,6 +122,16 @@ components/
 │       ├── ContextCompactionNotice.tsx # 时间线分割线「已压缩上下文」：位置 = 压缩消息在数组里的下标（方案 B，无坐标换算）+ 摘要展开卡
 │       ├── ContextCompactionStatusRow.tsx # 压缩进行中行（state.compactionNotice.phase==='summarizing'）：role=status + 文字流光；空闲/未知阶段返回 null；压缩不经过用户决策，故没有决策行
 │       └── index.ts                # surface 桶导出
+├── bots/                            # bot 前端外壳（侧栏列表 / 新建与设置对话框 / 数据层 / 小头像），概览见下文「机器人」小节
+│   ├── bots-data.ts                 # bot 类型与 `/api/bots*` 请求、心跳间隔拆分、状态投影（「X 分钟前」优先 lastActivityAt）
+│   ├── BotSidebarList.tsx           # 侧栏 bot 列表：复用会话行样式 + dnd-kit 拖拽排序
+│   ├── BotDialogs.tsx               # 新建 bot / bot 设置两个对话框（心跳、吉祥物外观、记忆编辑）
+│   ├── BotAvatar.tsx                # 线描小头像，popKey 变化时重播一次动效
+│   ├── bot-avatar.css               # 小头像样式与 pop 动画
+│   └── mascot/                      # 吉祥物子系统（几何 / 状态 / 交互 / 自主动作 / 漫步 + 两份 CSS）
+├── dreaming/                        # Dreaming（内存策展）设置页与数据层，概览见下文「Dreaming」小节
+│   ├── DreamingSettingsTab.tsx      # 「设置 → Dreaming」整页：概览 / 排期与模型 / 运行历史 / 经验库
+│   └── dreaming-data.ts             # 传输类型与 fetch 层（overview / settings / runs / experiences）
 ├── git/
 │   ├── GitBranchMenu.tsx           # 标题栏 / 置顶摘要（旁挂）/ 提交推送对话框中的分支搜索、切换下拉
 │   ├── GitCommitPushDialog.tsx     # Git 提交 / 提交并推送 / 推送弹窗，支持 AI 生成提交信息
@@ -195,6 +206,11 @@ components/
 │   └── toast.tsx                   # Toast 通知组件 (153 行)
 ├── ErrorBoundary.tsx               # 错误边界组件 (63 行)
 ├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (33 行)
+├── mcp/                             # MCP 服务器管理面板拆件（卡片 / 表单），概览见下文「mcp/」小节
+│   ├── mcp-server-card.tsx          # 单个服务器行：状态徽标、工具 chips、启停 / 编辑 / 删除 / 重连入口
+│   └── mcp-server-form.tsx          # 表单主体（名称 / transport / stdio 命令与环境），args 与 env 走文本互转
+├── mcp-servers-dialog.tsx           # MCP 服务器管理面板（表单 / JSON 双模式编辑、启停与重连）
+├── startup-splash-icon.tsx          # 启动闪屏螺栓图标（`app/StartupScreens.tsx` 复用）
 ├── project-directory-picker.tsx    # 项目目录选择器 (323 行)
 └── skills/                         # Skills 管理面板（数据层在 hooks/use-skills-manager + lib/skills-client，见下文 skills/ 小节）
 ```
@@ -535,6 +551,48 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 - `src/lib/workbench-today-stats.ts` (99 行) # TODAY 统计带数据层：今日会话数、token、任务运行数与成功率，全部来自现成端点
 - `src/lib/workbench-screensaver-settings.ts` (17 行) # 屏保设置与纯判定：30 分钟 idle 阈值、存储键 `workbenchScreensaver`、`screensaverDue(enabled, workbenchOpen)`
 - `src/hooks/useWorkbenchScreensaver.ts` (74 行) # 屏保引擎：页面 30 分钟无操作自动进入工作台，屏保期间任意操作立即退出；手动打开的工作台不受活动影响
+
+### 机器人（`bots/`）
+
+bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自己的目录 + `MEMORY.md` + 可开关的心跳。本目录是它的前端外壳——侧栏列表、新建与设置对话框、接口与状态投影、小头像，以及 `mascot/` 吉祥物子系统。数据全部来自 `/api/bots*` 端点；侧栏那句「X 分钟前」的取值口径是 `lastActivityAt`（会话最后活动时间，用户直聊与心跳真醒都会更新），缺失时回退 `heartbeat.lastWakeAt`（只在整跳心跳跑完时才写）。
+
+- `bots/bots-data.ts` (236 行) # bot 的前端数据层：类型（`BotHeartbeat` / `BotMascot` / `BotSummary` / `BotPatch`）、`/api/bots*` 全套请求（fetch / create / patch / reorder / delete / wake / feed / ensureBotSessionOpen / openBotWorkspace / memory 读写）、心跳间隔拆分 `splitHeartbeatInterval`，以及状态投影 `botStatusSummary` + `formatBotAwakeAgo`（「X 分钟前」优先 `lastActivityAt`，缺失回退 `heartbeat.lastWakeAt`）
+- `bots/BotSidebarList.tsx` (257 行) # 侧栏 bot 列表：复用普通会话行样式，接 dnd-kit 拖拽排序（落到 `reorderBots`），行首小吉祥物 + 状态点
+- `bots/BotDialogs.tsx` (641 行) # 新建 bot 与 bot 设置两个对话框：名称 / 项目、心跳开关与间隔（含「到点必醒」`alwaysWake`）、吉祥物外观（身体色 / 眼睛色 / 是否动 / `showOnComposer`）、`MEMORY.md` 编辑（`fetchBotMemory` / `saveBotMemory`）
+- `bots/BotAvatar.tsx` (51 行) # 黑白线描小头像：只做线描 + 实心圆点、不填色块；「点一下会动」由调用方把 `popKey` 加一让 svg 重挂来重播一次，不常驻不循环
+- `bots/bot-avatar.css` (67 行) # 小头像样式与 pop 动画
+- `bots/mascot/BotMascot.tsx` (289 行) # 吉祥物主体：几何 + 质感层（哑光陶瓷光影与呼吸，全页唯一一份渐变 defs 复用）+ 状态 / 交互 hook 装配；`BotMascotLook` 与服务端 `bot.mascot` 对齐
+- `bots/mascot/mascot-geometry.ts` (73 行) # 几何与调色板常量：viewBox、身体 / 眼睛路径、弧线、各状态时长、`MASCOT_PALETTES` 与默认外观
+- `bots/mascot/mascot-state.ts` (35 行) # 纯状态判定：`resolveMascotState(signals)` 由忙碌 / 休眠 / 交互信号决定当前状态
+- `bots/mascot/mascot-interactions.ts` (225 行) # 交互状态机（纯函数 + controller）：悬停、连点变晕、被戳惊讶、随机观望及各窗口时长常量（`MASCOT_POKE_MS` / `MASCOT_DIZZY_*` / `MASCOT_SURPRISE_*` / `MASCOT_LOOK_*`）
+- `bots/mascot/use-mascot-state.ts` (27 行) # 状态 hook：在 `resolveMascotState` 之上叠一层「刚跑完先开心一会儿（默认 1.8s）再回真实状态」，定时器只在回调里 setState
+- `bots/mascot/use-mascot-interactions.ts` (38 行) # 交互 hook：把 `createMascotInteractController` 接到 DOM 事件，卸载时清理
+- `bots/mascot/use-mascot-actions.ts` (155 行) # 自主小动作：随机伸懒腰 / 打哈欠 / 偷看，含夸赞词表 `MASCOT_PRAISE_WORDS` 与 `containsPraise`，以及各动作间隔与阈值常量
+- `bots/mascot/use-mascot-stroll.ts` (70 行) # 空闲时偶尔溜达：每次 9s、间隔 20s、挂载后 2.5s 先走一轮；`prefers-reduced-motion` 或 `enabled=false`（有状态了 / 退出 bot 模式）立刻站定
+- `bots/mascot/mascot-anim.css` (535 行) # 吉祥物动画表（生成物）：各状态关键帧与呼吸
+- `bots/mascot/mascot-stroll.css` (39 行) # 溜达的横向位移与轨道样式，周期与 `MASCOT_STROLL_DURATION_MS` 对齐（末帧回原位）
+
+### Dreaming（`dreaming/`）
+
+Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自起一次 agent turn，去改工作记忆目录、有必要时把一条经验提升进经验库。所以「一次 run」描述的是**每个会话各自做了什么**，经验库才是给人翻的那一面。本目录是它的设置页与数据层。
+
+- `dreaming/dreaming-data.ts` (252 行) # 传输类型与 fetch 层：`DreamingOverview` / `DreamingRun` / `DreamingExperience` / `DreamingSettings` 等类型，overview、settings 保存、手动触发、runs 列表与详情、restore，以及经验列表与「打开目录」，外加时间 / 耗时格式化（`formatDreamingTimestamp` / `formatDreamingDuration`）
+- `dreaming/DreamingSettingsTab.tsx` (759 行) # 「设置 → Dreaming」整页：概览、排期与模型选择（`formatModelOptionLabel` / `modelRefKey`）、手动触发与运行历史、经验库浏览与打开、restore 操作
+
+### mcp-servers-dialog.tsx (369 行)
+
+设置页里的 MCP 服务器管理面板（`McpServersPanel`）：列表 + **表单 / JSON 双模式**编辑器（草稿互转复用 `src/lib/mcp-helpers.ts`）。增改走 `POST /api/mcp/servers`，删除走 `DELETE /api/mcp/servers/:name`，启停走 `.../:name/enabled`，单个重连走 `POST /api/mcp/reconnect/:name`。
+
+### mcp/（MCP 服务器管理面板拆件）
+
+`mcp-servers-dialog.tsx` 的展示层拆成两个纯展示组件：都只吃 props、不发请求，接口调用与状态仍留在面板里。
+
+- `mcp/mcp-server-card.tsx` (105 行) # 单个 MCP 服务器行（`McpServerCard`）：状态徽标（connected / error / 其余为 muted）、工具 chips 最多露 12 个（`VISIBLE_TOOLS`）其余折叠成计数、启停 / 编辑 / 删除 / 重连四个入口（重连只在已启用且未连接时可点）
+- `mcp/mcp-server-form.tsx` (115 行) # 表单主体（`McpServerForm`）：名称、`transport` 选择，stdio 时才展开 command / args / cwd / env；args（每行一条）与 env（`key=value`）的文本互转复用 `src/lib/mcp-helpers.ts`
+
+### startup-splash-icon.tsx (23 行)
+
+启动闪屏共用的螺栓图标（六边形描边 + 闪电，内联 SVG 渐变），动画类由 `src/styles/startup.css` 提供；由 `app/StartupScreens.tsx` 渲染。
 
 ## 流式渲染缓存与有界窗口（2026-10-29）
 

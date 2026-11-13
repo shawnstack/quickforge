@@ -40,6 +40,9 @@ export type BotSummary = {
   updatedAt: string
   busy?: boolean
   status?: string
+  /** 会话最后活动时间（/api/bots 由会话 metadata 带出）：用户直聊与心跳真醒都会刷新，
+   * 语义是「上次活动」；老记录/无会话时为 null，回退 heartbeat.lastWakeAt。 */
+  lastActivityAt?: string | null
 }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -204,9 +207,12 @@ export function botStatusSummary(bot: BotSummary, now = Date.now()): BotStatusSu
   if (bot.heartbeat?.lastError) return { text: t('botStatusError'), tone: 'error' }
   if (bot.busy || bot.status === 'running') return { text: t('botStatusBusy'), tone: 'busy' }
   if (bot.heartbeat?.enabled === false) return { text: t('botStatusAsleep'), tone: 'asleep' }
+  // 「X 分钟前」优先取会话最后活动（用户直聊也算），没有再回退心跳的 lastWakeAt。
+  const activity = bot.lastActivityAt ? Date.parse(bot.lastActivityAt) : Number.NaN
   const lastWake = bot.heartbeat?.lastWakeAt ? Date.parse(bot.heartbeat.lastWakeAt) : Number.NaN
-  if (!Number.isFinite(lastWake)) return { text: t('botStatusNever'), tone: 'idle' }
-  return { text: formatBotAwakeAgo(now - lastWake), tone: 'idle' }
+  const latest = Number.isFinite(activity) ? activity : lastWake
+  if (!Number.isFinite(latest)) return { text: t('botStatusNever'), tone: 'idle' }
+  return { text: formatBotAwakeAgo(now - latest), tone: 'idle' }
 }
 
 /**

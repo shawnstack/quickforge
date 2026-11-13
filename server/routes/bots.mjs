@@ -51,11 +51,18 @@ function publicBot(bot) {
 
 async function buildBotList() {
   const bots = await listBotRecords()
-  return bots.map((bot) => ({
-    ...publicBot(bot),
-    busy: bot.sessionId ? isSessionFileRollbackBusy(bot.sessionId) : false,
-    status: bot.sessionId ? (getSessionStatus(bot.sessionId)?.status ?? 'idle') : 'idle',
-  }))
+  return bots.map((bot) => {
+    const session = bot.sessionId ? getSessionStatus(bot.sessionId) : null
+    return {
+      ...publicBot(bot),
+      busy: bot.sessionId ? isSessionFileRollbackBusy(bot.sessionId) : false,
+      status: session?.status ?? 'idle',
+      // 会话最后活动时间（用户直聊、心跳真醒都会刷新）：侧栏「X 分钟前」用它，
+      // 比 heartbeat.lastWakeAt（只有心跳整跳完成才写）更贴近用户直觉——
+      // 否则用户刚跟 bot 说过话，侧栏还显示几小时前。
+      lastActivityAt: session?.lastModified ?? null,
+    }
+  })
 }
 
 async function createBot(body) {

@@ -87,6 +87,26 @@ describe('botStatusSummary', () => {
     expect(status.tone).toBe('idle')
   })
 
+  it('lastActivityAt 优先：用户几分钟前直聊过、心跳醒在几小时前 → 显示几分钟前', () => {
+    const bot = makeBot({
+      lastActivityAt: new Date(NOW - 5 * 60_000).toISOString(),
+      heartbeat: { lastWakeAt: new Date(NOW - 3 * 3_600_000).toISOString() },
+    })
+    const status = botStatusSummary(bot, NOW)
+    expect(matchesCopy(status.text, 'botStatusMinutesAgo', { n: 5 })).toBe(true)
+  })
+
+  it('lastActivityAt 缺失时回退心跳 lastWakeAt（老记录/无会话）', () => {
+    const bot = makeBot({ heartbeat: { lastWakeAt: new Date(NOW - 2 * 3_600_000).toISOString() } })
+    const status = botStatusSummary(bot, NOW)
+    expect(matchesCopy(status.text, 'botStatusHoursAgo', { n: 2 })).toBe(true)
+  })
+
+  it('两者都无才显示「从未」；lastActivityAt 显式 null 不参与', () => {
+    const status = botStatusSummary(makeBot({ lastActivityAt: null }), NOW)
+    expect(matchesCopy(status.text, 'botStatusNever')).toBe(true)
+  })
+
   it('心跳关掉 → 睡了', () => {
     const bot = makeBot({ heartbeat: { enabled: false, lastWakeAt: '2026-11-11T10:00:00.000Z' } })
     const status = botStatusSummary(bot, NOW)

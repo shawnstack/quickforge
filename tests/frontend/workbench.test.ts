@@ -148,4 +148,28 @@ describe('工作台（v8 塔台出港屏）', () => {
       expect(i18nSource).not.toContain(`${key}:`)
     }
   })
+
+  it('配色布局精修：顶栏动作成簇（窄屏统计独占一行不孤行关闭）、TODAY 组间发丝分隔、面板图标语义色', () => {
+    expect(componentSource).toContain('className="qf-wb__appbar-actions"')
+    expect(componentSource).toContain('qf-wb__panel-icon--now')
+    expect(componentSource).toContain('qf-wb__panel-icon--arrivals')
+    expect(cssSource).toContain('.qf-wb__appbar-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: none; }')
+    expect(cssSource).toContain('.qf-wb__stats { margin-left: 0; gap: 10px; flex-wrap: nowrap; order: 5; flex: 1 1 100%; }')
+    expect(cssSource).toContain('.qf-wb__today-item { display: inline-flex; align-items: baseline; gap: 8px; padding: 0 18px; border-left: 1px solid var(--qf-wb-bd-line); }')
+    expect(cssSource).toContain('.qf-wb__today-tag + .qf-wb__today-item { border-left: 0; padding-left: 0; }')
+    expect(cssSource).toContain('.qf-wb__panel-icon--now { color: var(--success); opacity: 1; }')
+    expect(cssSource).toContain('.qf-wb__panel-icon--arrivals { color: var(--info); opacity: 1; }')
+    expect(cssSource).toContain('.qf-wb__title span { display: none; }')
+    expect(cssSource).toContain('.qf-wb__flap { width: 20px; height: 30px; }')
+  })
+
+  it('TODAY 带收进出港屏内部：浅色下只有一块暗色仪器岛，无黑-白-黑夹层', () => {
+    const boardAt = componentSource.indexOf('className="qf-wb__board"')
+    const todayAt = componentSource.indexOf('className="qf-wb__today"')
+    const headAt = componentSource.indexOf('className="qf-wb__board-head"')
+    expect(boardAt).toBeGreaterThan(-1)
+    expect(todayAt).toBeGreaterThan(boardAt)
+    expect(headAt).toBeGreaterThan(todayAt)
+    expect(cssSource).toContain('padding: 10px 16px;\n  background: transparent;\n  border-bottom: 1px solid var(--qf-wb-bd-line);')
+  })
 })

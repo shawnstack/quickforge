@@ -534,18 +534,20 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
           <span className="qf-wb__stat"><i className="qf-wb__dot qf-wb__dot--err" />{t('wbStatErrors')} <b>{stats.errors}</b></span>
           <span className="qf-wb__live" title={updatedTitle}><i />LIVE</span>
         </div>
-        <button
-          type="button"
-          className={cn('qf-wb__iconbtn', refreshing && 'is-spin')}
-          onClick={requestRefresh}
-          aria-label={t('wbRefresh')}
-          title={updatedTitle ?? t('wbRefresh')}
-        >
-          <RotateCw className="size-4" />
-        </button>
-        <button type="button" className="qf-wb__iconbtn" onClick={onClose} aria-label={t('workbenchClose')}>
-          <X className="size-4" />
-        </button>
+        <div className="qf-wb__appbar-actions">
+          <button
+            type="button"
+            className={cn('qf-wb__iconbtn', refreshing && 'is-spin')}
+            onClick={requestRefresh}
+            aria-label={t('wbRefresh')}
+            title={updatedTitle ?? t('wbRefresh')}
+          >
+            <RotateCw className="size-4" />
+          </button>
+          <button type="button" className="qf-wb__iconbtn" onClick={onClose} aria-label={t('workbenchClose')}>
+            <X className="size-4" />
+          </button>
+        </div>
       </div>
 
       <div className="qf-wb__runway" aria-hidden="true">
@@ -579,25 +581,24 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
         </div>
       ) : null}
 
-      <div className="qf-wb__today" aria-label={t('wbToday')}>
-        <span className="qf-wb__today-tag"><b>{t('wbToday')}</b><i>TODAY</i></span>
-        <span className="qf-wb__today-item">
-          <i>{t('wbTodaySessions')}</i>
-          <b>{today?.sessions ?? '—'}</b>
-        </span>
-        <span className="qf-wb__today-item">
-          <i>{t('wbTodayTokens')}</i>
-          <b>{today?.tokens != null ? formatTokenCount(today.tokens) : '—'}</b>
-        </span>
-        <span className="qf-wb__today-item" title={t('wbTodayTasksHint')}>
-          <i>{t('wbTodayTasks')}</i>
-          <b>{today?.taskRuns ?? '—'}</b>
-          {today?.taskRuns ? <em>{Math.round(((today.taskSuccess ?? 0) / today.taskRuns) * 100)}%</em> : null}
-        </span>
-      </div>
-
       <div className="qf-wb__main">
         <section className="qf-wb__board" aria-label={t('wbDepartures')}>
+          <div className="qf-wb__today" aria-label={t('wbToday')}>
+            <span className="qf-wb__today-tag"><b>{t('wbToday')}</b><i>TODAY</i></span>
+            <span className="qf-wb__today-item">
+              <i>{t('wbTodaySessions')}</i>
+              <b>{today?.sessions ?? '—'}</b>
+            </span>
+            <span className="qf-wb__today-item">
+              <i>{t('wbTodayTokens')}</i>
+              <b>{today?.tokens != null ? formatTokenCount(today.tokens) : '—'}</b>
+            </span>
+            <span className="qf-wb__today-item" title={t('wbTodayTasksHint')}>
+              <i>{t('wbTodayTasks')}</i>
+              <b>{today?.taskRuns ?? '—'}</b>
+              {today?.taskRuns ? <em>{Math.round(((today.taskSuccess ?? 0) / today.taskRuns) * 100)}%</em> : null}
+            </span>
+          </div>
           <div className="qf-wb__board-head">
             <div className="qf-wb__board-title"><b>{t('wbDepartures')}</b><span>DEPARTURES</span></div>
             <div className="qf-wb__board-tools">
@@ -686,7 +687,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
 
         <aside className="qf-wb__side">
           <section className="qf-wb__panel">
-            <div className="qf-wb__panel-head"><Activity className="qf-wb__panel-icon size-3.5" /><b>{t('wbNow')}</b><span>{nowCount}</span></div>
+            <div className="qf-wb__panel-head"><Activity className="qf-wb__panel-icon qf-wb__panel-icon--now size-3.5" /><b>{t('wbNow')}</b><span>{nowCount}</span></div>
             {nowCount === 0 ? (
               <div className="qf-wb__panel-empty"><Moon className="size-4" /><span>{t('wbNowEmpty')}</span></div>
             ) : (
@@ -716,7 +717,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
             )}
           </section>
           <section className="qf-wb__panel">
-            <div className="qf-wb__panel-head" title={t('wbArrivalsSession')}><PlaneLanding className="qf-wb__panel-icon size-3.5" /><b>{t('wbArrivals')}</b><span>{arrivals.length}</span></div>
+            <div className="qf-wb__panel-head" title={t('wbArrivalsSession')}><PlaneLanding className="qf-wb__panel-icon qf-wb__panel-icon--arrivals size-3.5" /><b>{t('wbArrivals')}</b><span>{arrivals.length}</span></div>
             {arrivals.length === 0 ? (
               <div className="qf-wb__panel-empty"><PlaneLanding className="size-4" /><span>{t('wbArrivalsEmpty')}</span></div>
             ) : arrivals.map((item) => (

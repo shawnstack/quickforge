@@ -129,7 +129,7 @@ describe('工作台 TODAY 统计带接线契约', () => {
   it('CSS：统计带恒暗仪器色，数字用翻牌铂金，窄屏收紧', () => {
     expect(cssSource).toContain('.qf-wb__today {')
     expect(cssSource).toContain('.qf-wb__today-item > b { font: 600 17px/1 var(--font-mono); color: var(--qf-wb-numeral);')
-    expect(cssSource).toContain('.qf-wb__today { padding: 8px 12px; gap: 6px 18px; }')
+    expect(cssSource).toContain('.qf-wb__today { padding: 8px 10px; gap: 6px 18px; }')
   })
 
   it('i18n：统计带键 en/zh 双份齐全', () => {

@@ -75,6 +75,7 @@ import { useChatFileOpener } from '@/hooks/useChatFileOpener'
 import { useDeletedProjectRecovery } from '@/hooks/useDeletedProjectRecovery'
 import { useArtifactPreviewActions } from '@/hooks/useArtifactPreviewActions'
 import { openSessionFromSettings } from '@/lib/open-session-from-settings'
+import { syncSidebarModeToSession } from '@/lib/session-sidebar-mode'
 import { showAlert } from '@/components/ui/confirm-dialog'
 import { ToastContainer } from '@/components/ui/toast'
 import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
@@ -790,17 +791,10 @@ function MainApp() {
     [closeSettingsPage, loadAgentSession, scheduleSessionLoad],
   )
 
-  // 设置页/OS 系统通知打开会话的桥接请求（react-settings-tabs、system-notifications
-  // 经 useUIStore 发起，原 window CustomEvent 桥已由 ui-store 的请求信号替代）。
+  // 设置页/OS 系统通知/工作台打开会话的桥接请求（react-settings-tabs、system-notifications、
+  // Workbench 经 useUIStore 发起，原 window CustomEvent 桥已由 ui-store 的请求信号替代）。
+  // 消费它的 effect 在 useBotWorkspace 之后（要用 botShell.bots 判定侧栏模式）。
   const openSessionRequest = useUIStore((s) => s.openSessionRequest)
-  useEffect(() => {
-    const request = openSessionRequest
-    if (!request) return
-    handleOpenSessionFromSettings(request.sessionId, {
-      skipMetadataPrecheck: request.skipMetadataPrecheck === true,
-    })
-    useUIStore.getState().clearOpenSessionRequest()
-  }, [openSessionRequest, handleOpenSessionFromSettings])
 
   // 桌面标题栏菜单（关于 / 检查更新 / 退出），开合状态与动作见 useDesktopTitlebarMenu。
   const { desktopTitlebarMenuOpen, setDesktopTitlebarMenuOpen, openDesktopAbout, openDesktopUpdatePage, exitDesktopApp } =
@@ -964,6 +958,20 @@ function MainApp() {
     completedSessionIds,
     startNewDefaultSession,
   })
+
+  // 消费上面的 openSessionRequest：设置页 / OS 系统通知 / 工作台点开的会话都从这里进。
+  // 放在 useBotWorkspace 之后是因为下面要读 botShell.bots（判定是不是 bot 会话）。
+  useEffect(() => {
+    const request = openSessionRequest
+    if (!request) return
+    handleOpenSessionFromSettings(request.sessionId, {
+      skipMetadataPrecheck: request.skipMetadataPrecheck === true,
+    })
+    // 侧栏模式跟随当前会话（双向，见 syncSidebarModeToSession）：这些入口不经过侧栏的
+    // 模式切换按钮，不在这里联动就会出现「右侧是 bot 对话、左侧还是普通会话列表」。
+    syncSidebarModeToSession(request.sessionId, botShell.bots, useUIStore)
+    useUIStore.getState().clearOpenSessionRequest()
+  }, [openSessionRequest, handleOpenSessionFromSettings, botShell.bots])
 
   const openProjectSkills = useCallback((project: ProjectInfo) => {
     setSkillsDialog({ scope: 'project', project })

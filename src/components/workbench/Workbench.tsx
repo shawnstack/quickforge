@@ -19,6 +19,7 @@ import {
 import { BotMascot } from '@/components/bots/mascot/BotMascot'
 import { fetchScheduledTasks } from '@/components/scheduled-tasks/scheduled-tasks-data'
 import type { ScheduledTask } from '@/components/scheduled-tasks/scheduled-tasks-types'
+import { fetchTodayStats, formatTokenCount, type TodayStats } from '@/lib/workbench-today-stats'
 import { useUIStore } from '@/stores/ui-store'
 import './workbench.css'
 
@@ -150,6 +151,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
   const [bots, setBots] = useState<BotSummary[] | null>(null)
   const [tasks, setTasks] = useState<ScheduledTask[] | null>(null)
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null)
+  const [today, setToday] = useState<TodayStats | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null)
   const [refreshing, setRefreshing] = useState(false)
@@ -284,14 +286,16 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
 
   const load = useCallback(async () => {
     try {
-      const [nextBots, nextTasks, nextSessions] = await Promise.all([
+      const [nextBots, nextTasks, nextSessions, nextToday] = await Promise.all([
         fetchBots(),
         fetchScheduledTasks().catch(() => null),
         fetch('/api/agents').then((res) => (res.ok ? res.json() : null)).catch(() => null),
+        fetchTodayStats(),
       ])
       setBots(nextBots)
       if (nextTasks) setTasks(nextTasks)
       setSessions(nextSessions?.sessions ?? [])
+      setToday(nextToday)
       setLoadError(null)
       setLastLoadedAt(Date.now())
       observe(nextBots, nextTasks ?? [], nextSessions?.sessions ?? [], Date.now())
@@ -575,6 +579,23 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
         </div>
       ) : null}
 
+      <div className="qf-wb__today" aria-label={t('wbToday')}>
+        <span className="qf-wb__today-tag"><b>{t('wbToday')}</b><i>TODAY</i></span>
+        <span className="qf-wb__today-item">
+          <i>{t('wbTodaySessions')}</i>
+          <b>{today?.sessions ?? '—'}</b>
+        </span>
+        <span className="qf-wb__today-item">
+          <i>{t('wbTodayTokens')}</i>
+          <b>{today?.tokens != null ? formatTokenCount(today.tokens) : '—'}</b>
+        </span>
+        <span className="qf-wb__today-item" title={t('wbTodayTasksHint')}>
+          <i>{t('wbTodayTasks')}</i>
+          <b>{today?.taskRuns ?? '—'}</b>
+          {today?.taskRuns ? <em>{Math.round(((today.taskSuccess ?? 0) / today.taskRuns) * 100)}%</em> : null}
+        </span>
+      </div>
+
       <div className="qf-wb__main">
         <section className="qf-wb__board" aria-label={t('wbDepartures')}>
           <div className="qf-wb__board-head">
@@ -792,7 +813,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
                     </div>
                   </div>
                   <div className="qf-wb__d-actions">
-                    <button type="button" className="qf-wb__btn qf-wb__btn--primary" disabled={actionBusy || isBusy(drawerBot)} onClick={() => void doWake(drawerBot.id)}>
+                    <button type="button" className="qf-wb__btn qf-wb__btn--wake" disabled={actionBusy || isBusy(drawerBot)} onClick={() => void doWake(drawerBot.id)}>
                       {t('wbWakeNow')}
                     </button>
                     <button type="button" className="qf-wb__btn" onClick={() => void enterSession(drawerBot)}>{t('wbOpenChat')}</button>

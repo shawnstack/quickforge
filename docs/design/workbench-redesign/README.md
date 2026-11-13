@@ -16,6 +16,7 @@
 - 验证：tsc -b / 定向 eslint / vitest / build / check:wiki(bad=0) 全绿；隔离实例（临时数据目录 + 假 provider 指向本机 discard 端口，不花真实模型调用）Electron offscreen 实测桌面 1440×900 与窄屏 375×844、浅/深、bot/任务抽屉、NOTAM 渲染/忽略/自动解除、催醒/投喂/开关、进港累积、Esc/重开稳定，零 console/page error。
 - 演示条（流速/快进/注入故障/重置）仅为设计稿 chrome，未进产品代码；产品版用真实端点轮询（20s）+ 1s 时钟。
 - 已知服务端语义：PATCH heartbeat.lastError=null 不清空（normalize 回退旧值），NOTAM 自动解除依赖成功唤醒清空；跨刷新保留进港/NOTAM 需服务端环形记录（拍板项 4，另排）。
+- TODAY 统计带（2026-11-13 晚追加）：通告与主区之间一条恒暗仪器带，`今天 TODAY · 会话 N · TOKEN X · 任务 N 成功率 Y%`。数据全走现成端点、零服务端改动：会话/token 来自 `GET /api/storage/sessions-metadata/index/lastModified`（倒序翻页到本地零点；**返回值为扁平 metadata，usage 在顶层**），任务来自 `GET /api/scheduled-tasks/runs` 的 `status=success/failed` 计数（`startedFrom/To` 为 UTC ISO，与库内 `startedAt` 同基准）。逻辑在 `src/lib/workbench-today-stats.ts`（纯函数 + 分源降级：单源失败该格显示 —）。token 为「今日活跃会话」累计用量近似（usage 按会话累计、无按日切片）；成功率只算已完成运行。验证：隔离库注入真实用量与成功运行后 Electron offscreen 复测，DOM 与独立重算逐格一致（61.1K / 10%），浅/深/窄屏零 console error。
 
 ### 一句话结论
 
@@ -34,6 +35,7 @@
 | 出港屏 DEPARTURES（主屏） | 接下来谁会醒 | bot 心跳 + 定时任务合并班次，按 `nextRunAt` 排序；时间 / 倒计时 / 班次（身份+项目）/ 状态；筛选 全部/心跳/任务 + 搜索；首行 NEXT 标记 |
 | 右栏三段 | 谁在跑 / 谁刚完成 / 名册 | 在跑 NOW（busy bot + running 普通会话 + 已跑时长）；进港 ARRIVALS（bot/任务/普通会话最近完成，会话内累积）；舰队 FLEET（全部 bot 状态点 + 上次醒来） |
 | 通告 NOTAM（顶栏下） | 哪里卡住了 | error/warn 通告：心跳连续失败、跳过；动作 催醒重试 / 进入会话 / 忽略；下次成功自动解除 |
+| TODAY 统计带（通告下） | 今天干了多少 | 今日会话数（createdAt 今日）/ 今日 token（活跃会话用量累计近似）/ 任务已完成运行数 + 成功率；恒暗仪器条，翻牌铂金数字 |
 | 抽屉（点行 / 点通告） | 单只深挖 | 状态 kv、心跳开关（启用 / 间隔 / 到点必醒）、立即催醒 / 进入对话 / 打开目录、投喂收件箱、MEMORY.md 摘要、goal 按需拉取 |
 
 ### 签名视觉（克制，仅三处）
@@ -55,6 +57,8 @@
 | 抽屉 goal | `GET /api/agents/:sessionId/status` → `goal` | 按需单拉 |
 | 抽屉记忆 | `GET /api/bots/:id/memory` | 按需 |
 | 舰队状态 | 复用 `botStatusSummary()` 优先级 | 现成 |
+| TODAY 会话 / token | `GET /api/storage/sessions-metadata/index/lastModified?direction=desc`（扁平 metadata：`createdAt / lastModified / usage.totalTokens`），翻页到本地零点 | 现成（token 为活跃会话累计近似） |
+| TODAY 任务运行 / 成功率 | `GET /api/scheduled-tasks/runs?status=success|failed&startedFrom&startedTo&pageSize=1` 取 `total` | 现成（只算已完成运行） |
 
 **反面清单（刻意不做的假能力）：**
 

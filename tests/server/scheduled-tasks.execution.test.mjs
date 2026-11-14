@@ -865,6 +865,35 @@ describe('scheduled task execution lifecycle', () => {
     await waitFor(() => mocks.syncRun.mock.calls.some(([, value, options]) => value.status === 'failed' && options.stage === 'exception-terminal'), 'failed terminal persistence')
   })
 
+  it('still clears the serial run metadata when the failure row cannot be persisted', async () => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const executor = await import('../../server/scheduled-task-executor.mjs')
+    const agentManager = await import('../../server/agent-manager.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-failure-persist-failure')
+    // 执行本身炸了，异常终态那次落库也炸：旧代码在这一步直接 return，跳过
+    // currentRunIds 清理，serial 任务此后永远被判为「有活跃 run」。
+    agentManager.runPrompt.mockRejectedValueOnce(new Error('agent dispatch exploded'))
+    mocks.syncRun.mockImplementation(async (taskId, run, options) => {
+      if (options.stage === 'exception-terminal') throw new Error('exception terminal sqlite failed')
+      return saveMockRun(taskId, run)
+    })
+
+    const response = await runTask(routes, 'task-failure-persist-failure')
+    expect(response.status).toBe(200)
+    await waitFor(() => mocks.syncRun.mock.calls.some(([, , options]) => options.stage === 'exception-terminal'), 'exception terminal persistence')
+
+    const task = mocks.stores.get('scheduled-tasks')['task-failure-persist-failure']
+    expect(task.currentRunIds).toEqual([])
+    expect(executor.hasActiveTaskRuns(task)).toBe(false)
+
+    // 残留的代价：serial 任务的手动执行与自动调度都被 409/跳过，直到进程重启。
+    mocks.syncRun.mockImplementation(async (taskId, run) => saveMockRun(taskId, run))
+    mocks.nextAgentMode = 'success'
+    await expect(runTask(routes, 'task-failure-persist-failure')).resolves.toMatchObject({ status: 200 })
+  })
+
   it('recovers stale running rows and clears serial active metadata', async () => {
     mocks.listRuns.mockResolvedValue({
       runs: [{ id: 'stale-run', taskId: 'task-stale', status: 'running', trigger: 'schedule', startedAt: '2025-12-31T23:59:00.000Z' }],

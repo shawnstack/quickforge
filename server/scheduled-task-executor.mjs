@@ -431,21 +431,27 @@ export async function executeTask(task, trigger = 'schedule', onStarted) {
     }
     if (persistenceError) {
       logger.error('Scheduled task terminal SQLite persistence failed', { taskId: task.id, runId, errorName: persistenceError?.name || 'Error' })
-      return
     }
-    await updateTask(task.id, (current) => {
-      const remainingRunIds = removeCurrentRunId(current, runId)
-      const stillRunning = remainingRunIds.length > 0
-      return {
-        ...current,
-        status: stillRunning ? current.status : (current.status === 'paused' ? 'paused' : (isRecurringTask(current) ? 'enabled' : 'failed')),
-        currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
-        currentRunIds: remainingRunIds,
-        lastRunAt: finishedAt,
-        lastSessionId: sessionId,
-        nextRunAt: stillRunning || advanceNextRunAtAtStart ? current.nextRunAt : (isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt),
-      }
-    })
+    try {
+      await updateTask(task.id, (current) => {
+        const remainingRunIds = removeCurrentRunId(current, runId)
+        const stillRunning = remainingRunIds.length > 0
+        return {
+          ...current,
+          status: stillRunning ? current.status : (current.status === 'paused' ? 'paused' : (isRecurringTask(current) ? 'enabled' : 'failed')),
+          currentRunId: stillRunning ? remainingRunIds[remainingRunIds.length - 1] : null,
+          currentRunIds: remainingRunIds,
+          lastRunAt: finishedAt,
+          lastSessionId: sessionId,
+          nextRunAt: stillRunning || advanceNextRunAtAtStart ? current.nextRunAt : (isRecurringTask(current) ? (calculateNextRun(current, new Date(finishedAt)) ?? current.nextRunAt) : current.nextRunAt),
+        }
+      })
+    } catch (metadataError) {
+      // 失败的 run 行可能根本没写进去，但 currentRunIds 这条元数据仍必须尽力清掉：
+      // 留着它，serial 任务会被当作「还有活跃 run」永久跳过，手动执行永远 409，
+      // 直到进程重启才有 recoverStaleScheduledTaskRuns 兜底。
+      logger.error('Scheduled task failure metadata persistence failed', { taskId: task.id, runId, errorName: metadataError?.name || 'Error' })
+    }
     emitScheduledTaskNotification({
       task,
       runId,

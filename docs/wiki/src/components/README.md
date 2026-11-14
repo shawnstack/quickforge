@@ -202,7 +202,7 @@ components/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框（命令式 showConfirm/showAlert；模块级互斥防叠加、focus trap、关闭后焦点恢复）
 │   ├── input.tsx                   # 输入框组件 (19 行)：聚焦反馈 `focus-visible:border-ring` + `focus-visible:ring-2` + `focus-visible:ring-ring`（**有意补齐**：旧 `focus-visible:border-primary` 在移除依赖前是死类、不渲染聚焦边框，故与移除依赖前实际渲染不同）
-│   ├── prompt-dialog.tsx           # 提示输入对话框 (122 行)
+│   ├── prompt-dialog.tsx           # 提示输入对话框 (129 行)
 │   └── toast.tsx                   # Toast 通知组件 (153 行)
 ├── ErrorBoundary.tsx               # 错误边界组件 (63 行)
 ├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (33 行)
@@ -565,7 +565,7 @@ bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自�
 
 - `bots/bots-data.ts` (236 行) # bot 的前端数据层：类型（`BotHeartbeat` / `BotMascot` / `BotSummary` / `BotPatch`）、`/api/bots*` 全套请求（fetch / create / patch / reorder / delete / wake / feed / ensureBotSessionOpen / openBotWorkspace / memory 读写）、心跳间隔拆分 `splitHeartbeatInterval`，以及状态投影 `botStatusSummary` + `formatBotAwakeAgo`（「X 分钟前」优先 `lastActivityAt`，缺失回退 `heartbeat.lastWakeAt`）
 - `bots/BotSidebarList.tsx` (257 行) # 侧栏 bot 列表：复用普通会话行样式，接 dnd-kit 拖拽排序（落到 `reorderBots`），行首小吉祥物 + 状态点
-- `bots/BotDialogs.tsx` (641 行) # 新建 bot 与 bot 设置两个对话框：名称 / 项目、心跳开关与间隔（含「到点必醒」`alwaysWake`）、吉祥物外观（身体色 / 眼睛色 / 是否动 / `showOnComposer`）、`MEMORY.md` 编辑（`fetchBotMemory` / `saveBotMemory`）
+- `bots/BotDialogs.tsx` (650 行) # 新建 bot 与 bot 设置两个对话框：名称 / 项目、心跳开关与间隔（含「到点必醒」`alwaysWake`）、吉祥物外观（身体色 / 眼睛色 / 是否动 / `showOnComposer`）、`MEMORY.md` 编辑（`fetchBotMemory` / `saveBotMemory`）
 - `bots/BotAvatar.tsx` (51 行) # 黑白线描小头像：只做线描 + 实心圆点、不填色块；「点一下会动」由调用方把 `popKey` 加一让 svg 重挂来重播一次，不常驻不循环
 - `bots/bot-avatar.css` (67 行) # 小头像样式与 pop 动画
 - `bots/mascot/BotMascot.tsx` (289 行) # 吉祥物主体：几何 + 质感层（哑光陶瓷光影与呼吸，全页唯一一份渐变 defs 复用）+ 状态 / 交互 hook 装配；`BotMascotLook` 与服务端 `bot.mascot` 对齐
@@ -629,7 +629,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 - `settings/tabs/MemorySettingsTab.tsx` (198 行) # 全局记忆：`MEMORY.md` 的开关、Markdown 编辑与保存（走 `/api/memory`）、文档路径与条目计数
 - `settings/tabs/WorkingMemorySettingsTab.tsx` (301 行) # 工作记忆：开关 + 目录路径 + 只读笔记列表。**写笔记的提示词是服务端内部契约，此页刻意不暴露**——用户改不到「文件名＝一句话结论」的格式
-- `settings/tabs/HooksSettingsTab.tsx` (858 行) # Hooks 管理：增删改 hook（事件 / 命令 / 超时）、总开关、执行记录分页（成功 / 失败 / 超时）与手动测试执行、结果输出查看
+- `settings/tabs/HooksSettingsTab.tsx` (865 行) # Hooks 管理：增删改 hook（事件 / 命令 / 超时）、总开关、执行记录分页（成功 / 失败 / 超时）与手动测试执行、结果输出查看
 
 #### 自定义 Provider
 

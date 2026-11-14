@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Copy, Edit3, ExternalLink, Link2, MoreHorizontal, Power, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { InfoTip } from '@/components/ui/info-tip'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { getDateLocale, t } from '@/lib/i18n'
 import { copyTextToClipboard } from '@/lib/message-utils'
 import {
@@ -186,9 +187,25 @@ function ShareActionsSheet({
   onAction: (action: 'copy' | 'open' | 'edit' | 'disable' | 'restore' | 'delete') => void
 }) {
   const canOpen = status === 'active'
+  const sheetRef = useRef<HTMLDivElement>(null)
+
+  // 遮罩点击和 Esc 是两条独立通道，别合并成一处：触摸设备上没有 Esc，桌面键盘用户
+  // 也不该被迫去点遮罩外的空白才能退出。`aria-modal="true"` 声明了弹层之外不可交互，
+  // 所以 Tab 必须在弹层里循环——移动端这里是底部弹层、`sm:` 之上变成居中卡片，
+  // 位置靠 CSS 切换、共用同一份 DOM，陷阱对两种形态都成立。
+  useDialogFocusTrap(sheetRef)
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 sm:items-center" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <div className="w-full max-w-md rounded-t-2xl border border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-quickforge sm:rounded-2xl sm:pb-4" role="dialog" aria-modal="true" aria-label={t('manageShare')}>
+      <div ref={sheetRef} className="w-full max-w-md rounded-t-2xl border border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-quickforge sm:rounded-2xl sm:pb-4" role="dialog" aria-modal="true" aria-label={t('manageShare')}>
         <div className="truncate px-1 text-sm font-medium text-foreground">{share.titleSnapshot || t('untitledConversation')}</div>
         <div className="mt-1 truncate px-1 font-mono text-xs text-muted-foreground" title={shareUrl(share)}>{shareUrl(share)}</div>
         <div className="mt-3 space-y-1">

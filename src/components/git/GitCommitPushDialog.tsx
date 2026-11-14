@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import { ArrowUpFromLine, Check, ChevronDown, GitBranch, GitCommitHorizontal, Loader2, Sparkles, UploadCloud, X } from 'lucide-react'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { canCommitGitChanges, gitFilesForCommit, isDetachedGitStatus } from '@/components/git/git-commit-dialog-logic'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { initializePiStorage, loadLastUsedSessionOptions } from '@/lib/pi-chat'
@@ -53,12 +54,18 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
   const [pushError, setPushError] = useState('')
   const [selectedModel, setSelectedModel] = useState<AnyModel>()
   const [thinkingLevel, setThinkingLevel] = useState<ThinkingLevel>('off')
+  const dialogRef = useRef<HTMLDivElement>(null)
   const totals = useMemo(() => gitTotals(status), [status])
   const selectedFiles = useMemo(() => gitFilesForCommit(status, includeUnstaged), [includeUnstaged, status])
   const selectedPaths = useMemo(() => new Set(selectedFiles.map((file) => file.path)), [selectedFiles])
   const fileCount = status?.counts?.total ?? status?.files.length ?? 0
   const detached = isDetachedGitStatus(status)
   const canCommit = !refreshing && canCommitGitChanges(status, includeUnstaged, message)
+
+  // Esc 由下面那个 window keydown 负责（提交进行中故意不关），这里只管 Tab：
+  // `aria-modal="true"` 已经声明「对话框之外的界面不可交互」，键盘不跟着守住的话，
+  // 读屏用户会被 Tab 带进背后那块自己念作不可交互、实际却能聚焦的对话界面。
+  useDialogFocusTrap(dialogRef)
 
   useEffect(() => {
     if (!open) return
@@ -187,7 +194,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
   }
 
   const dialog = (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-6 py-8" role="dialog" aria-modal="true" onMouseDown={(event) => {
+    <div ref={dialogRef} className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-6 py-8" role="dialog" aria-modal="true" onMouseDown={(event) => {
       if (event.target === event.currentTarget && !busy) {
         setBranchMenuOpen(false)
         onClose()

@@ -295,6 +295,7 @@ export const CodeBlock = memo(function CodeBlock({ language, source, isAssistant
   // button (2000ms) or a ⋯ menu copy action (1200ms).
   const [copyFeedback, setCopyFeedback] = useState<{ action: string; nonce: number; durationMs: number } | null>(null)
   const [lightbox, setLightbox] = useState<{ src: string; label: string } | null>(null)
+  const lightboxRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     const element = rootRef.current
@@ -354,6 +355,12 @@ export const CodeBlock = memo(function CodeBlock({ language, source, isAssistant
 
   useEffect(() => {
     if (!lightbox) return
+    // `aria-modal="true"` 声明了「弹层之外不可交互」，可这个 lightbox 里只有一个 <img>，
+    // 没有任何可聚焦元素：焦点仍留在背后的对话上，读屏念完 aria-label 就落空了。
+    // 所以容器自己做「可落点」（tabIndex={-1}）并主动接住焦点。
+    // 这里**不**挂 `useDialogFocusTrap`——里面没有可循环的焦点，挂了只是空转；
+    // 真正需要的键盘通道是下面这条 Esc（也是这条弹层唯一的键盘退出方式）。
+    lightboxRef.current?.focus()
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setLightbox(null)
     }
@@ -506,10 +513,12 @@ export const CodeBlock = memo(function CodeBlock({ language, source, isAssistant
       )}
       {lightbox ? (
         <div
+          ref={lightboxRef}
           className="quickforge-svg-code-lightbox"
           role="dialog"
           aria-modal="true"
           aria-label={lightbox.label}
+          tabIndex={-1}
           onClick={() => setLightbox(null)}
         >
           <img src={lightbox.src} alt={lightbox.label} onClick={(event) => event.stopPropagation()} />

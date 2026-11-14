@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { t } from '@/lib/i18n'
 import { loadModelCatalog } from '@/lib/model-reference'
 import { getAppStorage } from '@/storage'
@@ -187,6 +188,12 @@ export function ApiKeyPromptDialog({ provider, getKey, saveKey, onResolve, pollI
   const [error, setError] = useState<string | null>(null)
   const resolvedRef = useRef(false)
   const invalidResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Esc 归下面的 `isDialogEscapeKey` 判断（带修饰键的 Esc 不算），这里只补 Tab：
+  // `aria-modal="true"` 声明了「提示框之外的界面不可交互」，键盘不跟着守住，
+  // Tab 就能走到背后那块自己念作不可交互、实际却能聚焦的对话界面上。
+  useDialogFocusTrap(dialogRef)
 
   useEffect(() => () => {
     // Drop a pending "✗ Invalid" reset when the dialog goes away.
@@ -254,6 +261,7 @@ export function ApiKeyPromptDialog({ provider, getKey, saveKey, onResolve, pollI
 
   return (
     <div
+      ref={dialogRef}
       className="qf-api-key-prompt-dialog fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       role="dialog"
       aria-modal="true"

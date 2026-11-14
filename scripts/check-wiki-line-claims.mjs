@@ -34,15 +34,15 @@ const WIKI = path.join(REPO, 'docs', 'wiki')
 const verbose = process.argv.includes('--verbose')
 const strict = process.argv.includes('--strict')
 const EXT = '(?:tsx|mjs|cjs|css|ts)'
-const PAREN = new RegExp('([A-Za-z0-9._/-]+?\\.' + EXT + ')[^()\\n]{0,60}?[（(]\\s*(\\d{2,5})\\s*行', 'g')
-const CELL = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|[^|]*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
+const PAREN = new RegExp('([A-Za-z0-9._/-]+?\\.' + EXT + ')[^()\\n]{0,60}?[（(]\\s*(\\d{1,5})\\s*行', 'g')
+const CELL = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|[^|]*\\|\\s*(\\d{1,5})\\s*\\|', 'g')
 // 反引号式表格行「| `名.ext` | N | …」——本仓库 wiki 的主流写法，2026-11-13 前一直无校验
 // （文档bot 用 backtick-claims.mjs 扫出 77 条隐身声明、2 条漂移后收编为第四形态）。
-const BACKTICK = new RegExp('^\\|\\s*`([A-Za-z0-9._/-]+?\\.' + EXT + ')`\\s*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
+const BACKTICK = new RegExp('^\\|\\s*`([A-Za-z0-9._/-]+?\\.' + EXT + ')`\\s*\\|\\s*(\\d{1,5})\\s*\\|', 'g')
 // 链接式表格行「| [名](…) | N | …」——行数在第二格的变体（hooks/README 主表格等），
 // 2026-11-13 前 CELL（行数第三格）与 BACKTICK 都不匹配，35 条声明整表无人看守
 // （文档bot 用 linkback-claims.mjs 量化出 29 条过时后收编为第五形态）。
-const LINKTABLE = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|\\s*(\\d{2,5})\\s*\\|', 'g')
+const LINKTABLE = new RegExp('^\\|\\s*\\[([A-Za-z0-9._/-]+?\\.' + EXT + ')\\]\\([^)]*\\)\\s*\\|\\s*(\\d{1,5})\\s*\\|', 'g')
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', '.git'])
 // 出现在 wiki 里但不是本仓库文件的第三方库名：只打印，不计入 unresolved。
 // 在途 WIP 的行数漂移不设豁免表：等改动落地后按当刻实测改声明即可（2026-11-13 机制随最后一批 WIP 落地移除）。

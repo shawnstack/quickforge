@@ -2,10 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRe
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
 import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
-import { ProjectDirectoryPicker } from '@/components/project-directory-picker'
-import { SkillsDialog } from '@/components/skills'
-import { BotSettingsDialog, NewBotDialog } from '@/components/bots/BotDialogs'
 import { BotMascot } from '@/components/bots/mascot/BotMascot'
+import { AppGitDialogs, AppOverlays } from '@/components/app/AppDialogs'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
 import { PluginUiToasts } from '@/components/plugins/PluginSlot'
 import { ConversationHeader } from '@/components/app/ConversationHeader'
@@ -77,10 +75,6 @@ import { useArtifactPreviewActions } from '@/hooks/useArtifactPreviewActions'
 import { openSessionFromSettings } from '@/lib/open-session-from-settings'
 import { syncSidebarModeToSession } from '@/lib/session-sidebar-mode'
 import { showAlert } from '@/components/ui/confirm-dialog'
-import { ToastContainer } from '@/components/ui/toast'
-import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
-import { GitGraphDialog } from '@/components/git/GitGraphDialog'
-import { ShareConversationDialog } from '@/components/share/ShareConversationDialog'
 import {
   shouldHandleWorkspaceInspectorRequest,
   workspaceInspectorRuntimeScopeMatches,
@@ -1512,26 +1506,20 @@ function MainApp() {
           </Suspense>
         </>
       ) : null}
-      {gitGraphOpen && agentManager.currentToolProject?.id ? (
-        <GitGraphDialog
-          projectId={agentManager.currentToolProject.id}
-          projectName={agentManager.currentToolProject.name}
-          onClose={() => setGitGraphOpen(false)}
-        />
-      ) : null}
-      {gitCommitDialogOpen ? (
-        <GitCommitPushDialog
-          key={agentManager.currentToolProject?.id ?? 'git-commit'}
-          open
-          projectId={agentManager.currentToolProject?.id}
-          status={titleGitStatus}
-          onClose={() => setGitCommitDialogOpen(false)}
-          onCheckout={handleCheckoutTitleBranch}
-          onRefreshStatus={refreshTitleGitStatus}
-          onStatusChange={setTitleGitStatus}
-          onCompleted={handleGitOperationCompleted}
-        />
-      ) : null}
+      <AppGitDialogs
+        git={{
+          graphOpen: gitGraphOpen,
+          onGraphOpenChange: setGitGraphOpen,
+          commitOpen: gitCommitDialogOpen,
+          onCommitOpenChange: setGitCommitDialogOpen,
+          project: agentManager.currentToolProject,
+          status: titleGitStatus,
+          onStatusChange: setTitleGitStatus,
+          onCheckout: handleCheckoutTitleBranch,
+          onRefreshStatus: refreshTitleGitStatus,
+          onCompleted: handleGitOperationCompleted,
+        }}
+      />
     </div>
     {fileRollbackTarget && fileRollbackTarget.agent === agentManager.agent
       && fileRollbackTarget.sessionId === agentManager.currentSessionId
@@ -1539,47 +1527,37 @@ function MainApp() {
         <TurnRollbackDialog client={fileRollbackTarget.agent} turnIds={fileRollbackTarget.turnIds} onClose={closeFileRollback} onCompleted={completeFileRollback} />
       ) : null}
     {!startupSplashExited ? <StartupSplash exiting /> : null}
-    <ProjectDirectoryPicker
-      open={projectPickerOpen}
-      initialPath={activeProject?.path}
-      disabled={selectingProject}
-      onOpenChange={setProjectPickerOpen}
-      onSelect={handleSelectProjectPath}
-    />
-    <SkillsDialog
-      open={Boolean(ui.skillsDialog)}
-      scope={ui.skillsDialog?.scope ?? 'global'}
-      project={ui.skillsDialog?.project}
-      onOpenChange={(open) => {
-        if (!open) ui.setSkillsDialog(undefined)
+    <AppOverlays
+      picker={{
+        open: projectPickerOpen,
+        initialPath: activeProject?.path,
+        disabled: selectingProject,
+        onOpenChange: setProjectPickerOpen,
+        onSelect: handleSelectProjectPath,
       }}
-      onSaved={handleSkillsSaved}
-    />
-    <NewBotDialog
-      key={newBotOpen ? 'new-bot-open' : 'new-bot-closed'}
-      open={newBotOpen}
-      pending={newBotPending}
-      error={newBotError}
-      onCancel={closeNewBotDialog}
-      onCreate={(name) => { void handleCreateBot(name) }}
-    />
-    <BotSettingsDialog
-      key={botSettings?.id ?? 'no-bot'}
-      bot={botSettings}
-      onClose={() => { closeBotSettings(null) }}
-      onChanged={handleBotChanged}
-      onDeleted={(botId) => { void handleDeleteBot(botId) }}
-    />
-    <ShareConversationDialog
-      open={ui.shareDialogOpen}
-      sessionId={agentManager.currentSessionId}
-      title={sessionTitle(agentManager.currentTitle)}
-      onOpenChange={ui.setShareDialogOpen}
-    />
-    <ToastContainer
-      toasts={toasts}
-      onDismiss={dismissToast}
-      onClick={handleToastClick}
+      skills={{
+        dialog: ui.skillsDialog,
+        onDialogChange: ui.setSkillsDialog,
+        onSaved: handleSkillsSaved,
+      }}
+      bot={{
+        newBotOpen,
+        newBotPending,
+        newBotError,
+        onCancelNewBot: closeNewBotDialog,
+        onCreateBot: handleCreateBot,
+        settings: botSettings,
+        onCloseSettings: closeBotSettings,
+        onSettingsChanged: handleBotChanged,
+        onDeleteBot: handleDeleteBot,
+      }}
+      share={{
+        open: ui.shareDialogOpen,
+        sessionId: agentManager.currentSessionId,
+        title: sessionTitle(agentManager.currentTitle),
+        onOpenChange: ui.setShareDialogOpen,
+      }}
+      toast={{ toasts, onDismiss: dismissToast, onClick: handleToastClick }}
     />
     </>
   )

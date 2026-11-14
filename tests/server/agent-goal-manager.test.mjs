@@ -142,6 +142,33 @@ describe('goal mode through the agent manager', () => {
     return session.agent.state.tools.find((tool) => tool.name === name)
   }
 
+  /**
+   * Park the next goal round inside `startGoalRun`, between `beginGoalRun`
+   * (which registers `session.goalRun`) and `agent.prompt`. The injected runtime
+   * refresh is the only await in between, so holding it open reproduces exactly
+   * the window a user's cancel/stop has to land in.
+   */
+  async function holdNextGoalRoundWindow() {
+    const { configureGoalRunner } = await import('../../server/agent-goal-runner.mjs')
+    const { refreshSessionRuntime } = await import('../../server/agent-session-lifecycle.mjs')
+    let enterWindow
+    const windowOpened = new Promise((resolve) => { enterWindow = resolve })
+    let openGate
+    const gate = new Promise((resolve) => { openGate = resolve })
+    let holdNextRefresh = true
+    configureGoalRunner({
+      refreshRuntime: async (target) => {
+        if (holdNextRefresh) {
+          holdNextRefresh = false
+          enterWindow()
+          await gate
+        }
+        return refreshSessionRuntime(target)
+      },
+    })
+    return { windowOpened, open: () => openGate() }
+  }
+
   it('runs /goal read-only planning and stops at awaiting_confirmation', async () => {
     const sessionId = 'goal-manager-plan'
     const session = await createSession(sessionId)
@@ -474,6 +501,85 @@ describe('goal mode through the agent manager', () => {
         expect(entry.prompt).toContain('<goal_continuation')
       }
     } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('does not dispatch a goal round the user cancelled while it was still starting', async () => {
+    const sessionId = 'goal-manager-cancel-window'
+    const session = await createSession(sessionId)
+    const { handleGoalAction } = await import('../../server/agent-goal-runner.mjs')
+    const window = await holdNextGoalRoundWindow()
+    try {
+      session.agent.autoEnd = false
+      await agentManager.runPrompt(sessionId, '/goal Ship goal mode')
+      await toolByName(session, 'goal_report').execute('call-plan', PLAN)
+      expect(session.goal.status).toBe('awaiting_confirmation')
+      expect(session.agent.prompts).toHaveLength(1)
+
+      // The planning settlement schedules the first execution round.
+      session.agent.autoEnd = true
+      await session.agent.emit({ type: 'agent_end', messages: [] })
+      await window.windowOpened
+
+      // Inside the window the round is registered and owns the command state, but
+      // nothing has reached the agent yet.
+      const run = session.goalRun
+      expect(run?.kind).toBe('execution')
+      expect(session.activeCommandToken).toBe(run)
+      expect(session.agent.prompts).toHaveLength(1)
+
+      await handleGoalAction(session, 'cancel')
+      expect(session.goal.status).toBe('cancelled')
+      expect(session.goalRun).toBeNull()
+
+      window.open()
+      // The round must be torn down (command state + turn released) without ever
+      // being dispatched.
+      await vi.waitFor(() => expect(session.activeCommandToken).toBeNull())
+      expect(session.agent.prompts).toHaveLength(1)
+      expect(session.goalRun).toBeNull()
+      expect(session.goal.status).toBe('cancelled')
+    } finally {
+      window.open()
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('settles the goal round a Stop landed on while it was still starting', async () => {
+    const sessionId = 'goal-manager-stop-window'
+    const session = await createSession(sessionId)
+    const window = await holdNextGoalRoundWindow()
+    try {
+      session.agent.autoEnd = false
+      await agentManager.runPrompt(sessionId, '/goal Ship goal mode')
+      await toolByName(session, 'goal_report').execute('call-plan', PLAN)
+      session.agent.autoEnd = true
+      await session.agent.emit({ type: 'agent_end', messages: [] })
+      await window.windowOpened
+
+      const run = session.goalRun
+      expect(run?.kind).toBe('execution')
+      expect(session.agent.prompts).toHaveLength(1)
+
+      // Real Stop path: POST /api/agents/<id>/abort -> abortRun -> notifyGoalAbort.
+      // It records the abort intent and moves the goal to `pausing` while this
+      // round stays registered but undispatched, so the run must be settled here:
+      // no agent_end will ever arrive to settle it.
+      await agentManager.abortRun(sessionId)
+      expect(session.goal.status).toBe('pausing')
+      expect(session.goalRun).toBe(run)
+
+      window.open()
+      await vi.waitFor(() => expect(session.goalRun).toBeNull(), { timeout: 5_000 })
+      // The stopped round is never dispatched, and the goal settles truthfully
+      // instead of sticking at `pausing` with a live run nobody can finish.
+      expect(session.agent.prompts).toHaveLength(1)
+      expect(session.goal.status).toBe('paused')
+      expect(session.goal.blocker).toBe('user_aborted')
+      expect(session.activeCommandToken).toBeNull()
+    } finally {
+      window.open()
       await agentManager.destroyAgent(sessionId)
     }
   })

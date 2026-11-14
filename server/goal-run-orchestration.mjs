@@ -285,6 +285,26 @@ async function startGoalRun(session, kind) {
     // turn-boundary reconciliation has to happen here: a settings change made
     // while the goal was waiting must reach this round, not a later one.
     await runnerDeps.refreshRuntime(session)
+    // The refresh above is a real await while beginGoalRun already registered
+    // this round as session.goalRun. A cancel or Stop landing in that window
+    // aborts an agent that has no live run yet, so nothing downstream would
+    // stop this round: it would still be dispatched, run to completion for a
+    // goal the user already stopped, and settle without an iteration marker
+    // (afterGoalRunPersisted returns early once goalRun is null). Refuse to
+    // dispatch a round that is no longer the current one, or whose goal is no
+    // longer active / already terminated.
+    if (session.goalRun !== run
+      || goalTerminationIntent(session)
+      || !goalState.isGoalActiveStatus(session.goal?.status)) {
+      // A round that is still registered but never dispatched has no agent_end
+      // coming, so it must be settled here: Stop leaves goalRun pointing at this
+      // run and moves the goal to `pausing`, and without this settlement the
+      // goal would sit in `pausing` with a live run nothing can finish (resume
+      // refuses non-paused states, only a second cancel would get out). Cancel
+      // already cleared goalRun, so finishGoalRun no-ops on that path.
+      if (session.goalRun === run) await finishGoalRun(session, { status: 'aborted' })
+      return false
+    }
     promptPromise = session.agent.prompt({
       role: 'user',
       content: planning ? planningVisibleText(Math.max(1, goalStats(session).planningAttempts + 1)) : continuationVisibleText(round, session.goal.budget.maxIterations),

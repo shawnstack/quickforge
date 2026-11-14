@@ -117,7 +117,7 @@
 | POST | `/api/bots/:id/inbox` | 投喂：`{ text }` 追加进 `.bot/inbox.md`；心跳开着时把 `nextRunAt` 提前到当前时间 |
 | POST | `/api/bots/:id/open-in-explorer` | 在系统文件管理器里打开这个 bot 的目录（`workspacePath`）；**只放行本机调用**，远端 / 局域网请求 403（与 `POST /api/project/:id/open-in-explorer` 同一条边界） |
 
-`lastActivityAt` 是**实时算出来**的，不落库：取该 bot 会话 metadata 的 `lastModified`，用户直聊和心跳真醒都会刷新。侧栏的「X 分钟前」优先用它，缺失才回退 `heartbeat.lastWakeAt`——后者只在**整跳心跳完成**时才写，用户刚聊完几句侧栏却显示几小时前，就是这条差异造成的。
+`lastActivityAt` 是**实时算出来**的，不落库：取该 bot 会话 metadata 的 `lastModified`，用户直聊和心跳真醒都会刷新。会话在内存中时直接读内存态；服务重启或空闲回收后会话尚未加载，则回退读持久化 metadata 的 `lastModified`——只看内存会让刚重启后的 bot 退回更旧的 `heartbeat.lastWakeAt`（后者只在**整跳心跳完成**时才写，用户聊完侧栏仍显示几小时前，就是这条差异造成的）。
 
 内置 `quickforge-api` skill 为上表提供命令行入口：`bots`（列表）、`bot`（详情）、`bot-create`（创建，心跳默认开，`--no-heartbeat` 建完即睡）、`bot-messages`（读会话尾部，只读不唤醒）、`bot-memory`（读记忆）、`bot-wake`（催醒）。删/改/写记忆没有子命令，界面专属（白名单裁决见 `docs/architecture/quickforge-api-skill.zh-CN.md` §4.1）。
 
@@ -170,9 +170,16 @@
 - 同一只还有**动作组**（设计稿 `docs/design/bot-mascot/actions-preview.html`，已验收全要）：偷看打字（输入框有输入就探头看，2.5s 无输入收回）、打招呼（切换 bot 时播一次，挂载首次不算）、伸懒腰（idle 35s 后每 35~55s 随机）、打哈欠（idle 满 180s 来一次）、被夸（消息带夸奖词 → 回答完成的 happy 窗口替换成得意 pleased，也冒 ♡）、惊讶（**连点 3 下**彩蛋；点击梯度 1 击被戳 / 3 击惊讶 / 5 击转晕）。实现：`V3_ACTIONS` 与状态走同一生成管道（`use-mascot-actions.ts` 触发，两层保险只在 idle 演且渲染层再 gate；散步优先级最高 walk > action > mascotState）；被夸的发送文本经 `ChatPanelHost.onComposerSend` 回调穿透到 `useBotWorkspace` 的夸奖计数。
 - 挂载点走 React 属性而不是 DOM 注入：`App.tsx` → `ChatPanelHost` 的 `composerMascot` → `ChatSurface` 把它排在输入框卡片的右上角（`-translate-y-[80%]`；`(cy+r)/512 = 79.7%`，所以不管 `size` 多大，球底边都正好落在输入框上边缘，看起来像站在框上）。球站的其实是「composer 栈最顶上那行」：Goal 控制条占着编辑器正上方一行时（非终态 goal；占行判据与 `GoalControlStrip` 同用 `buildGoalControlStripView`），wrapper 的 `top` 上移 2.375rem（条高 2rem + 条下边距 0.375rem，`goal-workflow.css`），球改站在条顶，不压条上的主操作/「⋯」按钮（2026-11-12 反馈「助手形象会遮挡 goal 命令的执行」的修复）；球顶对消息区的探出量与无条时一致。
 
+### 7.3 `/clear` 不清 bot 的标题
+
+bot 会话的标题就是 bot 的名字：`bot-session.mjs` 建会话时写 `title: bot.name` / `titleSource: 'manual'`，改名由 `PATCH /api/bots/:id` 同步过去。普通会话跑 `/clear` 会把标题复位成默认标题、下一条提问再生成新标题；bot 会话必须例外——`clearSession()`（`server/agent-compaction.mjs`）只清消息和压缩状态，标题回到 bot 名的权威值（`titleSource` 仍是 `manual`），`titleGenerationId` 照样自增（作废在途的标题生成）。
+
+判据是会话 id 的 `bot-` 前缀（`isBotOwnedSessionId`，`server/bots.mjs`）：会话侧不存 bot 字段，前缀是唯一的标识；名字本身要按 id 反查一遍记录（`findBotBySessionId`，同一个 store 读，`heartbeat.lastSessionId` 也算命中——会话被重建过时更靠谱）。查不到记录不算清空失败：保留会话现有标题，照常清空消息。`scheduled-*` 不算 bot 会话——那是一次性任务会话，清空后回到默认标题正是期望行为。少这条例外的表现：清空 bot 会话后，下一条心跳指令会被当成标题生成出来，侧栏上那个名字变成指令原文。
+
 ## 8. 测试
 
-- `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定、心跳指令契约（固定头自进化授权 / 模板三分支：存在用模板、缺失回退种子、bot 重写后 `[报告]` 与不 commit 仍在场）、种子模板引导式（无场景化步骤）与播种不覆盖、`parseHeartbeatReport` 的首行契约。
+- `tests/server/bots.test.mjs`：记录规范化、名字校验、心跳时间推进、`inspectBotWork` 的信号判定、心跳指令契约（固定头自进化授权 / 模板三分支：存在用模板、缺失回退种子、bot 重写后 `[报告]` 与不 commit 仍在场）、种子模板引导式（无场景化步骤）与播种不覆盖、`parseHeartbeatReport` 的首行契约、会话 id 前缀判定（`bot-` 算 bot 会话，`scheduled-` / 普通会话 / 空值不算）、`findBotBySessionId` 的正查与 `heartbeat.lastSessionId` 兜底。
+- `tests/server/agent-compaction.test.mjs`：`/clear` 的标题结局——普通会话复位成默认标题并留给下次提问生成；bot 会话（`bot-` 前缀）把标题写回 bot 名、`titleSource` 为 `manual`、存量被复位过的标题也一并修回，但查不到 bot 记录时保留现状；两种情况下 `titleGenerationId` 都照样自增。
 - `tests/server/bot-mascot.test.mjs`：吉祥物外观的归一化（默认值、大小写、部分合并、非法颜色退回、`animated` / `showOnComposer` 只认显式 `true`）与接口往返（POST/GET/列表都带 `mascot`，PATCH 只改一色不影响另一色、只改显示开关不重置动画）。
 - `tests/frontend/bot-mascot.test.ts`：状态映射优先级（纯函数）＋ 生成 CSS 的契约（6 状态 × 身体/左右眼关键帧、时长与几何数据一致、`prefers-reduced-motion` 与静态开关、弯月眼只在 `happy` 出现）＋ 组件用 CSS 变量换色 ＋ 溜达是单次动画而不是无限循环 ＋ 表情增强（豆豆眼几何、张望挂 `data-ambient`、八个符号的关键帧与绑定、关动画/减弱动效的降级）。
 - `tests/frontend/mascot-interactions.test.ts`：悬停 / 戳 / 连点转晕与东张西望的时机逻辑（纯控制器 + 假时钟：随机间隔 5~9s、一段 3.3s、悬停/点击立即打断、忙状态不张望）。

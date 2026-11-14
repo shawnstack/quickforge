@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createAgent } from './agent-manager.mjs'
 import { hasSession } from './storage.mjs'
-import { patchBotRecord } from './bots.mjs'
+import { BOT_SESSION_ID_PREFIX, patchBotRecord } from './bots.mjs'
 
 /**
  * 会话在不在？——存储层没就绪时按「不在」处理。
@@ -34,7 +34,7 @@ export async function ensureBotSession(bot) {
   if (!bot) return bot
   if (await sessionExists(bot.sessionId)) return bot
 
-  const sessionId = bot.sessionId || `bot-${bot.id}-${randomUUID().slice(0, 8)}`
+  const sessionId = bot.sessionId || `${BOT_SESSION_ID_PREFIX}${bot.id}-${randomUUID().slice(0, 8)}`
   await createAgent(sessionId, {
     // scope 'project' 让会话落进 bot 那个项目桶；projectId 同时决定工具的工作空间。
     scope: bot.projectId ? 'project' : 'global',

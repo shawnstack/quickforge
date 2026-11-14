@@ -76,6 +76,7 @@ describe('bots API exposes the mascot', () => {
   let previousDataDir
   let previousHome
   let previousUserProfile
+  let databaseModule
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qf-bot-mascot-'))
@@ -86,9 +87,13 @@ describe('bots API exposes the mascot', () => {
     process.env.HOME = tmpDir
     process.env.USERPROFILE = tmpDir
     vi.resetModules()
+    // 列表接口会为未加载的会话回退读 SQLite 元数据；正式启动由 server/index.mjs 初始化。
+    databaseModule = await import('../../server/sqlite/database.mjs')
+    await databaseModule.initializeSqliteStorage()
   })
 
   afterEach(async () => {
+    await databaseModule?.closeSqliteStorage().catch(() => {})
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     if (previousHome === undefined) delete process.env.HOME

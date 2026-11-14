@@ -24,6 +24,19 @@ export const MIN_HEARTBEAT_MINUTES = 5
 /** 无论有没有信号，至少这么久叫醒它一次——否则「不产出就没有信号」会死锁。 */
 export const MAX_IDLE_WAKE_MINUTES = 180
 
+/**
+ * bot 会话 id 的约定前缀：`bot-<bot id>-<随机 8 位>`（见 bot-session.mjs）。
+ *
+ * 会话侧不存 bot 字段（见文件头注释），所以「这条会话属于某个 bot」只能靠前缀判断；
+ * 前缀一旦写错，bot 会话就会退回普通会话的行为（例如 /clear 把标题抹成默认标题）。
+ */
+export const BOT_SESSION_ID_PREFIX = 'bot-'
+
+/** 这条会话 id 是不是 bot 的持久会话（前缀约定，不读 bots store）。 */
+export function isBotOwnedSessionId(sessionId) {
+  return typeof sessionId === 'string' && sessionId.startsWith(BOT_SESSION_ID_PREFIX)
+}
+
 /** 吉祥物的默认外观：一个墨黑圆球 + 白色眼睛，动作开着。 */
 export const DEFAULT_MASCOT = { body: '#0B0B0C', eye: '#FFFFFF', animated: true, showOnComposer: true }
 /** 颜色只收 `#RRGGBB` —— 前端 `<input type="color">` 给的就是这个格式。 */
@@ -256,6 +269,22 @@ export async function getBotRecord(botId) {
   if (!botId) return null
   const store = await readStore(BOT_STORE)
   return store[botId] ?? null
+}
+
+/**
+ * 按会话 id 反查 bot（拿不到就是 null）。
+ *
+ * 会话侧不存 bot 字段，所以只能扫一遍记录：`sessionId` 是「一个 bot 一条会话」的正主，
+ * `heartbeat.lastSessionId` 也认——会话被重建过时，那一条才更有可能是正在用的会话。
+ * 调用点：/clear 要在清空后把标题还给 bot 名（见 clearSession）。
+ */
+export async function findBotBySessionId(sessionId) {
+  if (!isBotOwnedSessionId(sessionId)) return null
+  const store = await readStore(BOT_STORE)
+  const records = Object.values(store).filter((bot) => bot && typeof bot === 'object')
+  return records.find((bot) => bot.sessionId === sessionId)
+    ?? records.find((bot) => bot.heartbeat?.lastSessionId === sessionId)
+    ?? null
 }
 
 export async function requireBotRecord(botId) {

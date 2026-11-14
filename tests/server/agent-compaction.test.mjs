@@ -50,6 +50,13 @@ vi.mock('../../server/auto-compaction.mjs', async (importOriginal) => {
 vi.mock('../../server/session-utils.mjs', () => ({
   generateAiTitle: vi.fn(async () => 'AI compacted title'),
 }))
+vi.mock('../../server/bots.mjs', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    findBotBySessionId: vi.fn(async () => null),
+  }
+})
 
 const {
   summarySession,
@@ -60,6 +67,7 @@ const {
 const { compactConversation, saveCompactBackup } = await import('../../server/conversation-compaction.mjs')
 const { compactSessionInPlace, readAutoCompactSettings, DEFAULT_AUTO_COMPACT_SETTINGS } = await import('../../server/auto-compaction.mjs')
 const { generateAiTitle } = await import('../../server/session-utils.mjs')
+const { findBotBySessionId } = await import('../../server/bots.mjs')
 const { createAgent, resetIdleTimer } = await import('../../server/agent-manager.mjs')
 const { persistSession } = await import('../../server/agent-persistence.mjs')
 const { emitSessionEvent } = await import('../../server/agent-session-events.mjs')
@@ -416,5 +424,49 @@ describe('clearSession', () => {
     expect(persistSession).toHaveBeenCalledWith(session)
     expect(emittedTypes()).toEqual(['message_end', 'agent_end', 'title_updated'])
     expect(result).toEqual({ sessionId: 'session-1', status: 'idle', cleared: true })
+  })
+
+  it('keeps the bot name as the title when a bot-owned session is cleared', async () => {
+    const session = makeSession({
+      sessionId: 'bot-9f3c1a2b-7d6e5f40',
+      title: '质检bot',
+      titleSource: 'manual',
+      titleGenerationId: 4,
+    })
+    session.agent.state.messages = [textMessage('user', 'heartbeat'), textMessage('assistant', 'ok')]
+    findBotBySessionId.mockResolvedValueOnce({ id: '9f3c1a2b', name: '质检bot' })
+
+    const result = await clearSession(session)
+
+    expect(session.agent.state.messages).toEqual([])
+    // bot 会话的标题就是它的名字：/clear 只清聊天记录，不能抹成默认标题。
+    expect(session.title).toBe('质检bot')
+    expect(session.titleSource).toBe('manual')
+    // 在途的标题生成照样要作废，否则清空后可能被旧生成覆盖。
+    expect(session.titleGenerationId).toBe(5)
+    expect(findBotBySessionId).toHaveBeenCalledWith('bot-9f3c1a2b-7d6e5f40')
+    expect(emitSessionEvent).toHaveBeenCalledWith(session, { type: 'title_updated', title: '质检bot' })
+    expect(result).toEqual({ sessionId: 'bot-9f3c1a2b-7d6e5f40', status: 'idle', cleared: true })
+  })
+
+  it('restores a bot title that an earlier /clear had already reset', async () => {
+    const session = makeSession({ sessionId: 'bot-9f3c1a2b-7d6e5f40', title: 'New chat', titleSource: 'default' })
+    findBotBySessionId.mockResolvedValueOnce({ id: '9f3c1a2b', name: '质检bot' })
+
+    await clearSession(session)
+
+    expect(session.title).toBe('质检bot')
+    expect(session.titleSource).toBe('manual')
+  })
+
+  it('keeps the current bot session title when the bot record cannot be found', async () => {
+    const session = makeSession({ sessionId: 'bot-9f3c1a2b-7d6e5f40', title: '改过名的会话' })
+    findBotBySessionId.mockResolvedValueOnce(null)
+
+    const result = await clearSession(session)
+
+    // 查不到记录不是清空失败的理由，标题保留原样。
+    expect(session.title).toBe('改过名的会话')
+    expect(result).toEqual({ sessionId: 'bot-9f3c1a2b-7d6e5f40', status: 'idle', cleared: true })
   })
 })

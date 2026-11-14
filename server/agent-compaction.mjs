@@ -31,6 +31,7 @@ import { generateAiTitle } from './session-utils.mjs'
 // 提供（函数作用域引用，ESM live binding 安全）。
 import { createAgent, resetIdleTimer } from './agent-manager.mjs'
 import { persistSession } from './agent-persistence.mjs'
+import { findBotBySessionId, isBotOwnedSessionId } from './bots.mjs'
 
 export function resetSessionCompaction(session) {
   session.contextCompaction = null
@@ -374,8 +375,21 @@ export async function clearSession(session) {
   session.status = 'idle'
   session.startedAt = null
   session.finishedAt = new Date().toISOString()
-  session.title = 'New chat'
-  session.titleSource = 'default'
+  // bot 会话（`bot-<id>-<rand>`）的标题就是 bot 的名字，也是它在侧栏上的身份：
+  // /clear 只清聊天记录，标题要回到 bot 名的权威值——否则下一条心跳指令会被当成标题
+  // 生成出来，侧栏那个名字就变成指令原文了。查不到记录（存储抖动、记录已删）时保留现状，
+  // 顺带保证「清空」这件事本身不会因为查不到 bot 而失败。
+  if (isBotOwnedSessionId(session.sessionId)) {
+    const bot = await findBotBySessionId(session.sessionId).catch(() => null)
+    if (bot?.name) {
+      session.title = bot.name
+      session.titleSource = 'manual'
+    }
+  } else {
+    session.title = 'New chat'
+    session.titleSource = 'default'
+  }
+  // 标题来源变了也要作废在途的标题生成，否则清空后可能被更早开始的那次生成覆盖。
   session.titleGenerationId += 1
   session.agent.state.isStreaming = false
   session.agent.state.streamingMessage = undefined

@@ -60,6 +60,7 @@ describe('bots API', () => {
   let previousDataDir
   let previousHome
   let previousUserProfile
+  let databaseModule
 
   beforeEach(async () => {
     tmpDir = await mkdtemp(path.join(os.tmpdir(), 'qf-bots-route-'))
@@ -70,9 +71,13 @@ describe('bots API', () => {
     process.env.HOME = tmpDir
     process.env.USERPROFILE = tmpDir
     vi.resetModules()
+    // lastActivityAt 的持久化回退要读 SQLite 会话元数据；正式启动由 server/index.mjs 初始化。
+    databaseModule = await import('../../../server/sqlite/database.mjs')
+    await databaseModule.initializeSqliteStorage()
   })
 
   afterEach(async () => {
+    await databaseModule?.closeSqliteStorage().catch(() => {})
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     if (previousHome === undefined) delete process.env.HOME
@@ -117,6 +122,44 @@ describe('bots API', () => {
     expect(res.body.bots).toHaveLength(1)
     expect(res.body.bots[0].name).toBe('one')
     expect(res.body.bots[0]).toHaveProperty('busy')
+  })
+
+  it('falls back to the persisted lastModified when the bot session is not in memory', async () => {
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'rested' })
+    const bot = created.body.bot
+    expect(bot.sessionId).toEqual(expect.any(String))
+
+    // 模拟「服务重启后会话尚未加载」：只有落盘的 metadata，没有内存态。
+    const lastModified = new Date(Date.now() - 42 * 60_000).toISOString()
+    const { writeSessionValueWithMetadata } = await import('../../../server/storage.mjs')
+    await writeSessionValueWithMetadata(bot.sessionId, {
+      id: bot.sessionId,
+      title: bot.name,
+      createdAt: lastModified,
+      lastModified,
+      messages: [],
+      scope: 'project',
+      projectId: bot.projectId,
+    })
+
+    const res = await callBots('GET', 'http://localhost/api/bots')
+    expect(res.status).toBe(200)
+    expect(res.body.bots[0].lastActivityAt).toBe(lastModified)
+  })
+
+  it('keeps the list at 200 when SQLite is not initialized yet', async () => {
+    // 启动早期 window：会话存储还没打开时 getSqliteStorage() 必抛。
+    // 「最后活动时间」只是列表的附加字段，拿不到就退到 heartbeat.lastWakeAt，
+    // 不该把整条 GET /api/bots 打成 500。
+    const created = await callBots('POST', 'http://localhost/api/bots', { name: 'early' })
+    expect(created.status).toBe(201)
+    await databaseModule.closeSqliteStorage()
+
+    const res = await callBots('GET', 'http://localhost/api/bots')
+    expect(res.status).toBe(200)
+    expect(res.body.bots).toHaveLength(1)
+    // 内存里没有这条会话，落盘 metadata 也读不到 → 回退成 null。
+    expect(res.body.bots[0].lastActivityAt).toBeNull()
   })
 
   it('rejects a duplicate name and an unusable name', async () => {

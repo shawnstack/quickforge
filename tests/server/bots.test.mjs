@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -9,6 +9,7 @@ import {
   BOT_STORE,
   ensureBotWorkspace,
   inspectBotWork,
+  isBotOwnedSessionId,
   nextHeartbeatAt,
   normalizeBotName,
   normalizeBotRecord,
@@ -16,10 +17,118 @@ import {
 import { BOT_HEARTBEAT_REPORT_PREFIX, heartbeatInstruction, parseHeartbeatReport } from '../../server/bot-runner.mjs'
 import { stores } from '../../server/storage.mjs'
 
+// 这个文件必须自己把数据目录挪走：用例里 saveBotRecord / ensureBotWorkspace 走真实现，
+// 而 server/storage.mjs 的 dataDir 是 **import 时求值** 的 const——在 beforeEach 里改
+// QUICKFORGE_DATA_DIR 已经太晚，静态 import 在文件加载阶段就把生产目录（~/.quickforge）
+// 定死了，于是测试记录直接写进真 bots.json、bot 目录长在 ~/.quickforge/bots/ 下。
+// vi.hoisted 的回调先于模块图加载执行，是唯一能抢在 dataDir 求值之前的位置。
+// （回调里不能引用 import 进来的东西，所以只用 process 拼临时目录。）
+const { isolatedDataDir, originalDataDir } = vi.hoisted(() => {
+  const originalDataDir = process.env.QUICKFORGE_DATA_DIR
+  const base = (process.env.TEMP || process.env.TMPDIR || process.env.TMP || '/tmp').replace(/[\\/]+$/, '')
+  const isolatedDataDir = `${base}/qf-bots-unit-${process.pid}-${Date.now()}`
+  process.env.QUICKFORGE_DATA_DIR = isolatedDataDir
+  return { isolatedDataDir, originalDataDir }
+})
+
+afterAll(async () => {
+  // 还原到文件加载前的值：同一个 worker 里后续测试文件不该被这次的临时目录带走。
+  if (originalDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
+  else process.env.QUICKFORGE_DATA_DIR = originalDataDir
+  await fs.rm(isolatedDataDir, { recursive: true, force: true })
+})
+
+describe('test isolation (never touch the user data dir)', () => {
+  // 隔离的护栏：这些断言红了，说明 hoisted 里的 env 设置没抢在 dataDir 求值之前，
+  // 下面的用例又会往真实 ~/.quickforge 里写 bot 记录。
+  it('points the storage layer at the throwaway data dir', async () => {
+    const { dataDir } = await import('../../server/storage.mjs')
+    expect(process.env.QUICKFORGE_DATA_DIR).toBe(isolatedDataDir)
+    // dataDir 是 path.resolve 过的（Windows 上分隔符会被统一成 \），比的是同一个目录。
+    expect(dataDir).toBe(path.resolve(isolatedDataDir))
+  })
+
+  it('writes seeded bot records into that dir, not into the user data dir', async () => {
+    const { normalizeBotRecord, saveBotRecord } = await import('../../server/bots.mjs')
+    const saved = await saveBotRecord(normalizeBotRecord({ name: 'isolation-probe' }))
+    const storeFile = path.join(isolatedDataDir, 'storage', 'conversations', 'global', 'bots.json')
+    const stored = JSON.parse(await fs.readFile(storeFile, 'utf8'))
+    expect(Object.keys(stored)).toContain(saved.id)
+  })
+})
+
 describe('bots store registration', () => {
   it('registers the bots store so the generic storage route can reach it', () => {
     expect(stores.has(BOT_STORE)).toBe(true)
     expect(BOT_STORE).toBe('bots')
+  })
+})
+
+describe('isBotOwnedSessionId', () => {
+  it('recognises bot sessions by the bot- id prefix', () => {
+    expect(isBotOwnedSessionId('bot-9f3c1a2b-7d6e5f40')).toBe(true)
+  })
+
+  it('does not claim user, scheduled or missing session ids', () => {
+    // scheduled-* 是一次性任务会话，不是 bot 的持久会话：两者前缀不能混用。
+    expect(isBotOwnedSessionId('scheduled-task-1-lx2f')).toBe(false)
+    expect(isBotOwnedSessionId('session-1')).toBe(false)
+    expect(isBotOwnedSessionId(null)).toBe(false)
+    expect(isBotOwnedSessionId(undefined)).toBe(false)
+  })
+})
+
+describe('findBotBySessionId', () => {
+  // 只 mock 掉 storage 的读写：真实落盘的话，模块图里的 dataDir 是 import 时定下的
+  // 用户数据目录（`~/.quickforge`），测试会往真 bots.json 里塞记录。
+  afterEach(() => {
+    vi.doUnmock('../../server/storage.mjs')
+    vi.resetModules()
+  })
+
+  async function loadLookup(store) {
+    const readStore = vi.fn(async () => store)
+    vi.resetModules()
+    vi.doMock('../../server/storage.mjs', () => ({
+      dataDir: '/mock-data',
+      readStore,
+      atomicProjectConfigUpdate: vi.fn(),
+      atomicUpdate: vi.fn(),
+    }))
+    const { findBotBySessionId } = await import('../../server/bots.mjs')
+    return { findBotBySessionId, readStore }
+  }
+
+  it('finds the bot that owns the session id', async () => {
+    const { findBotBySessionId } = await loadLookup({
+      a: { id: 'bot-a', name: '质检bot', sessionId: 'bot-9f3c1a2b-7d6e5f40', heartbeat: { lastSessionId: null } },
+      b: { id: 'bot-b', name: '小跟班', sessionId: 'bot-other-0000', heartbeat: { lastSessionId: null } },
+    })
+
+    expect((await findBotBySessionId('bot-9f3c1a2b-7d6e5f40'))?.id).toBe('bot-a')
+  })
+
+  it('falls back to heartbeat.lastSessionId when the session was rebuilt', async () => {
+    const { findBotBySessionId } = await loadLookup({
+      a: { id: 'bot-a', name: '质检bot', sessionId: 'bot-new-0000', heartbeat: { lastSessionId: 'bot-old-1111' } },
+    })
+
+    expect((await findBotBySessionId('bot-old-1111'))?.id).toBe('bot-a')
+  })
+
+  it('returns null for bot sessions without a record', async () => {
+    const { findBotBySessionId } = await loadLookup({})
+
+    expect(await findBotBySessionId('bot-9f3c1a2b-7d6e5f40')).toBeNull()
+  })
+
+  it('does not even read the store for non-bot session ids', async () => {
+    const { findBotBySessionId, readStore } = await loadLookup({})
+
+    expect(await findBotBySessionId('scheduled-task-1-lx2f')).toBeNull()
+    expect(await findBotBySessionId('session-1')).toBeNull()
+    expect(await findBotBySessionId(undefined)).toBeNull()
+    expect(readStore).not.toHaveBeenCalled()
   })
 })
 

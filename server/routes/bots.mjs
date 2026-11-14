@@ -21,6 +21,7 @@ import {
   writeBotMemory,
 } from '../bots.mjs'
 import { atomicProjectConfigUpdate } from '../storage.mjs'
+import { readSessionStateRecord } from '../session-state-service.mjs'
 import { runBotHeartbeat } from '../bot-runner.mjs'
 import { openPathInFileManager } from '../utils/platform.mjs'
 
@@ -49,6 +50,20 @@ function publicBot(bot) {
   }
 }
 
+/** 会话不在内存时（重启 / 空闲回收），从持久化 metadata 取最后活动时间。 */
+function storedLastModified(sessionId) {
+  if (!sessionId) return null
+  try {
+    const lastModified = readSessionStateRecord(sessionId)?.metadata?.lastModified
+    return typeof lastModified === 'string' ? lastModified : null
+  } catch {
+    // SQLite 还没初始化时 getSqliteStorage() 必抛（早期启动、只读诊断、单测）。
+    // 列表接口不该被这条「锦上添花」的时间戳打成 500：拿不到就回退，
+    // 调用方会退到 heartbeat.lastWakeAt。
+    return null
+  }
+}
+
 async function buildBotList() {
   const bots = await listBotRecords()
   return bots.map((bot) => {
@@ -60,7 +75,9 @@ async function buildBotList() {
       // 会话最后活动时间（用户直聊、心跳真醒都会刷新）：侧栏「X 分钟前」用它，
       // 比 heartbeat.lastWakeAt（只有心跳整跳完成才写）更贴近用户直觉——
       // 否则用户刚跟 bot 说过话，侧栏还显示几小时前。
-      lastActivityAt: session?.lastModified ?? null,
+      // getSessionStatus 只覆盖内存中的会话；重启后未加载的 bot 再也拿不到
+      // 真实活动时间，会退回更旧的 lastWakeAt，所以这里补一次落盘值。
+      lastActivityAt: session?.lastModified ?? storedLastModified(bot.sessionId),
     }
   })
 }

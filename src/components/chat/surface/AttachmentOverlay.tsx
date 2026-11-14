@@ -1,10 +1,11 @@
 /* eslint-disable react-refresh/only-export-components -- exports the overlay component, the preview error boundary and the imperative openAttachmentOverlay entry. */
-import { Component, useCallback, useEffect, useState } from 'react'
+import { Component, useCallback, useEffect, useRef, useState } from 'react'
 import type { ErrorInfo, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { Download, X } from 'lucide-react'
 import { t } from '@/lib/i18n'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import type { Attachment } from './ChatTypes'
 import { resolveAttachmentKind } from './attachment-loader'
 import { resolveAttachmentPayload } from './attachment-client'
@@ -28,8 +29,13 @@ function errorMessage(error: unknown): string {
 
 /** Fallback UI shown when a preview crashes the boundary; exported for static tests. */
 export function AttachmentPreviewErrorFallback({ message, onClose }: { message: string; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // 兜底界面也是一层 aria-modal：焦点同样不能漏到背后（外层 overlay 的 Esc 仍生效）。
+  useDialogFocusTrap(dialogRef)
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6" role="alertdialog" aria-modal="true">
+    <div ref={dialogRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6" role="alertdialog" aria-modal="true">
       <div className="max-w-md rounded-lg border border-border bg-background p-4 text-center shadow-lg">
         <div className="text-sm font-medium text-destructive">{t('attachmentPreviewErrorTitle')}</div>
         {message ? <div className="mt-2 break-words text-xs text-muted-foreground">{message}</div> : null}
@@ -74,6 +80,7 @@ export class AttachmentPreviewErrorBoundary extends Component<AttachmentPreviewE
 }
 
 export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProps) {
+  const overlayRef = useRef<HTMLDivElement>(null)
   const [showExtractedText, setShowExtractedText] = useState(false)
   const [loaded, setLoaded] = useState<{ source: Attachment; attachment: Attachment } | null>(null)
   const [failed, setFailed] = useState<{ source: Attachment; message: string } | null>(null)
@@ -111,6 +118,9 @@ export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProp
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  // Esc 在上面处理；这里只管 Tab 循环，别让焦点跑到背后的对话流里。
+  useDialogFocusTrap(overlayRef)
 
   const [downloadError, setDownloadError] = useState('')
   const handleDownload = () => {
@@ -174,6 +184,7 @@ export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProp
     // `qf-attachment-overlay` has no CSS rule and no production querySelector:
     // it is a test/style hook class — keep it when refactoring the overlay markup.
     <div
+      ref={overlayRef}
       className="qf-attachment-overlay fixed inset-0 z-50 flex flex-col bg-black/90"
       role="dialog"
       aria-modal="true"

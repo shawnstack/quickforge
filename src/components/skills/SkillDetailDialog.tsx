@@ -4,6 +4,7 @@ import { Check, Copy, FolderTree, Info, Loader2, X } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { t } from '@/lib/i18n'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import type { SkillContent } from '@/lib/skills-client'
 import type { SkillSummary, SkillsScope } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -91,6 +92,17 @@ export function SkillDetailDialog({
   useEffect(() => {
     detailDialogRef.current?.focus({ preventScroll: true })
   }, [skill.name])
+
+  // 弹窗一直是 aria-modal，此前只有遮罩点击与关闭按钮能退出：补 Esc，补 Tab 循环。
+  useDialogFocusTrap(detailDialogRef)
+
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [onClose])
 
   if (typeof document === 'undefined') return null
 

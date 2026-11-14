@@ -1,6 +1,7 @@
-import type { RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
 import { Check, ChevronDown, Copy, Loader2, RefreshCw } from 'lucide-react'
 import { t } from '@/lib/i18n'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import type { SkillsScope } from '@/lib/types'
 import { sourcePathLabel } from './skill-source'
 
@@ -34,6 +35,22 @@ export function SkillsPageHead({
   loading,
   refreshing,
 }: SkillsPageHeadProps) {
+  const popoverRef = useRef<HTMLDivElement>(null)
+
+  // 弹层声明了 role="dialog"，键盘就得守得住：Tab 在其中循环、Esc 收起。
+  // 不补 aria-modal：这不是模态弹层——页头的「重新扫描」按钮仍可用，
+  // 声明 aria-modal 会让读屏把页头其余部分误报成不可交互。
+  useDialogFocusTrap(popoverRef, { enabled: pathsOpen })
+
+  useEffect(() => {
+    if (!pathsOpen) return undefined
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPathsOpen(false)
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [pathsOpen, setPathsOpen])
+
   return (
     <div className="quickforge-skills-page-head">
       <p className="quickforge-skills-page-description">{t('skillsPageDescription')}</p>
@@ -58,6 +75,7 @@ export function SkillsPageHead({
               {pathsOpen
                 ? (
                   <div
+                    ref={popoverRef}
                     className="quickforge-skills-popover quickforge-menu-in"
                     role="dialog"
                     aria-label={t('skillSearchPathsTitle')}

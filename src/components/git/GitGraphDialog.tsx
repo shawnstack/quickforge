@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { GitBranch, GitGraph, Loader2, RefreshCw, Tag, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -6,6 +6,7 @@ import { getGitLog } from '@/components/workspace/workspace-api'
 import type { GitLogCommit, GitLogDecoration } from '@/components/workspace/workspace-types'
 import { getDateLocale, t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 
 type GitGraphDialogProps = {
   projectId: string
@@ -55,6 +56,10 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string>()
   const titleId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Esc 已在下面的键盘 effect 里处理；这里补 Tab 循环，并把 aria-modal 声明补上。
+  useDialogFocusTrap(dialogRef)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -87,7 +92,9 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
   return createPortal(
     <div className="quickforge-dialog-backdrop-in fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-6 backdrop-blur-sm" onClick={(event) => event.target === event.currentTarget ? onClose() : undefined}>
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-labelledby={titleId}
         className="quickforge-dialog-panel-in flex h-[78vh] w-[86vw] max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge"
       >

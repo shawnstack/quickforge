@@ -294,11 +294,13 @@ function canStartGoalRun(session) {
 
 async function startGoalRun(session) {
   if (!canStartGoalRun(session)) return false
-  const run = await beginGoalRun(session, 'execution')
-  if (!run) return false
   // Termination intents reach the driver as a generation bump (notifyGoalAbort),
   // so capturing it here tells the guard below whether *this* round was stopped.
+  // It has to be read before the round is admitted: admission is a real await, so
+  // a Stop landing in that window would otherwise be invisible to the guard.
   const abortGeneration = session.goalAbortGeneration || 0
+  const run = await beginGoalRun(session, 'execution')
+  if (!run) return false
   const goal = session.goal
   const round = goal.roundsStarted
 
@@ -511,9 +513,22 @@ export function goalRunSettlementToolBlockReason(_session, _toolName) {
 // ---------------------------------------------------------------------------
 
 export async function notifyGoalAbort(session) {
-  if (!session?.goalRun) return
+  if (!session?.goal) return
+  // Termination intents reach the driver as a generation bump: every round
+  // captures the generation when it starts, so a Stop landing anywhere inside
+  // that round makes the dispatch guard below refuse it.
   session.goalTerminationKind = 'abort'
   session.goalAbortGeneration = (session.goalAbortGeneration || 0) + 1
+  if (session.goalRun) return
+  // No live run to settle: the user pressed Stop between rounds (or while the
+  // next round was still being admitted). The pending continuation would
+  // otherwise dispatch that round and swallow the Stop, so drop it and pause the
+  // goal here — exactly the state the run settlement would have produced.
+  session.goalContinuationPending = false
+  if (session.goal.phase !== 'active') return
+  await serviceFor(session).pause(session.sessionId, goalRef(session))
+  syncGoal(session)
+  await commitGoal(session)
 }
 
 export async function notifyGoalApprovalRequested(session) {

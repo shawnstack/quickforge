@@ -481,4 +481,67 @@ describe('goal v2 through the agent manager', () => {
       await agentManager.destroyAgent(sessionId)
     }
   })
+
+  it('pauses the goal when a Stop lands between rounds instead of swallowing it', async () => {
+    const sessionId = 'goal-v2-manager-stop-between-rounds'
+    const session = await createSession(sessionId)
+    session.agent.autoEnd = false
+    try {
+      await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
+      expect(session.goal).toMatchObject({ phase: 'active', activation: 'armed' })
+      expect(session.goalRun).toBeNull()
+      // Hold the continuation inside its idle wait: an active goal with no round
+      // registered is exactly the window a Stop has to land in.
+      session.agent.state.isStreaming = true
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(session.goalRun).toBeNull()
+      expect(session.goalContinuationPending).toBe(true)
+
+      await agentManager.abortRun(sessionId)
+      expect(session.goalTerminationKind).toBe('abort')
+      expect(session.goal).toMatchObject({ phase: 'paused', activation: 'disarmed' })
+      expect(session.goalContinuationPending).toBe(false)
+
+      // Release the agent: the pending continuation now runs its dispatch check
+      // and must find a paused goal instead of starting the next round.
+      session.agent.state.isStreaming = false
+      await new Promise((resolve) => setTimeout(resolve, 400))
+      expect(session.goalRun).toBeNull()
+      expect(session.agent.prompts).toHaveLength(0)
+    } finally {
+      session.agent.state.isStreaming = false
+      session.agent.autoEnd = true
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('does not dispatch the round a Stop caught while it was being admitted', async () => {
+    const sessionId = 'goal-v2-manager-stop-during-admit'
+    const session = await createSession(sessionId)
+    session.agent.autoEnd = false
+    const gate = await armPersistenceGate((record) => persistedRoundsStarted(record) >= 1)
+    try {
+      const prompting = agentManager.runPrompt(sessionId, '/goal Ship goal v2')
+      await gate.enteredPromise
+      // The round is admitted (roundsStarted bumped) but not yet registered, so
+      // this Stop finds no live run to settle.
+      expect(session.goalRun).toBeNull()
+      expect(session.goal.roundsStarted).toBe(1)
+
+      const stopping = agentManager.abortRun(sessionId)
+      gate.release()
+      await stopping
+      await prompting
+
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(session.agent.prompts).toHaveLength(0)
+      expect(session.goalRun).toBeNull()
+      expect(session.goal).toMatchObject({ phase: 'paused' })
+    } finally {
+      gate.release()
+      gate.restore()
+      session.agent.autoEnd = true
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
 })

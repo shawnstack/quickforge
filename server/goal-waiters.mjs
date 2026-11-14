@@ -1,10 +1,17 @@
 /**
- * Goal completion waiter registry — the single owner of the three
- * process-local registries (durable terminal snapshots, stopped sessions,
- * per-session completion waiters) plus waitForGoalCompletion. Other modules
- * reach this mutable state only through the accessors exported here; it is
- * never duplicated. Carved verbatim from agent-goal-runner.mjs (zero
- * behavior change).
+ * Goal completion waiter registry for the legacy (v1) engine — the owner of the
+ * three process-local registries (durable terminal snapshots, stopped sessions,
+ * per-session completion waiters) plus waitForGoalCompletion. Legacy callers
+ * reach this mutable state only through the accessors exported here. Carved
+ * verbatim from agent-goal-runner.mjs (zero behavior change).
+ *
+ * The v2 engine deliberately keeps its OWN copies of the same three registries
+ * in server/goal/runner.mjs, and the two waiters are not interchangeable: THIS
+ * one also waits for `goalRunSettling` to clear (v2 has no such flag and checks
+ * only `goalRun`), and v2 records a durable snapshot on `phase === 'complete'`
+ * while this module gates on `isGoalTerminalStatus(status)`. Pointing the legacy
+ * path at v2's waiter would silently drop the settling guard; unifying them
+ * needs both differences carried over explicitly.
  */
 
 import { agentEvents } from './agent-session-events.mjs'

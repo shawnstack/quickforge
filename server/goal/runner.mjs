@@ -43,6 +43,11 @@ export function configureGoalRunner(deps = {}) {
 }
 
 const services = new Map()
+// Completion-waiter state for the v2 engine, mirroring server/goal-waiters.mjs
+// (legacy) on purpose. Not the same waiter: v2 has no `goalRunSettling` flag
+// (legacy waits for it to clear before resolving) and records a durable snapshot
+// on `phase === 'complete'` instead of the legacy terminal-status set. Read that
+// file's header before touching either copy.
 const durableTerminalGoals = new WeakMap()
 const stoppedGoalSessions = new WeakSet()
 const goalCompletionWaiters = new Map()

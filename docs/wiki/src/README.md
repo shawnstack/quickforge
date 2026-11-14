@@ -6,6 +6,7 @@
 
 ```
 src/
+├── assets/              # 图标资源：81 个 svg（Material 主题 v5.36.1 子集）+ 上游 README，共 82 个文件
 ├── components/          # React 组件，详见 [components 文档](components/README.md)
 │   ├── chat/            # 聊天面板（含多个子模块）
 │   ├── preview/          # 网页预览内容组件（iframe 加载本地 dev server URL）
@@ -15,13 +16,14 @@ src/
 │   ├── sidebar/         # 侧边栏
 │   ├── terminal/         # xterm.js 多终端 Dock
 │   ├── ui/              # 基础 UI 组件
-├── hooks/               # 自定义 React Hooks (37 个)，详见 [hooks 文档](hooks/README.md)
-├── lib/                 # 前端工具库 (124 个顶层模块，另含 types/、tool-renderers/ 子目录)，详见 [lib 文档](lib/README.md)
+├── hooks/               # 自定义 React Hooks (38 个)，详见 [hooks 文档](hooks/README.md)
+├── lib/                 # 前端工具库 (128 个顶层模块，另含 types/、tool-renderers/ 子目录)，详见 [lib 文档](lib/README.md)
 ├── stores/              # Zustand 状态仓库（App 级 UI/会话域内存状态，10 个 store；兼容层模式见 [状态管理迁移](../../architecture/zustand-migration.zh-CN.md)）
 ├── storage/             # 自研存储层（StorageBackend 契约 + 4 个 Store + AppStorage 单例，见 [storage/](storage/)）
 ├── App.tsx              # 主应用装配层 (1602 行；区域组件在 components/app/，业务规则 hooks 见 hooks 文档)
 ├── styles/              # 全局样式入口与领域模块，详见 [styles 文档](styles/README.md)
-└── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
+├── main.tsx             # 入口文件，初始化补丁并注册生产环境 PWA Service Worker
+├── monaco-esm.d.ts      # monaco-editor 深路径 ESM 导入类型补齐 (7 行；editor.api 复用包类型、editor.all 纯副作用)
 ```
 
 ## 顶层文件
@@ -30,7 +32,7 @@ src/
 |------|------|------|
 | [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 116 |
 | [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1602 |
-| [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 39 个 CSS 文件 |
+| [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 45 个 CSS 文件 |
 
 ### main.tsx (116 行)
 

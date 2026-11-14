@@ -29,14 +29,22 @@ function makeMemoryStream() {
 }
 
 describe('createBoundedCommandLog', () => {
+  let tempDataDir
   beforeEach(async () => {
     vi.resetModules()
-    process.env.QUICKFORGE_DATA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-logcap-'))
+    // 存下这次建的目录：afterEach 里 env 已经恢复，按 process.env 去删会删错/删空。
+    tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-logcap-'))
+    process.env.QUICKFORGE_DATA_DIR = tempDataDir
     process.env.HOME = process.env.QUICKFORGE_DATA_DIR
     process.env.USERPROFILE = process.env.QUICKFORGE_DATA_DIR
   })
 
   afterEach(async () => {
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (prevDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = prevDataDir
     if (prevHome === undefined) delete process.env.HOME
@@ -44,7 +52,7 @@ describe('createBoundedCommandLog', () => {
     if (prevUserProfile === undefined) delete process.env.USERPROFILE
     else process.env.USERPROFILE = prevUserProfile
     vi.resetModules()
-    await fs.rm(process.env.QUICKFORGE_DATA_DIR, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(tempDataDir, { recursive: true, force: true }).catch(() => {})
   })
 
   it('passes through writes while inside the budget', async () => {
@@ -155,14 +163,22 @@ describe('createBoundedCommandLog', () => {
 })
 
 describe('cleanOldCommandLogs', () => {
+  let tempDataDir
   beforeEach(async () => {
     vi.resetModules()
-    process.env.QUICKFORGE_DATA_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-logprune-'))
+    // 同上：env 恢复后再按 process.env 删除会删错目录。
+    tempDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-logprune-'))
+    process.env.QUICKFORGE_DATA_DIR = tempDataDir
     process.env.HOME = process.env.QUICKFORGE_DATA_DIR
     process.env.USERPROFILE = process.env.QUICKFORGE_DATA_DIR
   })
 
   afterEach(async () => {
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (prevDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = prevDataDir
     if (prevHome === undefined) delete process.env.HOME
@@ -170,7 +186,7 @@ describe('cleanOldCommandLogs', () => {
     if (prevUserProfile === undefined) delete process.env.USERPROFILE
     else process.env.USERPROFILE = prevUserProfile
     vi.resetModules()
-    await fs.rm(process.env.QUICKFORGE_DATA_DIR, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(tempDataDir, { recursive: true, force: true }).catch(() => {})
   })
 
   const DAY = 24 * 60 * 60 * 1000

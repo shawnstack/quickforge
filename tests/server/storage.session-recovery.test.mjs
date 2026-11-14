@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import path from 'node:path'
 import os from 'node:os'
 import { promises as fs } from 'node:fs'
@@ -7,6 +7,9 @@ async function withTempStorage(testFn) {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-storage-test-'))
   const previous = process.env.QUICKFORGE_DATA_DIR
   process.env.QUICKFORGE_DATA_DIR = tmpDir
+  // storage / logger 都是「import 时定型 logsDir」的模块：不重置模块图，第二个及之后
+  // 的用例仍把日志写进第一个用例的目录，teardown 的 flush 会把它重新建出来。
+  vi.resetModules()
   const database = await import('../../server/sqlite/database.mjs')
   try {
     await database.closeSqliteStorage().catch(() => {})
@@ -16,6 +19,11 @@ async function withTempStorage(testFn) {
     await testFn(storage, tmpDir)
   } finally {
     await database.closeSqliteStorage().catch(() => {})
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previous
     await fs.rm(tmpDir, { recursive: true, force: true })

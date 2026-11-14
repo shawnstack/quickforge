@@ -33,6 +33,11 @@ const { isolatedDataDir, originalDataDir } = vi.hoisted(() => {
 
 afterAll(async () => {
   // 还原到文件加载前的值：同一个 worker 里后续测试文件不该被这次的临时目录带走。
+  // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+  // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+  // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+  const { flushLogger } = await import('../../server/utils/logger.mjs')
+  flushLogger()
   if (originalDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
   else process.env.QUICKFORGE_DATA_DIR = originalDataDir
   await fs.rm(isolatedDataDir, { recursive: true, force: true })
@@ -513,6 +518,11 @@ describe('runBotHeartbeat alwaysWake', () => {
   })
 
   afterEach(async () => {
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     if (previousHome === undefined) delete process.env.HOME
@@ -602,6 +612,11 @@ describe('DELETE /api/bots/:id destroys the bot session', () => {
   })
 
   afterEach(async () => {
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     if (previousHome === undefined) delete process.env.HOME

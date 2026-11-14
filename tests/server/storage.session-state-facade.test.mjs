@@ -96,6 +96,11 @@ async function withAuthoritativeFacade(testFn) {
   } finally {
     configureSessionStateService({ repository: null })
     await closeSqliteStorage()
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previous === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previous
     await rm(tmpDir, { recursive: true, force: true })

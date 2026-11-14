@@ -23,6 +23,10 @@ describe('project config read cache', () => {
   }
 
   afterEach(async () => {
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 %TEMP% 空壳目录）。先刷完关流。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     for (const dir of createdDirs.splice(0)) {
       await fs.rm(dir, { recursive: true, force: true })
     }

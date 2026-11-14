@@ -212,6 +212,13 @@ components/
 ├── mcp-servers-dialog.tsx           # MCP 服务器管理面板（表单 / JSON 双模式编辑、启停与重连）
 ├── startup-splash-icon.tsx          # 启动闪屏螺栓图标（`app/StartupScreens.tsx` 复用）
 ├── project-directory-picker.tsx    # 项目目录选择器 (323 行)
+├── settings/                        # 设置页：左导航 + tab 宿主 + 15 个设置页 + 自定义 Provider 面板，概览见下文「设置」小节
+│   ├── SettingsWorkspacePage.tsx    # 设置页外壳：分组导航与 tab 宿主（tab 定义在 lib/settings-tabs）
+│   ├── SettingsSelect.tsx           # 可搜索下拉（键盘与 aria 由内部状态机驱动）
+│   ├── settings-select-state.ts     # 下拉的纯状态机：过滤与焦点移动
+│   ├── tabs/                        # 各设置页与共用控件（数字输入 / 开关 / 选择器）
+│   └── custom-providers/            # 自定义 Provider 面板（列表 / 详情 / 连接 / 模型清单）
+
 └── skills/                         # Skills 管理面板（数据层在 hooks/use-skills-manager + lib/skills-client，见下文 skills/ 小节）
 ```
 
@@ -593,6 +600,52 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 ### startup-splash-icon.tsx (23 行)
 
 启动闪屏共用的螺栓图标（六边形描边 + 闪电，内联 SVG 渐变），动画类由 `src/styles/startup.css` 提供；由 `app/StartupScreens.tsx` 渲染。
+
+### 设置（`settings/`）
+
+设置是一个独立工作区：左边分组导航、右边 tab 宿主。tab 定义集中在 `src/lib/settings-tabs.ts`（`createSettingsTabs`），**只有被访问过的页才挂载**（各层的 `visited` 集合），所以打开设置不会一次装完 15 个页面。每个 tab 自己管状态与请求；通用控件沉在 `SettingsSelect` / `SettingsNumberInput` / `tabs/shared.tsx`。
+
+#### 通用页与控件
+
+- `settings/SettingsWorkspacePage.tsx` (391 行) # 设置页外壳：左侧分组导航 + 右侧 tab 宿主，tab 定义来自 `@/lib/settings-tabs` 的 `createSettingsTabs`；按 `visited` 集合懒挂载，`initialTab` 决定首屏落在哪一页
+- `settings/SettingsSelect.tsx` (206 行) # 可搜索下拉：按钮触发 + 浮层选项，`searchable` 时才出搜索框；键盘与无障碍（`aria-activedescendant` 一类）走内部状态机
+- `settings/settings-select-state.ts` (38 行) # 下拉的纯状态机：`visibleSelectIndexes` 做大小写无关过滤，`moveSelectFocus` 处理 ↑↓ / Home / End，未聚焦时落到箭头指向的那一端
+- `settings/tabs/SettingsNumberInput.tsx` (39 行) # 数字输入：原生 `change` 是「失焦或点步进才提交」，与 React `onChange` 语义不同，所以拆成 `onInput`（打字中）与 `onCommit`（提交）
+- `settings/tabs/shared.tsx` (52 行) # tabs 共用控件：`SettingsSwitch`（开关，无显式 label 时复用行标题）与 `SettingsSelect` 的转出口
+
+#### 数据与备份
+
+- `settings/tabs/DataSettingsTab.tsx` (59 行) # 「数据」父页：三个子页（备份恢复 / 归档会话 / 分享链接）的切换与懒挂载，`visited` 保证切回子页不重挂
+- `settings/tabs/BackupSettingsTab.tsx` (488 行) # 备份与恢复：导出范围五选（设置 / MCP / provider keys / 自定义 Provider / 定时任务）、导入前预检（`ok`、应用与版本、导出时间、是否含密钥）与 `replace` / `merge` 两种恢复模式
+- `settings/tabs/ArchivedConversationsSettingsTab.tsx` (285 行) # 归档会话管理：分页列表、本地化时间显示、取消归档（清掉 `archivedAt`）
+
+#### 网络与局域网
+
+- `settings/tabs/NetworkSettingsTab.tsx` (18 行) # 「网络」父页：把局域网访问与网络代理两段叠进一页，自身只负责分组标题与排版
+- `settings/tabs/NetworkProxySettingsSection.tsx` (306 行) # 网络代理：四模式（直连 / 系统 / 手动 / PAC）+ 运行时状态（生效模式、是否支持、来源、运行时类型）；平台不支持时 `unsupported` 只读回显，不给假开关
+- `settings/tabs/LanAccessSettingsTab.tsx` (406 行) # 局域网访问：开关、访问密码（可一键生成 16 位随机串）与已授权设备列表（地址、UA、签发与过期时间）
+
+#### 记忆与 Hooks
+
+- `settings/tabs/MemorySettingsTab.tsx` (198 行) # 全局记忆：`MEMORY.md` 的开关、Markdown 编辑与保存（走 `/api/memory`）、文档路径与条目计数
+- `settings/tabs/WorkingMemorySettingsTab.tsx` (301 行) # 工作记忆：开关 + 目录路径 + 只读笔记列表。**写笔记的提示词是服务端内部契约，此页刻意不暴露**——用户改不到「文件名＝一句话结论」的格式
+- `settings/tabs/HooksSettingsTab.tsx` (858 行) # Hooks 管理：增删改 hook（事件 / 命令 / 超时）、总开关、执行记录分页（成功 / 失败 / 超时）与手动测试执行、结果输出查看
+
+#### 自定义 Provider
+
+- `settings/tabs/CustomProvidersSettingsTab.tsx` (549 行) # 自定义 Provider 页装配层：列表 / 详情两栏，草稿态与已落库态分开处理，预设（openai / deepseek / glm / ollama / litellm / custom）、连接草稿与模型草稿的互转、协议推断
+- `settings/custom-providers/provider-list-pane.tsx` (159 行) # 左栏列表：Provider 条目、密钥是否已配置的标记、按预设新增与删除
+- `settings/custom-providers/provider-detail-pane.tsx` (94 行) # 右栏详情壳：标题、返回、删除菜单与 `children` 插槽（连接段与模型清单塞进来）
+- `settings/custom-providers/connection-section.tsx` (255 行) # 连接段：baseUrl / 协议 / 自定义请求头；API Key 只在点「查看」时按需回显（草稿或未配置返回空串）
+- `settings/custom-providers/model-list-section.tsx` (354 行) # 模型清单：发现模型（草稿态未落库故不可发现）、增删改模型草稿、可见性开关与单模型连通性测试
+- `settings/custom-providers/shared.ts` (150 行) # 面板共用类型与预设常量：`ProviderProtocol` / `AnyModel` / `HeaderRow` / `PresetKey` / `PROVIDER_PRESETS`
+
+#### 其余设置页
+
+- `settings/tabs/AboutSettingsTab.tsx` (497 行) # 关于页：应用信息（名称 / 版本 / 仓库 / 主页）+ 更新检查（频率 startup / daily / weekly / off、上次检查时间、被忽略的版本）
+- `settings/tabs/AppearanceSettingsTab.tsx` (283 行) # 外观页：主题（light / dark）与字号（界面 / 消息两套，12–18px、默认 13），保存后即时应用
+- `settings/tabs/DefaultOptionsSettingsTab.tsx` (738 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
+- `settings/tabs/ProjectCommandsSettingsTab.tsx` (390 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口
 
 ## 流式渲染缓存与有界窗口（2026-10-29）
 

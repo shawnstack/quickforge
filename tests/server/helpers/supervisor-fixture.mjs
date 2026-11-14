@@ -118,19 +118,32 @@ export async function withSupervisorFixture(run) {
       return managed
     },
   }
+  let result
+  let runError = null
+  let stopFailure
+  let cleanupError
   try {
-    return await run(fixture)
+    result = await run(fixture)
+  } catch (error) {
+    runError = error
   } finally {
     // Stop ALL children even if one cleanup fails, then remove the fixture dir
     // unconditionally: the previous order threw on the first stop() failure and
     // never reached `rm`, which is how fixture directories survived a failing
     // run. A child that is still shutting down can make `rm` fail even with
     // retries; that error is surfaced after the directory removal is attempted.
-    const results = await Promise.allSettled(children.map((child) => child.stop()))
-    const cleanupError = await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    //
+    // Nothing in here throws: a throw inside `finally` replaces the error
+    // `run(fixture)` already raised, which reported a real test failure as a
+    // cleanup failure. Cleanup runs first, the verdicts are applied below, and
+    // the original error always wins.
+    const stopped = await Promise.allSettled(children.map((child) => child.stop()))
+    stopFailure = stopped.find((settled) => settled.status === 'rejected')
+    cleanupError = await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
       .then(() => null, (error) => error)
-    const failure = results.find((result) => result.status === 'rejected')
-    if (failure) throw failure.reason
-    if (cleanupError) throw cleanupError
   }
+  if (runError) throw runError
+  if (stopFailure) throw stopFailure.reason
+  if (cleanupError) throw cleanupError
+  return result
 }

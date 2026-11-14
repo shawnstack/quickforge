@@ -754,7 +754,7 @@ describe('agent persist in authoritative session state', () => {
 
   it('keeps the lazy-persist path for sessions created without messages', async () => {
     const sessionId = 'empty-deferred'
-    const session = await agentManager.createAgent(sessionId, {
+    await agentManager.createAgent(sessionId, {
       scope: 'global',
       model: { provider: 'mock', id: 'mock-model' },
       systemPrompt: '',
@@ -819,7 +819,9 @@ describe('agent persist in authoritative session state', () => {
       await agentManager.persistSessionState(session)
 
       const after = repository.findBySessionId(sessionId)
-      // The other writer's append must survive; the agent must not clobber it.
+      // The other writer's append must survive; the agent must not clobber it —
+      // the row revision stays the one the external append produced.
+      expect(after.revision).toBe(first.revision + 1)
       expect(repository.messageCount({ scope: 'global', sessionId })).toBe(211)
       const stored = repository.readMessagesPage({ scope: 'global', sessionId, limit: 5000 })
       expect(stored.messages.at(-1).message.content).toBe('external append')

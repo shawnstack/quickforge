@@ -1,4 +1,3 @@
-import { EventEmitter } from 'node:events'
 import { Readable } from 'node:stream'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { promises as fs } from 'node:fs'

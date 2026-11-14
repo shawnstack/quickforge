@@ -127,6 +127,8 @@ describe('goal v2 service', () => {
     const restored = service()
     const loaded = restored.loadSession('s1', { events })
     expect(loaded).toMatchObject({ phase: 'active', activation: 'disarmed' })
+    // 事件重放出来的是同一个 goal，不是新建的。
+    expect(loaded.id).toBe(created.id)
     const resumed = await restored.resume('s1', { id: loaded.id, revision: loaded.revision })
     expect(resumed).toMatchObject({ phase: 'active', activation: 'armed' })
     expect(restored.getEvents('s1')).toHaveLength(events.length)

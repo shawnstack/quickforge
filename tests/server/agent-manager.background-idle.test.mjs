@@ -89,7 +89,7 @@ describe('agent manager idle eviction with background commands', () => {
   it('spares an idle session from eviction while a background command runs, and evicts it after the command exits', async () => {
     const { setDefaultWorkspaceRoot } = await import('../../server/project-config.mjs')
     setDefaultWorkspaceRoot(path.join(tmpDir, 'workspace'))
-    const { createAgent, destroyAgent, getSessionStatus } = await import('../../server/agent-manager.mjs')
+    const { createAgent, getSessionStatus } = await import('../../server/agent-manager.mjs')
     const { abortRunningCommand, listBackgroundCommandTasks, toolRunCommand } = await import('../../server/tools/index.mjs')
 
     const sessionOptions = { scope: 'global', model: { provider: 'mock', id: 'mock-model' }, systemPrompt: '' }

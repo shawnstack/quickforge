@@ -47,4 +47,33 @@ export default defineConfig([
       'preserve-caught-error': 'warn',
     },
   },
+  {
+    files: ['tests/**/*.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+        describe: 'readonly',
+        it: 'readonly',
+        test: 'readonly',
+        expect: 'readonly',
+        vi: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+      },
+    },
+    rules: {
+      'no-console': 'warn',
+      'no-empty': 'warn',
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' }],
+      'no-control-regex': 'warn',
+      'no-useless-escape': 'warn',
+      'no-useless-assignment': 'warn',
+      'preserve-caught-error': 'warn',
+    },
+  },
 ])

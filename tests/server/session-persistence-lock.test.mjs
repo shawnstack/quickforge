@@ -69,7 +69,6 @@ describe('session persistence lock', () => {
   it('serializes default-key operations with an explicit empty-string key', async () => {
     const order = []
     const gate = deferred()
-    const key = nextKey('global')
     const first = withSessionPersistenceLock(async () => {
       order.push('first-start')
       await gate.promise

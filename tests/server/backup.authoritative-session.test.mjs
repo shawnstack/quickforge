@@ -180,6 +180,7 @@ describe('backup route — authoritative session state', () => {
       }
       const { res, json } = await callImport(backup, payload)
       expect(res._status).toBe(200)
+      expect(json.summary.sessions).toBe(1)
       const record = repository.findBySessionId('legacy')
       expect(record.stateVersion).toBe(3)
       expect(record.metadata.title).toBe('Legacy')

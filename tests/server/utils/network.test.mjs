@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import { isPrivateIpv4, isLoopbackAddress, getLanIpv4Addresses, getLanUrls } from '../../../server/utils/network.mjs'
 
 describe('network', () => {

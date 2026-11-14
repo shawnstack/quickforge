@@ -31,10 +31,7 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 // We need to import workspace functions to set up the workspace root for tests.
-import {
-  setWorkspaceRoot,
-  getWorkspaceRoot,
-} from '../../../server/utils/workspace.mjs'
+import { setWorkspaceRoot } from '../../../server/utils/workspace.mjs'
 
 import {
   toolHandlers,

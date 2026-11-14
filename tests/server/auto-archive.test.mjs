@@ -252,6 +252,8 @@ describe('automatic conversation archive', () => {
       }
 
       await expect(archiveInactiveSessions({ now, storage: wrappedStorage })).resolves.toMatchObject({ archivedCount: 0 })
+      // 走到过权威记录更新这一步，才说明是事务内复核拦下的，而不是更早就放弃了。
+      expect(metadataUpdates).toBe(1)
       expect((await storage.readStore('sessions-metadata')).race.archivedAt).toBeUndefined()
       expect((await storage.readSessionValue('race')).archivedAt).toBeUndefined()
     })

@@ -68,7 +68,7 @@ const { compactConversation, saveCompactBackup } = await import('../../server/co
 const { compactSessionInPlace, readAutoCompactSettings, DEFAULT_AUTO_COMPACT_SETTINGS } = await import('../../server/auto-compaction.mjs')
 const { generateAiTitle } = await import('../../server/session-utils.mjs')
 const { findBotBySessionId } = await import('../../server/bots.mjs')
-const { createAgent, resetIdleTimer } = await import('../../server/agent-manager.mjs')
+const { createAgent } = await import('../../server/agent-manager.mjs')
 const { persistSession } = await import('../../server/agent-persistence.mjs')
 const { emitSessionEvent } = await import('../../server/agent-session-events.mjs')
 

@@ -63,7 +63,7 @@ afterEach(async () => {
 
 describe('session image asset route', () => {
   it('serves a stored image with safe response headers', async () => {
-    await withTempModules(async ({ storage, assets, routes }) => {
+    await withTempModules(async ({ storage, routes }) => {
       await storage.writeSessionValue('session-route', { id: 'session-route', scope: 'global' })
       const assetId = await writeAssetFile('session-route', Buffer.from('png bytes'))
       const response = mockResponse()

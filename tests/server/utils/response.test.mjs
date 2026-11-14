@@ -18,7 +18,7 @@ function mockRes() {
   return res
 }
 
-function mockReq(chunks, opts = {}) {
+function mockReq(chunks) {
   const req = {
     [Symbol.asyncIterator]() {
       let index = 0

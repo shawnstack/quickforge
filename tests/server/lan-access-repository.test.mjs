@@ -30,33 +30,9 @@ function createHandle(database) {
   }
 }
 
-let sequence = 0
-function shareId(prefix = 's') {
-  sequence += 1
-  return `qfs_${prefix}_${String(sequence).padStart(18, '0')}`
-}
-
 function now() {
   // Far in the future so issued token expiries stay valid vs the real clock.
   return '2099-01-01T00:00:00.000Z'
-}
-
-function share(overrides = {}) {
-  const id = overrides.id || shareId()
-  return {
-    id,
-    sessionId: overrides.sessionId || 'session-a',
-    permission: overrides.permission || 'read',
-    titleSnapshot: overrides.titleSnapshot || 'Title',
-    scope: overrides.scope || 'global',
-    projectId: overrides.scope === 'project' ? overrides.projectId || 'project-a' : undefined,
-    authVersion: 1,
-    createdAt: now(),
-    updatedAt: now(),
-    accessCount: 0,
-    tokens: [],
-    ...overrides,
-  }
 }
 
 describe('lan-access repository and baseline schema', () => {
@@ -186,6 +162,8 @@ describe('lan-access repository and baseline schema', () => {
       { enabled: true, passwordHash: 'hash', passwordSalt: 'salt', passwordVersion: 1, sessionTtlHours: 12 },
       { expectedRevision: 0 },
     )
+    // 首次写入落在 revision 1，下面的 409 断言依赖这个起点。
+    expect(created.revision).toBe(1)
     try {
       repository.updateSettings({ sessionTtlHours: 24 }, { expectedRevision: 5 })
       throw new Error('expected stale CAS conflict')
@@ -299,6 +277,7 @@ describe('lan-access repository and baseline schema', () => {
     const before = repository.digest()
     expect(repository.count()).toBe(1)
     const second = repository.issueToken({}, { expectedRevision: first.revision })
+    expect(second.revision).toBe(first.revision + 1)
     expect(repository.digest()).not.toBe(before)
     expect(repository.digest()).toBe(lanAccessConfigDigest(repository.getConfig()))
     expect(repository.verifyIntegrity()).toMatchObject({ ok: true, count: 2, overLimitTokens: 0 })

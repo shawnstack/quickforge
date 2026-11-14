@@ -312,7 +312,7 @@ describe('backup route — authoritative lan-access state', () => {
   })
 
   it('warns in inspect that importing will replace the local LAN access config', async () => {
-    await withAuthoritativeLanAccessBackup(async (backup, storage, service, repository) => {
+    await withAuthoritativeLanAccessBackup(async (backup, _storage, _service, _repository) => {
       const payload = {
         backup: {
           app: 'quickforge',

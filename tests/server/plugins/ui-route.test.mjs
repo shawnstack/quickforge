@@ -51,7 +51,6 @@ const PLUGIN_SOURCE = [
 ].join('\n')
 
 const tempDirs = []
-const PLUGIN_UI_ACTION_TIMEOUT_MS = 5000
 let previousDataDir
 let previousTracker
 let trackerPath

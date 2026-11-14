@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
 import { createSessionIndexRepository } from '../../server/sqlite/session-index-repository.mjs'

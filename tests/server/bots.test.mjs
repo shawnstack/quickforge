@@ -638,7 +638,7 @@ describe('DELETE /api/bots/:id destroys the bot session', () => {
     }
   }
 
-  async function deleteBotRequest(id) {
+  async function deleteBotRequest() {
     const req = Readable.from([])
     req.method = 'DELETE'
     return req
@@ -655,14 +655,14 @@ describe('DELETE /api/bots/:id destroys the bot session', () => {
     const { handleBotsApi } = await importBotsRoute()
     const bot = await seedBotRecord('doomed', 'sess-doomed')
     const res = mockRes()
-    await handleBotsApi(await deleteBotRequest(bot.id), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
+    await handleBotsApi(await deleteBotRequest(), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything())
     expect(JSON.parse(res.chunks[0])).toEqual({ ok: true })
     expect(destroyAgentMock).toHaveBeenCalledTimes(1)
     expect(destroyAgentMock).toHaveBeenCalledWith('sess-doomed')
     // 记录已删（二次删除 404）
     const res2 = mockRes()
-    await expect(handleBotsApi(await deleteBotRequest(bot.id), res2, new URL(`http://localhost/api/bots/${bot.id}`), {}))
+    await expect(handleBotsApi(await deleteBotRequest(), res2, new URL(`http://localhost/api/bots/${bot.id}`), {}))
       .rejects.toMatchObject({ statusCode: 404, errorCode: 'BOT_NOT_FOUND' })
     expect(destroyAgentMock).toHaveBeenCalledTimes(1)
   })
@@ -672,12 +672,12 @@ describe('DELETE /api/bots/:id destroys the bot session', () => {
     destroyAgentMock.mockRejectedValue(new Error('destroy boom'))
     const bot = await seedBotRecord('stubborn', 'sess-stubborn')
     const res = mockRes()
-    await handleBotsApi(await deleteBotRequest(bot.id), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
+    await handleBotsApi(await deleteBotRequest(), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything())
     expect(JSON.parse(res.chunks[0])).toEqual({ ok: true })
     // destroyAgent 炸了不回滚删除：bot 记录仍然没了。
     const res2 = mockRes()
-    await expect(handleBotsApi(await deleteBotRequest(bot.id), res2, new URL(`http://localhost/api/bots/${bot.id}`), {}))
+    await expect(handleBotsApi(await deleteBotRequest(), res2, new URL(`http://localhost/api/bots/${bot.id}`), {}))
       .rejects.toMatchObject({ statusCode: 404, errorCode: 'BOT_NOT_FOUND' })
   })
 
@@ -687,7 +687,7 @@ describe('DELETE /api/bots/:id destroys the bot session', () => {
     const base = normalizeBotRecord({ name: 'no-session' })
     const bot = await saveBotRecord({ ...base, sessionId: null })
     const res = mockRes()
-    await handleBotsApi(await deleteBotRequest(bot.id), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
+    await handleBotsApi(await deleteBotRequest(), res, new URL(`http://localhost/api/bots/${bot.id}`), {})
     expect(res.writeHead).toHaveBeenCalledWith(200, expect.anything())
     expect(destroyAgentMock).not.toHaveBeenCalled()
   })

@@ -51,7 +51,7 @@ const corpus = [
   { sym: Symbol('x'), n: 2 },
   [1, 2, 3],
   [undefined, () => 2, Symbol('y'), null],
-  [, , 1],
+  Array(2).concat(1), // 稀疏数组：前两格是洞，故意为之（与 [, , 1] 等值）
   new Array(4),
   { nested: { z: { y: { x: 'deep' } }, a: [1, [2, [3, null]]] } },
   { messages: [{ id: 'm1', role: 'user', content: 'hello', usage: { input: 1, output: 2 } }, { id: 'm2', role: 'assistant', content: [{ type: 'text', text: 'hi' }] }] },

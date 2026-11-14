@@ -325,11 +325,13 @@ describe('side chat route', () => {
       providerSignal = options.signal
       return {
         result: vi.fn(async () => assistantMessage('', 'aborted', 'aborted')),
-        async *[Symbol.asyncIterator]() {
-          await new Promise((_, reject) => options.signal.addEventListener('abort', () => {
+        // 故意的假流：abort 前一个 chunk 都不产出，abort 时直接 reject，
+        // 所以这里用迭代器对象而不是「没有 yield 的生成器」。
+        [Symbol.asyncIterator]: () => ({
+          next: () => new Promise((_, reject) => options.signal.addEventListener('abort', () => {
             reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
-          }, { once: true }))
-        },
+          }, { once: true })),
+        }),
       }
     })
 

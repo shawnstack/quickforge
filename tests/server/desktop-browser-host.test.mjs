@@ -239,11 +239,9 @@ describe('desktop browser host', () => {
     try {
       electron.created.views.length = 0
       const { host } = createHost()
-      // 第一个视图的调试器挂起所有命令；超时熔断后宿主应整套重建并重试成功。
-      let hungCommand = null
+      // 第一个视图的调试器挂起所有命令（永不 settle）；超时熔断后宿主应整套重建并重试成功。
       const hook = (view) => {
-        view.webContents.debugger.sendCommand = (method, params) =>
-          new Promise((resolve, reject) => { hungCommand = reject })
+        view.webContents.debugger.sendCommand = () => new Promise(() => {})
       }
       const pending = host.execute('snapshot')
       // 微任务推进到视图已创建后挂钩。

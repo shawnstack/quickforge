@@ -100,6 +100,11 @@ describe('goal v2 through the agent manager', () => {
     configureSessionStateService({ repository: null })
     const { closeSqliteStorage } = await import('../../server/sqlite/database.mjs')
     await closeSqliteStorage()
+    // logger 的 5s 刷盘定时器还挂在这个临时数据目录上：留着它会在 rm 之后把
+    // data/logs 重新 mkdir 出来（Windows 上表现为 ENOTEMPTY 或 %TEMP% 空壳目录）。
+    // 先把缓冲刷完并关流，再恢复 env / 删目录；之后 logger 会按需重建。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     await rm(tmpDir, { recursive: true, force: true })
@@ -120,6 +125,77 @@ describe('goal v2 through the agent manager', () => {
 
   function toolByName(session, name) {
     return session.agent.state.tools.find((tool) => tool.name === name)
+  }
+
+  /**
+   * Park the next goal round inside `startGoalRun`, between `beginGoalRun`
+   * (which registers `session.goalRun`) and `agent.prompt`. The injected runtime
+   * refresh is the only await in between, so holding it open reproduces exactly
+   * the window a user's clear/Stop has to land in.
+   */
+  async function holdNextGoalRoundWindow() {
+    const [{ configureGoalRunner }, { refreshSessionRuntime }] = await Promise.all([
+      import('../../server/goal/engine.mjs'),
+      import('../../server/agent-session-lifecycle.mjs'),
+    ])
+    let enterWindow
+    const windowOpened = new Promise((resolve) => { enterWindow = resolve })
+    let openGate
+    const gate = new Promise((resolve) => { openGate = resolve })
+    let holdNextRefresh = true
+    configureGoalRunner({
+      refreshRuntime: async (target) => {
+        if (holdNextRefresh) {
+          holdNextRefresh = false
+          enterWindow()
+          await gate
+        }
+        return refreshSessionRuntime(target)
+      },
+    })
+    return { windowOpened, open: () => openGate() }
+  }
+
+  /** Park the first persisted session write that matches `shouldHold`. */
+  async function armPersistenceGate(shouldHold) {
+    const { configureSessionStateService } = await import('../../server/session-state-service.mjs')
+    let entered
+    const enteredPromise = new Promise((resolve) => { entered = resolve })
+    let release
+    const gate = new Promise((resolve) => { release = resolve })
+    let armed = true
+    // The repository instance is frozen, so gate a delegate copy of it and hand
+    // that to the session-state service for the duration of this test.
+    const gated = { ...repository }
+    const originalSave = repository.save
+    gated.save = async (record, options) => {
+      if (armed && shouldHold(record)) {
+        armed = false
+        entered()
+        await gate
+      }
+      return originalSave.call(repository, record, options)
+    }
+    configureSessionStateService({ repository: gated })
+    return {
+      enteredPromise,
+      release: () => { armed = false; release() },
+      restore: () => {
+        armed = false
+        release()
+        configureSessionStateService({ repository })
+      },
+    }
+  }
+
+  /** The persisted record carries the goal snapshot the write was made for. */
+  function persistedRoundsStarted(record) {
+    try {
+      const state = typeof record?.state === 'string' ? JSON.parse(record.state) : record?.state
+      return Number(state?.goal?.roundsStarted) || 0
+    } catch {
+      return 0
+    }
   }
 
   it('runs bounded rounds until the round limit then blocks (DSH: no no-progress detection)', async () => {
@@ -299,6 +375,109 @@ describe('goal v2 through the agent manager', () => {
       expect(restored.agent.prompts).toHaveLength(0)
       expect(restored.goal.roundsStarted).toBe(1)
     } finally {
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('does not dispatch a goal round the user cleared while it was still starting', async () => {
+    const sessionId = 'goal-v2-manager-clear-window'
+    const session = await createSession(sessionId)
+    const { handleGoalAction } = await import('../../server/goal/engine.mjs')
+    const window = await holdNextGoalRoundWindow()
+    session.agent.autoEnd = false
+    try {
+      await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
+      await window.windowOpened
+
+      // Inside the window the round is registered, the service says it is
+      // executing, and nothing has reached the agent yet.
+      const run = session.goalRun
+      expect(run?.kind).toBe('execution')
+      expect(session.goal).toMatchObject({ phase: 'active', activation: 'armed', runtime: 'executing' })
+      expect(session.agent.prompts).toHaveLength(0)
+
+      await handleGoalAction(session, 'cancel')
+      // v2 cancel/clear only clears the service goal: the round stays registered
+      // on the session, so only a driver-side settlement can drop it.
+      expect(session.goal).toBeNull()
+      expect(session.goalRun).toBe(run)
+
+      window.open()
+      await vi.waitFor(() => expect(session.goalRun).toBeNull(), { timeout: 5_000 })
+      expect(session.agent.prompts).toHaveLength(0)
+      expect(session.goal).toBeNull()
+      expect(session.goalEvents?.at(-1)?.tombstone?.outcome).toBe('cancelled')
+    } finally {
+      window.open()
+      session.agent.autoEnd = true
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('settles the goal round a Stop landed on while it was still starting', async () => {
+    const sessionId = 'goal-v2-manager-stop-window'
+    const session = await createSession(sessionId)
+    const window = await holdNextGoalRoundWindow()
+    session.agent.autoEnd = false
+    try {
+      await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
+      await window.windowOpened
+      expect(session.goalRun?.kind).toBe('execution')
+      expect(session.agent.prompts).toHaveLength(0)
+
+      // Real Stop path: POST /api/agents/<id>/abort -> abortRun -> notifyGoalAbort.
+      // v2 only records the abort intent here (the goal stays active and the
+      // round stays registered), so the driver must settle the round itself: no
+      // agent_end is coming for a round that was never dispatched.
+      await agentManager.abortRun(sessionId)
+      expect(session.goalTerminationKind).toBe('abort')
+      expect(session.goal).toMatchObject({ phase: 'active' })
+
+      window.open()
+      await vi.waitFor(() => expect(session.goalRun).toBeNull(), { timeout: 5_000 })
+      expect(session.agent.prompts).toHaveLength(0)
+      // v2 semantics: a user abort pauses (and disarms) instead of running on.
+      expect(session.goal).toMatchObject({ phase: 'paused', activation: 'disarmed' })
+      expect(session.goal.runtime).not.toBe('executing')
+    } finally {
+      window.open()
+      session.agent.autoEnd = true
+      await agentManager.destroyAgent(sessionId)
+    }
+  })
+
+  it('refuses the round when the goal is cleared while it is being admitted', async () => {
+    const sessionId = 'goal-v2-manager-clear-during-admit'
+    const session = await createSession(sessionId)
+    const { handleGoalAction } = await import('../../server/goal/engine.mjs')
+    const { logger } = await import('../../server/utils/logger.mjs')
+    const errorSpy = vi.spyOn(logger, 'error')
+    session.agent.autoEnd = false
+    // Park the round's own persist: the round is already admitted (roundsStarted
+    // bumped, runtime executing) but not yet registered as session.goalRun.
+    const gate = await armPersistenceGate((record) => persistedRoundsStarted(record) >= 1)
+    try {
+      await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
+      await gate.enteredPromise
+      expect(session.goalRun).toBeNull()
+      expect(session.goal.roundsStarted).toBe(1)
+
+      const cancelPromise = handleGoalAction(session, 'cancel')
+      await vi.waitFor(() => expect(session.goal).toBeNull())
+      gate.release()
+      await cancelPromise
+      const driverFailures = () => errorSpy.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes('Failed to continue goal'))
+      // Let the parked admission finish and the driver reach its decision.
+      await vi.waitFor(() => expect(driverFailures()).toEqual([]), { timeout: 5_000 })
+      expect(session.agent.prompts).toHaveLength(0)
+      expect(session.goalRun).toBeNull()
+      expect(session.goal).toBeNull()
+    } finally {
+      gate.release()
+      gate.restore()
+      session.agent.autoEnd = true
       await agentManager.destroyAgent(sessionId)
     }
   })

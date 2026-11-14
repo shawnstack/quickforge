@@ -233,6 +233,11 @@ export async function beginGoalRun(session, _kind = 'execution') {
   if (!session?.goal) return null
   if (session.goalRun) return session.goalRun
   const service = serviceFor(session)
+  // The goal this round is admitted for, read before the awaits below: a cancel
+  // landing while the admission persists clears session.goal, and the round must
+  // not be attached to a goal that no longer exists (or to a newer one that
+  // replaced it) — that dereferenced a null goal and threw out of the driver.
+  const admittedFor = session.goal.id
   // DSH: every round is an execution round; reserve it atomically.
   const admitted = await service.admitRound(session.sessionId, goalRef(session))
   syncGoal(session)
@@ -241,6 +246,13 @@ export async function beginGoalRun(session, _kind = 'execution') {
   }
   emitGoalUpdated(session)
   const goal = session.goal
+  if (!goal || goal.id !== admittedFor) {
+    // The goal was cleared or replaced while this round was being admitted. The
+    // round stays consumed (its admission is already durable, exactly like a
+    // round that ran), but no run is registered: nothing is left waiting for an
+    // agent_end that would never come, and no runtime is flipped to executing.
+    return null
+  }
   const run = {
     kind: 'execution',
     startedAt: Date.now(),
@@ -284,6 +296,9 @@ async function startGoalRun(session) {
   if (!canStartGoalRun(session)) return false
   const run = await beginGoalRun(session, 'execution')
   if (!run) return false
+  // Termination intents reach the driver as a generation bump (notifyGoalAbort),
+  // so capturing it here tells the guard below whether *this* round was stopped.
+  const abortGeneration = session.goalAbortGeneration || 0
   const goal = session.goal
   const round = goal.roundsStarted
 
@@ -309,6 +324,24 @@ async function startGoalRun(session) {
     // turn-boundary reconciliation has to happen here: a settings change made
     // while a goal runs must reach the next round too.
     await runnerDeps.refreshRuntime(session)
+    // The refresh above is a real await while beginGoalRun already registered
+    // this round as session.goalRun. A cancel (clear) or Stop landing in that
+    // window aborts an agent that has no live run yet, so nothing downstream
+    // would stop this round: it would still be dispatched for a goal the user
+    // already stopped — and in v2 cancel does not even clear goalRun, so the
+    // dangling run would outlive the goal. Refuse to dispatch a round that is no
+    // longer current, whose goal is no longer active, or that was terminated.
+    if (session.goalRun !== run
+      || session.goal?.phase !== 'active'
+      || (session.goalAbortGeneration || 0) !== abortGeneration) {
+      // A registered round that is never dispatched has no agent_end coming, so
+      // it has to be settled right here: Stop leaves the goal active with this
+      // run, and without the settlement the goal would sit on a live run that
+      // nothing can finish. Cancel already cleared the service goal, so the
+      // settlement's pause step is skipped and only the run is dropped.
+      if (session.goalRun === run) await finishGoalRun(session, { status: 'aborted' })
+      return false
+    }
     promptPromise = session.agent.prompt({
       role: 'user',
       content: `继续执行目标（第 ${round}/${goal.maxRounds} 轮）`,

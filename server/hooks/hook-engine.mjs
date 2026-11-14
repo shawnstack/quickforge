@@ -25,6 +25,27 @@ const HOOK_EXECUTIONS_PAGE_MAX_LIMIT = 100
 let hooksSettings = { enabled: true, hooks: [] }
 let hookEventListener = null
 
+// One in-flight execution per hook. A hook is a real child process (or a real
+// HTTP call) with its own timeout, so a hook that runs a full build on every
+// `agent_end` with a five-minute ceiling would spawn one build per turn for an
+// agent that ends several turns inside that window — all of them writing the
+// same output directory and the same build state. Matching events that arrive
+// while their hook is still running are dropped rather than queued (a queue
+// grows with the event rate and only postpones the pile-up); the number
+// dropped rides on the record of the run it interrupted.
+const inFlightHookIds = new Set()
+const skippedEventCounts = new Map()
+
+function noteSkippedEvent(hookId) {
+  skippedEventCounts.set(hookId, (skippedEventCounts.get(hookId) || 0) + 1)
+}
+
+function takeSkippedEvents(hookId) {
+  const skipped = skippedEventCounts.get(hookId) || 0
+  if (skipped) skippedEventCounts.delete(hookId)
+  return skipped
+}
+
 // Execution log. ORDER CONVENTION: index 0 is the NEWEST record, so the
 // array is newest-first and pagination is a stable slice.
 const recentExecutions = []
@@ -150,14 +171,25 @@ export function handleAgentEventForHooks(event) {
   for (const hook of hooksSettings.hooks) {
     if (!hook.enabled) continue
     if (!hook.events.includes(event.type)) continue
+    if (inFlightHookIds.has(hook.id)) {
+      noteSkippedEvent(hook.id)
+      continue
+    }
+    inFlightHookIds.add(hook.id)
     void executeHook(hook, ctx)
       .then((record) => {
+        inFlightHookIds.delete(hook.id)
+        const skippedEvents = takeSkippedEvents(hook.id)
+        if (skippedEvents > 0) record.skippedEvents = skippedEvents
         // silentOnFailure keeps failed executions out of the in-memory log;
         // successful runs are still recorded.
         if (hook.silentOnFailure && record.status !== 'success') return
         pushHookExecution(record)
       })
-      .catch((error) => logger.warn(`Hook ${hook.name || hook.id} failed unexpectedly:`, error?.message || error))
+      .catch((error) => {
+        inFlightHookIds.delete(hook.id)
+        logger.warn(`Hook ${hook.name || hook.id} failed unexpectedly:`, error?.message || error)
+      })
   }
 }
 

@@ -140,6 +140,25 @@ describe('hook engine', () => {
     }
   })
 
+  it('never runs the same hook concurrently and counts the events it skipped', async () => {
+    await loadExecutionsFromStore([])
+    await configureHooks({
+      enabled: true,
+      hooks: [commandHook('busy', 'node -e "setTimeout(() => {}, 120)"')],
+    })
+
+    agentEvents.emit('agent_event', { sessionId: 's1', type: 'agent_start' })
+    agentEvents.emit('agent_event', { sessionId: 's1', type: 'agent_start' })
+    agentEvents.emit('agent_event', { sessionId: 's1', type: 'agent_start' })
+
+    const record = await waitForRecord((execution) => execution.hookId === 'busy')
+    await settleBackgroundHooks()
+    const records = engine.getRecentHookExecutions().filter((execution) => execution.hookId === 'busy')
+    expect(records).toHaveLength(1)
+    expect(record.status).toBe('success')
+    expect(record.skippedEvents).toBe(2)
+  })
+
   it('caps the in-memory execution log at 300 entries (newest-first)', async () => {
     await loadExecutionsFromStore([])
     const records = Array.from({ length: 320 }, (_, index) => ({ id: `r${index}` }))

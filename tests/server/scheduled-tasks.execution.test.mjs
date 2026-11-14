@@ -824,6 +824,29 @@ describe('scheduled task execution lifecycle', () => {
     expect(mocks.deleteRun).toHaveBeenCalledWith('task-created-compensation', expect.any(String))
   })
 
+  it('clears the in-memory active run when the created row cannot be persisted', async () => {
+    const storage = await import('../../server/storage.mjs')
+    const routes = await import('../../server/routes/scheduled-tasks.mjs')
+    const executor = await import('../../server/scheduled-task-executor.mjs')
+    await storage.ensureStorage()
+    await createRecurringTask(storage, 'task-created-persist-failure')
+    // The very first write of a run (stage 'created') is the only one that used to
+    // escape the compensation branch below it: it sits one line above the `try`.
+    mocks.syncRun.mockImplementationOnce(async () => {
+      throw new Error('created sqlite failed')
+    })
+
+    await expect(runTask(routes, 'task-created-persist-failure')).rejects.toThrow('created sqlite failed')
+
+    const task = mocks.stores.get('scheduled-tasks')['task-created-persist-failure']
+    expect(executor.hasActiveTaskRuns(task)).toBe(false)
+
+    // The leak's user-visible cost: every later manual run is answered with 409
+    // "Task is already running" for the rest of the process lifetime.
+    mocks.nextAgentMode = 'success'
+    await expect(runTask(routes, 'task-created-persist-failure')).resolves.toMatchObject({ status: 200 })
+  })
+
   it('does not report a successful execution when terminal SQLite persistence fails', async () => {
     mocks.nextAgentMode = 'success'
     mocks.syncRun.mockImplementation(async (_taskId, value, options) => {

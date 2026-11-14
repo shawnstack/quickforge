@@ -137,7 +137,24 @@ export async function executeTask(task, trigger = 'schedule', onStarted) {
   }
   let currentRun = createdRun
   let started = false
-  await persistRun(task.id, createdRun, 'created')
+  try {
+    await persistRun(task.id, createdRun, 'created')
+  } catch (error) {
+    // The run never became durable, so its in-memory marker has to be released
+    // here: every other cleanup path sits inside the try below, which means a
+    // failed 'created' write used to leave the run registered as active for the
+    // rest of the process. The task then stops being scheduled (the tick skips a
+    // serial task that has an active run), manual runs answer 409 forever, and
+    // the maintenance window can never start — all of it silently.
+    try {
+      await taskRunsService.deleteRun(task.id, runId)
+    } catch {
+      // Nothing was persisted, so the row may not exist at all; the write error
+      // below is the one worth surfacing.
+    }
+    removeActiveRun(task.id, runId)
+    throw error
+  }
   try {
     await updateTask(task.id, (current) => {
       const otherRunIds = activeRunIdsFor(current).filter((id) => id !== runId)

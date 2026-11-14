@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -40,8 +41,15 @@ export async function waitForFile(file) {
 // Each test owns its directory and every real child it starts. The only real
 // process is an absolute Node executable with a mandatory preload; neither
 // npm, recorder/server nor old-PID helper processes are ever executed.
+//
+// The fixture directory lives under the system temp dir, not in the repo: it used
+// to be mkdtemp'd in tests/server/helpers/, so any cleanup that got skipped (child
+// not closed within the timeout, rm refused on Windows) dropped an untracked
+// `.supervisor-fixture-*` directory into the working tree and polluted git status.
+// Nothing needs it to be repo-local: the preload and the server entry are absolute
+// paths and a child's cwd is the fixture directory itself.
 export async function withSupervisorFixture(run) {
-  const tmpDir = await mkdtemp(path.join(helpersDir, '.supervisor-fixture-'))
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'quickforge-supervisor-fixture-'))
   const children = []
   const config = {
     oldPid: 424242,
@@ -113,11 +121,16 @@ export async function withSupervisorFixture(run) {
   try {
     return await run(fixture)
   } finally {
-    // Stop ALL children even if one cleanup fails. Do not remove the fixture
-    // unless every child has closed; no detached grandchildren exist in this model.
+    // Stop ALL children even if one cleanup fails, then remove the fixture dir
+    // unconditionally: the previous order threw on the first stop() failure and
+    // never reached `rm`, which is how fixture directories survived a failing
+    // run. A child that is still shutting down can make `rm` fail even with
+    // retries; that error is surfaced after the directory removal is attempted.
     const results = await Promise.allSettled(children.map((child) => child.stop()))
+    const cleanupError = await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+      .then(() => null, (error) => error)
     const failure = results.find((result) => result.status === 'rejected')
     if (failure) throw failure.reason
-    await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    if (cleanupError) throw cleanupError
   }
 }

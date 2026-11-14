@@ -115,9 +115,14 @@ describe('goal mode through the agent manager', () => {
     configureSessionStateService({ repository: null })
     const { closeSqliteStorage } = await import('../../server/sqlite/database.mjs')
     await closeSqliteStorage()
+    // 这个文件日志量很大，而 logger 的 5s 刷盘定时器还指向本次临时目录：rm 期间
+    // 触发就会把 data/logs 重新建出来（Windows 上 ENOTEMPTY）。先刷完并关流，
+    // 再让 rm 用重试窗口吃掉杀软/句柄释放的延迟。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
-    await rm(tmpDir, { recursive: true, force: true })
+    await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
     vi.restoreAllMocks()
   })
 
@@ -377,6 +382,15 @@ describe('goal mode through the agent manager', () => {
       await agentManager.runPrompt(sessionId, '/goal Ship goal mode')
       await toolByName(session, 'goal_report').execute('call-plan', PLAN)
       await session.agent.emit({ type: 'agent_end', messages: [] })
+      // Wait until the round is actually dispatched, not merely registered:
+      // beginGoalRun sets session.goalRun *before* startGoalRun awaits its
+      // runtime refresh and calls agent.prompt, so goalRun.kind alone can be
+      // observed a few awaits too early. Driving the settle inside that window
+      // leaves the round with no message of its own: markGoalIteration finds no
+      // anchor inside [messageStart, last], the durable iteration marker never
+      // reaches the transcript, and the late prompt lands as an unmarked last
+      // message (the read below then has nothing to read).
+      await vi.waitFor(() => expect(session.agent.prompts).toHaveLength(2))
       await vi.waitFor(() => expect(session.goalRun?.kind).toBe('execution'))
 
       // Real event path: the manager records the successful verification tool.
@@ -399,7 +413,11 @@ describe('goal mode through the agent manager', () => {
       await session.agent.emit({ type: 'agent_end', messages: [] })
       await vi.waitFor(() => expect(session.goal?.status).toBe('completed'))
       expect(session.goalRun).toBeNull()
-      const marker = session.agent.state.messages.at(-1).details.quickforgeGoalIteration
+      // Name the regression instead of letting a missing marker surface as a
+      // TypeError on `.details`.
+      const lastMessage = session.agent.state.messages.at(-1)
+      expect(lastMessage?.details).toBeDefined()
+      const marker = lastMessage.details.quickforgeGoalIteration
       expect(marker).toMatchObject({ goalId: session.goal.id, iteration: 1, outcome: 'completed' })
       expect(repository.findBySessionId(sessionId).state.goal.status).toBe('completed')
       await agentManager.destroyAgent(sessionId)

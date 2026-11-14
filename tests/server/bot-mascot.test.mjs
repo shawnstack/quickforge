@@ -94,6 +94,13 @@ describe('bots API exposes the mascot', () => {
 
   afterEach(async () => {
     await databaseModule?.closeSqliteStorage().catch(() => {})
+    // 先把日志写流关掉。logger 每 5s 把缓冲刷到 <data>/logs/（刷之前还会 mkdir
+    // 兜底），那个定时器属于本次模块图、路径也指向本次的临时目录：rm 走到一半它
+    // 一触发，刚删掉的 data 目录就被重新建出来，Windows 上就是
+    // ENOTEMPTY: rmdir '...\data'。刷完 close 掉流，剩下的句柄释放交给 rm 的
+    // 重试窗口（杀软扫描也会短暂占住新文件）。
+    const { flushLogger } = await import('../../server/utils/logger.mjs')
+    flushLogger()
     if (previousDataDir === undefined) delete process.env.QUICKFORGE_DATA_DIR
     else process.env.QUICKFORGE_DATA_DIR = previousDataDir
     if (previousHome === undefined) delete process.env.HOME
@@ -101,7 +108,7 @@ describe('bots API exposes the mascot', () => {
     if (previousUserProfile === undefined) delete process.env.USERPROFILE
     else process.env.USERPROFILE = previousUserProfile
     vi.resetModules()
-    if (tmpDir) await rm(tmpDir, { recursive: true, force: true })
+    if (tmpDir) await rm(tmpDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
   })
 
   function mockResponse() {

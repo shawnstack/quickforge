@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { PassThrough } from 'node:stream'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
@@ -6,6 +6,31 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { handleWorkspaceApi, searchWorkspace } from '../../../server/routes/workspace.mjs'
 import { getDefaultWorkspaceRoot, setDefaultWorkspaceRoot } from '../../../server/project-config.mjs'
+
+// 用例只关心工作空间里的文件，不关心用户真实的 ~/.quickforge。数据目录指到本进程
+// 专属的空临时目录：否则首个触碰 storage 的用例要替整个进程跑一次 ensureStorage()
+// ——扫真实 logs/（本机 4000+ 个日志文件，实测 ~0.65s）、重跑配置迁移、还要和十几个
+// worker 抢同一批真实文件。空目录实测 ~0.05s。
+// 下面那个「等 rg 被拉起」的用例就卡在这段前置 I/O 上：5s 的等待预算本来只该覆盖
+// spawn，实际却要先等存储初始化，满负载时直接等到断言超时。
+const testDataDir = vi.hoisted(() => {
+  const previous = process.env.QUICKFORGE_DATA_DIR
+  if (previous) return { dir: null, previous }
+  const base = process.env.TEMP || process.env.TMPDIR || '/tmp'
+  const dir = `${base}/qf-test-data-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  process.env.QUICKFORGE_DATA_DIR = dir
+  return { dir, previous }
+})
+
+afterAll(async () => {
+  if (!testDataDir.dir) return
+  // logger 的 5s 刷盘定时器还挂在刚建的那个临时目录上：留着它会在删完之后把
+  // data/logs 重新建出来，顺手留下一个 %TEMP% 残骸。刷完关流再删。
+  const { flushLogger } = await import('../../../server/utils/logger.mjs')
+  flushLogger()
+  delete process.env.QUICKFORGE_DATA_DIR
+  await rm(testDataDir.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 })
+})
 
 // 路由级 abort 用例用可控假子进程替换 spawn；默认透传真实 spawn，其余用例不受影响
 const spawnControl = vi.hoisted(() => ({ impl: null }))

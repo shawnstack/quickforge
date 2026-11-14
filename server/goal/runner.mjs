@@ -379,8 +379,21 @@ function scheduleGoalContinuation(session, _kind) {
   setImmediate(() => {
     void (async () => {
       try {
-        await waitForGoalIdle(session)
+        const idle = await waitForGoalIdle(session)
         session.goalContinuationPending = false
+        if (!idle) {
+          // The idle deadline expired, so this round was never dispatched and
+          // nothing else will ever schedule one: `canStartGoalRun` keeps
+          // refusing while the session is busy, and an active goal that is
+          // still `armed` cannot be resumed (service.resume rejects it). The
+          // card would look alive over a chain that is dead. Hand control back
+          // exactly like the driver-failure branch below does.
+          logger.warn(`Goal continuation for session ${session.sessionId} could not reach idle; disarming`, { sessionId: session.sessionId })
+          serviceFor(session).disarm(session.sessionId)
+          syncGoal(session)
+          emitGoalUpdated(session)
+          return
+        }
         if (!canStartGoalRun(session)) return
         await startGoalRun(session)
       } catch (error) {

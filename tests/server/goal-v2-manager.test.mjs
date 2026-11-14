@@ -515,6 +515,38 @@ describe('goal v2 through the agent manager', () => {
     }
   })
 
+  it('disarms a goal whose continuation never reaches idle instead of leaving it armed with no round', async () => {
+    const sessionId = 'goal-v2-manager-idle-timeout'
+    const session = await createSession(sessionId)
+    session.agent.autoEnd = false
+    try {
+      await agentManager.runPrompt(sessionId, '/goal Ship goal v2')
+      expect(session.goal).toMatchObject({ phase: 'active', activation: 'armed' })
+      // Keep the session perpetually streaming: the continuation can then only
+      // leave its idle wait through the 15s deadline, so no round is dispatched.
+      session.agent.state.isStreaming = true
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(session.goalContinuationPending).toBe(true)
+
+      // Real time on purpose: the driver's 200ms idle-poll timer is created
+      // before this line, so fake timers installed now could never fire it.
+      await new Promise((resolve) => setTimeout(resolve, 16_500))
+
+      // Nothing can advance an active, armed goal that has no round and no
+      // pending continuation: service.resume refuses an already-armed goal, so
+      // the card would look alive while the chain is dead. The driver must hand
+      // control back to the user instead of leaving it armed.
+      expect(session.agent.prompts).toHaveLength(0)
+      expect(session.goalRun).toBeNull()
+      expect(session.goalContinuationPending).toBe(false)
+      expect(session.goal).toMatchObject({ phase: 'active', activation: 'disarmed' })
+    } finally {
+      session.agent.state.isStreaming = false
+      session.agent.autoEnd = true
+      await agentManager.destroyAgent(sessionId)
+    }
+  }, 40_000)
+
   it('does not dispatch the round a Stop caught while it was being admitted', async () => {
     const sessionId = 'goal-v2-manager-stop-during-admit'
     const session = await createSession(sessionId)

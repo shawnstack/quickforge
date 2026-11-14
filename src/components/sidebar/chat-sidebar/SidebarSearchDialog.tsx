@@ -1,9 +1,11 @@
+import { useRef } from 'react'
 import { Search } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { sessionTitle } from '@/lib/types'
 import type { QuickForgeSessionMetadata } from '@/lib/types'
 import { searchDialogClass } from './sidebar-classes'
 import { formatSessionTime } from './sidebar-utils'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 
 export type SidebarSearchResult = {
   session: QuickForgeSessionMetadata
@@ -28,9 +30,14 @@ export function SidebarSearchDialog({
   onClose: () => void
   onSelectResult: (sessionId: string) => void
 }) {
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // 搜索弹窗是 aria-modal：Tab 只在输入框与结果之间循环，别漏到下面的侧栏。
+  useDialogFocusTrap(panelRef)
+
   return (
     <div className={searchDialogClass} role="dialog" aria-modal="true" onMouseDown={() => onClose()}>
-      <div className="w-full max-w-xl rounded-2xl border border-border bg-popover p-3 shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
+      <div ref={panelRef} className="w-full max-w-xl rounded-2xl border border-border bg-popover p-3 shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-center gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-4 shrink-0" />
           <input

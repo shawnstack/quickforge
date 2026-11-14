@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -45,6 +46,10 @@ function MessageDialog({
   const dialogRef = useRef<HTMLDivElement>(null)
   const resolvedRef = useRef(false)
 
+  // Tab 焦点陷阱搬进共用钩子（行为等价）；焦点归还仍由 renderMessageDialog 统一负责，
+  // 所以这里不开 restoreFocus，免得同一处聚焦两次。
+  useDialogFocusTrap(dialogRef)
+
   const resolveCancelOnce = useCallback(() => {
     if (resolvedRef.current) return
     resolvedRef.current = true
@@ -74,31 +79,7 @@ function MessageDialog({
         }
         if (primary) runAction(primary)
       }
-      if (event.key === 'Tab') {
-        // Focus trap: the dialog is aria-modal, so keyboard focus must not
-        // escape to the background content while it is open.
-        const dialog = dialogRef.current
-        if (!dialog) return
-        const focusables = Array.from(
-          dialog.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-          ),
-        ).filter((el) => el.offsetParent !== null || el === document.activeElement)
-        if (focusables.length === 0) return
-        const first = focusables[0]
-        const last = focusables[focusables.length - 1]
-        const active = document.activeElement
-        const focusInsideDialog = active instanceof HTMLElement && dialog.contains(active)
-        if (event.shiftKey) {
-          if (active === first || !focusInsideDialog) {
-            event.preventDefault()
-            last.focus()
-          }
-        } else if (active === last || !focusInsideDialog) {
-          event.preventDefault()
-          first.focus()
-        }
-      }
+      // Tab 焦点陷阱见上方的 useDialogFocusTrap：这里只管 Esc 与 Enter，别把两条路径混回一处。
     }
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)

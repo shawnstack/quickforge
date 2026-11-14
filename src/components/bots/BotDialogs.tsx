@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FolderOpen, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import {
   feedBot,
   fetchBotMemory,
@@ -112,13 +113,17 @@ export function NewBotDialog({
   onCreate: (name: string) => void
 }) {
   const [name, setName] = useState('')
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // 弹窗声明了 aria-modal，Tab 就必须在卡片内循环，不能漏到背后的侧栏。
+  useDialogFocusTrap(panelRef, { enabled: open })
 
   const trimmed = name.trim()
   if (!open) return null
 
   return (
     <div className={OVERLAY} role="dialog" aria-modal="true" aria-label={t('newBot')}>
-      <div className={cn(CARD, 'max-w-md')}>
+      <div ref={panelRef} className={cn(CARD, 'max-w-md')}>
         <div className="px-5 pt-4 pb-2">
           <div className="text-sm font-semibold">{t('newBot')}</div>
           <div className="mt-1 text-xs leading-5 text-muted-foreground">{t('newBotHint')}</div>
@@ -301,6 +306,10 @@ export function BotSettingsDialog({
     if (mascotTimer.current !== null) window.clearTimeout(mascotTimer.current)
   }, [])
 
+  // 焦点锁在卡片上：遮罩那层整屏按钮是关闭热区，不该成为 Tab 的落点。
+  const panelRef = useRef<HTMLDivElement>(null)
+  useDialogFocusTrap(panelRef, { enabled: Boolean(bot) })
+
   if (!bot) return null
 
   const heartbeat = bot.heartbeat
@@ -313,7 +322,7 @@ export function BotSettingsDialog({
       aria-label={t('botSettings')}
     >
       <button type="button" className="absolute inset-0 cursor-default" aria-label={t('close')} onClick={onClose} />
-      <div className={cn(CARD, 'relative max-w-xl')}>
+      <div ref={panelRef} className={cn(CARD, 'relative max-w-xl')}>
         <div className="flex items-center gap-3 border-b border-border px-5 py-3">
           {/* 预览放弹窗顶部：改色的实时反馈就在「这是谁的设置」这个身份位上，
               比藏在形象区里直观；look 跟草稿联动，拖色盘时它跟着变。 */}

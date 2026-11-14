@@ -2,6 +2,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -27,6 +28,10 @@ function PromptDialogInner({
   const valueRef = useRef(value)
   const titleId = useId()
   const descriptionId = useId()
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // 命令式弹窗没有外层容器接管焦点，陷阱与「关掉后还给原处」都交给钩子。
+  useDialogFocusTrap(dialogRef, { restoreFocus: true })
 
   useEffect(() => {
     valueRef.current = value
@@ -56,7 +61,9 @@ function PromptDialogInner({
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={options.description ? descriptionId : undefined}
         className={cn(

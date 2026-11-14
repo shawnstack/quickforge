@@ -408,6 +408,8 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 - 数据：只有 `dreaming_runs`（运行记录 + 逐会话报告 + 快照路径 + 模型原始回复）。
 - 流程：`collectSessionEntries()` 按窗口取会话（**只取 user 消息与 assistant 最终回答**，工具调用与工具输出不进 prompt；单会话 30k 字符封顶）→ 整目录快照 → **逐个会话**各起一轮 agent（`runCuratorTurn()`）→ 重建 `index.md` → 记 run。
+- **取会话有分层配额**：先取用户会话（保底主份额），`bot-*` / `scheduled-*` 走独立查询、单轮最多 2 个（`MAX_BOT_SESSIONS`）；合并 transcript 那条路径里 bot 部分字数不超过总预算的 20%（`MAX_BOT_CHAR_RATIO`，超限直接跳过、不借用户额度），逐会话的 curator 路径不套合并预算、只有 200 会话安全上限（`MAX_SESSIONS_PER_CURATOR_RUN`）；前缀判定用 `GLOB` 而非 `LIKE`，防 ASCII 大小写误判。原因是 bot 心跳与定时任务每几分钟就改写一次会话，纯「最新优先」的窗口会被这些空转轮次占满，把用户真正开的会话挤出去。
+
 - **一次一个会话、串行、从旧到新**：逐会话处理让上下文短、任务明确，单个会话失败只影响自己。从旧到新是工作真实发生的顺序，后面的会话可以修正前面立下的笔记。
 - **整理员是 agent，不是流水线**：`server/dreaming/curator.mjs` 直接 `new Agent(...)`（不走 `AgentManager`，因为后台任务不需要持久化会话、生成标题或审批），`systemPrompt = CURATOR_SYSTEM_PROMPT`，工具只有四个记忆工具。`createCuratorToolGuard()` 是唯一的安全闸：非记忆工具一律 block，工具有调用预算（默认 60 次）；无人值守场景绝不发起审批。
 - **快照先拍再改**：`snapshotMemory()` 把两个目录整份复制到 `~/.quickforge/memory/snapshots/<runId>/`，**快照失败则整轮不执行**（能改记忆却没有回头路的 agent 比不整理更糟）。保留最近 10 份，`pruneSnapshots()` 清理。

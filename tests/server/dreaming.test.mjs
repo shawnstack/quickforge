@@ -4,7 +4,13 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createDreamingRepository } from '../../server/sqlite/dreaming-repository.mjs'
-import { collectSessionEntries, collectTranscript, detectContentLanguage } from '../../server/dreaming/collect.mjs'
+import {
+  MAX_BOT_CHAR_RATIO,
+  collectSessionEntries,
+  collectTranscript,
+  detectContentLanguage,
+  isBotSession,
+} from '../../server/dreaming/collect.mjs'
 
 let directory
 let databasePath
@@ -165,6 +171,78 @@ describe('per-session collection for the curator', () => {
     insertSession({ sessionId: 'corrected', messages: [{ role: 'user', content: '这个实现不对，应该先跑测试' }], updatedAtMs: 2000 })
     const collected = collectSessionEntries({ from: 0, to: 10_000 })
     expect(collected.sessions[0].correctionSignals).toBe(1)
+  })
+})
+
+describe('layered session quota', () => {
+  // Long filler, so a session's transcript block can be made bigger than the bot
+  // character budget without touching the message-count caps.
+  function fillerMessages(count) {
+    return Array.from({ length: count }, () => ({ role: 'user', content: 'x'.repeat(1400) }))
+  }
+
+  it('does not let bot heartbeats take over the session window', () => {
+    for (let index = 0; index < 5; index += 1) {
+      insertSession({
+        sessionId: `bot-${index}-abc`,
+        messages: [{ role: 'user', content: `心跳 ${index}` }],
+        updatedAtMs: 9000 + index,
+      })
+    }
+    // The scheduled-run prefix is capped the same way, and is the newest of all.
+    insertSession({ sessionId: 'scheduled-task-1-xyz', messages: [{ role: 'user', content: '定时任务' }], updatedAtMs: 9005 })
+    insertSession({ sessionId: 'user-a', messages: [{ role: 'user', content: '先问的' }], updatedAtMs: 1000 })
+    insertSession({ sessionId: 'user-b', messages: [{ role: 'user', content: '后问的' }], updatedAtMs: 2000 })
+
+    const collected = collectTranscript({ from: 0, to: 10_000 })
+    const ids = collected.sessions.map((session) => session.sessionId)
+    expect(ids).toContain('user-a')
+    expect(ids).toContain('user-b')
+    // Only the two newest bot/task sessions survive.
+    expect(ids.filter(isBotSession)).toEqual(['scheduled-task-1-xyz', 'bot-4-abc'])
+    expect(collected.totalSessions).toBe(4)
+  })
+
+  it('gives the whole window to the user when no bot session exists', () => {
+    for (let index = 0; index < 5; index += 1) {
+      insertSession({ sessionId: `user-${index}`, messages: [{ role: 'user', content: `第 ${index} 件事` }], updatedAtMs: 1000 + index })
+    }
+    const collected = collectTranscript({ from: 0, to: 10_000 })
+    expect(collected.sessionCount).toBe(5)
+    expect(collected.sessions.every((session) => !isBotSession(session.sessionId))).toBe(true)
+  })
+
+  it('applies the same cap to the per-session curator collection', () => {
+    for (let index = 0; index < 5; index += 1) {
+      insertSession({ sessionId: `bot-${index}-cur`, messages: [{ role: 'user', content: `心跳 ${index}` }], updatedAtMs: 9000 + index })
+    }
+    insertSession({ sessionId: 'user-cur', messages: [{ role: 'user', content: '用户的活' }], updatedAtMs: 1000 })
+
+    const collected = collectSessionEntries({ from: 0, to: 10_000 })
+    const ids = collected.sessions.map((session) => session.sessionId)
+    expect(ids).toContain('user-cur')
+    expect(ids.filter(isBotSession)).toHaveLength(2)
+  })
+
+  it('caps bot sessions at a fifth of the transcript budget', () => {
+    // Newest first, so the user session takes the first block and the bot share
+    // is then enforced on what follows.
+    insertSession({ sessionId: 'user-tiny', messages: [{ role: 'user', content: '一句话' }], updatedAtMs: 9000 })
+    insertSession({ sessionId: 'bot-a', messages: fillerMessages(6), updatedAtMs: 8000 })
+    insertSession({ sessionId: 'bot-b', messages: fillerMessages(6), updatedAtMs: 7000 })
+
+    const collected = collectTranscript({ from: 0, to: 10_000, maxSessions: 40, maxTotalChars: 100_000 })
+    const botChars = collected.sessions
+      .filter((session) => isBotSession(session.sessionId))
+      .reduce((total, session) => total + session.chars, 0)
+    expect(botChars).toBeLessThanOrEqual(100_000 * MAX_BOT_CHAR_RATIO)
+    // Both fit under the fifth, so the cap itself is not what drops them here.
+    expect(collected.sessions.filter((session) => isBotSession(session.sessionId))).toHaveLength(2)
+
+    // A single oversized bot session is dropped instead of eating the budget.
+    const squeezed = collectTranscript({ from: 0, to: 10_000, maxSessions: 40, maxTotalChars: 20_000 })
+    expect(squeezed.sessions.filter((session) => isBotSession(session.sessionId))).toHaveLength(0)
+    expect(squeezed.sessionCount).toBe(1)
   })
 })
 

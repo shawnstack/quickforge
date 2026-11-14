@@ -7,6 +7,14 @@ export const MAX_SESSION_CHARS = 30_000
 export const MAX_TOTAL_CHARS = 100_000
 export const MAX_SESSIONS_PER_RUN = 40
 /**
+ * Bot heartbeats and scheduled runs rewrite the session every few minutes, so a
+ * plain newest-first window is mostly idle turns and squeezes out the sessions
+ * the user actually started. They get a fixed small share of the transcript
+ * instead: two sessions, and at most a fifth of the character budget.
+ */
+export const MAX_BOT_SESSIONS = 2
+export const MAX_BOT_CHAR_RATIO = 0.2
+/**
  * The curator handles sessions one at a time, so the merged-transcript budget no
  * longer applies. This is a safety cap only: the runner is bounded by wall-clock
  * time, and a machine that accumulated more sessions than this in a day has a
@@ -89,12 +97,30 @@ export function projectMessages(messages, { sessionId, title, projectId, updated
   return joined.length <= MAX_SESSION_CHARS ? joined : `${joined.slice(0, MAX_SESSION_CHARS)}\n…(truncated)`
 }
 
+const BOT_SESSION_SQL = "session_id GLOB 'bot-*' OR session_id GLOB 'scheduled-*'"
+
+/** Bot heartbeat / scheduled-task session, identified by its id prefix. */
+export function isBotSession(sessionId) {
+  const value = String(sessionId ?? '')
+  return value.startsWith('bot-') || value.startsWith('scheduled-')
+}
+
+/**
+ * Two queries instead of one: user sessions keep the whole newest-first window,
+ * bot sessions are appended from a separately capped query. GLOB is used rather
+ * than LIKE because LIKE is case-insensitive for ASCII here.
+ */
 function selectSessions(handle, { from, to, limit }) {
-  return handle.prepare(`SELECT scope, project_id, session_id, title, updated_at, updated_at_ms, message_count
-    FROM sessions
-    WHERE updated_at_ms >= ? AND updated_at_ms <= ? AND message_count > 0
+  const columns = 'scope, project_id, session_id, title, updated_at, updated_at_ms, message_count'
+  const scope = `FROM sessions
+    WHERE updated_at_ms >= ? AND updated_at_ms <= ? AND message_count > 0`
+  const userRows = handle.prepare(`SELECT ${columns} ${scope} AND NOT (${BOT_SESSION_SQL})
     ORDER BY updated_at_ms DESC
     LIMIT ?`).all(from, to, limit)
+  const botRows = handle.prepare(`SELECT ${columns} ${scope} AND (${BOT_SESSION_SQL})
+    ORDER BY updated_at_ms DESC
+    LIMIT ?`).all(from, to, MAX_BOT_SESSIONS)
+  return [...userRows, ...botRows]
 }
 
 function readTail(handle, row, limit) {
@@ -111,7 +137,8 @@ function readTail(handle, row, limit) {
  *
  * Budget is enforced here, not by the model: sessions are taken newest-first and
  * dropped once the total budget is spent, so a burst of huge sessions degrades
- * into "fewer sessions processed" instead of an unbounded request.
+ * into "fewer sessions processed" instead of an unbounded request. Bot and
+ * scheduled sessions draw on a separate, much smaller share of that budget.
  */
 /**
  * Signals that a session contains a correction or a failure: the user pushed back
@@ -164,9 +191,17 @@ export function collectTranscript({ from, to, maxSessions = MAX_SESSIONS_PER_RUN
 
   const blocks = []
   const sessions = []
+  const botCharBudget = Math.floor(maxTotalChars * MAX_BOT_CHAR_RATIO)
   let spent = 0
+  let botSpent = 0
   for (const { row, block, signal } of candidates) {
-    if (spent + block.length > maxTotalChars && blocks.length > 0) break
+    const bot = isBotSession(row.session_id)
+    // Bot sessions draw on their own, much smaller share: one heartbeat that would
+    // push the bot total past it is skipped and the next candidate gets the chance.
+    if (bot && botSpent + block.length > botCharBudget) continue
+    // User sessions keep the original rule: the first block is always taken, so a
+    // huge session still teaches more than an empty transcript would.
+    if (!bot && spent + block.length > maxTotalChars && blocks.length > 0) break
     blocks.push(block)
     sessions.push({
       sessionId: row.session_id,
@@ -181,6 +216,7 @@ export function collectTranscript({ from, to, maxSessions = MAX_SESSIONS_PER_RUN
       preview: block.length <= SESSION_PREVIEW_CHARS ? block : `${block.slice(0, SESSION_PREVIEW_CHARS)}\n…(preview truncated)`,
     })
     spent += block.length
+    if (bot) botSpent += block.length
   }
 
   return {

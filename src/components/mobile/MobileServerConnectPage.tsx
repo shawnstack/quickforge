@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { ArrowRight, Check, ChevronRight, MoreHorizontal, Pencil, Plus, Server, ShieldCheck, Trash2, X } from 'lucide-react'
 import {
   buildMobileServerAppUrl,
@@ -7,6 +7,7 @@ import {
   saveMobileServerSettings,
   type MobileServerSettings,
 } from '@/lib/mobile-server'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 
 /** 跳转前连接动画的最小展示时长，避免“点击即跳转”让用户感知不到正在建立连接。 */
 const CONNECT_ANIMATION_MS = 800
@@ -24,6 +25,20 @@ export function MobileServerConnectPage() {
   const [editingUrl, setEditingUrl] = useState<string | null>(null)
   const [editingAlias, setEditingAlias] = useState('')
   const [deletingUrl, setDeletingUrl] = useState<string | null>(null)
+  const deleteConfirmRef = useRef<HTMLElement>(null)
+
+  // 删除确认是本页唯一的弹层——整页主体不声明任何 dialog 语义。
+  // 关闭沿用「取消」按钮那条路径（setDeletingUrl(null)），不新增状态。
+  useDialogFocusTrap(deleteConfirmRef, { enabled: Boolean(deletingUrl) })
+
+  useEffect(() => {
+    if (!deletingUrl) return undefined
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setDeletingUrl(null)
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [deletingUrl])
 
   // 连接动画展示完成后跳转到目标服务器；组件卸载（如用户按返回键）时取消跳转。
   useEffect(() => {
@@ -415,7 +430,7 @@ export function MobileServerConnectPage() {
 
       {deletingUrl ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center" role="presentation">
-          <section className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="quickforge-mobile-delete-title">
+          <section ref={deleteConfirmRef} className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="quickforge-mobile-delete-title">
             <h2 id="quickforge-mobile-delete-title" className="text-base font-semibold">删除这台服务器？</h2>
             <p className="mt-2 break-all text-sm leading-6 text-muted-foreground">
               “{deletingLabel}”将从已保存列表中移除，之后仍可重新添加。

@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { getAppStorage } from '@/storage'
 import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import {
   DEFAULT_HOOK_TIMEOUT_SECONDS,
   HOOK_EVENTS,
@@ -163,6 +164,11 @@ export function HooksSettingsTab() {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<HookExecutionRecord | null>(null)
   const [testError, setTestError] = useState('')
+  const editorPanelRef = useRef<HTMLDivElement>(null)
+
+  // 编辑器面板声明了 aria-modal，Esc 挂在遮罩的 onKeyDown 上（依赖焦点在面板内）。
+  // 补上 Tab 循环后焦点本来就被关在面板里，那条 Esc 只会更可靠——Esc 实现不动。
+  useDialogFocusTrap(editorPanelRef, { enabled: editorOpen })
 
   const loadExecutions = async (page: number) => {
     setExecutionsLoading(true)
@@ -544,6 +550,7 @@ export function HooksSettingsTab() {
           }}
         >
           <div
+            ref={editorPanelRef}
             className="quickforge-dialog-panel-in flex max-h-[calc(100dvh-2.5rem)] w-full min-w-0 max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge"
             role="dialog"
             aria-modal="true"

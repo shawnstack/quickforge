@@ -29,7 +29,7 @@
 | [useDesktopTitlebarMenu.ts](../../../../src/hooks/useDesktopTitlebarMenu.ts) | 41 | 桌面标题栏菜单（关于 / 检查更新 / 退出）开合状态与动作，点击外部/失焦自动收起 |
 | [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 58 | 工具审批 / ask_user 应答统一出口（走当前 agent，失败统一抛错）；自动上下文压缩不再需要审批，对应 handler 已删除 |
 | [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
-| [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 105 | 移动端侧栏抽屉（Escape/焦点管理）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |
+| [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 109 | 移动端侧栏抽屉（Escape/焦点管理，Tab 循环由 `useDialogFocusTrap` 守住）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |
 | [usePinnedSummaryModel.ts](../../../../src/hooks/usePinnedSummaryModel.ts) | 114 | 置顶摘要 view-model：从 agent 快照派生 Todo/Subagent/后台命令/Goal，内部订阅相关 Agent 事件递增 revision，并同步 Goal UI store；ACP 会话排除 Goal，`invalidate()` 供 Goal 动作后强制刷新 |
 | [use-skills-manager.ts](../../../../src/hooks/use-skills-manager.ts) | 301 | Skills 面板数据层（从 skills-dialog 组件抽出）：列表/详情加载竞态守卫、选中集保存的串行队列 + generation/sequence 双版本号乐观更新与失败回滚到 confirmed 集、撤销 toast；保存成功即失效 slash 目录缓存（invalidateSlashCatalog，见 lib/slash-catalog）；HTTP 在 `@/lib/skills-client` |
 | [useAgentSessionEvents.ts](../../../../src/hooks/useAgentSessionEvents.ts) | 96 | Agent 事件 → 会话列表联动 / 任务 Toast / 系统通知的统一出口（scheduled_task_started 展开项目并拉会话分页、session_created/title_updated/agent_end/session_forked 同步列表、scheduled_task_notification 与 bot_heartbeat_notification 的 Toast+通知）；事件类型守卫在 `src/lib/agent-event-guards.ts` |

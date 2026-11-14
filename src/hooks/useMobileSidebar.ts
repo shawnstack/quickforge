@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef } from 'react'
 import type { ProjectInfo } from '@/lib/types'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { useUIStore } from '@/stores/ui-store'
 
 /** 移动端侧栏抽屉：role=dialog + aria-modal，所以 Escape 必须关闭、打开时焦点移入、
  *  关闭时还原给打开者。这里的 `*FromSidebar` 包装先收抽屉再转发桌面同名动作，
  *  与桌面直连处理器分开保持引用稳定（memo 的桌面 ChatSidebar 不随无关状态重渲染）。
+ *  Tab / Shift+Tab 在抽屉内循环（`useDialogFocusTrap`）：aria-modal 说了「抽屉之外不可交互」，
+ *  键盘就得跟着守住——这是全应用最大的一块 aria-modal，别只靠视觉遮罩。
  *  抽屉开合状态直连 ui-store（原 ui 参数已去除）。 */
 export function useMobileSidebar(options: {
   loadSessionWithTransition: (sessionId: string) => void
@@ -27,6 +30,7 @@ export function useMobileSidebar(options: {
   }, [setMobileSidebarOpen])
 
   const mobileSidebarDrawerRef = useRef<HTMLDivElement>(null)
+  useDialogFocusTrap(mobileSidebarDrawerRef, { enabled: mobileSidebarOpen })
   useEffect(() => {
     if (!mobileSidebarOpen) return
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null

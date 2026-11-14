@@ -34,6 +34,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 | 命令 | 说明 |
 |------|------|
 | `qf` / `quickforge` | 启动后台服务 |
+| `qf lan` | 启动并显式声明 LAN 分享（等价 `qf start`；LAN 分享默认启用，此别名供脚本/文档显式表达） |
 | `qf stop` | 停止后台服务 |
 | `qf restart` | 重启后台服务并校验新实例 |
 | `qf status` | 查看服务状态 |
@@ -45,7 +46,7 @@ CLI 启动脚本，注册为 `quickforge` 和 `qf` 命令。
 
 ### 启动与重启流程
 
-1. 解析命令行参数 (`start` / `stop` / `restart` / `status` / `logs` / `acp` / `version` / `check-update` / `update` / `help`)。
+1. 解析命令行参数 (`start` / `lan` / `stop` / `restart` / `status` / `logs` / `acp` / `version` / `check-update` / `update` / `help`)。
 2. `start` 时派生 `server/index.mjs` 子进程。
 3. 轮询 `http://127.0.0.1:<port>/api/health`，确认子进程 PID、`bootId` 和服务就绪；默认最长等待 5 分钟（`STARTUP_HEALTH_TIMEOUT_MS = 300000`，覆盖空库一次性 JSON 导入等慢启动场景，`qf start` / `qf lan` / `qf restart` 共用）；若子进程提前退出则立即结束等待并报出退出码/信号，不会等满窗口。
 4. 就绪后写入 PID 到 `~/.quickforge/quickforge.pid`，并打印 URL、日志路径等信息。

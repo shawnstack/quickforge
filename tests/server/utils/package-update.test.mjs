@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterAll, afterEach } from 'vitest'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -12,8 +12,14 @@ import {
 
 const PACKAGE_NAME = '@shawnstack/quickforge'
 
+// 这个文件的临时目录是给 checkForUpdates 当 projectRoot / npmrc 用的，product code 不会删；
+// 用例里也从来没有 rm，所以全部记下来在 afterAll 统一清掉（否则每跑一遍就在 %TEMP% 留一批）。
+const tempDirs = []
+
 async function makeTempDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), 'quickforge-package-update-'))
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'quickforge-package-update-'))
+  tempDirs.push(dir)
+  return dir
 }
 
 async function makeProjectDir(version = '1.0.0') {
@@ -68,6 +74,10 @@ async function writeTempNpmrc(content) {
 describe('package update utilities', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  afterAll(async () => {
+    await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })))
   })
 
   describe('compareVersions', () => {

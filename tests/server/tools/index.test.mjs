@@ -428,7 +428,10 @@ describe('toolPresentFiles', () => {
   })
 })
 
-describe('toolGrepFiles — Node fallback', () => {
+// 这组用例走的是「有 ripgrep 就用 ripgrep」的正常路径；Node 回落（ripgrep 缺失、
+// 或正则含 JS 专有特性）由 file-search-fallback.test.mjs 把解析函数钉成 null 后单独
+// 覆盖——那边才断言 details.backend === 'node'，别在这里加回落断言。
+describe('toolGrepFiles', () => {
   let tmpDir
   let context
 
@@ -447,10 +450,6 @@ describe('toolGrepFiles — Node fallback', () => {
     await fs.rm(tmpDir, { recursive: true, force: true })
   })
 
-  // Force Node fallback by mocking resolveRipgrepExecutable to return null.
-  // Since resolveRipgrepExecutable is module-scoped, we patch the module-level
-  // cache via vi.mock. However, the function is not exported, so instead we
-  // test grep via the handler and accept either ripgrep or node backend.
   it('finds matches across files', async () => {
     const result = await toolHandlers.grep_files(
       { query: 'function', path: '.' },

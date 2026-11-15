@@ -297,7 +297,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 **功能**:
 - 存储布局迁移：早期 v1→v2 布局迁移 + 配置按 store 拆分（`migrateSplitConfig()`，单体 `config.json` → `settings`/`mcp`/`providers`/`plugins`/`projects` 多文件）
 - `readStore` / `writeStore` / `atomicUpdate` — 通用存储操作（各配置 store 独立文件与写入队列）
-- 根数组型 store（`rootArrayStores`，当前仅 `hook-executions` → `storage/hook-executions.json`）：文件根为纯 JSON 数组而非 keyed records，`readStore` / `writeStore` 走独立分支（读坏回落空数组、写非数组归一为空数组）并复用每 store 写队列与原子写；`atomicUpdate` 暂不支持该类 store，hook 引擎每次 flush 全量覆盖
+- 根数组型 store（`rootArrayStores`，当前含 `hook-executions` → `storage/hook-executions.json` 与 `plugin-audit` → `storage/plugin-audit.json`）：文件根为纯 JSON 数组而非 keyed records，`readStore` / `writeStore` / `atomicUpdate` 走独立分支（读坏回落空数组、写非数组归一为空数组）并复用每 store 写队列与原子写；`recordPluginAudit` 即用 `atomicUpdate` 做一趟读改写，hook 引擎仍自行整表 flush
 - `atomicSessionValueUpdate` — 在会话数据写队列中原子更新单个会话，供自动归档等后台维护任务避免覆盖并发持久化
 - 会话分桶存储（按 scope 和 projectId）：global metadata 为 `storage/conversations/global/sessions-metadata.json`，每个完整会话为 `storage/conversations/global/sessions/<sessionId>.json`；project 对应 `storage/conversations/projects/<projectId>/sessions-metadata.json` 与 `sessions/<sessionId>.json`。会话图片资产位于同一 bucket 的 `assets/<sessionId>/`，永久删除会话时同步清理
 - `readSessionStoreScoped` — 作用域会话查询

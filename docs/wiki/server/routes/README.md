@@ -107,7 +107,7 @@ Agent 会话管理核心路由。
 - `GET /api/storage/quota` — 存储配额和用量
 - `GET|POST|DELETE /api/storage/:store/keys/:key` — 键值操作
 - `POST /api/storage/batch` — F8 窄事务端点：单请求一次提交 sessions+sessions-metadata 的 set/delete（expectedStateVersion 可选）；`SESSION_STATE_CONFLICT`/`SESSION_STATE_DUPLICATE_ID`/`SESSION_STATE_REQUIRED`/`SESSION_FULL_DELETE_REQUIRED` 稳定映射 409，会话维护锁 active 返回 423；单 PUT sessions 走 `writeSessionValueWithMetadata`（自动派生/merge metadata，不制造 body orphan），DELETE 走 `deleteSessionWithMetadata` 幂等，GET/API shape 不变
-- `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）；会话元数据默认排除归档记录，`archived=only` 仅返回归档，`archived=include` 返回全部。F7 仅对严格合法、可证明与旧 JSON 等价的 sessions metadata 分页请求使用 SQLite `COUNT + LIMIT/OFFSET`；readiness/digest/source compatibility、duplicate/tie、repository/shadow mismatch 或 legacy 参数均保留原 JSON fallback
+- `GET /api/storage/:store/index/:indexName` — 索引查询（支持排序、分页、作用域过滤）；会话元数据默认排除归档记录，`archived=only` 仅返回归档，`archived=include` 返回全部。F7 仅对严格合法、可证明与旧 JSON 等价的 sessions metadata 分页请求使用 SQLite `COUNT + LIMIT/OFFSET`；readiness/digest/source compatibility、duplicate/tie、repository/shadow mismatch 或 legacy 参数均保留原 JSON fallback；响应信封是 `{ values, total }`——`total` 是**过滤后的总条数**（SQL 路径取自 `COUNT`，fallback 路径取整份过滤结果的长度），与实际返回的 `values` 条数无关，客户端靠它判断「这一页是不是全部」并决定要不要继续按 `offset` 翻页（归档会话列表 1000 条静默截断就是没认这个字段）
 - 写入 `settings/auto-archive-settings` 并开启时，会立即执行一次超过 30 天未更新对话的自动归档扫描
 
 ## backup.mjs

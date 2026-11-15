@@ -197,9 +197,17 @@ components/
 │   ├── TerminalPane.tsx             # xterm.js 终端实例面板
 │   ├── terminal-api.ts              # 终端 REST API 客户端
 │   └── terminal-types.ts            # 终端会话/能力/Profile 类型
-├── workbench/                       # 工作台（`Workbench.tsx` + `workbench.css`），概览见下文「工作台」小节
-│   ├── Workbench.tsx               # 工作台主体：待运行队列 / 在跑·最近完成·全部 bot / 异常提醒 / TODAY 统计带
-│   └── workbench.css               # 工作台样式（`.qf-wb__*`）：看板与时钟恒暗、房间随主题
+├── workbench/                       # 工作台家族：拟物台面 + 屏保 + 配色/氛围场（概览见下文「工作台」小节）
+│   ├── Workbench.tsx               # v8 看板主体（待运行队列 / 在跑·最近完成·全部 bot / 异常提醒 / TODAY 统计带）；屏保模式下被台面复用
+│   ├── WorkbenchAnalog.tsx         # 工作台台面（QF-08 拟物）：翻页钟 / 指针仪表 / 机械计数 / 纸质记录卡
+│   ├── WorkbenchScreensaver.tsx    # 屏保本体：接管全屏，氛围场托底，任意输入退出
+│   ├── screensaver-field.ts        # 屏保氛围场（canvas 渐变 + 极光 + 星尘，单 rAF、隐藏即停）
+│   ├── screensaver-palette.ts      # 屏保配色（主色派生同族深底与邻色）
+│   ├── workbench-analog-data.ts    # 台面数据补充（只读现成端点：今日完成回填 / 累计成功率退路）
+│   ├── workbench-format.ts         # 时间与补零格式化（fmtHm / fmtSpan / pad）
+│   ├── workbench-analog.css        # 拟物台面样式（`.qf-wba__*`）
+│   ├── workbench-screensaver.css   # 屏保样式（氛围场画布与叠层排版）
+│   └── workbench.css               # v8 工作台样式（`.qf-wb__*`）：两套 token、跑道灯带、翻页时钟、统计带
 ├── ui/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框（命令式 showConfirm/showAlert；模块级互斥防叠加、focus trap、关闭后焦点恢复）
@@ -555,11 +563,20 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 
 常驻看板（设计稿 `docs/design/workbench-redesign/workbench-v8-proposal.html`，稿子仍是旧的塔台叙事，实现文案已换成调度语义、不用港口/机场隐喻）：把 bot 心跳与定时任务的 `nextRunAt` 合并成一条「待运行队列」，右栏在跑 / 最近完成 / 全部 bot，顶部异常提醒。数据全部取自现成端点，不改服务端；「最近完成」与「到点未醒」只作会话内观察，不外推成历史结论（20s 轮询 + 1s 走秒，错过时刻留 90s 宽限，最近完成最多留 8 条）。视觉上房间吃全局主题 token、看板与时钟是「仪器」双主题恒暗。手动打开与屏保自动进入走同一条 `setWorkbenchOpen`。
 
-- `Workbench.tsx` (935 行) # 工作台主体：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`
-- `workbench.css` (527 行) # 工作台样式：`.qf-wb__*` 两套 token（房间 / 仪器）、跑道灯带、仪表盘翻页时钟、今日统计带
+- `WorkbenchAnalog.tsx` (904 行) # 工作台台面（QF-08 硬件拟物：拉丝金属 / 内凹 CRT / 翻页钟 / 指针仪表 / 机械计数 / 纸质记录卡）；bot 心跳与定时任务的 `nextRunAt` 合流成待运行队列，今日统计走 sessions-metadata 与 task-runs，异常取 lastError 快照；class 全用 `qf-wba` 前缀独占、不改写 v8，导出 `WorkbenchAnalog` 与 `WorkbenchPortal`（`ConversationHeader` 挂载的正是它）
+- `Workbench.tsx` (935 行) # v8 看板：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`；屏保模式下以 `WorkbenchTower` 被台面复用，并在此渲染 `WorkbenchScreensaver`
+- `WorkbenchScreensaver.tsx` (258 行) # 屏保本体：接管全屏后由氛围场托底，翻页钟 / 今日统计 / 文案随设置变化；任意输入退出，预览模式只认点击与按键
+- `screensaver-field.ts` (249 行) # 屏保氛围场：一层 canvas 画底色渐变、三团缓慢游走的极光、视差星尘与偶发流星；单 rAF 驱动，DPR 封顶、页面隐藏即停、动效为 0 或系统减弱动效时只画一帧，拿不到 2d context 退化成空控制器（CSS 底色仍在，不白屏）
+- `screensaver-palette.ts` (64 行) # 屏保配色：从主色派生同族深底与两个邻色，让渐变跨越真实色相；暖色数码管白与冷灰文字是固定中性色，不随主色漂移
+- `workbench-analog-data.ts` (106 行) # 台面数据补充：今日完成记录用 sessions-metadata 每条自带的 `taskFinishedAt` / `taskStatus` 回填历史纸卡；今日没有定时任务运行时，仪表退成全部历史运行的「累计」成功率并在界面标注，不把 0 次运行画成 0%
+- `workbench-format.ts` (18 行) # 时间与补零格式化（`fmtHm` / `fmtSpan` / `pad`）
+- `workbench-analog.css` (377 行) # 拟物台面样式（`.qf-wba__*`）：金属 / CRT / 翻页钟 / 仪表 / 记录卡
+- `workbench-screensaver.css` (404 行) # 屏保样式：氛围场画布与叠层排版
+- `workbench.css` (527 行) # v8 工作台样式：`.qf-wb__*` 两套 token（房间 / 仪器）、跑道灯带、仪表盘翻页时钟、今日统计带
+- `settings/tabs/WorkbenchScreensaverSettings.tsx` (336 行) # 设置页屏保分区：预览（以 `embedded` 渲染屏保本体）、随机外观、重置，改动即存
 - `src/lib/workbench-today-stats.ts` (99 行) # TODAY 统计带数据层：今日会话数、token、任务运行数与成功率，全部来自现成端点
-- `src/lib/workbench-screensaver-settings.ts` (113 行) # 屏保设置与纯判定：30 分钟 idle 阈值、存储键 `workbenchScreensaver`、`screensaverDue(enabled, workbenchOpen)`
-- `src/hooks/useWorkbenchScreensaver.ts` (74 行) # 屏保引擎：页面 30 分钟无操作自动进入工作台，屏保期间任意操作立即退出；手动打开的工作台不受活动影响
+- `src/lib/workbench-screensaver-settings.ts` (113 行) # 屏保配置模型：idle 1–120 分钟（默认 30）、亮度与时钟百分比、六种主色候选、随机化，沿用旧存储键 `workbenchScreensaver`（历史 boolean 读成 `enabled`），含纯判定 `screensaverDue`
+- `src/hooks/useWorkbenchScreensaver.ts` (74 行) # 屏保引擎：读配置 → 到点 `enterWorkbenchScreensaver('idle')`，屏保期间任意活动即退出；手动打开的工作台不受活动影响
 
 ### 机器人（`bots/`）
 

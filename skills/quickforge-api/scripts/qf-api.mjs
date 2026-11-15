@@ -57,9 +57,9 @@ Self control (own session by default):
   wait [--sessionId ID] [--timeout S] [--interval S]
 
 Other sessions:
-  spawn --title T [--message M] [--project ID] [--model REF] [--thinking LEVEL]
+  spawn [--title T] [--message M] [--project ID] [--model REF] [--thinking LEVEL]
         [--access-mode default|full-access]
-        thinking defaults to my current level; access-mode defaults to
+        title defaults to "Sub session"; thinking defaults to my current level; access-mode defaults to
         full-access (sub session runs without per-tool approvals)
   prompt <sessionId> <message...>
   abort <sessionId>
@@ -783,6 +783,9 @@ async function commandTaskAdd(client, options) {
     ? `${SELF_SCHEDULED_TITLE_PREFIX} ${rawTitle}`
     : rawTitle
   const instruction = requiredOption(options, 'instruction', '--instruction "到点后真正要做什么"')
+  // 纯参数校验必须排在第一个网络请求之前。schedule 写错时（例如 --days 1,x、--schedule hourly）
+  // 若先发请求，用户看到的是「fetch failed」——真实原因被线路问题盖住（11-15 实测 6 个用例全这样）。
+  const scheduleInput = buildScheduleInput(options)
   const binding = await resolveTaskModelBinding(client, optionString(options, 'model'))
   const project = resolveTaskProject(options)
   const thinkingLevel = optionString(options, 'thinking')
@@ -794,7 +797,7 @@ async function commandTaskAdd(client, options) {
     task: {
       title,
       instruction,
-      ...buildScheduleInput(options),
+      ...scheduleInput,
       enabled: options.paused !== true,
       executionMode: optionString(options, 'execution-mode') === 'parallel' ? 'parallel' : 'serial',
     },

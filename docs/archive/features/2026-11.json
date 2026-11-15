@@ -1908,5 +1908,20 @@
     "verification": "定向 6 文件 57/57（含 i18n 语言快照）；npx tsc -b 净；npx eslint 改动文件净；npm run check:wiki 384/384 bad=0；npm run build 成功且 dist/assets/i18n-*.js 只含新词。隔离 dev 实例 Electron offscreen 读到真实渲染文本与布局指标：appbar/标题/三个面板头 scrollWidth == clientWidth，无溢出。",
     "updatedAt": "2026-11-14",
     "boundaries": "只换文案，不动视觉（翻牌时钟、跑道灯、PlaneLanding 图标保留）、不动 CSS 类名与内部标识、不改服务端。设计稿 docs/design/workbench-redesign/* 与 docs/archive/* 仍是旧叙事，属历史文档未改。心跳/唤醒/催醒/投喂属 bot 生命隐喻，不在范围内。dist 由 npm run build 重建（gitignored，不进提交），用户需刷新或重启 5176 实例才看得到。未 commit。"
+  },
+  {
+    "id": "bot-memory-writes-global",
+    "title": "bot 会话的记忆写入落到了用户总记忆（bot 记忆与全局记忆作用域错位）",
+    "status": "done",
+    "summary": "P0，未修，仅记录。用户报「bot 的记忆修改了 quickforge 的总记忆」，核实属实：全局唯一的 `~/.quickforge/memory/MEMORY.md` 在 2026-11-13 06:34 被写成一份「质检bot 记忆」章程。根因是作用域错位，不是单个 bot 越界：① `server/project-config.mjs` 的 `buildInstructionsPayload` 对 `project.kind === 'bot'` 会把记忆块替换成该 bot 工作区根的 MEMORY.md（bot 读到的确实是自己那份）；② 但 `manage_global_memory` 不带会话上下文，`server/tools/global-memory.mjs` → `server/global-memory.mjs` 固定写全局 `MEMORY.md`；③ `server/bots.mjs` 的 bot 模板又写明「MEMORY.md 是你的，结构不好用就重组」。于是 bot 每次心跳把读到的自己记忆原样写回，落到用户的总记忆上。数据库统计（session_messages 里 manage_global_memory 的写入回执）：累计 37 次带内容写入，涉及 4 个 bot —— 主助手 1 次、小跟班 1 次、质检bot 16 次、文档bot 19 次；用户最后一版正常内容是 2026-11-11 17:56 的「# 用户偏好」（425 字）。本轮已把这份原文写回全局 MEMORY.md，覆盖前的版本备份到 `~/.quickforge/_backups/global-memory-bot-overwrite-2026-11-13.md`。修复方向（待排期）：让 `manage_global_memory` 认会话，bot 项目下写入该 bot 工作区的 MEMORY.md；或在 bot 会话不注入该工具、改注入写自己 workspace 的版本。 ——【2026-11-16 01:20 已修】落点改由会话上下文决定：bot 会话写自己工作区的 <workspaceRoot>/MEMORY.md（新增 writeWorkspaceMemory()），其余会话照旧写全局；判不出目标就抛 Bot memory file is unavailable for this session.（errorCode BOT_MEMORY_UNAVAILABLE），没有任何退回写全局的分支。测试 tests/server/bot-memory-scope.test.mjs（4 例，先证会红）。",
+    "files": [
+      "server/project-config.mjs（bot 会话用 workspace MEMORY.md 顶掉全局记忆块）",
+      "server/tools/global-memory.mjs（无会话上下文，直接写全局）",
+      "server/global-memory.mjs（writeGlobalMemory → 全局路径）",
+      "server/bots.mjs（bot 模板把 MEMORY.md 描述成 bot 自己的文件）"
+    ],
+    "verification": "只读核实：读全局 MEMORY.md 与各 bot 记忆文件、查 sqlite session_messages 的写入回执（4 个 bot / 37 次）、对齐文件 mtime 与质检bot 会话时间（06:34:24）。恢复后回读文件为 425 字的「# 用户偏好」原文。未改任何 server 代码，未跑测试（本轮无代码改动）。",
+    "updatedAt": "2026-11-16",
+    "boundaries": "本轮只恢复用户数据 + 记录，不改产品代码（用户明确选择「只记录，暂不改代码」）。根因未修 ⇒ bot 每次心跳仍可能再次覆盖全局 MEMORY.md（间隔约 3 小时）。恢复用的 425 字版本是数据库里最后一版非 bot 写入，无法排除之后用户在 UI 手动改过；若要精确回滚到某个时间点，只能以该备份为准。"
   }
 ]

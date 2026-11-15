@@ -18,7 +18,7 @@
 | [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 98 |
 | [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘（单文件 8MB 封顶）、后台 detach | 543 |
 | [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 106 |
-| [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳（写 `writeGlobalMemory`） | 11 |
+| [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳：落点由会话决定——bot 会话写自己工作区的 `<workspaceRoot>/MEMORY.md`（`writeWorkspaceMemory`），其余写全局（`writeGlobalMemory`），判不出目标就报错、不回退 | 74 |
 | [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 64 |
 | [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（grep_files / run_command 参数归一化） | 12 |
 | [memory-notes.mjs](../../../../server/tools/memory-notes.mjs) | 记忆笔记四工具（工作记忆 + 经验库，Dreaming curator 共用） | 192 |

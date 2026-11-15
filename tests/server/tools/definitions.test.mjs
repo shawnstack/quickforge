@@ -60,7 +60,11 @@ describe('definitions', () => {
     it('is a write-only, sequential tool', () => {
       expect(globalMemoryTool.name).toBe('manage_global_memory')
       expect(globalMemoryTool.executionMode).toBe('sequential')
-      expect(globalMemoryTool.description).toContain('complete global MEMORY.md')
+      // 落点由会话决定：bot 会话写自己工作区的 MEMORY.md（见 bot-memory-scope.test.mjs），
+      // 所以描述不能再向所有会话承诺「global」。
+      expect(globalMemoryTool.description).toContain('MEMORY.md this session owns')
+      expect(globalMemoryTool.description).toContain('the workspace copy that belongs to a bot')
+      expect(globalMemoryTool.description).not.toContain('global MEMORY.md shared by all chats')
       expect(globalMemoryTool.description).toContain('proactively save durable preferences')
       expect(globalMemoryTool.description).toContain('current-task instructions')
       expect(globalMemoryTool.description).toContain('Do not force an update')

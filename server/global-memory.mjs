@@ -17,6 +17,9 @@ import { countExperiences } from './experiences.mjs'
 export const GLOBAL_MEMORY_SETTINGS_KEY = 'memory-settings'
 export const GLOBAL_MEMORY_FILE_NAME = 'MEMORY.md'
 export const GLOBAL_MEMORY_DISPLAY_PATH = '~/.quickforge/memory/MEMORY.md'
+// Human-readable target for the bot workspace copy. The real path lives in the
+// caller's workspace root, which is not a stable label ("bot workspace" is).
+const WORKSPACE_MEMORY_DISPLAY_PATH = 'bot workspace MEMORY.md'
 export const DEFAULT_GLOBAL_MEMORY_SETTINGS = { enabled: true }
 
 const MAX_MEMORY_FILE_BYTES = 16 * 1024
@@ -148,14 +151,11 @@ export async function readGlobalMemoryPrompt(options = {}) {
   }
 }
 
-// Write-only: the document is already injected into the system prompt, so there is
-// no read action to expose. `details.action` stays 'write' because the chat
-// renderer keys off it (including for historical messages).
-export async function writeGlobalMemory(params = {}, options = {}) {
-  await assertMemoryEnabled(options)
-  const saved = await saveGlobalMemoryDocument(params.markdown, options)
+function writeResult(content, saved) {
+  // `details.action` stays 'write' because the chat renderer keys off it
+  // (including for historical messages).
   return {
-    content: 'Global user memory saved.',
+    content,
     details: {
       action: 'write',
       status: 'saved',
@@ -164,4 +164,33 @@ export async function writeGlobalMemory(params = {}, options = {}) {
       path: saved.path,
     },
   }
+}
+
+// Write-only: the document is already injected into the system prompt, so there is
+// no read action to expose.
+export async function writeGlobalMemory(params = {}, options = {}) {
+  await assertMemoryEnabled(options)
+  const saved = await saveGlobalMemoryDocument(params.markdown, options)
+  return writeResult('Global user memory saved.', saved)
+}
+
+// The same document, for the memory file that belongs to one bot's workspace
+// (`<workspaceRoot>/MEMORY.md`) — that is the file a bot session has injected into
+// its own prompt, so it is the file the tool has to replace. Same validation and
+// same write queue as the global file; only the target differs. The caller decides
+// *which* file from the session context, and there is deliberately no fallback
+// here: a fallback would turn "bot overwrites the user's memory" into a bug with a
+// different trigger.
+export async function writeWorkspaceMemory(params = {}, workspaceRoot, options = {}) {
+  if (typeof workspaceRoot !== 'string' || !workspaceRoot.trim()) {
+    throw requestError('Memory workspace root is required.')
+  }
+  await assertMemoryEnabled(options)
+  const validated = validateGlobalMemoryMarkdown(params.markdown)
+  return withMemoryWriteLock(async () => writeResult('Bot workspace memory saved.', {
+    markdown: validated,
+    chars: validated.length,
+    path: WORKSPACE_MEMORY_DISPLAY_PATH,
+    file: await writeMarkdownAtomically(path.join(workspaceRoot, GLOBAL_MEMORY_FILE_NAME), validated),
+  }))
 }

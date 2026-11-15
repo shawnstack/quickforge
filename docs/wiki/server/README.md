@@ -388,6 +388,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 关闭后不注入记忆内容或主动记忆规则，并停止记忆工具的写入，但保留 `MEMORY.md`；运行中的会话会在下一次发送消息前刷新 system prompt 和工具列表。
 - Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
 - 记忆分三块，各管各的：`MEMORY.md` 是用户写的（设置页走 `GET`/`PUT /api/memory`，Agent 走只写的 `manage_global_memory`）；`~/.quickforge/memory/notes/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/memory/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
+- bot 会话的落点不是全局文件：bot 的系统提示注入的是自己工作区根上的 `MEMORY.md`（`buildInstructionsPayload()` 在 `project.kind === 'bot'` 时用它顶掉全局记忆块），所以同一个 `manage_global_memory` 在 bot 会话里写 `<workspaceRoot>/MEMORY.md`（`writeWorkspaceMemory()`，与全局那份共用同一套校验、敏感信息拒收与写锁），其余会话照旧写全局。落点判据只来自会话上下文（`scope` + 项目记录的 `kind`，缺失才按 `projectId` 查一次项目记录），判不出来就抛 `Bot memory file is unavailable for this session.`——**绝不悄悄退回写全局**，那个回退正是 bot 整篇覆盖用户记忆的成因。
 - 注入策略分三级：`readGlobalMemoryPrompt()` → `<global_user_memory>`（全文）；`readExperiencesPrompt()` → `<experiences>`（**只有扫描生成的索引**，正文按需读）；`readWorkingMemoryPrompt()` → `<working_memory>`（**只有路径和写法规则**，不注入内容）。完整设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
 
 ### note-store.mjs / experiences.mjs — 笔记文件与经验库

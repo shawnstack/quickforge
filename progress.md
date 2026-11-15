@@ -3,28 +3,15 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## 工作台轮询「晚到的旧响应覆盖新数据」（2026-11-16 00:10）
+## bot 会话的 `manage_global_memory` 落到它自己工作区的 MEMORY.md（2026-11-16 01:20）
 
-- 问题：`Workbench.tsx` 每 20s 轮询 `load()`，而用户点「刷新」会通过 `setRefreshTick` 让取数 effect 重跑、**立刻再发一轮**；`load()` 在 `Promise.all` 回来后**无条件**写 `bots / tasks / sessions / today / loadError / lastLoadedAt`，于是**先发的旧响应后到就把新数据整块盖回旧快照**，`lastLoadedAt` 倒退、`refreshing` 还被旧请求的 `finally` 提前关掉。`WorkbenchAnalog.tsx` 同族（没有刷新按钮，但一次取数超过 20s、或页面挂起后恢复时，轮询跳与跳之间会自重叠）。
-- 改法：两个文件各加一个取数序号 `loadRequestRef`——`load()` 开头 `++loadRequestRef.current`；`await` 回来后、写任何 state 之前（含 `observe(...)` 与 `catch` 里的 `setLoadError`）判序号，不等就直接 return；`finally` 的 `setRefreshing(false)` 也只在序号仍最新时才写。**判据是「旧响应一个 state 都不许写」**，不是少写几个——只守护 `setLoading` 那类写法挡不住这个缺陷。取数内容、`POLL_MS`、`observe` 语义、JSX 全部未动。
-- 测试：新增 `tests/frontend/workbench-stale-response.test.ts`（2 例），用 deferred promise + 手动 `window.setTimeout/setInterval` **主动构造「先发后到」的时序**：第二轮先 resolve（新数据落地），第一轮晚到（旧快照）→ 断言列表仍是新数据、`updatedAt` 不回退、进行中的刷新不被旧请求提前结束。
-- 验证：**先证会红**——把修复整块回滚到 HEAD 后 2 例全红，红在 `AssertionError: expected '…' to contain 'NEW-BOT'`（正是旧快照盖掉新数据），不是 TypeError；恢复后 2 例绿。全量 581 文件 / 6370 例绿 / 2 skipped、`tsc -b` 净、`eslint .` 净。
-- 回执：`~/.quickforge/bots/bot-b9c0e755/.bot/inbox-from-agents/workbench-stale-response.md`（子会话实现，主助手独立复跑红→绿）。
-- Notes：① 这一族（`AGENTS.md` Definition of Done 第 5 条）当天已修 5 处；同族 4 个候选（`mcp-servers-dialog.tsx` / `settings/tabs/DefaultOptionsSettingsTab.tsx` / `plugins/PluginFrame.tsx` / `lib/tool-renderers/shared.tsx`）已由主助手（00:26）与小跟班（11-16 独立复核）各自核过、结论一致：**都不需要加取数序号**——它们要么 one-shot 加载、要么每请求独立处理，不满足「多轮并发取数」这个前提；`DefaultOptionsSettingsTab` 另有一条「加载回来把刚拨的开关盖回去」的窄窗，但并发只有一轮、加序号治不了它，要治得做「加载中禁用控件」，代价大于收益，**判不改**；② 扫这一族时守卫词表要含 `requestId` / `disposed`，否则 `project-directory-picker.tsx` 这种**正确写法**会被当成候选（本轮踩过）。
-
-## goal 轮次结算「派发前窗口」真机可达性核查（2026-11-15 01:48）
-
-- 起因：`b857fb6d` 修 flaky 时留下的产品侧疑点——`beginGoalRun` 之后、`agent.prompt` 之前夹着 `await refreshRuntime`（`server/goal-run-orchestration.mjs`:287），若结算落在这个窗口，`markGoalIteration` 找不到锚点，goal 仍可能落成 completed 而 durable iteration marker 缺失。
-- 结论：**真机不可达**。真实 pi-agent-core 只在 run 活着时投递 `agent_end`（`dist/agent.js`:402-405 无 activeRun 直接抛 `Agent listener invoked outside active run`），且所有监听器 settle 之后 `finishRun` 才置 `isStreaming=false`（`:334-336`、`:355-360`）——比任务书假设的顺序正好相反；`afterGoalRunPersisted` 又先 `await session.activePromptPromise`（`server/agent-run-events.mjs`:40-47），于是「结算 → 下一轮」是同一条异步链，窗口内没有任何触发者。
-- 未改产品代码（按「两头别都做」只出证据链）。回执：`~/.quickforge/bots/bot-b9c0e755/.bot/inbox-from-agents/goal-run-race.md`。
-- 验证：`npx vitest run tests/server/agent-goal-manager.test.mjs` 13/13 绿；另用真实 `pi-agent-core` 跑了一个事件顺序探针（`agent_end` 时 `isStreaming=true`/`activeRun=true`，prompt 落定时才 false/undefined），原始输出见回执 §2.1。
-- Notes：① 测试能构造出这个窗口，是因为 `tests/server/agent-goal-manager.test.mjs`:6-48 的 MockAgent 把顺序反了（L37 先置 `isStreaming=false`，L38 再 `emit('agent_end')`），建议按回执 §2.5 改那段注释（本轮未改文件）；② 顺带发现（未修、未扩大范围）：`cancelGoal`（`server/goal-actions.mjs`:204-239）不检查 quiescence，若用户正好在这一轮卡在 `:287` 时取消，`goalRun` 被清空后 `startGoalRun` 仍会 `agent.prompt`，出现「已取消但这一轮照跑」且该轮无 marker；③ 工作区仍有用户在途的前端改动（工作台屏保等），本轮未触碰。
-
-## bot 会话 /clear 后标题被抹成默认标题（2026-11-15 00:22）
-
-- 问题：bot 会话的标题是它唯一的身份（建会话时 `title = bot.name`，改名由 `PATCH /api/bots/:id` 同步），但 `clearSession()`（`server/agent-compaction.mjs`）无条件把 `title` 复位成 `'New chat'`、`titleSource` 复位成 `'default'`。后果：清空后下一条心跳指令被当成标题生成出来，侧栏上那个 bot 的名字变成指令原文。
-- 改法：① `server/bots.mjs` 新增 `BOT_SESSION_ID_PREFIX` / `isBotOwnedSessionId()`（会话侧不存 bot 字段，`bot-` 前缀是唯一标识）与 `findBotBySessionId()`（按 `sessionId` 反查，`heartbeat.lastSessionId` 兜底）；② `clearSession()` 分支处理——bot 会话把标题写回 bot 名、`titleSource` 保持 `manual`（顺带修掉存量被复位过的标题），查不到记录时保留现有标题且不影响清空；普通会话照旧复位；两条路都继续自增 `titleGenerationId` 作废在途生成；③ `bot-session.mjs` 生成 id 改用同一前缀常量。
-- 文档：`docs/wiki/server/bots.md` 新增 §7.3（判据、例外理由、查不到记录时的降级）与 §8 测试清单。
-- 验证：定向 4 文件（agent-compaction / bots / module-cycles / scheduled-tasks.commands）80/80；全量 `npm run test` 6212 passed / 2 skipped / 1 failed（`routes/workspace-search-ripgrep` 的「客户端中途断开」用例，单跑 3/3 通过，属子进程时序 flaky，与本次改动无关）；改动文件 eslint 净；`npm run check:wiki` 无新增漂移（仍是那 6 条前端既有漂移）。
-- Notes：① 事故与善后：新测试第一版直接调 `saveBotRecord` 落盘，而 `dataDir` 在 import 时定死，测试进程里就是真实 `~/.quickforge`，于是往用户 bots.json 塞了 4 条假记录（名字「质检bot」、sessionId `bot-9f3c1a2b-…` / `bot-new-0000`）；已备份（`~/.quickforge/_backups/bots-json-before-test-cleanup-*.json`）并按 id 只删这 4 条，现存 6 个真 bot（主助手/答疑bot/小跟班/质检bot/文档bot/UIbot）未动，测试改成 mock `storage.mjs` 的 `readStore`，不再碰真实存储；② `scheduled-*` 会话仍按普通会话复位标题（一次性任务，无身份语义）；③ 同一工作区本轮还有其它在途改动（工作台屏保、bot 侧栏时间），本轮只碰 `/clear` 标题相关的 4 个文件 + wiki；④ 未 commit。
+- 问题：`manage_global_memory` 不认会话，固定写 `~/.quickforge/memory/MEMORY.md`；可 bot 会话的系统提示注入的是**它自己工作区根上的** `MEMORY.md`（`buildInstructionsPayload()` 对 `kind === 'bot'` 用它顶掉全局记忆块）。于是 bot 每次心跳把读到的那份记忆原样写回，落点却是用户的全局记忆——2026-11-13 已造成 4 个 bot / 37 次写入、用户 425 字原文被覆盖。
+- 改法：`server/tools/global-memory.mjs` 的 handler 收 `context`（`wrapToolDefinition` 本来就把同一份 toolContext 交给所有 handler，四个 `createServerTools` 调用点都已带 `sessionId` / `scope`），新增 `resolveBotWorkspaceRoot(context)`：`scope !== 'project'` 直接判非 bot；`project.kind` 缺失才按 `projectId` 查一次项目记录；只有 `kind === 'bot'` 才返回工作区根（`context.workspaceRoot` 优先，退回项目登记的 `path`）。`server/global-memory.mjs` 新增 `writeWorkspaceMemory()`：与全局那份共用 `validateGlobalMemoryMarkdown` + `withMemoryWriteLock` + 临时文件 rename 原子写，**只换目标文件**。
+- 判据：**没有「按 workspacePath 猜」的分支，也没有任何回退**。判不出目标就抛 `Bot memory file is unavailable for this session.`（`errorCode: BOT_MEMORY_UNAVAILABLE`），因为悄悄退回写全局正是这个 bug 本身。`enabled` 开关沿用全局记忆设置（工具注册本来就挂在同一个开关上，另开一个 bot 专用项只会造出「设置里关了、agent 还能写」的半开状态）。
+- 顺带改的文案：`server/tools/definitions.mjs` 的工具描述原写 "Replace the complete global MEMORY.md shared by all chats"，对 bot 会话是假的；改为 "the MEMORY.md this session owns — the global user memory, or the workspace copy that belongs to a bot"，并在 `tests/server/tools/definitions.test.mjs` 加反向断言（不得再出现 "global MEMORY.md shared by all chats"）。
+- 测试：新增 `tests/server/bot-memory-scope.test.mjs`（4 例，`mkdtemp` 临时 data 目录 + 临时工作区，不碰真实 `~/.quickforge`）：bot 写自己那份且**全局文件一个字都不动（内容 + mtime + size）**、普通项目会话照旧写全局、bot 拿不到工作区根要抛错、项目记录已删要抛错。
+- 验证：**先证会红**——主助手把两个 server 文件回滚到 HEAD 后独立重跑，3 例红、第一条红在 `expected(true).toBe(false)`（即「全局文件被写了」，而不是返回值文案），恢复后 4 例绿。全量 582 文件 / 6374 例绿 / 2 skipped、`tsc -b` 净、`eslint .` 净、`check:wiki` `matched=399 resolved=399 bad=0`。
+- 已知行为变化：项目记录被删、会话还在的**普通**项目会话，以前写全局，现在抛 `Bot memory file is unavailable for this session.`。这是「绝不悄悄退回写全局」的代价——判错一次就是用户的记忆被整篇覆盖。
+- 回执：`~/.quickforge/bots/bot-b9c0e755/.bot/inbox-from-agents/bot-memory-scope.md`（子会话实现，主助手独立复跑红→绿）。
+- Notes：改动全在 `server/**`，运行实例要重启才生效（当前实例启动于 2026-11-15 01:06，重启等用户明说）。
 

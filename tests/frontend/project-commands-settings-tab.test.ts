@@ -76,6 +76,33 @@ describe('React project commands settings', () => {
     expect(saves.map(([, init]) => JSON.parse(init.body).commandDir)).toEqual(['first', 'second'])
     expect(editor().props.value).toBe('second')
   })
+  it('keeps the trailing newline the user typed even though the server trims it back', async () => {
+    await mount('initial')
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (!url.endsWith('/command-dir')) return json({ commands: [] })
+      const dir = JSON.parse(String(init?.body)).commandDir
+      // 服务端 `commandDir.trim()` 后存库并原样回传
+      return json({ project: { id: 'project-1', name: 'Project', commandDir: String(dir).trim() } })
+    })
+    const editor = () => render().find((node) => node.type === 'textarea')!
+    editor().props.onChange({ currentTarget: { value: 'custom/commands\n' } })
+    await vi.advanceTimersByTimeAsync(800)
+    expect(editor().props.value).toBe('custom/commands\n')
+    const saves = fetchMock.mock.calls.filter(([url]) => url.endsWith('/command-dir'))
+    expect(saves).toHaveLength(1)
+  })
+  it('adopts a command directory that was changed elsewhere', async () => {
+    await mount('initial')
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (url: string) => (url.endsWith('/command-dir')
+      ? json({ project: { id: 'project-1', name: 'Project', commandDir: '/other/dir' } })
+      : json({ commands: [] })))
+    const editor = () => render().find((node) => node.type === 'textarea')!
+    editor().props.onChange({ currentTarget: { value: 'mine' } })
+    await vi.advanceTimersByTimeAsync(800)
+    expect(editor().props.value).toBe('/other/dir')
+  })
   it('surfaces an HTTP failure', async () => {
     await mount(); fetchMock.mockResolvedValue(json({ error: 'Cannot open directory' }, 500))
     button('openCommandDir').props.onClick()

@@ -168,10 +168,16 @@ export function ProjectCommandsSettingsTab() {
         })
         const nextCommandDir = typeof nextProject.commandDir === 'string' ? nextProject.commandDir : dir
         // A response must not overwrite edits made while the request was pending.
-        lastSavedCommandDirRef.current = nextCommandDir
+        // 服务端会把首尾空白 trim 掉；本地保留用户原文，否则刚敲的换行会被回写吞掉，
+        // 光标弹回第一行末尾，接着粘第二条就糊成一行（这个字段是「一行一个目录」）。
+        lastSavedCommandDirRef.current = dir
         if (commandDirRef.current === dir) {
-          setCommandDir(nextCommandDir)
-          commandDirRef.current = nextCommandDir
+          // 只有服务端值不等于「原文 trim 一遍」时，才说明是别处改的，需要回写。
+          if (nextCommandDir !== dir.trim()) {
+            setCommandDir(nextCommandDir)
+            commandDirRef.current = nextCommandDir
+            lastSavedCommandDirRef.current = nextCommandDir
+          }
           setSaved(true)
         } else {
           pendingSaveAfterCurrentRef.current = true

@@ -422,14 +422,24 @@ async function assertGitRepository(context) {
   throw error
 }
 
-function normalizeCommitMessage(value) {
+// 提交信息上限。超长时**报错**而不是截断：`.slice(0, 4000)` 会让 git 历史里留下的
+// 和用户敲的不是同一段文字，界面上又毫无提示——静默丢数据比拒绝更糟。
+const MAX_COMMIT_MESSAGE_CHARS = 4000
+
+export function normalizeCommitMessage(value) {
   const raw = String(value || '').trim()
   if (!raw) {
     const error = new Error('Commit message is required')
     error.statusCode = 400
     throw error
   }
-  return raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').slice(0, 4000)
+  const message = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  if (message.length > MAX_COMMIT_MESSAGE_CHARS) {
+    const error = new Error(`Commit message is too long (${message.length} characters, limit ${MAX_COMMIT_MESSAGE_CHARS})`)
+    error.statusCode = 400
+    throw error
+  }
+  return message
 }
 
 async function hasStagedChanges(context) {

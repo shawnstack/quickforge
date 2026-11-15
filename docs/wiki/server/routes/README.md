@@ -32,7 +32,7 @@
 | `instructions.mjs` | 20 | 系统提示词 |
 | `system.mjs` | 117 | 系统状态、网络代理、重启、关于信息、Runtime 更新和 Desktop 发布页检查 |
 | `workspace.mjs` | 557 | HTTP 路由适配与原有 17 个公共导出的兼容入口；调用下列 workspace 服务，不重复实现业务函数 |
-| `workspace-git-service.mjs` | 681 | Git 子进程、查询/解析、暂存还原、提交推送、AI 提交信息；保留取消/超时和错误语义 |
+| `workspace-git-service.mjs` | 691 | Git 子进程、查询/解析、暂存还原、提交推送、AI 提交信息；保留取消/超时和错误语义；提交信息超 4000 字符报 400（原为静默截断） |
 | `workspace-browser-service.mjs` | 527 | 目录树/children、分页排序、rg 与回退搜索、严格项目 mention 浏览 |
 | `workspace-file-service.mjs` | 193 | 文本读取、语言/MIME、预览安全校验与 ETag、外部路径打开；本机 HTTP 门禁仍在入口 |
 | `workspace-request-control.mjs` | 42 | 请求取消信号和清理、AbortError识别、原进程树终止；Git/browser共同使用 |

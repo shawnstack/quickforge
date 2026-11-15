@@ -287,7 +287,10 @@ export async function setActiveProjectPath(inputPath) {
     }
 
     config.activeProjectId = project.id
-    if (config.projects.length > 20) config.projects = config.projects.slice(-20)
+    // 这里曾经有一句 `if (config.projects.length > 20) config.projects = config.projects.slice(-20)`：
+    // 打开第 21 个目录就会按数组下标静默删掉最前面那条项目配置，连 skills / commandDir 一起没，
+    // 而 bot 目录同样登记在 projects 里（文件工具拿它当 workspaceRoot），切到的 bot 会跟着失根。
+    // 项目一律保留；要「最近打开」就在展示层按 lastOpenedAt 排，别拿配置当滑动窗口。
     return config
   })
 

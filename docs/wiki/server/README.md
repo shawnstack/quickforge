@@ -93,7 +93,7 @@ server/
 ├── working-memory.mjs        # 工作记忆（beta）：设置、笔记文件夹与大白话笔记提示词
 ├── note-store.mjs            # 两个记忆目录共用的文件操作：命名校验 / 读 / 写 / 归档式移动
 ├── experiences.mjs           # 经验库：目录、扫描生成 index.md、注入块
-├── project-config.mjs        # 项目配置管理 (553 行)
+├── project-config.mjs        # 项目配置管理 (556 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (389 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
 ├── selected-capabilities.mjs   # 本轮插件选择规范化、持久化快照与模型临时提示 (76 行)
@@ -660,6 +660,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `setActiveProjectPath(path)` — 注册/激活一个**已存在**的目录（要求目录存在，否则 400）。
 - `validateProjectFolderName(name)` / `createProjectInDefaultWorkspace(name)` — 唯一会创建目录的项目入口：在默认 workspace 根下 `fs.mkdir(recursive:false)` 建子目录，再复用 `setActiveProjectPath` 注册并激活；失败带 `errorCode`（`INVALID_PROJECT_NAME` / `PROJECT_FOLDER_EXISTS` / `PROJECT_CREATE_DENIED`）与 `createdPath`，供前端提示「直接使用该项目」。
 - `defaultGlobalWorkspaceContext()` / `projectContextFromId()` — 无 projectId 的全局会话使用 `id='default'`、指向默认 workspace 的合成项目。
+- 项目列表**不设条数上限**：曾经有一句「超过 20 条就 `slice(-20)`」，打开第 21 个目录就会按数组下标静默删掉最前面一条项目配置（连 `skills` / `commandDir` 一起），而 bot 目录也登记在同一个数组里（文件工具拿它当 `workspaceRoot`），切到的 bot 会跟着失根。现在一律保留，要「最近打开」在展示层按 `lastOpenedAt` 排。
 
 ### reasoning-cache.mjs (51 行)
 

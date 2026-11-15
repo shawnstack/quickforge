@@ -196,6 +196,14 @@ export async function handleAgentApi(req, res, url, context = {}) {
     }
     if (req.method === 'DELETE') {
       const clientId = clientIdFromRequest(req)
+      // 与 POST 同一口径：没有身份就证明不了自己是持有者，先按请求不完整拒掉，
+      // 而不是让它落进 store 里变成一次无主释放。
+      if (!clientId) {
+        const error = new Error('Missing client id for session lease')
+        error.statusCode = 400
+        error.errorCode = 'SESSION_LEASE_CLIENT_ID_REQUIRED'
+        throw error
+      }
       const result = releaseSessionLease(sessionId, clientId)
       if (!result.ok) {
         sendJson(res, 409, {

@@ -136,7 +136,10 @@ export function createSessionLeaseStore(options = {}) {
     const clientId = normalizeClientId(rawClientId)
     const current = leases.get(sessionId)
     if (!current) return { ok: true, released: false }
-    if (clientId && current.clientId !== clientId) {
+    // 没有身份就不是持有者。曾写成 `clientId && ...`，于是「不带 clientId 的
+    // DELETE」被当成持有者释放——本机任何客户端（另一个标签页的 fetch、后台
+    // 脚本）都能把正在写的窗口踢成只读，与上面「只允许持有者释放」的承诺相反。
+    if (current.clientId !== clientId) {
       return { ok: false, reason: 'held', holder: current.clientId, released: false }
     }
     leases.delete(sessionId)

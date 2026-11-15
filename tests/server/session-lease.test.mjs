@@ -124,6 +124,16 @@ describe('session lease store', () => {
     expect(store.canWrite('session-1', null, 1_000)).toMatchObject({ ok: false, holder: 'client-a' })
   })
 
+  it('refuses a release without a client id while a lease is held', () => {
+    const { store } = createStore()
+    store.acquire('session-1', 'client-a', 1_000)
+
+    // 注释承诺「只允许持有者释放」，没有身份就不是持有者。放行等于任何不带
+    // clientId 的后台调用方都能摘掉正在写的窗口的租约。
+    expect(store.release('session-1', null)).toMatchObject({ ok: false, reason: 'held', holder: 'client-a' })
+    expect(store.get('session-1', 1_000)).toMatchObject({ clientId: 'client-a' })
+  })
+
   it('clear removes the lease and only honours the matching fence', () => {
     const { store } = createStore()
     const acquired = store.acquire('session-1', 'client-a', 1_000)

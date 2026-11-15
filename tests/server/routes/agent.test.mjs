@@ -1095,6 +1095,23 @@ describe('session lease routes', () => {
     expect(JSON.parse(res.body)).toEqual({ sessionId: 'session-1', released: true })
   })
 
+  it('rejects a release without any client identity', async () => {
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request(undefined)
+    req.method = 'DELETE'
+
+    // 没有 clientId 的 DELETE 不能被当成「持有者释放」：否则本机任何客户端
+    // 只要不带这个头，就能把正在写的窗口踢成只读，而它自己还以为在写。
+    await expect(handleAgentApi(
+      req,
+      res,
+      new URL('http://localhost/api/agents/session-1/lease'),
+      { isLocalRequest: true },
+    )).rejects.toMatchObject({ statusCode: 400, errorCode: 'SESSION_LEASE_CLIENT_ID_REQUIRED' })
+    expect(mocks.releaseSessionLease).not.toHaveBeenCalled()
+  })
+
   it('rejects a lease request without any client identity', async () => {
     const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
     const res = response()

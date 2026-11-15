@@ -14,6 +14,7 @@ import {
   initializePiStorage,
 } from '@/lib/pi-chat'
 import { t } from '@/lib/i18n'
+import { resolveShareRouteId } from '@/lib/app-route'
 import { invalidateSlashCatalog } from '@/lib/slash-catalog'
 import { isBotProject } from '@/lib/bot-project'
 import { BOT_CHAT_CAPABILITIES, QUICKFORGE_CHAT_CAPABILITIES } from '@/lib/chat-capabilities'
@@ -1410,11 +1411,11 @@ function MainApp() {
 function App() {
   if (isNativeMobileEntry()) return <MobileServerConnectPage />
 
-  const shareRouteId = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1]
-  if (shareRouteId) {
+  const shareId = resolveShareRouteId(window.location.pathname)
+  if (shareId) {
     return (
       <Suspense fallback={<div className="flex h-screen items-center justify-center bg-background text-sm text-muted-foreground">{t('loadingChatWorkspace')}</div>}>
-        <SharedConversationPage shareId={decodeURIComponent(shareRouteId)} />
+        <SharedConversationPage shareId={shareId} />
       </Suspense>
     )
   }

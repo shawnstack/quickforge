@@ -153,6 +153,7 @@
 | `agent-event-guards.ts` | 45 | Agent 事件形状守卫：`isScheduledTaskNotification` / `isScheduledTaskStarted` / `isBotHeartbeatNotification` / `isBackgroundTaskStatus` 把 wire 上的 `unknown` 字段收窄成可消费类型（`BotHeartbeatNotificationEvent` 为其结果形状），不信任 SSE / 服务端载荷形状 |
 | `agent-task-retention.ts` | 44 | 驻留 agent 的空闲回收策略：`MAX_IDLE_AGENT_TASKS = 0`——空闲副本一律不缓存（每个 agent 都持有全量 messages，工具结果可达 MB 级），切走即销毁、切回走服务端 restore；`touchAgentTask` / `selectAgentTaskEvictions` 只淘汰 idle / error / aborted 且非当前会话的任务 |
 | `api-cache.ts` | 108 | 通用 GET 响应缓存（内存优先 + localStorage 兜底，键前缀 `quickforge:api-cache:v1:`）：业务写成功后 `invalidateApiCache(pattern)` 失效，跨标签页靠 storage 事件丢内存副本；缓存永不是唯一数据源，读失败或过期一律回源 |
+| `app-route.ts` | 23 | 顶层路由判别：`resolveShareRouteId(pathname)` 命中 `/share/<id>` 时返回解码后的分享 id，其余路径返回 undefined（渲染主应用）；`/share/a/b` 这类多段路径不算分享链接，畸形百分号转义（链接被聊天工具截断/改写、手改地址栏）按「不是分享链接」回落主应用，不让 `decodeURIComponent` 的 URIError 打穿渲染 |
 | `appearance-settings.ts` | 61 | 外观设置（`appearance-settings` 键）：主题 light / dark 的默认值与 `normalizeAppearanceSettings` 防御归一化 |
 | `auto-archive-settings.ts` | 24 | 自动归档设置（`auto-archive-settings` 键，默认关闭）：归一化 + `load` / `save` |
 | `auto-compact-settings.ts` | 41 | 自动压缩设置：默认开启、`thresholdPercent` 默认 80，`clampNumber` 夹取范围；缺字段按默认处理 |

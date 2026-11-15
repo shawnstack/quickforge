@@ -211,7 +211,7 @@ components/
 │   └── mcp-server-form.tsx          # 表单主体（名称 / transport / stdio 命令与环境），args 与 env 走文本互转
 ├── mcp-servers-dialog.tsx           # MCP 服务器管理面板（表单 / JSON 双模式编辑、启停与重连）
 ├── startup-splash-icon.tsx          # 启动闪屏螺栓图标（`app/StartupScreens.tsx` 复用）
-├── project-directory-picker.tsx    # 项目目录选择器 (323 行)
+├── project-directory-picker.tsx    # 项目目录选择器 (330 行)
 ├── settings/                        # 设置页：左导航 + tab 宿主 + 15 个设置页 + 自定义 Provider 面板，概览见下文「设置」小节
 │   ├── SettingsWorkspacePage.tsx    # 设置页外壳：分组导航与 tab 宿主（tab 定义在 lib/settings-tabs）
 │   ├── SettingsSelect.tsx           # 可搜索下拉（键盘与 aria 由内部状态机驱动）
@@ -224,7 +224,7 @@ components/
 
 ## 核心组件说明
 
-### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1750 行)
+### ChatConversationSurface.tsx / ChatPanelHost.tsx (16 / 1795 行)
 
 - 模块拆分（2026-10-26）：`ChatPanelHost.tsx` 2270 → 1750 行，主 effect ~1345 → 838 行。草稿/编辑器输入、建议、消息队列、审批卡对账、装饰调度五个子系统移到 `panel-wiring/*.ts` 的纯 setup 函数；主 effect 保持原调用顺序与 cleanup 顺序，effect 数量/依赖数组不变。装饰层所有权租约、CSS selector 契约、`decorate()` 本体、agent 事件扇出与 scroll sync 仍留在 host（与测试和 DOM 契约强耦合）。
 
@@ -506,7 +506,7 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 - SSE 流式加载分享对话消息
 - 密码验证
 
-### project-directory-picker.tsx (323 行)
+### project-directory-picker.tsx (330 行)
 
 - 文件系统目录选择器
 - 树形浏览，支持选择任意目录作为项目路径
@@ -553,10 +553,10 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 
 常驻看板（设计稿 `docs/design/workbench-redesign/workbench-v8-proposal.html`，稿子仍是旧的塔台叙事，实现文案已换成调度语义、不用港口/机场隐喻）：把 bot 心跳与定时任务的 `nextRunAt` 合并成一条「待运行队列」，右栏在跑 / 最近完成 / 全部 bot，顶部异常提醒。数据全部取自现成端点，不改服务端；「最近完成」与「到点未醒」只作会话内观察，不外推成历史结论（20s 轮询 + 1s 走秒，错过时刻留 90s 宽限，最近完成最多留 8 条）。视觉上房间吃全局主题 token、看板与时钟是「仪器」双主题恒暗。手动打开与屏保自动进入走同一条 `setWorkbenchOpen`。
 
-- `Workbench.tsx` (927 行) # 工作台主体：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`
+- `Workbench.tsx` (935 行) # 工作台主体：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`
 - `workbench.css` (527 行) # 工作台样式：`.qf-wb__*` 两套 token（房间 / 仪器）、跑道灯带、仪表盘翻页时钟、今日统计带
 - `src/lib/workbench-today-stats.ts` (99 行) # TODAY 统计带数据层：今日会话数、token、任务运行数与成功率，全部来自现成端点
-- `src/lib/workbench-screensaver-settings.ts` (17 行) # 屏保设置与纯判定：30 分钟 idle 阈值、存储键 `workbenchScreensaver`、`screensaverDue(enabled, workbenchOpen)`
+- `src/lib/workbench-screensaver-settings.ts` (113 行) # 屏保设置与纯判定：30 分钟 idle 阈值、存储键 `workbenchScreensaver`、`screensaverDue(enabled, workbenchOpen)`
 - `src/hooks/useWorkbenchScreensaver.ts` (74 行) # 屏保引擎：页面 30 分钟无操作自动进入工作台，屏保期间任意操作立即退出；手动打开的工作台不受活动影响
 
 ### 机器人（`bots/`）
@@ -622,7 +622,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 #### 网络与局域网
 
 - `settings/tabs/NetworkSettingsTab.tsx` (18 行) # 「网络」父页：把局域网访问与网络代理两段叠进一页，自身只负责分组标题与排版
-- `settings/tabs/NetworkProxySettingsSection.tsx` (306 行) # 网络代理：四模式（直连 / 系统 / 手动 / PAC）+ 运行时状态（生效模式、是否支持、来源、运行时类型）；平台不支持时 `unsupported` 只读回显，不给假开关
+- `settings/tabs/NetworkProxySettingsSection.tsx` (312 行) # 网络代理：四模式（直连 / 系统 / 手动 / PAC）+ 运行时状态（生效模式、是否支持、来源、运行时类型）；平台不支持时 `unsupported` 只读回显，不给假开关
 - `settings/tabs/LanAccessSettingsTab.tsx` (406 行) # 局域网访问：开关、访问密码（可一键生成 16 位随机串）与已授权设备列表（地址、UA、签发与过期时间）
 
 #### 记忆与 Hooks
@@ -644,7 +644,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 - `settings/tabs/AboutSettingsTab.tsx` (497 行) # 关于页：应用信息（名称 / 版本 / 仓库 / 主页）+ 更新检查（频率 startup / daily / weekly / off、上次检查时间、被忽略的版本）
 - `settings/tabs/AppearanceSettingsTab.tsx` (283 行) # 外观页：主题（light / dark）与字号（界面 / 消息两套，12–18px、默认 13），保存后即时应用
-- `settings/tabs/DefaultOptionsSettingsTab.tsx` (738 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
+- `settings/tabs/DefaultOptionsSettingsTab.tsx` (719 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
 - `settings/tabs/ProjectCommandsSettingsTab.tsx` (396 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口
 
 ## 流式渲染缓存与有界窗口（2026-10-29）

@@ -12,7 +12,7 @@
 | [useModelActions.ts](../../../../src/hooks/useModelActions.ts) | 298 | 模型操作：选择模型、切换访问模式、管理工具 |
 | [useSessionActions.ts](../../../../src/hooks/useSessionActions.ts) | 110 | 会话操作：归档、置顶、重命名、刷新 |
 | [useSessionPagination.ts](../../../../src/hooks/useSessionPagination.ts) | 405 | 会话分页加载兼容层：四路分页状态（pinned/global/projectPages/projectTimelinePage）已迁入 `src/stores/sessions-store.ts`（zustand），本 hook 保留请求编排与返回契约；`refreshSessions()` 带 `REFRESH_SESSIONS_MERGE_MS`（250ms）in-flight 合并——窗口内重复调用复用同一轮 Promise，合并进来的 `broadcast` 需求仍在轮尾触发一次广播 |
-| [useProject.ts](../../../../src/hooks/useProject.ts) | 270 | 项目域兼容层：activeProject / projects / defaultWorkspace / expandedProjectIds / selectingProject / projectPickerOpen 已迁入 `src/stores/project-store.ts`（zustand，expandedProjectIds 的 localStorage 持久化为 action 内直写），返回结构与签名不变，仅 App.tsx 消费；fetch/api-cache 与 switch/path/create/reorder 等 POST 副作用编排保留在 hook。`applyActiveProject` 是写「当前项目」的唯一出口，拒绝 `kind: 'bot'` 的目录（bot 目录是注册项目，但不是用户的项目）。含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造）与 `createProjectInWorkspace(name)`（`POST /api/project/create`，在默认 workspace 下建目录并激活） |
+| [useProject.ts](../../../../src/hooks/useProject.ts) | 280 | 项目域兼容层：activeProject / projects / defaultWorkspace / expandedProjectIds / selectingProject / projectPickerOpen 已迁入 `src/stores/project-store.ts`（zustand，expandedProjectIds 的 localStorage 持久化为 action 内直写），返回结构与签名不变，仅 App.tsx 消费；fetch/api-cache 与 switch/path/create/reorder 等 POST 副作用编排保留在 hook。`applyActiveProject` 是写「当前项目」的唯一出口，拒绝 `kind: 'bot'` 的目录（bot 目录是注册项目，但不是用户的项目）。含 `defaultWorkspace`（全局对话默认工作目录的合成 project，由 `/api/project` 的 `defaultWorkspaceRoot` 构造）与 `createProjectInWorkspace(name)`（`POST /api/project/create`，在默认 workspace 下建目录并激活） |
 | [useProjectActions.ts](../../../../src/hooks/useProjectActions.ts) | 59 | 项目操作：切换、添加、删除 |
 | [useAgentAccessActions.ts](../../../../src/hooks/useAgentAccessActions.ts) | 65 | Agent 访问模式操作 |
 | [useAgentAccessMode.ts](../../../../src/hooks/useAgentAccessMode.ts) | 22 | Agent 访问模式兼容层（状态在 `src/stores/agent-access-mode-store.ts`，initialize 副作用留 hook） |
@@ -23,7 +23,7 @@
 | [useTaskToasts.ts](../../../../src/hooks/useTaskToasts.ts) | 19 | 后台任务 Toast 兼容层（状态在 `src/stores/task-toasts-store.ts`，action 恒定） |
 | [useUIState.ts](../../../../src/hooks/useUIState.ts) | 71 | 应用 UI 状态兼容层（16 项状态在 `src/stores/ui-store.ts`；ChatSidebar/ConversationHeader 已直连 store 订阅，其余经 props） |
 | [useUpdateCheck.ts](../../../../src/hooks/useUpdateCheck.ts) | 104 | 应用更新检查兼容层（result 在 `src/stores/update-check-store.ts`；启动后台静默检查 + `update-check-poll.ts` 轮询非阻塞快照接口，失败静默） |
-| [useVisibleRuntimeStatuses.ts](../../../../src/hooks/useVisibleRuntimeStatuses.ts) | 134 | 可见会话的后台任务状态轮询兼容层（statuses 在 `src/stores/runtime-statuses-store.ts`）；刷新 effect 只依赖会话 id 集合内容（`visibleSessionKey`），列表数组身份变化不再重复请求 `/api/agents` |
+| [useVisibleRuntimeStatuses.ts](../../../../src/hooks/useVisibleRuntimeStatuses.ts) | 141 | 可见会话的后台任务状态轮询兼容层（statuses 在 `src/stores/runtime-statuses-store.ts`）；刷新 effect 只依赖会话 id 集合内容（`visibleSessionKey`），列表数组身份变化不再重复请求 `/api/agents` |
 | [useSidebarOrdering.ts](../../../../src/hooks/useSidebarOrdering.ts) | 23 | 侧栏「区块顺序 + 视图/排序模式」兼容层（状态在 `src/stores/sidebar-ordering-store.ts`，localStorage 持久化），桌面/移动两处 `ChatSidebar` 共享（组件已直连订阅） |
 | [useProjectExternalOpen.ts](../../../../src/hooks/useProjectExternalOpen.ts) | 67 | 「在资源管理器 / VS Code / IDEA 中打开项目」：裸请求 + 带 alert 反馈的两层封装 |
 | [useDesktopTitlebarMenu.ts](../../../../src/hooks/useDesktopTitlebarMenu.ts) | 41 | 桌面标题栏菜单（关于 / 检查更新 / 退出）开合状态与动作，点击外部/失焦自动收起 |
@@ -116,7 +116,7 @@
 - 展开/折叠项目时自动加载；启动阶段会等待 Storage backend 就绪后再刷新已恢复的展开项目，避免残留虚假的加载状态
 - 跟踪加载状态 (`hasMore`, `loading`)
 
-### useVisibleRuntimeStatuses.ts (134 行)
+### useVisibleRuntimeStatuses.ts (141 行)
 
 - 监听可见会话的后台任务运行状态
 - 通过 `fetchActiveAgentStatuses` 轮询 + SSE 订阅

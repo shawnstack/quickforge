@@ -118,6 +118,18 @@ function leaseError(sessionId, holder) {
 }
 
 /**
+ * clientId 想用但用不了（超长 / 只有空白）。POST 与 takeover 都会走到这里，
+ * 若不单独区分就会并进通用的 409「另一个窗口在写」——一个畸形标识会让这个
+ * 窗口永远拿不到租约，提示还指向一个并不存在的抢占者，点「接管」照样 409。
+ */
+function unusableClientIdError() {
+  const error = new Error('Session lease client id is unusable')
+  error.statusCode = 400
+  error.errorCode = 'SESSION_LEASE_INVALID_CLIENT_ID'
+  return error
+}
+
+/**
  * Reject a write from a client that does not own the session lease. Called at
  * the top of every mutating route so the "check then act" gap that used to sit
  * between `state.isStreaming` and `prompt()` cannot be exploited by a second
@@ -182,6 +194,7 @@ export async function handleAgentApi(req, res, url, context = {}) {
       const result = body?.takeover === true
         ? takeOverSessionLease(sessionId, clientId)
         : acquireSessionLease(sessionId, clientId)
+      if (!result.ok && result.reason === 'invalid') throw unusableClientIdError()
       if (!result.ok) {
         sendJson(res, 409, {
           error: 'This session is open for writing in another window',

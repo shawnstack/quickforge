@@ -12,7 +12,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `agent.mjs` | 960 | Agent 会话管理、消息流式处理；SSE 传输已外提至 `sse-transport.mjs`（见下行），此处保留 re-export 以兼容既有导入 |
+| `agent.mjs` | 973 | Agent 会话管理、消息流式处理；SSE 传输已外提至 `sse-transport.mjs`（见下行），此处保留 re-export 以兼容既有导入 |
 | `sse-transport.mjs` | 129 | Agent SSE 传输机制：流式增量 trailing 合并节流、背压丢弃、keep-alive、帧序列化缓存与写出；自 agent.mjs 外提，agent.mjs 底部 re-export 保持既有导入兼容 |
 | `storage.mjs` | 426 | 存储 CRUD 操作 |
 | `project.mjs` | 242 | 项目管理 |
@@ -59,7 +59,7 @@
 
 ---
 
-## agent.mjs (960 行)
+## agent.mjs (973 行)
 
 冷会话的 continue/rollback/access-mode/yolo-mode/model/thinking-level 操作由 manager 按需恢复，不要求客户端先调用 restore。主 model 路由在读取当前模型和解析 binding 前恢复，保留当前隐藏模型可继续使用的 `allowCurrentHidden` 规则；主路由、共享路由与 ACP 均等待异步 model/thinking setter。真正缺失仍 404；恢复失败为 500 / `SESSION_RESTORE_FAILED`（响应 `code`），已有 503 原样传播；SSE 在恢复完成前不发送流头。共享 rollback 的存储 fallback 仍仅接受 404，不吞掉恢复故障。
 
@@ -74,8 +74,8 @@ Agent 会话管理核心路由。
 - `GET /api/agents/:sessionId/status` — 获取轻量运行状态，用于 SSE 静默后的版本探测
 - `HEAD /api/agents/:sessionId/stream` — 检查 SSE 可用性
 - `GET /api/agents/:sessionId/lease` — 读取会话写入租约当前持有者（只读，不改状态）；无人持有时 `lease: null`
-- `POST /api/agents/:sessionId/lease` — 申领/续约会话写入租约，客户端标识取自 `x-quickforge-client-id` 头（缺失回落到 body `clientId`，两处都没有返回 400 `SESSION_LEASE_CLIENT_ID_REQUIRED`）；`{takeover: true}` 表示用户显式「在此窗口接管」，无条件覆盖当前持有者。他人持有时返回 409 `SESSION_LEASE_HELD` 并回带当前 `lease`
-- `DELETE /api/agents/:sessionId/lease` — 释放租约；只允许持有者释放，旁观者调用返回 409（避免关闭旁观页把持有者的写权限打掉）
+- `POST /api/agents/:sessionId/lease` — 申领/续约会话写入租约，客户端标识取自 `x-quickforge-client-id` 头（缺失回落到 body `clientId`，两处都没有返回 400 `SESSION_LEASE_CLIENT_ID_REQUIRED`；标识存在但不可用（超过 128 字符或 trim 后为空）返回 400 `SESSION_LEASE_INVALID_CLIENT_ID`，不会被误报成 409「另一个窗口在写」）；`{takeover: true}` 表示用户显式「在此窗口接管」，无条件覆盖当前持有者。他人持有时返回 409 `SESSION_LEASE_HELD` 并回带当前 `lease`
+- `DELETE /api/agents/:sessionId/lease` — 释放租约；只允许持有者释放。不带 `x-quickforge-client-id` 直接 400 `SESSION_LEASE_CLIENT_ID_REQUIRED`（否则「无主释放」等于本机任何客户端都能把正在写的窗口踢成只读），旁观者调用返回 409（避免关闭旁观页把持有者的写权限打掉）
 - `POST /api/agents/:sessionId/prompt` — 发送消息；`/summary` 与 `/compact` 作为内置 slash command 通过此端点触发——它们要求**目标会话空闲**，所以只适合压别的空闲会话；会话压自己走下面那条独立路由。可选 `contextReferences: [{type:'file',projectId,path}]` 最多 8 条；仅项目 QuickForge 会话支持，服务端用已恢复会话的 projectId/workspaceRoot 重新校验并持久化 canonical `{type,projectId,path,name}` 到用户消息 `details.contextReferences`，只向本轮模型注入已验证相对路径提示，不读取正文。Shared 非空引用显式拒绝；`/goal <目标>` 同样经此端点触发，创建目标并启动只读规划轮
 - `POST /api/agents/:sessionId/compact` — 会话主动压缩上下文（`quickforge-api` skill 的 `compact` 子命令）。时机判定在服务端，因此响应分两态：空闲 → 同步 `compactSessionNow()` 压完，回 `{ scheduled: false, compacted: true, summary, usageBefore, usageAfter }`；正在跑 → 不抢那一轮，只置一次性 `session.forceCompaction` 并回 `{ scheduled: true, reason: 'deferred_to_next_model_request' }`，由下一次模型请求前的 `transformSessionContext()` 消费，压缩后同一轮继续跑。存在理由：`/compact` 要求 `isStreaming === false`，而请求方正是会话自己，走 prompt 必然 409。压缩可逆，不需要像删会话那样禁掉。**写租约守卫不在这条路由的入口**：它以 `assertWriteAccess` 回调交给 `requestSessionCompaction()`，由后者在 running 判定**之后**分别检查——运行中分支只置内存里的 `forceCompaction`（不落库、不广播），并且调用方自报 `x-quickforge-agent-session` 头等于目标 sessionId（即「会话压自己」）时整段跳过守卫；否则「会话在跑时压自己」永远会被正在浏览该会话的窗口持有的租约挡成 409。空闲分支会往消息数组插摘要并持久化，那是真写，必须继续持有租约（自称自我请求也不例外）。运行中 + 非自我请求的调用方行为不变，仍然 409
 - `POST /api/agents/:sessionId/goal` — Goal 模式用户动作：主聊天与定时任务支持；共享/ACP 来源仍返回 `GOAL_UNAVAILABLE`。定时任务复用 `runPrompt`→runner，不新增执行器；`waitForGoalCompletion` 仅在 `completed` 时报告 schedule 成功，paused/blocked/预算/awaiting 仍 running 并保留 serial，关联聊天可 resume/cancel，静止后的 cancelled/failed 才失败。v2 引擎（默认）下 `handleGoalAction` 额外接受 `clear`，并与 `cancel` 一样清空 goal/tombstone；`confirm`/`accept` 返回 410；所有动作在 v2 service 内按 `{goalId, expectedRevision}` CAS。legacy 引擎保留既有 `{action, objective?}` 支持 `confirm` / `pause` / `resume` / `cancel` / `revise`（需新 `objective`）/ `accept`（仅兼容旧 `needs_review`；当前 UI 不提供 confirm/accept，规划自动执行）；`extend_resume` 严格只接受 `{action:'extend_resume', goalId, expectedRevision}`，goalId 非空、expectedRevision 正 safe integer，不允许自定义预算或额外字段（400）。仅此追加动作做 goalId/revision CAS，旧请求 409 `GOAL_REVISION_CONFLICT` 不重复追加；未耗尽 409 `GOAL_BUDGET_NOT_EXHAUSTED`。只对耗尽轮次追加配置轮次（默认 20，settings 键 `goal-settings`），并移除旧时间上限，保留 usage/计划证据，同次 persist 成功后才恢复；仍不足保持 paused 不调度，足够后无计划→planning、有计划→running（不需要确认）。resume 移除旧时间上限，只有轮次耗尽仍 409 并提示 extend_resume。返回 `{goal}` 权威快照；非法 action 400，无会话/无 goal 404，状态不允许或会话忙 409（`GOAL_ACTION_INVALID` / `GOAL_SESSION_BUSY`），预算耗尽 `GOAL_BUDGET_EXHAUSTED`，共享/ACP/定时任务来源 `GOAL_UNAVAILABLE`。route 先按请求级 `context.source` 判定可用性，再动态 import engine，避免非 goal 请求承担持久化/存储链的加载成本

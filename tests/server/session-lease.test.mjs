@@ -146,6 +146,18 @@ describe('session lease store', () => {
     expect(store.get('session-1', 1_000)).toBeNull()
   })
 
+  it('refuses a bare clear that cannot prove its generation', () => {
+    const { store } = createStore()
+    store.acquire('session-1', 'client-a', 1_000)
+
+    // 既没 fence 也没 force 的 clear 证明不了自己与当前租约同代。旧实现用
+    // Number.isFinite(fence) 做前置判断，参数缺失时整段校验短路，结果落到
+    // 「无条件删除」分支——force 遂成摆设，而注释恰恰承诺要防跨代误释放。
+    expect(store.clear('session-1')).toBe(false)
+    expect(store.clear('session-1', {})).toBe(false)
+    expect(store.get('session-1', 1_000)).toMatchObject({ clientId: 'client-a' })
+  })
+
   it('clear({ force }) removes the lease regardless of fence', () => {
     const { store } = createStore()
     store.acquire('session-1', 'client-a', 1_000)

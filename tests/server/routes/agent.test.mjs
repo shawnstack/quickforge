@@ -1125,6 +1125,39 @@ describe('session lease routes', () => {
     expect(mocks.acquireSessionLease).not.toHaveBeenCalled()
   })
 
+  it('answers 400 when the client id itself is unusable', async () => {
+    // store 对超长 / 不可用的 clientId 回 reason: 'invalid'。若把它并进通用的
+    // 409「另一个窗口在写」，一个畸形标识会让这个窗口永远拿不到租约，而提示
+    // 指向一个并不存在的抢占者——点「接管」照样 409，无从自愈。
+    mocks.acquireSessionLease.mockReturnValue({ ok: false, reason: 'invalid', lease: null, holder: null })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({})
+    req.headers = { 'x-quickforge-client-id': 'x'.repeat(200) }
+
+    await expect(handleAgentApi(
+      req,
+      res,
+      new URL('http://localhost/api/agents/session-1/lease'),
+      { isLocalRequest: true },
+    )).rejects.toMatchObject({ statusCode: 400, errorCode: 'SESSION_LEASE_INVALID_CLIENT_ID' })
+  })
+
+  it('answers 400 for an unusable client id even when the body asks to take over', async () => {
+    mocks.takeOverSessionLease.mockReturnValue({ ok: false, reason: 'invalid', lease: null })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request({ takeover: true })
+    req.headers = { 'x-quickforge-client-id': 'x'.repeat(200) }
+
+    await expect(handleAgentApi(
+      req,
+      res,
+      new URL('http://localhost/api/agents/session-1/lease'),
+      { isLocalRequest: true },
+    )).rejects.toMatchObject({ statusCode: 400, errorCode: 'SESSION_LEASE_INVALID_CLIENT_ID' })
+  })
+
   it('blocks a write from a non-owner with 409 before touching the run', async () => {
     mocks.canWriteSession.mockReturnValue({ ok: false, holder: 'client-b', lease: { clientId: 'client-b' } })
     const { handleAgentApi } = await import('../../../server/routes/agent.mjs')

@@ -176,7 +176,13 @@ export function createSessionLeaseStore(options = {}) {
   function clear(sessionId, { fence, force = false } = {}) {
     const current = leases.get(sessionId)
     if (!current) return false
-    if (!force && Number.isFinite(fence) && current.fence !== fence) return false
+    // fail-closed：既没 fence 也没 force 的调用证明不了自己与当前租约同代。
+    // 曾写成「!force && Number.isFinite(fence) && fence 不一致」，参数缺失时那
+    // 段校验收在短路里，于是「无法证明同代」被当成「同代」直接删除——force
+    // 遂成摆设。这类「可选参数缺失 → 守卫 fail-open」与 release 的旧写法同源。
+    if (!force) {
+      if (!Number.isFinite(fence) || current.fence !== fence) return false
+    }
     leases.delete(sessionId)
     emit(sessionId, null)
     return true

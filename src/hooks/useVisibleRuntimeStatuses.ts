@@ -29,7 +29,13 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
     return sessions.map((session) => session.id).sort().join('\n')
   }, [sessions])
 
+  // 刷新的请求序号：可见集合变化会连着发两次，先发的那次回来时闭包里只有旧集合，
+  // 直接写 store 会把新会话的运行状态整块抹掉。
+  const refreshRequestRef = useRef(0)
+
   const refreshVisibleStatuses = useCallback(async () => {
+    refreshRequestRef.current += 1
+    const requestId = refreshRequestRef.current
     if (visibleSessionIds.size === 0) {
       setStatuses({})
       return
@@ -37,6 +43,7 @@ export function useVisibleRuntimeStatuses(sessions: QuickForgeSessionMetadata[])
 
     try {
       const activeSessions = await fetchActiveAgentStatuses()
+      if (requestId !== refreshRequestRef.current) return
       const activeStatuses = new Map(
         activeSessions
           .map((session) => [session.sessionId, toBackgroundTaskStatus(session.status)] as const)

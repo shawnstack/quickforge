@@ -94,6 +94,7 @@ vi.mock('@/lib/server-agent', () => serverAgentMocks)
 vi.mock('@/lib/logger', () => ({ logger: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() } }))
 
 import { useVisibleRuntimeStatuses } from '../../src/hooks/useVisibleRuntimeStatuses'
+import { useRuntimeStatusesStore } from '../../src/stores/runtime-statuses-store'
 
 type WindowEnv = {
   runTimers: () => void
@@ -185,5 +186,53 @@ describe('useVisibleRuntimeStatuses', () => {
     windowEnv.runTimers()
     await flushMicrotasks()
     expect(serverAgentMocks.fetchActiveAgentStatuses).toHaveBeenCalledTimes(2)
+  })
+})
+
+function deferredStatuses() {
+  let resolve!: (value: Array<{ sessionId: string; status: string }>) => void
+  const promise = new Promise<Array<{ sessionId: string; status: string }>>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
+
+describe('useVisibleRuntimeStatuses refresh ordering', () => {
+  beforeEach(() => {
+    reactStub.cursor = 0
+    reactStub.states = []
+    reactStub.refs = []
+    reactStub.memos = []
+    reactStub.effects = []
+    reactStub.subscriptions = []
+    serverAgentMocks.fetchActiveAgentStatuses.mockClear()
+    serverAgentMocks.subscribeToAgentEvents.mockClear()
+    windowEnv = createWindowEnv()
+    vi.stubGlobal('window', windowEnv)
+    vi.stubGlobal('document', createDocumentEnv())
+    useRuntimeStatusesStore.setState({ statuses: {}, completedSessionIds: new Set<string>() })
+  })
+
+  it('keeps the status of a newly visible session when an older refresh resolves late', async () => {
+    const older = deferredStatuses()
+    const newer = deferredStatuses()
+    serverAgentMocks.fetchActiveAgentStatuses
+      .mockImplementationOnce(() => older.promise)
+      .mockImplementationOnce(() => newer.promise)
+
+    renderHook([session('session-a')])
+    windowEnv.runTimers()
+    await flushMicrotasks()
+    renderHook([session('session-a'), session('session-b')])
+    windowEnv.runTimers()
+    await flushMicrotasks()
+    expect(serverAgentMocks.fetchActiveAgentStatuses).toHaveBeenCalledTimes(2)
+
+    newer.resolve([{ sessionId: 'session-b', status: 'running' }])
+    await flushMicrotasks()
+    expect(useRuntimeStatusesStore.getState().statuses['session-b'], 'newer refresh should apply').toBe('running')
+
+    // 旧的那次刷新只见过 session-a，回来时不能把 session-b 的状态整块抹掉。
+    older.resolve([])
+    await flushMicrotasks()
+    expect(useRuntimeStatusesStore.getState().statuses['session-b'], 'stale refresh must not drop the newer session status').toBe('running')
   })
 })

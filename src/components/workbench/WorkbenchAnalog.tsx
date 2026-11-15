@@ -248,6 +248,11 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
   const prevSessionsRef = useRef(new Map<string, boolean>())
   const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
   const prevFocusRef = useRef<Element | null>(null)
+  // 取数序号：20s 轮询本身会自重叠（一次取数超过 20s，或页面挂起后恢复），requestRefresh 还会让
+  // 取数 effect 重跑并立刻再发一轮。判据是「旧响应一个 state 都不许写」——不是少写几个：
+  // bots/tasks/today/overall/completions/loadError/lastLoadedAt 全在这个序号后面，finally 里的
+  // setRefreshing 同理，否则旧请求的 finally 会把新一轮的刷新状态提前结束。
+  const loadRequestRef = useRef(0)
 
   const pushToast = useCallback((tone: Toast['tone'], text: string) => {
     const id = Date.now() + Math.random()
@@ -320,6 +325,7 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
   }, [])
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestRef.current
     try {
       const [nextBots, nextTasks, nextSessions, nextToday, nextCompletions, nextOverall] = await Promise.all([
         fetchBots(),
@@ -329,6 +335,8 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
         fetchTodayCompletions().catch(() => [] as Completion[]),
         fetchOverallRunStats().catch(() => null),
       ])
+      // 旧响应（已被更新的 load 抢先）：一个 state 都不许写，含 observe 的观察表。
+      if (requestId !== loadRequestRef.current) return
       setBots(nextBots)
       if (nextTasks) setTasks(nextTasks)
       setToday(nextToday)
@@ -338,9 +346,10 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
       setLastLoadedAt(Date.now())
       observe(nextBots, nextTasks ?? [], nextSessions?.sessions ?? [], Date.now())
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return
       setLoadError(errText(err))
     } finally {
-      setRefreshing(false)
+      if (requestId === loadRequestRef.current) setRefreshing(false)
     }
   }, [observe])
 

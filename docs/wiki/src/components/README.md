@@ -577,8 +577,8 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 
 常驻看板（设计稿 `docs/design/workbench-redesign/workbench-v8-proposal.html`，稿子仍是旧的塔台叙事，实现文案已换成调度语义、不用港口/机场隐喻）：把 bot 心跳与定时任务的 `nextRunAt` 合并成一条「待运行队列」，右栏在跑 / 最近完成 / 全部 bot，顶部异常提醒。数据全部取自现成端点，不改服务端；「最近完成」与「到点未醒」只作会话内观察，不外推成历史结论（20s 轮询 + 1s 走秒，错过时刻留 90s 宽限，最近完成最多留 8 条）。视觉上房间吃全局主题 token、看板与时钟是「仪器」双主题恒暗。手动打开与屏保自动进入走同一条 `setWorkbenchOpen`。
 
-- `WorkbenchAnalog.tsx` (904 行) # 工作台台面（QF-08 硬件拟物：拉丝金属 / 内凹 CRT / 翻页钟 / 指针仪表 / 机械计数 / 纸质记录卡）；bot 心跳与定时任务的 `nextRunAt` 合流成待运行队列，今日统计走 sessions-metadata 与 task-runs，异常取 lastError 快照；class 全用 `qf-wba` 前缀独占、不改写 v8，导出 `WorkbenchAnalog` 与 `WorkbenchPortal`（`ConversationHeader` 挂载的正是它）
-- `Workbench.tsx` (935 行) # v8 看板：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`；屏保模式下以 `WorkbenchTower` 被台面复用，并在此渲染 `WorkbenchScreensaver`
+- `WorkbenchAnalog.tsx` (913 行) # 工作台台面（QF-08 硬件拟物：拉丝金属 / 内凹 CRT / 翻页钟 / 指针仪表 / 机械计数 / 纸质记录卡）；bot 心跳与定时任务的 `nextRunAt` 合流成待运行队列，今日统计走 sessions-metadata 与 task-runs，异常取 lastError 快照；class 全用 `qf-wba` 前缀独占、不改写 v8，导出 `WorkbenchAnalog` 与 `WorkbenchPortal`（`ConversationHeader` 挂载的正是它）
+- `Workbench.tsx` (944 行) # v8 看板：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`；屏保模式下以 `WorkbenchTower` 被台面复用，并在此渲染 `WorkbenchScreensaver`
 - `WorkbenchScreensaver.tsx` (258 行) # 屏保本体：接管全屏后由氛围场托底，翻页钟 / 今日统计 / 文案随设置变化；任意输入退出，预览模式只认点击与按键
 - `screensaver-field.ts` (249 行) # 屏保氛围场：一层 canvas 画底色渐变、三团缓慢游走的极光、视差星尘与偶发流星；单 rAF 驱动，DPR 封顶、页面隐藏即停、动效为 0 或系统减弱动效时只画一帧，拿不到 2d context 退化成空控制器（CSS 底色仍在，不白屏）
 - `screensaver-palette.ts` (64 行) # 屏保配色：从主色派生同族深底与两个邻色，让渐变跨越真实色相；暖色数码管白与冷灰文字是固定中性色，不随主色漂移

@@ -121,6 +121,10 @@ components/
 │       ├── content-parts.ts        # 纯投影（无 React 运行时依赖）：assistantContentParts（渲染哪些分块 + 按源索引生成 key）与 messageRenderKeys（消息行身份 key；messageRenderIdentity 无 timestamp 时回退内容指纹 FNV-1a，永不按数组位置），MessageList/AssistantMessage 与 SubagentTrace 结构签名共用
 │       ├── ContextCompactionNotice.tsx # 时间线分割线「已压缩上下文」：位置 = 压缩消息在数组里的下标（方案 B，无坐标换算）+ 摘要展开卡
 │       ├── ContextCompactionStatusRow.tsx # 压缩进行中行（state.compactionNotice.phase==='summarizing'）：role=status + 文字流光；空闲/未知阶段返回 null；压缩不经过用户决策，故没有决策行
+│       ├── CompactionMessage.tsx   # 压缩分割线行本体：role=user 且带 details.quickforgeCompaction 的消息按数组下标渲染成「线 + pill + 折叠摘要」这一行（不再是拼接出来的节点）
+│       ├── compaction-message.ts   # 压缩消息判据纯函数（compactionDetailsOf / isCompactionMessage），MessageList、panel-decoration/message-actions、AssistantWaitingBubble 与 lib/message-utils 共用
+│       ├── BotHeartbeatMessage.tsx # 心跳唤醒行：心跳走普通 prompt 通道、落库 role 就是 user——按标记渲染成「它自己醒的」行，装饰层按 isBotHeartbeatMessage 跳过编辑/回滚/重试（data-quickforge-bot-heartbeat 属性只供样式与外部选择器）
+│       ├── bot-heartbeat-message.ts # 心跳消息判据：优先 details.quickforgeBotHeartbeat，升级前写入的旧数据回退 `[心跳]` 正文前缀
 │       └── index.ts                # surface 桶导出
 ├── bots/                            # bot 前端外壳（侧栏列表 / 新建与设置对话框 / 数据层 / 小头像），概览见下文「机器人」小节
 │   ├── bots-data.ts                 # bot 类型与 `/api/bots*` 请求、心跳间隔拆分、状态投影（「X 分钟前」优先 lastActivityAt）
@@ -230,6 +234,15 @@ components/
 │   └── custom-providers/            # 自定义 Provider 面板（列表 / 详情 / 连接 / 模型清单）
 
 └── skills/                         # Skills 管理面板（数据层在 hooks/use-skills-manager + lib/skills-client，见下文 skills/ 小节）
+    ├── SkillsManagerPanel.tsx      # 可嵌入的 Skills 选择/搜索/阅读/保存面板（数据层在 hooks/use-skills-manager + lib/skills-client，不在组件内）
+    ├── SkillsPageHead.tsx          # 页头：搜索路径弹层（useDialogFocusTrap 守 Tab）与重扫
+    ├── SkillsToolbar.tsx           # 搜索框与筛选
+    ├── SkillsSummary.tsx           # 批量启用/停用汇总与操作
+    ├── SkillsList.tsx              # 分组列表与空态
+    ├── SkillDetailDialog.tsx       # 详情弹窗（useDialogFocusTrap 守 Tab）
+    ├── SkillGlyph.tsx              # 按名称猜图标
+    ├── skill-source.ts             # 来源分组映射
+    └── index.ts                    # barrel 导出
 ```
 
 ## 核心组件说明
@@ -423,6 +436,7 @@ components/
   1. **整理中行**（`surface/ContextCompactionStatusRow.tsx`）：`phase === 'summarizing'` 时渲染在消息列表尾部，`role="status"` + 文字流光（复用 `.quickforge-process-thinking-label` 的 shimmer 配方，`prefers-reduced-motion` 下退回普通弱化文字）。这一行补的是此前最直观的体验缺口：压缩是一次额外交给模型的摘要请求，可能持续几十秒，而这期间等待气泡已因助手产出过内容而隐藏、也没有 token 在流，界面完全静止，看起来像卡死。`COMPACTION_NOTICE_PHASES` 只有这一个阶段，未知阶段一律渲染 `null`（对旧服务端的防御）。
   2. **时间线分割线**（surface/ContextCompactionNotice.tsx）：分割线就是压缩消息本身的渲染结果 —— compactSessionInPlace 把摘要作为 role:user 且带 details.quickforgeCompaction 的消息插在压缩发生那一刻的数组末尾（压缩点），MessageList 用 CompactionMessage 按消息下标渲染成「线 + pill + 折叠摘要」，到那一刻为止的全部历史（含本轮已执行完的 tool 调用与当前用户请求）并入摘要，之后产生的所有消息天然排在线下方——与排队消息被消费时插入数组尾部的位置逻辑一致，只是渲染成时间线分割线而不是消息气泡。压缩刚完成时线在列表末尾、下方暂时为空，直到下一条流式消息出现。buildAutoCompactLoopMessages 从最后一条压缩消息开始切片；回滚/重试按「压缩消息是否还在数组里」保留或丢弃压缩（未迁移的旧会话继续按 compactedUpToIndex 兜底）；只有 contextCompaction 而没有对应消息的旧会话不再做迁移（不兼容旧数据），模型上下文仍由 buildAutoCompactLoopMessages 的只读兜底拼接。原先按坐标推断的 resolveCompactionMarkers / locateAfterCompaction / anchorIndex / shiftCompactionToLocal 已整段删除，界面不再做任何窗口换算。契约由 tests/frontend/context-compaction-notice.test.ts 与 tests/server/compaction-message.test.mjs 覆盖。
   已删除的决策行（`ContextCompactionDecisionRow`）、`approveAutoCompact` / `rejectAutoCompact` 客户端方法与 `pendingAutoCompactApproval` 状态一并移除；整理中不可单独取消（要停就停整个 run）。行组件在空闲时返回 `null`，因此消息列表子节点序列在常见情况下与压缩功能引入前一致；契约由 `tests/frontend/context-compaction-rows.test.ts` 与 `tests/frontend/context-compaction-notice.test.ts` 覆盖。
+- **心跳唤醒行不再冒充用户消息**（`surface/BotHeartbeatMessage.tsx` + `surface/bot-heartbeat-message.ts`）：bot 心跳走的是普通 prompt 通道，落库后 `role` 就是 `user`，界面上原本与用户亲手打的那句话长得一模一样——而那些字用户从没打过。现在 `MessageList` 先按 `details.quickforgeBotHeartbeat` 认领（升级前写入的旧数据没有标记，回退正文 `[心跳]` 前缀判定），命中就渲染成「它自己醒的」行、不进用户气泡，心跳指令原文折叠可展开；装饰层同样按 `isBotHeartbeatMessage` 跳过就地编辑/回滚/重试。判据与渲染分两处，纯函数在 `bot-heartbeat-message.ts`（同族做法见 `compaction-message.ts`），契约由 tests/frontend/bot-heartbeat-message.test.ts 覆盖。
 - Assistant Markdown 中的 ```svg 和 ```mermaid 代码块会在流式输出结束后默认进入安全图片预览，可在代码块右上角切换预览/源码；Mermaid 按需加载并在失败时保留源码
 - `panel-decoration/ask-user-card.ts` 是 ask_user 工具的交互卡（与审批卡同族的注入式卡片，`data-ask-id` + displaySignature 去重）：向导式多问题（单选点选自动进下一问；多选或含自由输入的问句另有显式「下一问」前进，导航按钮统一在卡片底部操作行——上一问/下一问/提交/跳过同行，注入时创建常驻、renderStep 按问型显隐）；自由输入为可叠加补充——展开不清空已选 choices，选项与补充可共存，textarea Enter 确认前进（Shift+Enter 换行；Enter 处理含 IME 守卫 `if (e.isComposing || keyCode === 229) return`，与 `MessageEditor.tsx` 同款，避免中文输入法上屏回车被当成「下一问」吞字）；补充框在已有内容时 toggle 追加 `quickforge-ask-custom-toggle--filled` 并在按钮内渲染 `quickforge-ask-custom-filled` 徽标（`askUserFilledHint`，已填写 / Filled in），容器预展开且每次渲染后回填 `customInput.value`（不只在 toggle 时同步——预展开的框必须显示它被展开的理由）；回执按分段语义渲染，不再把选项与补充合并成一行裸文本：选项渲染为 `.quickforge-ask-answer-choice` 内的 `.quickforge-ask-answer-chip`，自定义文本独立为 `.quickforge-ask-answer-extra`（`-label` = `askUserExtraLabel`「补充」、`-text` 为正文），只填自定义未选选项时用 `.quickforge-ask-answer-empty`（`askUserNoChoiceLabel`「未选择选项」）占位，两者皆空才落回 `askUserUnanswered`；回执与历史回显统一走 `splitAskAnswer()`（已导出），待答卡回执行与历史复用同一实现；末步回执摘要统一提交，每行「修改」按钮直达该题回改，与「上一问」同走 renderStep 并 disarmSkip）；「跳过」语义为跳过全部提问（服务端 skipped 回传后所有问题按未回答处理），两步确认防误触丢答案（首击仅切换为确认文案，5s 未复击或 back/提交/自动前进时自动复位，armed 下再击才真正跳过）；提交/跳过经 `onAnswerAsk` 回调（App → server-agent `answerAsk` → `POST /api/agents/:id/answer-ask`）放行服务端 pending Promise；回答后卡片移除，ask_user 调用作为普通工具消息留在消息流由既有折叠机制收纳；回执步末行是卡片级「补充信息」：内容不进 answers，由 onSubmit 第二参数经 ChatPanelHost → App → server-agent answerAsk 的 remark → 路由 → answerAsk 归一化（trim + slice(0,4000)）→ formatAskResult 追加「补充信息：…」并持久化 details.remark，历史回执由 askUserReviewRowsFromDetails 读 remark 复用同一行样式；readOnly/share 视图禁用并提示
 

@@ -1,6 +1,6 @@
 # `src/hooks/` — 自定义 React Hooks
 
-包含 38 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
+包含 39 个自定义 React Hook，用于封装应用状态管理和业务逻辑。
 
 ---
 
@@ -30,6 +30,7 @@
 | [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 58 | 工具审批 / ask_user 应答统一出口（走当前 agent，失败统一抛错）；自动上下文压缩不再需要审批，对应 handler 已删除 |
 | [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
 | [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 109 | 移动端侧栏抽屉（Escape/焦点管理，Tab 循环由 `useDialogFocusTrap` 守住）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |
+| [useDialogFocusTrap.ts](../../../../src/hooks/useDialogFocusTrap.ts) | 76 | 弹窗焦点陷阱（从 `ui/confirm-dialog` 内联的键盘 effect 原样搬出，行为逐字等价后才替换）：只在 Tab 上介入，Esc/Enter 仍归调用方；可聚焦集合按固定选择器收集，`offsetParent === null` 视为不可见并跳过（当前焦点除外，否则停在 `position: fixed` 控件上的焦点会被判成不可见而失效）；焦点已在弹窗外时 Tab 落第一个、Shift+Tab 落最后一个并 `preventDefault`；`enabled` 用于受控弹窗关闭态联动，`restoreFocus` 默认 false（归还焦点归调用方，避免与 confirm-dialog 的容器级归还重复聚焦）；12 处弹窗/抽屉在用（confirm/prompt 对话框、附件浮层、bot 对话框、Git 两个弹窗、Skills 详情与页头弹层、移动端抽屉与连接页、Hooks 设置编辑器、分享链接页、侧栏搜索） |
 | [usePinnedSummaryModel.ts](../../../../src/hooks/usePinnedSummaryModel.ts) | 114 | 置顶摘要 view-model：从 agent 快照派生 Todo/Subagent/后台命令/Goal，内部订阅相关 Agent 事件递增 revision，并同步 Goal UI store；ACP 会话排除 Goal，`invalidate()` 供 Goal 动作后强制刷新 |
 | [use-skills-manager.ts](../../../../src/hooks/use-skills-manager.ts) | 301 | Skills 面板数据层（从 skills-dialog 组件抽出）：列表/详情加载竞态守卫、选中集保存的串行队列 + generation/sequence 双版本号乐观更新与失败回滚到 confirmed 集、撤销 toast；保存成功即失效 slash 目录缓存（invalidateSlashCatalog，见 lib/slash-catalog）；HTTP 在 `@/lib/skills-client` |
 | [useAgentSessionEvents.ts](../../../../src/hooks/useAgentSessionEvents.ts) | 96 | Agent 事件 → 会话列表联动 / 任务 Toast / 系统通知的统一出口（scheduled_task_started 展开项目并拉会话分页、session_created/title_updated/agent_end/session_forked 同步列表、scheduled_task_notification 与 bot_heartbeat_notification 的 Toast+通知）；事件类型守卫在 `src/lib/agent-event-guards.ts` |

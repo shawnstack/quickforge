@@ -73,6 +73,39 @@ describe('QF-08 今日完成记录回填', () => {
   })
 })
 
+  it('置顶会话排首行且修改时间早于今日：不当作翻到昨日，后一页的今日完成仍要收', async () => {
+    const calls: string[] = []
+    const filler = Array.from({ length: 199 }, (_, i) => meta({
+      id: `filler-${i}`,
+      lastModified: iso(DAY_START + 60_000 + i),
+      taskFinishedAt: null,
+    }))
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      calls.push(url)
+      if (url.includes('offset=0')) {
+        return new Response(JSON.stringify({
+          values: [
+            meta({
+              id: 'pinned-old',
+              lastModified: iso(DAY_START - 172_800_000),
+              taskFinishedAt: iso(DAY_START - 172_800_000),
+              pinnedAt: iso(DAY_START - 3_600_000),
+            }),
+            ...filler,
+          ],
+        }), { status: 200 })
+      }
+      if (url.includes('offset=200')) {
+        return new Response(JSON.stringify({
+          values: [meta({ id: 'later-today', taskFinishedAt: iso(DAY_START + 10_800_000), lastModified: iso(DAY_START + 10_800_000) })],
+        }), { status: 200 })
+      }
+      throw new Error(`unexpected url ${url}`)
+    }))
+    const list = await fetchTodayCompletions(NOW)
+    expect(calls.some((url) => url.includes('offset=200'))).toBe(true)
+    expect(list.map((x) => x.sessionId)).toEqual(['later-today'])
+  })
 describe('QF-08 累计成功率回退', () => {
   it('汇总全部 success / failed 计数，不带时间窗参数', async () => {
     const calls: string[] = []

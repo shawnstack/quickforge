@@ -1,4 +1,4 @@
-import { startOfToday } from '@/lib/workbench-today-stats'
+import { isPinnedIndexEntry, startOfToday } from '@/lib/workbench-today-stats'
 
 /**
  * QF-08 专有数据补充，只读现成端点，不改服务端，也不改 v8 的 fetchTodayStats 口径。
@@ -27,6 +27,8 @@ type MetaEntry = {
   id?: string
   title?: string
   preview?: string
+  /** 索引排序键之一：置顶行排在 lastModified 之前，翻页判定必须认它。 */
+  pinnedAt?: string | null
   lastModified?: string | null
   taskFinishedAt?: string | null
   taskStatus?: string | null
@@ -74,7 +76,12 @@ export async function fetchTodayCompletions(now: number = Date.now()): Promise<C
       let reachedPast = false
       for (const value of values) {
         const modified = value.lastModified ? Date.parse(value.lastModified) : Number.NaN
-        if (!Number.isFinite(modified) || modified < dayStart) { reachedPast = true; break }
+        // 缺 lastModified / 解析不出：只跳过这一条；置顶行越界也不代表后面的都更旧。
+        if (!Number.isFinite(modified)) continue
+        if (modified >= dayStart) continue
+        if (isPinnedIndexEntry(value)) continue
+        reachedPast = true
+        break
       }
       out.push(...toCompletions(values, dayStart))
       if (reachedPast || values.length < PAGE_SIZE || out.length >= COMPLETION_CAP) break

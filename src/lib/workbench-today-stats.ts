@@ -47,7 +47,7 @@ export function formatTokenCount(n: number): string {
 }
 
 /** 索引把置顶会话排在 lastModified 之前，所以置顶行越界不代表「后面的都更旧」。 */
-function isPinnedIndexEntry(value: TodaySessionEntry): boolean {
+export function isPinnedIndexEntry(value: { pinnedAt?: string | null }): boolean {
   const pinned = value.pinnedAt
   return typeof pinned === 'string' && pinned.trim() !== '' && pinned.trim() !== 'null' && pinned.trim() !== 'false'
 }

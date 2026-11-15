@@ -582,7 +582,7 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 - `WorkbenchScreensaver.tsx` (258 行) # 屏保本体：接管全屏后由氛围场托底，翻页钟 / 今日统计 / 文案随设置变化；任意输入退出，预览模式只认点击与按键
 - `screensaver-field.ts` (249 行) # 屏保氛围场：一层 canvas 画底色渐变、三团缓慢游走的极光、视差星尘与偶发流星；单 rAF 驱动，DPR 封顶、页面隐藏即停、动效为 0 或系统减弱动效时只画一帧，拿不到 2d context 退化成空控制器（CSS 底色仍在，不白屏）
 - `screensaver-palette.ts` (64 行) # 屏保配色：从主色派生同族深底与两个邻色，让渐变跨越真实色相；暖色数码管白与冷灰文字是固定中性色，不随主色漂移
-- `workbench-analog-data.ts` (106 行) # 台面数据补充：今日完成记录用 sessions-metadata 每条自带的 `taskFinishedAt` / `taskStatus` 回填历史纸卡；今日没有定时任务运行时，仪表退成全部历史运行的「累计」成功率并在界面标注，不把 0 次运行画成 0%
+- `workbench-analog-data.ts` (113 行) # 台面数据补充：今日完成记录用 sessions-metadata 每条自带的 `taskFinishedAt` / `taskStatus` 回填历史纸卡；今日没有定时任务运行时，仪表退成全部历史运行的「累计」成功率并在界面标注，不把 0 次运行画成 0%
 - `workbench-format.ts` (18 行) # 时间与补零格式化（`fmtHm` / `fmtSpan` / `pad`）
 - `workbench-analog.css` (377 行) # 拟物台面样式（`.qf-wba__*`）：金属 / CRT / 翻页钟 / 仪表 / 记录卡
 - `workbench-screensaver.css` (404 行) # 屏保样式：氛围场画布与叠层排版

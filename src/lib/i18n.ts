@@ -4722,7 +4722,10 @@ export function t(key: AppTextKey, params?: Record<string, string | number>) {
   let text: string = appTranslations[getAppLanguage()][key] ?? appTranslations.en[key]
   if (!params) return text
   for (const [name, value] of Object.entries(params)) {
-    text = text.replaceAll(`{${name}}`, String(value))
+    // 替换串必须走函数体：params 里的值可能是运行期字符串（git 分支名、文件路径、命令原文、
+    // 插件名），以字符串形式传给 replaceAll 会让 $& $$ $` $' $1 被当成替换语义解释——插进去的
+    // 值被吃掉、占位符原样留下，界面静默显示错字。与 925cf0ac / b649c481 同族。
+    text = text.replaceAll(`{${name}}`, () => String(value))
   }
   return text
 }

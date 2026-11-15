@@ -10,6 +10,28 @@ type ArchivedSessionsResponse = {
   error?: string
 }
 
+// 归档列表曾经写死 limit=1000：本机实测 archived=only 的 total 是 1790，剩下 790 条
+// 既看不到也搜不到、恢复不了，界面还一声不吭。现在按 offset 翻页取满 total，
+// 页大小与安全上限只决定「一次能翻多远」，到顶必须由界面明说，不能静默丢。
+const ARCHIVED_PAGE_SIZE = 500
+const ARCHIVED_MAX_PAGES = 20
+
+async function fetchArchivedSessionsPage(offset: number): Promise<{ values: QuickForgeSessionMetadata[]; total: number | null }> {
+  const params = new URLSearchParams({
+    direction: 'desc',
+    limit: String(ARCHIVED_PAGE_SIZE),
+    offset: String(offset),
+    archived: 'only',
+  })
+  const response = await fetch(`/api/storage/sessions-metadata/index/lastModified?${params.toString()}`, { cache: 'no-store' })
+  const payload = await response.json().catch(() => null) as ArchivedSessionsResponse | null
+  if (!response.ok) throw new Error(payload?.error || t('requestFailed'))
+  return {
+    values: Array.isArray(payload?.values) ? payload.values : [],
+    total: typeof payload?.total === 'number' && Number.isFinite(payload.total) ? payload.total : null,
+  }
+}
+
 function formatDate(value?: string) {
   if (!value) return '-'
   const date = new Date(value)
@@ -45,6 +67,9 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
   const [projectFilter, setProjectFilter] = useState('all')
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  // 服务端 total 与「是否真取全」分开记：只要列出的条目少于 total，界面就必须说出来。
+  const [total, setTotal] = useState<number | null>(null)
+  const [truncated, setTruncated] = useState(false)
 
   useEffect(() => {
     // 旧版元素常驻、切走仅 detach：重新激活时重新加载归档列表（query/projectFilter 等中间态保留）。
@@ -54,26 +79,47 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
     void (async () => {
       setLoading(true)
       setError('')
+      setTruncated(false)
+      const projectsRequest = fetch('/api/project', { cache: 'no-store' }).catch(() => null)
+      const collected: QuickForgeSessionMetadata[] = []
+      let orderedTotal: number | null = null
+      let incomplete = false
+
       try {
-        const [sessionsResponse, projectsResponse] = await Promise.all([
-          fetch('/api/storage/sessions-metadata/index/lastModified?direction=desc&limit=1000&offset=0&archived=only', { cache: 'no-store' }),
-          fetch('/api/project', { cache: 'no-store' }).catch(() => null),
-        ])
-
-        const sessionsPayload = await sessionsResponse.json().catch(() => null) as ArchivedSessionsResponse | null
-        if (!sessionsResponse.ok) throw new Error(sessionsPayload?.error || t('requestFailed'))
-        if (cancelled) return
-        setSessions(Array.isArray(sessionsPayload?.values) ? sessionsPayload.values : [])
-
-        if (projectsResponse?.ok) {
-          const projectsPayload = await projectsResponse.json().catch(() => null) as { projects?: ProjectInfo[] } | null
-          if (!cancelled) setProjects(Array.isArray(projectsPayload?.projects) ? projectsPayload.projects : [])
+        for (let page = 0; page < ARCHIVED_MAX_PAGES; page += 1) {
+          const result = await fetchArchivedSessionsPage(page * ARCHIVED_PAGE_SIZE)
+          if (cancelled) return
+          if (result.total !== null) orderedTotal = result.total
+          collected.push(...result.values)
+          // 不满一页 = 已经到底；凑满 total = 已经取全。两种都不算截断。
+          if (result.values.length < ARCHIVED_PAGE_SIZE) break
+          if (orderedTotal !== null && collected.length >= orderedTotal) break
+          // 安全上限到顶：还有没取到的，标记截断让界面明说，绝不静默。
+          if (page === ARCHIVED_MAX_PAGES - 1) incomplete = orderedTotal === null || collected.length < orderedTotal
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
-      } finally {
-        if (!cancelled) setLoading(false)
+        if (cancelled) return
+        if (collected.length === 0) {
+          setError(err instanceof Error ? err.message : t('requestFailed'))
+          setLoading(false)
+          return
+        }
+        // 已经取到的页照样展示，但没取到的部分必须说出来。
+        incomplete = true
+        setError(err instanceof Error ? err.message : t('requestFailed'))
       }
+      if (cancelled) return
+      setSessions(collected)
+      setTotal(orderedTotal)
+      setTruncated(incomplete)
+
+      const projectsResponse = await projectsRequest
+      if (cancelled) return
+      if (projectsResponse?.ok) {
+        const projectsPayload = await projectsResponse.json().catch(() => null) as { projects?: ProjectInfo[] } | null
+        if (!cancelled) setProjects(Array.isArray(projectsPayload?.projects) ? projectsPayload.projects : [])
+      }
+      if (!cancelled) setLoading(false)
     })()
     return () => {
       cancelled = true
@@ -122,6 +168,8 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
       if (!session || !metadata) throw new Error(t('sessionNotFound'))
       await storage.sessions.save(withClearedArchivedAt(session), withClearedArchivedAt(metadata))
       setSessions((current) => current.filter((item) => item.id !== sessionId))
+      // 恢复走不通「多出来的那条还在归档里」，total 跟着减，免得提示开始说谎。
+      setTotal((current) => (current === null ? null : Math.max(0, current - 1)))
       setMessage(t('sessionRestored'))
       notifySessionsChanged()
     } catch (err) {
@@ -149,6 +197,7 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
       const storage = getAppStorage()
       await storage.sessions.delete(session.id)
       setSessions((current) => current.filter((item) => item.id !== session.id))
+      setTotal((current) => (current === null ? null : Math.max(0, current - 1)))
       setMessage(t('archivedSessionDeleted'))
       notifySessionsChanged()
     } catch (err) {
@@ -174,8 +223,11 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
 
     try {
       const storage = getAppStorage()
+      const deletedCount = sessions.length
       await Promise.all(sessions.map((session) => storage.sessions.delete(session.id)))
       setSessions([])
+      // 「全部删除」只删得到已列出的这些；未列出的仍留在归档里，提示要继续说实话。
+      setTotal((current) => (current === null ? null : Math.max(0, current - deletedCount)))
       setMessage(t('archivedSessionsDeleted'))
       notifySessionsChanged()
     } catch (err) {
@@ -254,6 +306,14 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
             {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
           </select>
         </div>
+
+        {truncated ? (
+          <div className="border-b border-border bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
+            {total === null
+              ? t('archivedSessionsTruncatedUnknown', { loaded: sessions.length })
+              : t('archivedSessionsTruncated', { loaded: sessions.length, total })}
+          </div>
+        ) : null}
 
         {loading ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">{t('loading')}</div>

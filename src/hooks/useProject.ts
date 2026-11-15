@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import type { ProjectInfo } from '@/lib/types'
 import { logger } from '@/lib/logger'
 import { invalidateApiCache, readApiCache, writeApiCache } from '@/lib/api-cache'
@@ -42,6 +42,9 @@ export function useProject() {
   const setExpandedProjectIds = useProjectStore((s) => s.setExpandedProjectIds)
   const setSelectingProject = useProjectStore((s) => s.setSelectingProject)
   const setProjectPickerOpen = useProjectStore((s) => s.setProjectPickerOpen)
+
+  // 项目切换的请求序号：先点 A 后点 B 时 A 的响应可能后到，旧的那次不许写回当前项目。
+  const switchRequestRef = useRef(0)
 
   /** 写「当前项目」的唯一出口：bot 目录永远不进来。
    *
@@ -100,6 +103,8 @@ export function useProject() {
 
   const switchActiveProject = useCallback(
     async (projectId: string) => {
+      switchRequestRef.current += 1
+      const requestId = switchRequestRef.current
       const response = await fetch('/api/project/active', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -108,13 +113,18 @@ export function useProject() {
       const payload = await response.json().catch(() => null)
       if (!response.ok) throw new Error(payload?.error || `Project switch failed with HTTP ${response.status}`)
 
+      const project = payload.project as ProjectInfo
+
       // 服务端对 bot 项目只返回项目本身、不改写 activeProjectId；前端同样不能
       // 把它当「当前项目」——返回值的用途是当这条会话的 project（工具工作空间）。
-      applyActiveProject(payload.project)
+      // 所以晚到的响应仍然要把自己的 project 返回给调用方，只是不许再动当前项目
+      // 和项目列表：那是「最后一次点击」才有的权力。
+      if (requestId !== switchRequestRef.current) return project
+      applyActiveProject(project)
       setProjects(Array.isArray(payload.projects) ? payload.projects : [])
       setExpandedProjectIds(new Set([projectId]))
       invalidateApiCache(PROJECT_LIST_CACHE_KEY)
-      return payload.project as ProjectInfo
+      return project
     },
     [applyActiveProject, setExpandedProjectIds, setProjects],
   )

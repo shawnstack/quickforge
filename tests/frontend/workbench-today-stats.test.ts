@@ -116,6 +116,42 @@ describe('fetchTodayStats（现成端点，失败分源降级）', () => {
   })
 })
 
+  it('置顶会话排在最前且早于今日：不把「置顶区的旧行」当作翻到昨日，当天统计不许归零', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/sessions-metadata/index/lastModified')) {
+        return new Response(JSON.stringify({
+          values: [
+            { ...entry(DAY_START - 172_800_000, DAY_START - 172_800_000, 4000), pinnedAt: iso(DAY_START - 3_600_000) },
+            entry(DAY_START + 3_600_000, DAY_START + 7_200_000, 1200),
+            entry(DAY_START - 86_400_000, DAY_START - 3_600_000, 999),
+          ],
+          total: 3,
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ total: 0 }), { status: 200 })
+    }))
+    const stats = await fetchTodayStats(NOW)
+    expect(stats.sessions).toBe(1)
+    expect(stats.tokens).toBe(1200)
+  })
+
+  it('单条 lastModified 缺失只跳过该条，不结束当天扫描', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/sessions-metadata/index/lastModified')) {
+        return new Response(JSON.stringify({
+          values: [
+            { createdAt: iso(DAY_START - 86_400_000), lastModified: null, usage: { totalTokens: 500 } },
+            entry(DAY_START + 60_000, DAY_START + 60_000, 700),
+          ],
+          total: 2,
+        }), { status: 200 })
+      }
+      return new Response(JSON.stringify({ total: 0 }), { status: 200 })
+    }))
+    const stats = await fetchTodayStats(NOW)
+    expect(stats.sessions).toBe(1)
+    expect(stats.tokens).toBe(700)
+  })
 describe('工作台 TODAY 统计带接线契约', () => {
   it('load 并行拉取统计并渲染统计带，token 走紧凑格式', () => {
     expect(componentSource).toContain("import { fetchTodayStats, formatTokenCount, type TodayStats } from '@/lib/workbench-today-stats'")

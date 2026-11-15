@@ -188,7 +188,7 @@
 | `title-git-status-refresh.ts` | 24 | 何时刷新标题栏 Git 状态：`shouldRefreshTitleGitStatusOnToolEnd` 只在会改工作区的工具（write_file / edit_file / run_command / run_subagent / run_workflow）结束时返回真 |
 | `update-check-settings.ts` | 66 | 更新检查设置（`update-check-settings` 键）：频率 startup / daily / weekly / off、上次成功检查时间、用户点「稍后」忽略的版本（只有更新的版本才再次提示） |
 | `workbench-screensaver-settings.ts` | 113 | 工作台屏保设置与纯判定：30 分钟 idle 阈值、`workbenchScreensaver` 存储键、`screensaverDue(lastActivity, now, enabled, workbenchOpen)` |
-| `workbench-today-stats.ts` | 99 | 工作台 TODAY 统计带数据层：今日会话数 / token / 任务运行数与成功率全部取自现成端点（sessions-metadata 按 `lastModified` 倒序翻到今天零点、`/api/scheduled-tasks/runs` 按 status 计数）；token 是「今日活跃会话」累计用量近似，usage 按会话累计、无按日切片 |
+| `workbench-today-stats.ts` | 114 | 工作台 TODAY 统计带数据层：今日会话数 / token / 任务运行数与成功率全部取自现成端点（sessions-metadata 按 `lastModified` 倒序翻到今天零点、`/api/scheduled-tasks/runs` 按 status 计数）；token 是「今日活跃会话」累计用量近似，usage 按会话累计、无按日切片 |
 
 ---
 

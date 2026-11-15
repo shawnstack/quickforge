@@ -588,7 +588,7 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 - `workbench-screensaver.css` (404 行) # 屏保样式：氛围场画布与叠层排版
 - `workbench.css` (527 行) # v8 工作台样式：`.qf-wb__*` 两套 token（房间 / 仪器）、跑道灯带、仪表盘翻页时钟、今日统计带
 - `settings/tabs/WorkbenchScreensaverSettings.tsx` (336 行) # 设置页屏保分区：预览（以 `embedded` 渲染屏保本体）、随机外观、重置，改动即存
-- `src/lib/workbench-today-stats.ts` (99 行) # TODAY 统计带数据层：今日会话数、token、任务运行数与成功率，全部来自现成端点
+- `src/lib/workbench-today-stats.ts` (114 行) # TODAY 统计带数据层：今日会话数、token、任务运行数与成功率，全部来自现成端点
 - `src/lib/workbench-screensaver-settings.ts` (113 行) # 屏保配置模型：idle 1–120 分钟（默认 30）、亮度与时钟百分比、六种主色候选、随机化，沿用旧存储键 `workbenchScreensaver`（历史 boolean 读成 `enabled`），含纯判定 `screensaverDue`
 - `src/hooks/useWorkbenchScreensaver.ts` (74 行) # 屏保引擎：读配置 → 到点 `enterWorkbenchScreensaver('idle')`，屏保期间任意活动即退出；手动打开的工作台不受活动影响
 

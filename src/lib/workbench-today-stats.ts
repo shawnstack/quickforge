@@ -1,5 +1,6 @@
 // 工作台 TODAY 统计带：全部来自现成端点，不改服务端。
-// 会话/token 走 sessions-metadata 索引（lastModified 倒序翻页到今天零点为止），
+// 会话/token 走 sessions-metadata 索引（排序是 (置顶) DESC, pinnedAt DESC, 再 lastModified 倒序；
+// 置顶区里「修改时间很旧」的行排在最前，所以「越界即收手」只对非置顶行成立），
 // 任务运行走 /api/scheduled-tasks/runs 的 status 计数（startedFrom/To 为 UTC ISO，与库里 startedAt 同基准）。
 // token 是「今日活跃会话」的累计用量近似：usage 按会话累计，无按日切片。
 
@@ -13,6 +14,8 @@ export type TodayStats = {
 export type TodaySessionEntry = {
   createdAt?: string
   lastModified?: string | null
+  /** 索引排序键之一：置顶行排在 lastModified 之前，翻页判定必须认它。 */
+  pinnedAt?: string | null
   usage?: { totalTokens?: number } | null
 }
 
@@ -43,6 +46,12 @@ export function formatTokenCount(n: number): string {
   return String(Math.round(n))
 }
 
+/** 索引把置顶会话排在 lastModified 之前，所以置顶行越界不代表「后面的都更旧」。 */
+function isPinnedIndexEntry(value: TodaySessionEntry): boolean {
+  const pinned = value.pinnedAt
+  return typeof pinned === 'string' && pinned.trim() !== '' && pinned.trim() !== 'null' && pinned.trim() !== 'false'
+}
+
 async function fetchActiveTodaySessions(dayStart: number): Promise<TodaySessionEntry[] | null> {
   const out: TodaySessionEntry[] = []
   try {
@@ -58,8 +67,14 @@ async function fetchActiveTodaySessions(dayStart: number): Promise<TodaySessionE
       let reachedPast = false
       for (const value of values) {
         const modified = value.lastModified ? Date.parse(value.lastModified) : Number.NaN
-        if (!Number.isFinite(modified) || modified < dayStart) { reachedPast = true; break }
-        out.push(value)
+        // 缺 lastModified / 解析不出：只跳过这一条，别当成「已经翻到昨天」。
+        if (!Number.isFinite(modified)) continue
+        if (modified >= dayStart) { out.push(value); continue }
+        // 索引是 (置顶) DESC, pinnedAt DESC, lastModified DESC：置顶区里修改时间很旧的行会排在最前，
+        // 它越界不代表后面的都更旧——置顶一条旧会话就让今日统计整段归零，就是这么来的。
+        if (isPinnedIndexEntry(value)) continue
+        reachedPast = true
+        break
       }
       if (reachedPast || values.length < PAGE_SIZE) break
     }

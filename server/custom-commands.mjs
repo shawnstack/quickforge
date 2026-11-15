@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { getEnabledPluginCommandSources } from './plugins/registry.mjs'
+import { firstOptionalBoolean, firstString, parseFrontmatter } from './frontmatter.mjs'
 import { userCommandsDir } from './storage.mjs'
 import { logger } from './utils/logger.mjs'
 
@@ -102,72 +103,10 @@ function commandDirectories(workspaceRoot, commandDir) {
   return dirs
 }
 
-function parseFrontmatter(text) {
-  const normalized = String(text || '').replace(/^\uFEFF/, '')
-  const match = normalized.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)([\s\S]*)$/)
-  if (!match) return { metadata: {}, body: normalized.trim() }
-  return {
-    metadata: parseSimpleYamlMap(match[1]),
-    body: match[2].trim(),
-  }
-}
-
-function stripInlineComment(value) {
-  const trimmed = value.trim()
-  if (trimmed.startsWith('"') || trimmed.startsWith("'")) return trimmed
-  const index = trimmed.indexOf(' #')
-  return index >= 0 ? trimmed.slice(0, index).trimEnd() : trimmed
-}
-
-function parseYamlScalar(value) {
-  const trimmed = stripInlineComment(String(value ?? ''))
-  if (!trimmed) return ''
-  if (trimmed === 'true') return true
-  if (trimmed === 'false') return false
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed
-      .slice(1, -1)
-      .replace(/\\"/g, '"')
-      .replace(/\\'/g, "'")
-  }
-  return trimmed
-}
-
-function parseSimpleYamlMap(text) {
-  const result = {}
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || /^\s/.test(line)) continue
-
-    const match = line.match(/^([A-Za-z0-9_.-]+):(?:\s*(.*))?$/)
-    if (!match) continue
-    const [, key, rawValue = ''] = match
-    result[key] = parseYamlScalar(rawValue)
-  }
-  return result
-}
-
-function firstString(...values) {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim()
-  }
-  return undefined
-}
-
-function firstOptionalBoolean(...values) {
-  for (const value of values) {
-    if (value === true || value === false) return value
-    if (typeof value === 'string') {
-      const normalized = value.trim().toLowerCase()
-      if (normalized === 'true') return true
-      if (normalized === 'false') return false
-    }
-  }
-  return undefined
-}
+// 解析逻辑只在 `frontmatter.mjs` 一处维护。这里曾经是第二份私有副本（parseFrontmatter /
+// parseYamlScalar / stripInlineComment / parseSimpleYamlMap 各一份），与共享实现悄悄分叉：
+// 副本不认 YAML 短横线列表、不认带指示符的块标量（`description: >-` 读成字面量 ">-"，
+// 真正的多行描述整段丢失），也不认嵌套 map。自定义命令的说明因此可能是错的或整段不见。
 
 export function commandFromFile(file, text, options = {}) {
   const parsed = parseFrontmatter(text)

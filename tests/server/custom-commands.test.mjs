@@ -364,6 +364,23 @@ $ARGUMENTS
     expect(command.body).toContain('Deploy steps:')
   })
 
+  it('reads a folded block scalar description instead of the indicator', () => {
+    // 自定义命令的 frontmatter 曾经走一份私有解析副本：`description: >-` 的多行说明被
+    // 读成字面量 ">-"，命令列表里显示的说明就是这三个字符，真正的正文一个字都不剩。
+    const text = `---
+name: audit
+description: >-
+  Audit the project in three passes
+  and report the gaps.
+---
+
+Body.
+`
+    const command = commandFromFile('/tmp/audit.md', text)
+    expect(command).not.toBeNull()
+    expect(command.description).toBe('Audit the project in three passes and report the gaps.')
+  })
+
   it('falls back to filename for name when metadata is absent', () => {
     const command = commandFromFile('/tmp/my-command.md', 'Just a body')
     expect(command).not.toBeNull()

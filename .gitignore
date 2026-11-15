@@ -17,6 +17,7 @@ package-dist
 package-offline
 .agentbridge
 .zcode/
+.workbuddy/
 *.tgz
 *.local
 $null

@@ -1053,7 +1053,7 @@ function enqueueWrite(queueName, operation) {
  * from multiple browser tabs would overwrite each other.
  *
  * @param {string} storeName
- * @param {(data: object) => object} updateFn — receives current data, returns updated data
+ * @param {(data: object | unknown[]) => object | unknown[]} updateFn — receives current data, returns updated data
  * @returns {Promise<object>} the updated data
  */
 export async function atomicUpdate(storeName, updateFn) {
@@ -1068,6 +1068,15 @@ export async function atomicUpdate(storeName, updateFn) {
       const data = await readConfigStore(storeName)
       const updated = updateFn(data)
       await writeConfigStore(storeName, updated)
+      return updated
+    }
+    // Root-array stores（hook-executions / plugin-audit）在文件根上就是一个数组，
+    // 不能走 readSessionStore —— 那条路会把数组按 key 展开成对象、还会读写到会话桶文件去。
+    if (isRootArrayStore(storeName)) {
+      const stored = await readJsonFile(rootArrayStoreFilePath(storeName), [])
+      const current = Array.isArray(stored) ? stored : []
+      const updated = updateFn(current)
+      await writeJsonAtomic(rootArrayStoreFilePath(storeName), Array.isArray(updated) ? updated : [], true)
       return updated
     }
     const data = await readSessionStore(storeName)

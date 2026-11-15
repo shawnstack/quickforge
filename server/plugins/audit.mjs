@@ -3,9 +3,9 @@
 // Every dispatched UI action and every rejected one is appended to a bounded,
 // newest-first array store (`plugin-audit.json`) so the plugins page can answer
 // "what did this plugin actually do". This mirrors the hook engine's execution
-// log: a root-array store under storage/, written through the shared serialized
-// queue, trimmed to a fixed size.
-import { readStore, writeStore } from '../storage.mjs'
+// log: a root-array store under storage/, appended through the shared serialized
+// read-modify-write queue (`atomicUpdate`) and trimmed to a fixed size.
+import { atomicUpdate, readStore } from '../storage.mjs'
 import { logger } from '../utils/logger.mjs'
 
 export const PLUGIN_AUDIT_STORE = 'plugin-audit'
@@ -47,8 +47,12 @@ export async function recordPluginAudit(entry) {
     durationMs: Number.isFinite(entry.durationMs) ? Math.round(entry.durationMs) : null,
   }
   try {
-    const current = normalizeEntries(await readStore(PLUGIN_AUDIT_STORE))
-    await writeStore(PLUGIN_AUDIT_STORE, [record, ...current].slice(0, PLUGIN_AUDIT_LIMIT))
+    // 读与写必须落在同一条串行队列里（atomicUpdate）。拆成「先 readStore、再 writeStore」
+    // 时，两个 UI 动作并发到达会各自读到同一份旧表，后写的把先写的那条整行覆盖掉——
+    // 17:19 实测 5 条并发只剩 1 条，丢的正是「什么被点了」这件事的唯一凭据。
+    await atomicUpdate(PLUGIN_AUDIT_STORE, (current) => (
+      [record, ...normalizeEntries(current)].slice(0, PLUGIN_AUDIT_LIMIT)
+    ))
   } catch (error) {
     logger.warn('Failed to record plugin audit entry:', error)
   }

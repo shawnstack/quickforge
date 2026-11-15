@@ -99,4 +99,15 @@ it('keeps newest first and caps the log at 300 entries', { timeout: 60_000 }, as
 
     expect(await audit.listPluginAudit()).toEqual([])
   })
+
+  // UI 动作可以同时到达（双击、一次会话里多个插件按钮），而审计是事后唯一凭据：
+  // 并发 append 若各自「读整表→写整表」，后写的会把先写的整条覆盖掉。
+  it('keeps every entry when actions are audited concurrently', async () => {
+    const audit = await importAudit()
+    const actions = ['a', 'b', 'c', 'd', 'e']
+    await Promise.all(actions.map((action) => audit.recordPluginAudit({ plugin: 'demo', action })))
+
+    const entries = await audit.listPluginAudit({ limit: 10 })
+    expect(entries.map((entry) => entry.action).sort()).toEqual([...actions].sort())
+  })
 })

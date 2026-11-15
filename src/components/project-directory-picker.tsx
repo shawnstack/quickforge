@@ -45,6 +45,9 @@ export function ProjectDirectoryPicker({
 }: ProjectDirectoryPickerProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const newFolderInputRef = useRef<HTMLInputElement>(null)
+  // 目录导航的请求序号：弹窗关掉只是 return null（仍然挂载），重开再点别的目录时，
+  // 上一次的响应回来会把列表换回旧内容，这个序号把它挡掉。
+  const loadDirectoryRequestRef = useRef(0)
   const [roots, setRoots] = useState<FilesystemRoot[]>([])
   const [currentPath, setCurrentPath] = useState('')
   const [pathInput, setPathInput] = useState('')
@@ -59,19 +62,23 @@ export function ProjectDirectoryPicker({
 
   const loadDirectory = async (path: string) => {
     if (!path.trim()) return
+    loadDirectoryRequestRef.current += 1
+    const requestId = loadDirectoryRequestRef.current
     setLoading(true)
     setError('')
     try {
       const response = await fetch(`/api/filesystem/directories?path=${encodeURIComponent(path.trim())}`)
       const payload = await readJsonResponse<DirectoryPayload>(response)
+      if (requestId !== loadDirectoryRequestRef.current) return
       setCurrentPath(payload.path)
       setPathInput(payload.path)
       setParentPath(payload.parent)
       setDirectories(Array.isArray(payload.directories) ? payload.directories : [])
     } catch (loadError) {
+      if (requestId !== loadDirectoryRequestRef.current) return
       setError(loadError instanceof Error ? loadError.message : t('directoryLoadFailed'))
     } finally {
-      setLoading(false)
+      if (requestId === loadDirectoryRequestRef.current) setLoading(false)
     }
   }
 

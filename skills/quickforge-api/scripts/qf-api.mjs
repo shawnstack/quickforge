@@ -915,8 +915,14 @@ function summarizeBotListItem(bot) {
     busy: bot.busy ?? null,
     status: bot.status ?? null,
     heartbeatEnabled: heartbeat.enabled ?? null,
+    // alwaysWake / lastIdleReason 是「它为什么不醒」的两个判据：没有 alwaysWake 的 bot
+    // 本来就不会每跳真醒（走 inspectBotWork 判活），而 lastWakeAt 停住 + status 异常
+    // 恰好是「闲置」和「卡死」共有的表象——只给 lastError（多数时候是 null）分不开这两件事。
+    alwaysWake: heartbeat.alwaysWake ?? null,
+    intervalMinutes: heartbeat.intervalMinutes ?? null,
     nextRunAt: heartbeat.nextRunAt ?? null,
     lastWakeAt: heartbeat.lastWakeAt ?? null,
+    lastIdleReason: heartbeat.lastIdleReason ?? null,
     lastError: heartbeat.lastError ?? null,
   }
 }

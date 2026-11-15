@@ -164,7 +164,7 @@
 | `desktop-browser-bridge.ts` | 69 | 内嵌浏览器的窄桥：渲染进程只拿到 `isAvailable` / `getState` / `setBounds` / `setVisible` / `onStateChange`，既拿不到 `webContents` 也读不到网页内容；非桌面端返回 null |
 | `font-size-settings.ts` | 123 | 字号设置：界面 / 消息两套 px（范围 12–18、默认 13），含一次性强制 13px 迁移键 `font-size-settings-force-13px-v1` |
 | `global-memory-tool-output.ts` | 39 | `manage_global_memory` 的输出文案投影：`formatManageGlobalMemoryOutput` 把空内容 / 已保存映射成 i18n key，流式中不提前报结果 |
-| `mcp-helpers.ts` | 117 | MCP 服务器表单与线上数据互转：`emptyMcpDraft` / `serverToDraft` / `draftToJson` / `jsonToDraft`，以及 args（每行一条）与 env（`key=value`）在文本和数组 / 对象间的互转 |
+| `mcp-helpers.ts` | 133 | MCP 服务器表单与线上数据互转：`emptyMcpDraft` / `serverToDraft` / `draftToJson` / `jsonToDraft` / `jsonTextForTab`（切到 JSON 视图时决定要不要用 draft 重新生成，文本已被用户手改过就原样保留，免得把多服务器与未知键吃掉），以及 args（每行一条）与 env（`key=value`）在文本和数组 / 对象间的互转 |
 | `memory-settings.ts` | 25 | 记忆设置（`memory-settings` 键）：归一化写成 `enabled !== false`，缺字段按开启处理 |
 | `mobile-server.ts` | 183 | 移动端服务器连接：URL 列表与别名（`quickforge:mobile-server-url` / `quickforge:mobile-server-settings:v1`）、`quickforgeMobile` / `quickforgeAlias` 查询参数把别名从原生设置页（不同源、不共享 localStorage）带到远端页面 |
 | `model-aggregation.ts` | 28 | 模型分组聚合：`mergeModelGroups` 按 `id + provider + api + 归一化 baseUrl` 判同，合并各来源可用模型并做归一化 / 可用性过滤 |

@@ -115,3 +115,19 @@ export function jsonToDraft(text: string): McpServerFormData {
     env: isRecord(envSource) ? (envSource as Record<string, string>) : {},
   }
 }
+
+/**
+ * 切到 JSON 视图时该显示什么文本。
+ *
+ * 只有当前文本仍是我们上次从 draft 生成的那份副本时才重新生成。单服务器的 draft 装不下
+ * 多服务器配置与未知字段（`jsonToDraft` 只取 `mcpServers` 的第一条），拿它去覆盖用户手写
+ * 的原文就是静默丢数据——粘贴两台服务器、切一下标签页就剩一台。
+ */
+export function jsonTextForTab(
+  currentText: string,
+  lastGeneratedText: string,
+  draft: McpServerFormData,
+): string {
+  if (currentText !== lastGeneratedText) return currentText
+  return draftToJson(draft)
+}

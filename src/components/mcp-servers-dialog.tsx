@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, FileJson, Loader2, Plus, Server } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -12,6 +12,7 @@ import { InfoTip } from '@/components/ui/info-tip'
 import {
   emptyMcpDraft,
   draftToJson,
+  jsonTextForTab,
   jsonToDraft,
   serverToDraft,
   type McpServerFormData,
@@ -45,6 +46,8 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
   const [activeTab, setActiveTab] = useState<EditorTab>('form')
   const [jsonText, setJsonText] = useState('')
   const [jsonError, setJsonError] = useState('')
+  // 上一次由 draft 生成、写进 jsonText 的那份副本；两者不等说明用户在 JSON 视图里手改过。
+  const jsonBaselineRef = useRef('')
 
   const applyServers = useCallback((payload: McpServersPayload | null | undefined) => {
     setServers(payload?.servers ?? [])
@@ -78,16 +81,25 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
 
   const switchTab = (tab: EditorTab) => {
     if (tab === 'json') {
-      // Refresh jsonText from the current draft so both views share one data source.
-      setJsonText(draftToJson(draft))
+      // 只有文本仍是我们上次从 draft 生成的那份时才重新生成：单服务器的 draft 装不下多服务器
+      // 与未知键，无条件覆盖会把用户粘贴进来的原文整段吃掉。
+      const next = jsonTextForTab(jsonText, jsonBaselineRef.current, draft)
+      if (next !== jsonText) {
+        jsonBaselineRef.current = next
+        setJsonText(next)
+      }
       setJsonError('')
     }
     setActiveTab(tab)
   }
 
   const startAdd = () => {
+    const blank = emptyMcpDraft()
+    const nextJson = draftToJson(blank)
     setEditTarget(null)
-    setDraft(emptyMcpDraft())
+    setDraft(blank)
+    jsonBaselineRef.current = nextJson
+    setJsonText(nextJson)
     setActiveTab('form')
     setEditMode(true)
     setError('')
@@ -96,8 +108,10 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
   const startEdit = (server: McpServer) => {
     const data = serverToDraft(server)
     setEditTarget(server)
+    const nextJson = draftToJson(data)
     setDraft(data)
-    setJsonText(draftToJson(data))
+    jsonBaselineRef.current = nextJson
+    setJsonText(nextJson)
     setJsonError('')
     setActiveTab('form')
     setEditMode(true)
@@ -107,6 +121,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
   const exitEditMode = () => {
     setEditMode(false)
     setEditTarget(null)
+    jsonBaselineRef.current = ''
     setJsonText('')
     setJsonError('')
     setError('')

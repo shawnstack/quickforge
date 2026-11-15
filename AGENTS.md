@@ -56,6 +56,7 @@
 ## Definition of Done
 
 - 相关测试及与改动匹配的 lint/build/针对性检查通过；发布相关改动必须完整运行 `npm run test`、`npm run lint`、`npm run build`。
+- **「中间态不丢」要写成断言，不能只测「能存进去」**：凡是有容量上限（`slice(0, N)` 截断）、批量/整表覆盖写、或同一份状态在跨标签/跨视图各存一份的地方，测试至少要覆盖一条「中间态还没成形 / 两方并发到达时，谁都没被吞掉」。判据一句话：把实现换回「先读整表再写整表」「用结构化值重建受控输入」「按上限静默截断」这三种旧写法时，必须有测试变红——没红过的测试挡不住这类缺陷。
 - 文档/wiki 已按需同步；未触碰生成产物（`dist/`、`package-dist/`、`package-offline/`）。
 - `feature_list.json`、`progress.md`、`session-handoff.md` 已更新。
 

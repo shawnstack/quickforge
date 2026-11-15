@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+
 import { t } from '@/lib/i18n'
 import type { McpTransport } from '@/lib/types/mcp'
 import {
@@ -7,6 +9,52 @@ import {
   textToEnv,
   type McpServerFormData,
 } from '@/lib/mcp-helpers'
+
+function sameList(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index])
+}
+
+function sameRecord(a: Record<string, string>, b: Record<string, string>): boolean {
+  const keys = Object.keys(a)
+  if (keys.length !== Object.keys(b).length) return false
+  return keys.every((key) => a[key] === b[key])
+}
+
+type ParsedTextDraftOptions<T> = {
+  parsed: T
+  raw: string
+  equals: (a: T, b: T) => boolean
+  parse: (text: string) => T
+  commit: (next: T) => void
+}
+
+/**
+ * 文本编辑器的草稿轨：显示用户原文，提交解析后的值。
+ *
+ * 受控 textarea 直接回写解析结果会把中间态当场规范化——空行被过滤掉、env 里还没敲 `=` 的
+ * 那一行整行消失，用户看到的是「按键被吞了」。这里把「显示」和「数据」分开：显示原文，
+ * 数据照旧即时提交（否则不 blur 就点保存会丢），只有外部值不是我们刚派发的那一份时
+ * （比如切到另一台服务器编辑）才用外部值重置草稿。
+ */
+function useParsedTextDraft<T>({ parsed, raw, equals, parse, commit }: ParsedTextDraftOptions<T>) {
+  const [draft, setDraft] = useState(raw)
+  const dispatchedRef = useRef(parsed)
+
+  useEffect(() => {
+    if (equals(dispatchedRef.current, parsed)) return
+    dispatchedRef.current = parsed
+    setDraft(raw)
+  }, [parsed, raw, equals])
+
+  const onInput = (text: string) => {
+    const next = parse(text)
+    dispatchedRef.current = next
+    setDraft(text)
+    commit(next)
+  }
+
+  return { value: draft, onInput }
+}
 
 type McpServerFormProps = {
   value: McpServerFormData
@@ -18,6 +66,20 @@ type McpServerFormProps = {
 export function McpServerForm({ value, onChange, isEdit, disabled }: McpServerFormProps) {
   const showStdio = value.transport === 'stdio'
   const patch = (partial: Partial<McpServerFormData>) => onChange({ ...value, ...partial })
+  const argsDraft = useParsedTextDraft({
+    parsed: value.args,
+    raw: argsToText(value.args),
+    equals: sameList,
+    parse: textToArgs,
+    commit: (next) => patch({ args: next }),
+  })
+  const envDraft = useParsedTextDraft({
+    parsed: value.env,
+    raw: envToText(value.env),
+    equals: sameRecord,
+    parse: textToEnv,
+    commit: (next) => patch({ env: next }),
+  })
 
   return (
     <div className="quickforge-settings-form-grid">
@@ -60,8 +122,8 @@ export function McpServerForm({ value, onChange, isEdit, disabled }: McpServerFo
             <span className="quickforge-settings-form-label">{t('mcpArgs')}</span>
             <textarea
               className="quickforge-settings-textarea quickforge-settings-mono"
-              value={argsToText(value.args)}
-              onChange={(event) => patch({ args: textToArgs(event.target.value) })}
+              value={argsDraft.value}
+              onChange={(event) => argsDraft.onInput(event.target.value)}
               spellCheck={false}
               disabled={disabled}
             />
@@ -79,8 +141,8 @@ export function McpServerForm({ value, onChange, isEdit, disabled }: McpServerFo
             <span className="quickforge-settings-form-label">{t('mcpEnv')}</span>
             <textarea
               className="quickforge-settings-textarea quickforge-settings-mono"
-              value={envToText(value.env)}
-              onChange={(event) => patch({ env: textToEnv(event.target.value) })}
+              value={envDraft.value}
+              onChange={(event) => envDraft.onInput(event.target.value)}
               spellCheck={false}
               disabled={disabled}
             />
@@ -102,8 +164,8 @@ export function McpServerForm({ value, onChange, isEdit, disabled }: McpServerFo
             <span className="quickforge-settings-form-label">{t('mcpHeaders')}</span>
             <textarea
               className="quickforge-settings-textarea quickforge-settings-mono"
-              value={envToText(value.env)}
-              onChange={(event) => patch({ env: textToEnv(event.target.value) })}
+              value={envDraft.value}
+              onChange={(event) => envDraft.onInput(event.target.value)}
               spellCheck={false}
               disabled={disabled}
             />

@@ -595,7 +595,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 `mcp-servers-dialog.tsx` 的展示层拆成两个纯展示组件：都只吃 props、不发请求，接口调用与状态仍留在面板里。
 
 - `mcp/mcp-server-card.tsx` (105 行) # 单个 MCP 服务器行（`McpServerCard`）：状态徽标（connected / error / 其余为 muted）、工具 chips 最多露 12 个（`VISIBLE_TOOLS`）其余折叠成计数、启停 / 编辑 / 删除 / 重连四个入口（重连只在已启用且未连接时可点）
-- `mcp/mcp-server-form.tsx` (115 行) # 表单主体（`McpServerForm`）：名称、`transport` 选择，stdio 时才展开 command / args / cwd / env；args（每行一条）与 env（`key=value`）的文本互转复用 `src/lib/mcp-helpers.ts`
+- `mcp/mcp-server-form.tsx` (177 行) # 表单主体（`McpServerForm`）：名称、`transport` 选择，stdio 时才展开 command / args / cwd / env；args（每行一条）与 env（`key=value`）的文本互转复用 `src/lib/mcp-helpers.ts`
 
 ### startup-splash-icon.tsx (23 行)
 

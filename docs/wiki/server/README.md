@@ -83,7 +83,7 @@ server/
 ├── storage.mjs               # 文件存储层 (1359 行)
 ├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
-├── skills.mjs                # Agent Skills 管理和加载 (538 行)
+├── skills.mjs                # Agent Skills 管理和加载 (546 行)
 ├── hooks/                    # Hooks 事件钩子（设置规范化 / 事件引擎 / 命令与 Webhook 执行器）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
@@ -450,7 +450,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 - 内置 Agent 的覆盖项（`config/agent-profile-overrides.json`）在**同一个写队列里一次 read-modify-write** 落盘：文件一时读不出来（半截 JSON、被占用、权限不足）就**直接报错**，不再被当成空表整表覆盖 —— 否则「改一个 agent 的思考档」会把别的 agent 的 `model` / `thinkingLevel` 覆盖一起清掉，接口还返回 200。
 
-### skills.mjs (538 行)
+### skills.mjs (546 行)
 
 **用途**: Agent Skills 的发现、加载和管理。
 
@@ -476,6 +476,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表
 - `loadSelectedGlobalSkills()` / `loadSelectedProjectSkills()` — 按选择加载
 - `mergeSkills()` — 合并全局和项目 skills
+- `filterKnownGlobalSkillNames()` / `filterKnownProjectSkillNames()` — 保存勾选时的白名单过滤，第三个参数是「当前已启用名单」：只挡从没启用过的野名字，**已启用、此刻却解析不出来**的名字要保留。SKILL.md 正被写到一半、文件被占用、插件临时停用，loader 都把它当成不存在；若照样整表覆盖，用户保存任意一次勾选（甚至只是清空）就会把它永久关掉，故障恢复也回不来
 - `readSkillResource()` — 读取技能资源文件
 - `summarizeSkills()` — 导出的摘要函数（剥离 instructions/rootDir/location），`/api/skills?available=true` 合并视图与 `loadSkillToolContext` 共用同一口径
 - Skill 验证：标准 Skill 必须以目录内固定入口 `SKILL.md` 提供非空正文；其 frontmatter `name` 是唯一权威 ID，会按 `trim + lowercase` 归一化并继续执行 slug/长度校验，Skill 目录名可与该 ID 不同。同名发现与覆盖均按 canonical `name` 判断，资源仍从实际 Skill 目录读取；`description` 仍需非空且不超过 1024 字符。配置中的 `SDD` 和工具调用 `activate_skill({ name: 'SDD' })` 会匹配 frontmatter `name: SDD` 归一化后的内部 `sdd`；面向用户的名称应使用 `metadata.displayName`（兼容 `metadata.title`），而不是依赖目录名或改变 canonical ID。旧 `skill.json` fallback 规则保持不变。

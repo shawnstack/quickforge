@@ -18,7 +18,7 @@
 | `project.mjs` | 242 | 项目管理 |
 | `filesystem.mjs` | 172 | 文件系统浏览与目录创建 |
 | `tools.mjs` | 117 | 工具定义和执行 |
-| `skills.mjs` | 213 | Skills 管理 |
+| `skills.mjs` | 219 | Skills 管理 |
 | `agent-profiles.mjs` | 234 | Agent Profile 管理 API，支持 AI 填充基础定义 |
 | `models.mjs` | 140 | 统一模型目录、模型连接测试与提供商级模型发现 |
 | `hooks.mjs` | 52 | Hooks 手动测试与最近执行记录查询 |
@@ -157,7 +157,7 @@ roots 为 Home/Desktop/Documents/Current project/盘符（Windows 枚举 A-Z 存
 - `POST /api/projects/:projectId/tools/:name` — 在项目上下文中执行工具
 - 按 Agent 权限模式执行审批检查
 
-## skills.mjs (213 行)
+## skills.mjs (219 行)
 
 Skills 管理路由。
 
@@ -169,6 +169,8 @@ Skills 管理路由。
 - `PUT /api/skills/global` — 更新全局已选 Skills
 - `PUT /api/skills/project` — 更新指定项目的已选 Skills
 - 支持项目级技能发现；内置 `skill-creator` 首次运行时默认加入全局已选项
+
+两个 `PUT` 都拿「当前加载得到的技能」给 `selectedSkills` 做白名单，但会把**原本已启用、此刻解析不出来**的名字留住：SKILL.md 正被编辑器写到一半、文件被占用、插件临时停用，loader 都把这个技能当成不存在，若照样整表覆盖，用户保存任意一次勾选（甚至只是清空）就会把它永久关掉，故障恢复也回不来。保留项等技能重新加载出来后自然回到勾选列表，用户那时再取消即可；从没启用过的野名字仍然被丢掉。
 
 ## agent-profiles.mjs (234 行)
 

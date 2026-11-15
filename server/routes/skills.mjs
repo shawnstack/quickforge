@@ -155,7 +155,9 @@ export async function handleSkillsApi(req, res, url) {
 
   if (req.method === 'PUT' && url.pathname === '/api/skills/global') {
     const body = await readJsonBody(req)
-    const selectedSkills = await filterKnownGlobalSkillNames(body?.selectedSkills)
+    // 传入当前已启用的名单：此刻加载不到的技能（写到一半、被占用、插件停用）要被保住，
+    // 否则保存任何一个勾选都会把它从配置里永久抹掉。
+    const selectedSkills = await filterKnownGlobalSkillNames(body?.selectedSkills, selectedGlobalSkills(config))
     const updated = await atomicProjectConfigUpdate((cfg) => {
       cfg.globalSkills = selectedSkills
       return cfg
@@ -185,7 +187,11 @@ export async function handleSkillsApi(req, res, url) {
       throw error
     }
 
-    const selectedSkills = await filterKnownProjectSkillNames(body?.selectedSkills, workspaceRoot)
+    const selectedSkills = await filterKnownProjectSkillNames(
+      body?.selectedSkills,
+      workspaceRoot,
+      selectedSkillsForProject(getProject(config, targetProjectId)),
+    )
     const updated = await atomicProjectConfigUpdate((cfg) => {
       const project = cfg.projects.find((item) => item.id === targetProjectId)
       if (!project) {

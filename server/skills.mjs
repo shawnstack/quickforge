@@ -295,12 +295,20 @@ export function summarizeSkills(skills) {
   return skills.map(({ instructions: _instructions, rootDir: _rootDir, location: _location, ...summary }) => summary)
 }
 
-function filterKnownNames(skillNames, skills) {
-  const selected = normalizeSkillNames(skillNames)
-  if (selected.length === 0) return []
-
+// 白名单过滤只该挡住客户端塞进来的野名字。已经启用、此刻却解析不出来的名字必须留住：
+// loader 遇到「SKILL.md 写到一半、文件被占用、插件临时停用」会把这个技能当成不存在，
+// 若此时仍然整表覆盖保存，用户保存任意一次勾选就会把它永久关掉，故障恢复也回不来。
+// 保留项等技能重新加载出来后自然回到勾选列表，用户那时再取消即可，不需要额外清理。
+function filterKnownNames(skillNames, skills, retainedNames) {
   const known = new Set(skills.map((skill) => skill.name))
-  return selected.filter((name) => known.has(name))
+  const kept = normalizeSkillNames(skillNames).filter((name) => known.has(name))
+
+  for (const name of normalizeSkillNames(retainedNames)) {
+    if (known.has(name) || kept.includes(name)) continue
+    kept.push(name)
+  }
+
+  return kept
 }
 
 function selectSkills(skillNames, skills) {
@@ -416,12 +424,12 @@ export async function findProjectSkill(name, workspaceRoot) {
   return skills.find((skill) => skill.name === skillName) || null
 }
 
-export async function filterKnownGlobalSkillNames(skillNames) {
-  return filterKnownNames(skillNames, await loadGlobalSkills())
+export async function filterKnownGlobalSkillNames(skillNames, retainedNames) {
+  return filterKnownNames(skillNames, await loadGlobalSkills(), retainedNames)
 }
 
-export async function filterKnownProjectSkillNames(skillNames, workspaceRoot) {
-  return filterKnownNames(skillNames, await loadProjectSkills(workspaceRoot))
+export async function filterKnownProjectSkillNames(skillNames, workspaceRoot, retainedNames) {
+  return filterKnownNames(skillNames, await loadProjectSkills(workspaceRoot), retainedNames)
 }
 
 export async function loadSelectedGlobalSkills(skillNames) {

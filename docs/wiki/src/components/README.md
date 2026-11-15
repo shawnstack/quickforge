@@ -195,9 +195,9 @@ components/
 │   ├── TerminalPane.tsx             # xterm.js 终端实例面板
 │   ├── terminal-api.ts              # 终端 REST API 客户端
 │   └── terminal-types.ts            # 终端会话/能力/Profile 类型
-├── workbench/                       # 塔台工作台（`Workbench.tsx` + `workbench.css`），概览见下文「工作台」小节
-│   ├── Workbench.tsx               # 塔台工作台主体：出港队列 / 在跑·进港·舰队 / NOTAM 通告 / TODAY 统计带
-│   └── workbench.css               # 塔台工作台样式（`.qf-wb__*`）：看板与时钟恒暗、房间随主题
+├── workbench/                       # 工作台（`Workbench.tsx` + `workbench.css`），概览见下文「工作台」小节
+│   ├── Workbench.tsx               # 工作台主体：待运行队列 / 在跑·最近完成·全部 bot / 异常提醒 / TODAY 统计带
+│   └── workbench.css               # 工作台样式（`.qf-wb__*`）：看板与时钟恒暗、房间随主题
 ├── ui/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框（命令式 showConfirm/showAlert；模块级互斥防叠加、focus trap、关闭后焦点恢复）
@@ -551,10 +551,10 @@ Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` �
 
 ### 工作台（`workbench/`）
 
-塔台式常驻看板（设计稿 `docs/design/workbench-redesign/workbench-v8-proposal.html`）：把 bot 心跳与定时任务的 `nextRunAt` 合并成一条「出港队列」，右栏在跑 / 进港 / 舰队，顶部 NOTAM 通告。数据全部取自现成端点，不改服务端；「进港」与「到点未醒」只作会话内观察，不外推成历史结论（20s 轮询 + 1s 走秒，错过时刻留 90s 宽限，进港最多留 8 条）。视觉上房间吃全局主题 token、看板与时钟是「仪器」双主题恒暗。手动打开与屏保自动进入走同一条 `setWorkbenchOpen`。
+常驻看板（设计稿 `docs/design/workbench-redesign/workbench-v8-proposal.html`，稿子仍是旧的塔台叙事，实现文案已换成调度语义、不用港口/机场隐喻）：把 bot 心跳与定时任务的 `nextRunAt` 合并成一条「待运行队列」，右栏在跑 / 最近完成 / 全部 bot，顶部异常提醒。数据全部取自现成端点，不改服务端；「最近完成」与「到点未醒」只作会话内观察，不外推成历史结论（20s 轮询 + 1s 走秒，错过时刻留 90s 宽限，最近完成最多留 8 条）。视觉上房间吃全局主题 token、看板与时钟是「仪器」双主题恒暗。手动打开与屏保自动进入走同一条 `setWorkbenchOpen`。
 
-- `Workbench.tsx` (927 行) # 塔台工作台主体：出港队列、在跑·进港·舰队三区、NOTAM 通告与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`
-- `workbench.css` (527 行) # 塔台工作台样式：`.qf-wb__*` 两套 token（房间 / 仪器）、跑道灯带、仪表盘翻页时钟、今日统计带
+- `Workbench.tsx` (927 行) # 工作台主体：待运行队列、在跑·最近完成·全部 bot 三区、异常提醒与 TODAY 统计带；bot 行复用 `bots-data`（`fetchBots` / `wakeBot` / `feedBot` / `patchBot` / `splitHeartbeatInterval`）与 `BotMascot`，任务行走 `scheduled-tasks-data`
+- `workbench.css` (527 行) # 工作台样式：`.qf-wb__*` 两套 token（房间 / 仪器）、跑道灯带、仪表盘翻页时钟、今日统计带
 - `src/lib/workbench-today-stats.ts` (99 行) # TODAY 统计带数据层：今日会话数、token、任务运行数与成功率，全部来自现成端点
 - `src/lib/workbench-screensaver-settings.ts` (17 行) # 屏保设置与纯判定：30 分钟 idle 阈值、存储键 `workbenchScreensaver`、`screensaverDue(enabled, workbenchOpen)`
 - `src/hooks/useWorkbenchScreensaver.ts` (74 行) # 屏保引擎：页面 30 分钟无操作自动进入工作台，屏保期间任意操作立即退出；手动打开的工作台不受活动影响

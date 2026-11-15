@@ -1891,5 +1891,22 @@
     "verification": "npx tsc -b、定向 eslint、vitest tests/frontend/workbench.test.ts 11/11、npm run build、npm run check:wiki(bad=0) 全绿；隔离实例（临时 QUICKFORGE_DATA_DIR + 假 provider 指向本机 discard 端口）Electron offscreen 实测：出港合并 5 班、倒计时走动、筛选/搜索、bot/任务抽屉、NOTAM 错误态渲染/忽略/清空自动解除(ok)、催醒/投喂/开关 toast、进港会话累积、Esc 两级关闭、重开稳定、深色房间随 token 看板恒暗、窄屏无溢出/班次名不竖排/抽屉满宽；零 console/page error。",
     "updatedAt": "2026-11-13",
     "boundaries": "未 commit。进港/NOTAM 会话累积刷新即清；跨刷新保留需服务端心跳环形记录（另排）。服务端 PATCH heartbeat.lastError=null 不清空为既有语义（normalize 回退旧值），未改；自动解除依赖成功唤醒清空。wiki 无 workbench 条目且公共入口签名未变，故未改 wiki。"
+  },
+  {
+    "id": "workbench-copy-drop-port-metaphor",
+    "title": "工作台文案去掉港口/机场隐喻（出港/进港/舰队 → 待运行/最近完成/全部 bot）",
+    "status": "done",
+    "summary": "用户不要工作台的「港口」概念。选定范围为「全文案去隐喻、视觉不动」，主队列命名「待运行」。i18n en/zh 各改 8 个渲染键（出港→待运行/Upcoming、进港→最近完成/Completed、舰队→全部 bot/All bots、班次→名称/Name、搜索与空态同步、延误→异常/Error），另中性化 2 个未渲染旧键；Workbench.tsx 三处硬编码英文小标签 TOWER→OVERVIEW、DEPARTURES→SCHEDULE、toast TOWER→WORKBENCH；CSS 类名与内部标识（Flight/Arrival/notam/runway）保留，只改注释叙述；wiki 工作台小节与目录树同步。用户复检报「还有出港 进港 舰队」，核实源码无残词，真因是其 5176 实例服务旧 dist bundle，已 npm run build 重建。",
+    "files": [
+      "src/lib/i18n.ts（en/zh 工作台文案）",
+      "src/components/workbench/Workbench.tsx（3 处英文标签 + 顶部注释）",
+      "src/components/workbench/workbench.css（5 处分节注释）",
+      "src/stores/ui-store.ts（workbenchOpen 注释）",
+      "tests/frontend/workbench.test.ts（用例名 + SCHEDULE 断言 + 新增去隐喻契约用例）",
+      "docs/wiki/src/components/README.md（目录树 + 工作台小节）"
+    ],
+    "verification": "定向 6 文件 57/57（含 i18n 语言快照）；npx tsc -b 净；npx eslint 改动文件净；npm run check:wiki 384/384 bad=0；npm run build 成功且 dist/assets/i18n-*.js 只含新词。隔离 dev 实例 Electron offscreen 读到真实渲染文本与布局指标：appbar/标题/三个面板头 scrollWidth == clientWidth，无溢出。",
+    "updatedAt": "2026-11-14",
+    "boundaries": "只换文案，不动视觉（翻牌时钟、跑道灯、PlaneLanding 图标保留）、不动 CSS 类名与内部标识、不改服务端。设计稿 docs/design/workbench-redesign/* 与 docs/archive/* 仍是旧叙事，属历史文档未改。心跳/唤醒/催醒/投喂属 bot 生命隐喻，不在范围内。dist 由 npm run build 重建（gitignored，不进提交），用户需刷新或重启 5176 实例才看得到。未 commit。"
   }
 ]

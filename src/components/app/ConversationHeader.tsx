@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PluginSlot } from '@/components/plugins/PluginSlot'
-import { WorkbenchPortal } from '@/components/workbench/Workbench'
+import { WorkbenchPortal } from '@/components/workbench/WorkbenchAnalog'
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { SessionTitleMarquee } from '@/components/sidebar/chat-sidebar/SessionTitleMarquee'
 import { cn } from '@/lib/utils'

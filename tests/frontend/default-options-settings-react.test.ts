@@ -10,7 +10,7 @@ const notifications = vi.hoisted(() => ({
   show: vi.fn(async () => true),
 }))
 const settings = vi.hoisted(() => ({ saveToolDisplay: vi.fn(), saveAutoCompact: vi.fn() }))
-vi.mock('@/stores/ui-store', () => ({ useUIStore: (selector: (s: unknown) => unknown) => selector({ workbenchScreensaver: false, setWorkbenchScreensaver: () => {} }) }))
+vi.mock('@/stores/ui-store', () => ({ useUIStore: (selector: (s: unknown) => unknown) => selector({ workbenchScreensaver: { enabled: false }, setWorkbenchScreensaver: () => {}, enterWorkbenchScreensaver: () => {} }) }))
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof import('react')>(),
   useEffect: (effect: () => void) => { harness.effects.push(effect) },
@@ -37,7 +37,7 @@ vi.mock('@/lib/auto-compact-settings', () => ({
 }))
 vi.mock('@/lib/goal-settings', () => ({ loadGoalSettings: async () => ({ maxIterations: 20 }), saveGoalSettings: vi.fn() }))
 vi.mock('@/lib/auto-archive-settings', () => ({ loadAutoArchiveSettings: async () => ({ enabled: false }), saveAutoArchiveSettings: vi.fn() }))
-vi.mock('@/lib/i18n', () => ({ t: (key: string) => key, getAppLanguage: () => 'zh', applyAppLanguage: vi.fn() }))
+vi.mock('@/lib/i18n', () => ({ t: (key: string) => key, getAppLanguage: () => 'zh', getDateLocale: () => 'zh-CN', applyAppLanguage: vi.fn() }))
 vi.mock('@/lib/system-notifications', async (importOriginal) => ({
   ...await importOriginal<typeof import('../../src/lib/system-notifications')>(),
   getSystemNotificationPermission: notifications.permission,

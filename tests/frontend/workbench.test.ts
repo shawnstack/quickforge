@@ -15,22 +15,22 @@ const i18nSource = readFileSync(new URL('../../src/lib/i18n.ts', import.meta.url
 const headerSource = readFileSync(new URL('../../src/components/app/ConversationHeader.tsx', import.meta.url), 'utf8')
 const headerNavSource = readFileSync(new URL('../../src/components/sidebar/chat-sidebar/SidebarHeaderNav.tsx', import.meta.url), 'utf8')
 
-describe('工作台（v8 塔台出港屏）', () => {
-  it('出港队列合并 bot 心跳与定时任务的真实 nextRunAt，按时间排序', () => {
+describe('工作台（v8 待运行屏）', () => {
+  it('待运行队列合并 bot 心跳与定时任务的真实 nextRunAt，按时间排序', () => {
     expect(componentSource).toContain('fetchBots()')
     expect(componentSource).toContain('fetchScheduledTasks()')
     expect(componentSource).toContain('bot.heartbeat?.enabled && bot.heartbeat.nextRunAt')
     expect(componentSource).toContain('return list.sort((a, b) => a.at - b.at)')
   })
 
-  it('诚实边界：暂停/完成的任务不出港；进港与到点未醒只来自会话内观察', () => {
+  it('诚实边界：暂停/完成的任务不进待运行；最近完成与到点未醒只来自会话内观察', () => {
     expect(componentSource).toContain("task.status === 'paused' || task.status === 'completed'")
     expect(componentSource).toContain('const MISSED_GRACE_MS = 90_000')
     expect(componentSource).toContain('if (prev?.busy && !busy) {')
     expect(componentSource).toContain('const ARRIVAL_CAP = 8')
   })
 
-  it('状态章在跑优先于历史错误（催醒后立刻有反馈），舰队复用 botStatusSummary', () => {
+  it('状态章在跑优先于历史错误（催醒后立刻有反馈），全部 bot 复用 botStatusSummary', () => {
     expect(componentSource).toContain('if (isBusy(bot)) return { text: t(\'wbRunning\'), tone: \'ok\' }')
     expect(componentSource).toContain('const summary = botStatusSummary(bot)')
     expect(componentSource).toContain('botStatusSummary(bot, now)')
@@ -49,7 +49,7 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(componentSource).toContain('/api/agents/${encodeURIComponent(sessionId)}/status')
   })
 
-  it('NOTAM：error 来自 lastError 快照，warn 来自到点未醒；成功自动解除、可忽略', () => {
+  it('异常提醒：error 来自 lastError 快照，warn 来自到点未醒；成功自动解除、可忽略', () => {
     expect(componentSource).toContain('const err = bot.heartbeat?.lastError')
     expect(componentSource).toContain("list.push({ key: item.key, kind: 'warn'")
     expect(componentSource).toContain('if (isBusy(bot) || (Number.isFinite(woke) && woke >= item.due - 60_000)) continue')
@@ -76,7 +76,7 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(cssSource).toContain('.qf-wb__notam-text { order: 5; flex: 1 1 100%; white-space: normal; overflow: visible; }')
   })
 
-  it('CSS：窄屏班次名可换行不被 NEXT 挤成竖排，列宽重分配', () => {
+  it('CSS：窄屏名称可换行不被 NEXT 挤成竖排，列宽重分配', () => {
     expect(cssSource).toContain('flex-wrap: wrap; font-size: 13px;')
     expect(cssSource).toContain('grid-template-columns: 62px 78px minmax(0, 1fr) 58px; gap: 6px;')
   })
@@ -96,7 +96,7 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(headerNavSource).toContain("aria-label={t('workbenchTitle')}")
   })
 
-  it('普通会话在跑进「在跑」与进港：轮询 /api/agents，排除 bot/任务会话', () => {
+  it('普通会话在跑进「在跑」与最近完成：轮询 /api/agents，排除 bot/任务会话', () => {
     expect(componentSource).toContain("fetch('/api/agents')")
     expect(componentSource).toContain("s.status === 'running' && !botSessionIds.has(s.sessionId) && !taskSessionIds.has(s.sessionId)")
     expect(componentSource).toContain("kind: 'session'")
@@ -104,7 +104,7 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(componentSource).toContain('list.filter(isBusy).length + runningSessions.length')
   })
 
-  it('评审精修：刷新/搜索清除/Esc 优先级/焦点管理/可点进港/骨架/重试/互斥统计', () => {
+  it('评审精修：刷新/搜索清除/Esc 优先级/焦点管理/可点最近完成/骨架/重试/互斥统计', () => {
     expect(componentSource).toContain('const requestRefresh = useCallback(')
     expect(componentSource).toContain('wbClearSearch')
     expect(componentSource).toContain("if (query) { setQuery(''); return }")
@@ -121,10 +121,22 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(componentSource).not.toContain('wbLegendHonest')
     expect(componentSource).not.toContain('wbNotamsClear')
     expect(componentSource).not.toContain('wbDeparturesSub')
-    expect(componentSource).toContain('<span>DEPARTURES</span>')
+    expect(componentSource).toContain('<span>SCHEDULE</span>')
     expect(componentSource).toContain("title={t('wbAlwaysWakeHint')}")
     expect(cssSource).not.toContain('.qf-wb__legend')
     expect(cssSource).not.toContain('.qf-wb__notam-clear')
+  })
+
+  it('文案不用港口/机场隐喻：待运行 / 最近完成 / 全部 bot，旧叙事不留残词', () => {
+    expect(componentSource).toContain('<span>OVERVIEW</span>')
+    expect(componentSource).not.toContain('TOWER')
+    expect(componentSource).not.toContain('DEPARTURES')
+    for (const word of ['出港', '进港', '舰队', '塔台']) {
+      expect(i18nSource).not.toContain(word)
+    }
+    expect(i18nSource).toContain("wbDepartures: '待运行'")
+    expect(i18nSource).toContain("wbArrivals: '最近完成'")
+    expect(i18nSource).toContain("wbFleet: '全部 bot'")
   })
 
   it('单击开居中弹窗而非侧抽屉：Esc 关闭、焦点管理保留、主色非黄', () => {
@@ -163,7 +175,7 @@ describe('工作台（v8 塔台出港屏）', () => {
     expect(cssSource).toContain('.qf-wb__flap { width: 20px; height: 30px; }')
   })
 
-  it('TODAY 带收进出港屏内部：浅色下只有一块暗色仪器岛，无黑-白-黑夹层', () => {
+  it('TODAY 带收进待运行屏内部：浅色下只有一块暗色仪器岛，无黑-白-黑夹层', () => {
     const boardAt = componentSource.indexOf('className="qf-wb__board"')
     const todayAt = componentSource.indexOf('className="qf-wb__today"')
     const headAt = componentSource.indexOf('className="qf-wb__board-head"')

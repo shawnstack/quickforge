@@ -28,10 +28,9 @@ import {
 } from '@/lib/system-notifications'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { InfoTip } from '@/components/ui/info-tip'
-import { useUIStore } from '@/stores/ui-store'
-import { saveWorkbenchScreensaver } from '@/lib/workbench-screensaver-settings'
 import { SettingsSelect, SettingsSwitch } from './shared'
 import { SettingsNumberInput } from './SettingsNumberInput'
+import { WorkbenchScreensaverSettings } from './WorkbenchScreensaverSettings'
 
 type TerminalShellProfile = {
   id: string
@@ -79,8 +78,6 @@ function DeleteIcon() {
 }
 
 export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {}) {
-  const workbenchScreensaver = useUIStore((s) => s.workbenchScreensaver)
-  const setWorkbenchScreensaver = useUIStore((s) => s.setWorkbenchScreensaver)
   const [toolDisplayMode, setToolDisplayMode] = useState<ToolDisplayMode>('compact')
   const [showContextUsage, setShowContextUsage] = useState(false)
   const [autoCompactEnabled, setAutoCompactEnabled] = useState(true)
@@ -581,27 +578,11 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
         </section>
       </div>
 
+      <WorkbenchScreensaverSettings active={active} onError={setError} />
+
       <div className="quickforge-settings-group">
         <h3 className="quickforge-settings-group-title">{t('settingsSectionInteraction')}</h3>
         <section className="quickforge-settings-section" aria-label={t('settingsSectionInteraction')}>
-          <div className="quickforge-settings-row">
-            <div className="quickforge-settings-row-main">
-              <div className="quickforge-settings-row-title">
-                {t('workbenchScreensaverTitle')}
-                <InfoTip label={t('workbenchScreensaverHint')} />
-              </div>
-            </div>
-            <div className="quickforge-settings-row-control">
-              <SettingsSwitch
-                checked={workbenchScreensaver}
-                label={t('workbenchScreensaverTitle')}
-                onChange={(next) => {
-                  setWorkbenchScreensaver(next)
-                  void saveWorkbenchScreensaver(next).catch(() => setError(t('requestFailed')))
-                }}
-              />
-            </div>
-          </div>
         <div className="quickforge-settings-row">
           <div className="quickforge-settings-row-main">
             <div className="quickforge-settings-row-title">

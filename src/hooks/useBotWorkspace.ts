@@ -27,6 +27,9 @@ type BotAgentLike = {
   }
 } | null | undefined
 
+/** 侧栏「X 分钟前」取 /api/bots 的 lastActivityAt；停留 bot 模式时定时重拉，聊天/心跳才不会停在旧值。 */
+const BOTS_POLL_MS = 30_000
+
 /** bot 模式的工作区状态（原 MainApp 内联的 bot 块）。
  *
  *  一个 bot = 一条持久会话 + 一个独占目录。侧栏换成 bot 列表，主区仍然
@@ -74,7 +77,11 @@ export function useBotWorkspace(context: {
     // 放到下一个任务里跑：effect 体内同步 setState 会触发级联渲染，
     // 而这个加载本身不依赖任何 DOM 测量结果，延后一帧没有副作用。
     const timer = setTimeout(() => { void refreshBots() }, 0)
-    return () => clearTimeout(timer)
+    const poll = window.setInterval(() => { void refreshBots() }, BOTS_POLL_MS)
+    return () => {
+      clearTimeout(timer)
+      window.clearInterval(poll)
+    }
   }, [botMode, refreshBots])
 
   const openBotSession = useCallback(async (bot: BotSummary) => {

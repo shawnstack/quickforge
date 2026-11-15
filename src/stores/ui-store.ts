@@ -4,11 +4,14 @@ import type { ProjectInfo, SkillsScope } from '@/lib/types'
 import type { SettingsInitialTab } from '@/lib/settings-tab-definitions'
 import type { WorkspaceInspectorOpenRequest } from '@/components/workspace/workspace-types'
 import type { ArtifactKind } from '@/components/workspace/artifact-preview-utils'
+import { DEFAULT_WORKBENCH_SCREENSAVER, type WorkbenchScreensaverSettings } from '@/lib/workbench-screensaver-settings'
 
 export type ConversationViewScope = { scopeId: string; view: 'chat' | 'trace' }
 export type SkillsDialogRequest = { scope: SkillsScope; project?: ProjectInfo }
 /** 工具卡片预览请求的 kind（与 artifactPreviewMode 的入参一致）。 */
 export type ArtifactPreviewKind = ArtifactKind
+/** 工作台当前呈现形态：off 是看板，idle 是无操作触发的屏保，preview 是设置页发起的预览。 */
+export type WorkbenchScreensaverMode = 'off' | 'idle' | 'preview'
 
 interface UIStore {
   sidebarOpen: boolean
@@ -21,10 +24,12 @@ interface UIStore {
   skillsDialog: SkillsDialogRequest | undefined
   shareDialogOpen: boolean
   conversationMenuOpen: boolean
-  /** 工作台（塔台）开合：入口为侧栏左上角 QuickForge logo，顶栏不再放单独按钮。 */
+  /** 工作台开合：入口为侧栏左上角 QuickForge logo，顶栏不再放单独按钮。 */
   workbenchOpen: boolean
-  /** 工作台屏保开关（设置持久化）：开启后 30 分钟无操作自动进入工作台。 */
-  workbenchScreensaver: boolean
+  /** 工作台屏保配置（设置持久化）：开关、idle 时长与外观参数。 */
+  workbenchScreensaver: WorkbenchScreensaverSettings
+  /** 屏保呈现形态；关闭工作台时归 off，手动打开永远是看板。 */
+  workbenchScreensaverMode: WorkbenchScreensaverMode
   workspaceInspectorRequest: WorkspaceInspectorOpenRequest | undefined
   /** 工作区检查器的「打开者」scope（在哪个 runtimeScope 里打开的）；派生 open = scopeId 与当前 scope 相等。 */
   workspaceInspectorOpenScopeId: string | null
@@ -48,7 +53,9 @@ interface UIStore {
   setShareDialogOpen: Dispatch<SetStateAction<boolean>>
   setConversationMenuOpen: Dispatch<SetStateAction<boolean>>
   setWorkbenchOpen: Dispatch<SetStateAction<boolean>>
-  setWorkbenchScreensaver: Dispatch<SetStateAction<boolean>>
+  setWorkbenchScreensaver: Dispatch<SetStateAction<WorkbenchScreensaverSettings>>
+  /** 一次写入开合与形态，避免屏保入场时先闪一帧看板。 */
+  enterWorkbenchScreensaver: (mode: Exclude<WorkbenchScreensaverMode, 'off'>) => void
   setWorkspaceInspectorRequest: Dispatch<SetStateAction<WorkspaceInspectorOpenRequest | undefined>>
   setWorkspaceInspectorOpenScopeId: Dispatch<SetStateAction<string | null>>
   setArtifactPreviewOpen: Dispatch<SetStateAction<boolean>>
@@ -102,7 +109,8 @@ export const useUIStore = create<UIStore>((set) => ({
   shareDialogOpen: false,
   conversationMenuOpen: false,
   workbenchOpen: false,
-  workbenchScreensaver: false,
+  workbenchScreensaver: DEFAULT_WORKBENCH_SCREENSAVER,
+  workbenchScreensaverMode: 'off',
   workspaceInspectorRequest: undefined,
   workspaceInspectorOpenScopeId: null,
   artifactPreviewOpen: false,
@@ -133,9 +141,15 @@ export const useUIStore = create<UIStore>((set) => ({
   setConversationMenuOpen: (value) =>
     set((s) => ({ conversationMenuOpen: typeof value === 'function' ? value(s.conversationMenuOpen) : value })),
   setWorkbenchOpen: (value) =>
-    set((s) => ({ workbenchOpen: typeof value === 'function' ? value(s.workbenchOpen) : value })),
+    set((s) => {
+      const open = typeof value === 'function' ? value(s.workbenchOpen) : value
+      return { workbenchOpen: open, workbenchScreensaverMode: open ? s.workbenchScreensaverMode : 'off' }
+    }),
   setWorkbenchScreensaver: (value) =>
-    set((s) => ({ workbenchScreensaver: typeof value === 'function' ? value(s.workbenchScreensaver) : value })),
+    set((s) => ({
+      workbenchScreensaver: typeof value === 'function' ? value(s.workbenchScreensaver) : value,
+    })),
+  enterWorkbenchScreensaver: (mode) => set({ workbenchOpen: true, workbenchScreensaverMode: mode }),
   setWorkspaceInspectorRequest: (value) =>
     set((s) => ({
       workspaceInspectorRequest:

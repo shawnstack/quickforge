@@ -21,15 +21,17 @@ import { fetchScheduledTasks } from '@/components/scheduled-tasks/scheduled-task
 import type { ScheduledTask } from '@/components/scheduled-tasks/scheduled-tasks-types'
 import { fetchTodayStats, formatTokenCount, type TodayStats } from '@/lib/workbench-today-stats'
 import { useUIStore } from '@/stores/ui-store'
+import { WorkbenchScreensaver, type ScreensaverData } from './WorkbenchScreensaver'
+import { fmtClock, fmtHm, fmtSpan, pad } from './workbench-format'
 import './workbench.css'
 
 /**
- * 塔台工作台（设计稿 docs/design/workbench-redesign/workbench-v8-proposal.html）。
+ * 工作台（设计稿 docs/design/workbench-redesign/workbench-v8-proposal.html）。
  *
- * 主体是「事件」：bot 心跳与定时任务的 nextRunAt 合并成出港队列，右栏在跑/进港/舰队，
- * 顶部 NOTAM 通告。在跑覆盖 busy bot 与 running 普通会话（排除 bot/任务会话）。
- * 数据来自现成端点；进港与到点未醒为会话内观察，不外推。看板恒暗、房间随主题。
- * 文案克制：只留数据标签与必要状态，解释性说明收进 tooltip。
+ * 主体是「事件」：bot 心跳与定时任务的 nextRunAt 合并成待运行队列，右栏在跑/最近完成/全部 bot，
+ * 顶部异常提醒。在跑覆盖 busy bot 与 running 普通会话（排除 bot/任务会话）。
+ * 数据来自现成端点；最近完成与到点未醒为会话内观察，不外推。看板恒暗、房间随主题。
+ * 文案克制：只留数据标签与必要状态，解释性说明收进 tooltip；不用港口/机场隐喻（设计稿仍是旧叙事）。
  */
 
 const POLL_MS = 20_000
@@ -50,25 +52,6 @@ type Notam = { key: string; kind: 'error' | 'warn'; bot: BotSummary; name: strin
 type DrawerTarget = { kind: 'bot' | 'task'; id: string }
 type Toast = { id: number; tone: 'ok' | 'err' | 'info'; text: string }
 type Chip = { text: string; tone: 'ok' | 'err' | 'idle' | 'asleep' }
-
-function pad(n: number): string {
-  return String(n).padStart(2, '0')
-}
-
-function fmtHm(ts: number): string {
-  const d = new Date(ts)
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-function fmtClock(ts: number): string {
-  const d = new Date(ts)
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-function fmtSpan(ms: number): string {
-  const total = Math.max(0, Math.floor(Math.abs(ms) / 1000))
-  return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`
-}
 
 function dayLabel(ts: number, now: number): string {
   const startOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
@@ -173,6 +156,8 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
   const [entering, setEntering] = useState(false)
 
   const requestOpenSession = useUIStore((s) => s.requestOpenSession)
+  const screensaverMode = useUIStore((s) => s.workbenchScreensaverMode)
+  const screensaverSettings = useUIStore((s) => s.workbenchScreensaver)
   const prevBotsRef = useRef(new Map<string, { busy: boolean; nextRunAt: string | null }>())
   const prevTasksRef = useRef(new Map<string, string | null>())
   const prevSessionsRef = useRef(new Map<string, boolean>())
@@ -515,10 +500,33 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
   const nowCount = running.length + runningSessions.length
   const updatedTitle = lastLoadedAt ? `${t('wbUpdatedAt')} ${fmtClock(lastLoadedAt)}` : undefined
 
+  if (screensaverMode !== 'off') {
+    const screensaverData: ScreensaverData = {
+      now,
+      schedule: allFlights.slice(0, 3).map((flight) => ({
+        key: flight.key,
+        name: flight.kind === 'bot' ? flight.bot.name : flight.task.title,
+        at: flight.at,
+      })),
+      running: [
+        ...running.map(({ bot, since }) => ({ key: `bot:${bot.id}`, name: bot.name, since })),
+        ...runningSessions.map((session) => ({
+          key: `session:${session.sessionId}`,
+          name: session.title || session.sessionId,
+          since: sessionSince.get(session.sessionId) ?? now,
+        })),
+      ],
+      today,
+      fleet: (bots ?? []).map((bot) => ({ key: bot.id, name: bot.name, tone: botChip(bot).tone })),
+      errors: notams.filter((item) => item.kind === 'error').length,
+    }
+    return <WorkbenchScreensaver settings={screensaverSettings} data={screensaverData} mode={screensaverMode} onExit={onClose} />
+  }
+
   return (
     <div className="qf-wb" role="dialog" aria-modal="true" aria-label={t('workbenchTitle')}>
       <div className="qf-wb__appbar">
-        <div className="qf-wb__title"><b>{t('workbenchTitle')}</b><span>TOWER</span></div>
+        <div className="qf-wb__title"><b>{t('workbenchTitle')}</b><span>OVERVIEW</span></div>
         <div className="qf-wb__clock" aria-label={clock}>
           {clock.split('').map((ch, i) => (
             ch === ':'
@@ -600,7 +608,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
             </span>
           </div>
           <div className="qf-wb__board-head">
-            <div className="qf-wb__board-title"><b>{t('wbDepartures')}</b><span>DEPARTURES</span></div>
+            <div className="qf-wb__board-title"><b>{t('wbDepartures')}</b><span>SCHEDULE</span></div>
             <div className="qf-wb__board-tools">
               <div className="qf-wb__filters" role="group" aria-label={t('wbDepartures')}>
                 <button type="button" className={cn('qf-wb__filter', filter === 'all' && 'is-on')} onClick={() => setFilter('all')}>
@@ -912,7 +920,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
             title={t('wbDismiss')}
             onClick={() => setToasts((list) => list.filter((item) => item.id !== toast.id))}
           >
-            <span className="qf-wb__toast-tag">TOWER</span>
+            <span className="qf-wb__toast-tag">WORKBENCH</span>
             <span>{toast.text}</span>
           </div>
         ))}

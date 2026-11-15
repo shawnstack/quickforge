@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { harness, nodes, text } from './settings-react-harness'
-vi.mock('@/stores/ui-store', () => ({ useUIStore: (selector: (s: unknown) => unknown) => selector({ workbenchScreensaver: false, setWorkbenchScreensaver: () => {} }) }))
+vi.mock('@/stores/ui-store', () => ({ useUIStore: (selector: (s: unknown) => unknown) => selector({ workbenchScreensaver: { enabled: false }, setWorkbenchScreensaver: () => {}, enterWorkbenchScreensaver: () => {} }) }))
 vi.mock('react', async (original) => ({ ...await original<typeof import('react')>(), ...(await import('./settings-react-harness')).hooks }))
 const mocks = vi.hoisted(() => ({ compact: vi.fn(), goal: vi.fn() }))
 vi.mock('@/storage', () => ({ getAppStorage: () => ({}) }))
@@ -8,7 +8,7 @@ vi.mock('@/lib/tool-display-settings', () => ({ loadToolDisplaySettings: async (
 vi.mock('@/lib/auto-compact-settings', () => ({ loadAutoCompactSettings: async () => ({ enabled: true, thresholdPercent: 80 }), saveAutoCompactSettings: mocks.compact }))
 vi.mock('@/lib/goal-settings', () => ({ loadGoalSettings: async () => ({ maxIterations: 20 }), saveGoalSettings: mocks.goal }))
 vi.mock('@/lib/auto-archive-settings', () => ({ loadAutoArchiveSettings: async () => ({ enabled: false }), saveAutoArchiveSettings: vi.fn() }))
-vi.mock('@/lib/i18n', () => ({ applyAppLanguage: vi.fn(), getAppLanguage: () => 'zh', t: (key: string) => key }))
+vi.mock('@/lib/i18n', () => ({ applyAppLanguage: vi.fn(), getAppLanguage: () => 'zh', getDateLocale: () => 'zh-CN', t: (key: string) => key }))
 vi.mock('@/lib/system-notifications', () => ({ getSystemNotificationPermission: async () => 'denied', isSystemNotificationsEnabled: () => false, requestSystemNotificationPermission: vi.fn(), setSystemNotificationsEnabled: vi.fn(), showTaskSystemNotification: vi.fn() }))
 vi.mock('@/components/ui/confirm-dialog', () => ({ showConfirm: vi.fn() }))
 vi.mock('@/components/ui/info-tip', () => ({ InfoTip: () => null }))

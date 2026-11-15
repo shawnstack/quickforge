@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useUIStore } from '../../src/stores/ui-store'
+import { DEFAULT_WORKBENCH_SCREENSAVER } from '../../src/lib/workbench-screensaver-settings'
 
 const INITIAL_UI = {
   sidebarOpen: true,
@@ -10,6 +11,9 @@ const INITIAL_UI = {
   skillsDialog: undefined,
   shareDialogOpen: false,
   conversationMenuOpen: false,
+  workbenchOpen: false,
+  workbenchScreensaver: DEFAULT_WORKBENCH_SCREENSAVER,
+  workbenchScreensaverMode: 'off' as const,
   workspaceInspectorRequest: undefined,
   artifactPreviewOpen: false,
   activeArtifactPath: undefined,
@@ -78,6 +82,30 @@ describe('uiStore', () => {
     expect(useUIStore.getState().openSessionRequest).toMatchObject({ sessionId: 'session-1' })
     useUIStore.getState().clearOpenSessionRequest()
     expect(useUIStore.getState().openSessionRequest).toBeNull()
+  })
+
+  it('屏保形态：进入一次写入开合与形态，关闭工作台即归 off（手动打开永远是看板）', () => {
+    const store = useUIStore.getState()
+    store.enterWorkbenchScreensaver('idle')
+    expect(useUIStore.getState().workbenchOpen).toBe(true)
+    expect(useUIStore.getState().workbenchScreensaverMode).toBe('idle')
+    store.setWorkbenchOpen(false)
+    expect(useUIStore.getState().workbenchScreensaverMode).toBe('off')
+    store.setWorkbenchOpen(true)
+    expect(useUIStore.getState().workbenchScreensaverMode).toBe('off')
+
+    store.enterWorkbenchScreensaver('preview')
+    expect(useUIStore.getState().workbenchScreensaverMode).toBe('preview')
+    store.setWorkbenchOpen((open) => !open)
+    expect(useUIStore.getState().workbenchScreensaverMode).toBe('off')
+  })
+
+  it('屏保配置是对象，setter 支持函数式更新且默认 10 分钟', () => {
+    const store = useUIStore.getState()
+    expect(store.workbenchScreensaver.idleMinutes).toBe(10)
+    store.setWorkbenchScreensaver((current) => ({ ...current, idleMinutes: 25 }))
+    expect(useUIStore.getState().workbenchScreensaver.idleMinutes).toBe(25)
+    expect(useUIStore.getState().workbenchScreensaver.enabled).toBe(store.workbenchScreensaver.enabled)
   })
 
   it('action 引用恒定，非 React 代码可经 getState() 直接调用', () => {

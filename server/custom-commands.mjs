@@ -279,7 +279,10 @@ export async function resolveCustomCommandInvocation(message, workspaceRoot, com
   const command = await findProjectCommand(workspaceRoot, invocation.name, commandDir)
   if (!command) return null
 
-  const expandedBody = command.body.replace(/\$ARGUMENTS/g, invocation.arguments)
+  // 替换串必须走函数体：invocation.arguments 是用户原文，里面可能带 $& $$ $` $' $1，
+  // 以字符串形式传给 String.prototype.replace 会被当成替换语义解释——落进提示词的就不是
+  // 用户写的字，而且没有任何报错（与 edit_file 的 925cf0ac 同族）。
+  const expandedBody = command.body.replace(/\$ARGUMENTS/g, () => invocation.arguments)
   const permissions = {
     allowEdit: command.allowEdit !== false,
     allowCommands: command.allowCommands !== false,

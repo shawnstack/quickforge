@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   commandFromFile,
@@ -7,6 +10,7 @@ import {
   formatSkillCommandPrompt,
   handleInternalCommand,
   parseInternalCommandInvocation,
+  resolveCustomCommandInvocation,
 } from '../../server/custom-commands.mjs'
 import { commandToolPermissionError, safeReadTools } from '../../server/approval-store.mjs'
 
@@ -397,5 +401,38 @@ Body.
   it('returns null for empty body', () => {
     const command = commandFromFile('/tmp/empty.md', '')
     expect(command).toBeNull()
+  })
+})
+
+describe('resolveCustomCommandInvocation', () => {
+  // 替换串必须是函数体：`String.prototype.replace` 会把替换串里的 $& $$ $` $' $1 当成替换语义解释。
+  // 自定义命令的 $ARGUMENTS 展开把**用户输入**直接当替换串传了进去——用户在参数里写一句带这类
+  // 序列的话，落到 systemPrompt 里的就不是他写的字，而且没有任何报错（与 925cf0ac 同族）。
+  async function withCommand(body, run) {
+    const root = await mkdtemp(path.join(tmpdir(), 'qf-custom-command-'))
+    try {
+      const dir = path.join(root, '.claude', 'commands')
+      await mkdir(dir, { recursive: true })
+      await writeFile(path.join(dir, 'deploy.md'), body, 'utf8')
+      return await run(root)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+
+  it('expands $ARGUMENTS with the user text verbatim, dollar sequences included', async () => {
+    const args = 'keep $& and $` and $\' and $$ and $1 exactly'
+    const invocation = await withCommand('---\nname: deploy\n---\nRun:\n$ARGUMENTS', (root) =>
+      resolveCustomCommandInvocation(`/deploy ${args}`, root, ''))
+    expect(invocation).not.toBeNull()
+    expect(invocation.arguments).toBe(args)
+    expect(invocation.systemPrompt).toContain(`Run:\n${args}`)
+  })
+
+  it('keeps a $ARGUMENTS-free body untouched', async () => {
+    const invocation = await withCommand('---\nname: deploy\n---\nJust do it.', (root) =>
+      resolveCustomCommandInvocation('/deploy now', root, ''))
+    expect(invocation).not.toBeNull()
+    expect(invocation.systemPrompt).toContain('Just do it.')
   })
 })

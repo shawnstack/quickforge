@@ -97,7 +97,7 @@ server/
 ├── conversation-compaction.mjs # 对话历史压缩 (389 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
 ├── selected-capabilities.mjs   # 本轮插件选择规范化、持久化快照与模型临时提示 (76 行)
-├── custom-commands.mjs       # 自定义命令系统 (576 行)
+├── custom-commands.mjs       # 自定义命令系统 (579 行)
 ├── reasoning-cache.mjs       # 推理内容缓存 (51 行)
 ├── restart-supervisor.mjs    # 服务重启监控脚本 (38 行)
 ├── lan-access-store.mjs      # LAN 共享访问令牌存储 (194 行)
@@ -634,7 +634,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `selectedCapabilitiesFromMessage()` / `withCanonicalSelectedCapabilities()` — retry 从用户消息 details 读取历史快照时再次强制投影为 type/pluginName/name/label，历史 details 即使伪造 description 也会被丢弃，绝不进入 continue prompt；新 prompt 以请求体顶层 canonical 结果覆盖消息 details，空结果删除伪造/陈旧 selectedCapabilities，但保留 contextReferences 等其他 details；未知插件名不做 registry 校验，保证历史消息可继续展示
 - `selectedCapabilityPrompt()` — 严格使用同一 canonical 结果生成本轮 capability prompt，不修改用户正文；`message-converters.mjs` 后续剥离全部 details，避免展示字段直接进入 LLM 正文
 
-### custom-commands.mjs (576 行)
+### custom-commands.mjs (579 行)
 
 **用途**: 自定义命令系统。从用户级 `~/.quickforge/commands/`（所有项目共享）和项目级 `<workspace>/.claude/commands/`、`<workspace>/.opencode/commands/`、`<workspace>/.ai/commands/` 及项目配置 `commandDir` 指向的目录读取命令定义；同名命令优先级由高到低：项目配置目录 > `.ai` > `.opencode` > `.claude` > 用户级目录 > 插件命令。内置命令元数据集中在 `builtinCommandCatalog` 常量表（单一事实源），`/help` 和前端建议均据此派生。自定义命令的 front matter 解析统一走 `frontmatter.mjs`，本文件不再维护私有副本——第二份实现曾经不认 YAML 短横线列表、也不认带指示符的块标量：`description: >-` 被读成字面量 `>-`，真正的多行说明整段丢掉，命令列表里显示的就是这两个字符（11-15 修）。
 

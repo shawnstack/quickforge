@@ -650,7 +650,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 - `settings/tabs/DataSettingsTab.tsx` (59 行) # 「数据」父页：三个子页（备份恢复 / 归档会话 / 分享链接）的切换与懒挂载，`visited` 保证切回子页不重挂
 - `settings/tabs/BackupSettingsTab.tsx` (488 行) # 备份与恢复：导出范围五选（设置 / MCP / provider keys / 自定义 Provider / 定时任务）、导入前预检（`ok`、应用与版本、导出时间、是否含密钥）与 `replace` / `merge` 两种恢复模式
-- `settings/tabs/ArchivedConversationsSettingsTab.tsx` (345 行) # 归档会话管理：按 `offset` 翻页取满服务端 `total`（页大小 500、上限 20 页）、本地化时间显示、取消归档（清掉 `archivedAt`）；取不满时列表上方显式说明「列出 N / 共 M 条」，不再静默截断
+- `settings/tabs/ArchivedConversationsSettingsTab.tsx` (359 行) # 归档会话管理：按 `offset` 翻页取满服务端 `total`（页大小 500、上限 20 页）、本地化时间显示、取消归档（清掉 `archivedAt`）；取不满时列表上方显式说明「列出 N / 共 M 条」，不再静默截断；「全部删除」的确认框按当前状态说真实范围（有筛选时说明删的是全部而非筛出的、只列出一部分时说明剩余留在归档）
 
 #### 网络与局域网
 

@@ -209,8 +209,22 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
 
   const deleteAllArchivedSessions = async () => {
     if (busySessionId || sessions.length === 0) return
+    // 「全部删除」删的是已列出的这些，而界面常常只露出其中一部分（筛选或安全上限截断）。
+    // 确认框是用户唯一会停下来读的地方，所以范围必须按当前状态说实话。
+    const listedCount = sessions.length
+    const visibleCount = filteredSessions().length
+    const filtered = query.trim().length > 0 || projectFilter !== 'all'
+    const unlistedCount = total === null ? null : Math.max(0, total - listedCount)
+    const partial = unlistedCount === null ? truncated : unlistedCount > 0
+    const description = partial
+      ? (unlistedCount === null
+          ? t('deleteAllArchivedSessionsConfirmPartialUnknown', { listed: listedCount })
+          : t('deleteAllArchivedSessionsConfirmPartial', { listed: listedCount, total: unlistedCount + listedCount }))
+      : filtered
+        ? t('deleteAllArchivedSessionsConfirmFiltered', { listed: listedCount, visible: visibleCount })
+        : t('deleteAllArchivedSessionsConfirm')
     const confirmed = await showConfirm({
-      description: t('deleteAllArchivedSessionsConfirm'),
+      description,
       confirmLabel: t('confirmDelete'),
       cancelLabel: t('cancel'),
       variant: 'destructive',

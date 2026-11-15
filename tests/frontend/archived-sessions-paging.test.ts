@@ -29,7 +29,10 @@ vi.mock('@/storage', () => ({
   }),
 }))
 
+import { showConfirm } from '@/components/ui/confirm-dialog'
 import { ArchivedConversationsSettingsTab } from '../../src/components/settings/tabs/ArchivedConversationsSettingsTab'
+
+const confirmMock = vi.mocked(showConfirm)
 
 type FetchCall = { limit: number; offset: number; archived: string | null }
 
@@ -134,6 +137,40 @@ describe('Archived conversations settings tab paging', () => {
     expect(sessionsSave).toHaveBeenCalledTimes(1)
     expect(sessionsSave.mock.calls[0][0]).toMatchObject({ archivedAt: null })
     expect(sessionRows()).toHaveLength(1789)
+  })
+
+  it('tells the truth when a filter hides most of the archive from the delete-all confirmation', async () => {
+    await mount(1790)
+    const input = currentTree().find((node) => node.props.type === 'search')
+    input?.props.onChange({ currentTarget: { value: '会话 1500' } })
+    expect(sessionRows()).toHaveLength(1)
+
+    confirmMock.mockClear()
+    confirmMock.mockResolvedValueOnce(false)
+    clickableWithText('deleteAll')?.props.onClick()
+    await flush()
+
+    // 缺陷本体：搜索框只筛出 1 条，点「全部删除」却删掉 1790 条，确认框只说「所有已归档对话」。
+    const description = String(confirmMock.mock.calls.at(-1)?.[0]?.description ?? '')
+    expect(description).toContain('deleteAllArchivedSessionsConfirmFiltered')
+    expect(description).toContain('"listed":1790')
+    expect(description).toContain('"visible":1')
+  })
+
+  it('tells the truth when the safety cap means only part of the archive is listed', async () => {
+    await mount(12_000)
+    expect(sessionRows()).toHaveLength(10_000)
+
+    confirmMock.mockClear()
+    confirmMock.mockResolvedValueOnce(false)
+    clickableWithText('deleteAll')?.props.onClick()
+    await flush()
+
+    // 截断时「全部删除」只删得到列出的 10000 条，确认框却说「所有」。
+    const description = String(confirmMock.mock.calls.at(-1)?.[0]?.description ?? '')
+    expect(description).toContain('deleteAllArchivedSessionsConfirmPartial')
+    expect(description).toContain('"listed":10000')
+    expect(description).toContain('"total":12000')
   })
 
   it('does not fetch while the tab is inactive', async () => {

@@ -122,7 +122,7 @@ session-state-service  →  session-state-import  →  session-state-restore-pla
 |---|---|---|
 | JSON mirror 全链 | `session_json_mirror_queue` 表 + service 内 drain 调度 + storage JSON 写回 | 表删除（baseline 不建）；代码全删，会话写路径不再物化 JSON |
 | phase 状态机 | `session_storage_state` singleton + 4 相位路由 | 表删除；service 恒 authoritative |
-| `session_index` 派生表 | v4/v5 派生表 + 同事务 upsert + 影子校验/rebuild | 表删除；`session-index-repository.mjs` 重写为 `sessions` 表**直查层**（只读 LIMIT/OFFSET + `json_extract(meta_json,'$.lastModified')` 排序，保持历史列表序），无 sync/shadow/rebuild |
+| `session_index` 派生表 | v4/v5 派生表 + 同事务 upsert + 影子校验/rebuild | 表删除；`session-index-repository.mjs` 重写为 `sessions` 表**直查层**（只读 LIMIT/OFFSET；排序先按置顶分组 `(pinned_at IS NOT NULL) DESC, pinned_at DESC`、再按 `json_extract(meta_json,'$.lastModified')` 倒序，保持历史列表序；除 `pinnedAt` 外的每个排序键都带这个前缀），无 sync/shadow/rebuild |
 | 同步 cutover | `server/session-state-cutover.mjs` | 模块删除 |
 | 后台迁移 | `server/session-state-background-migration.mjs`（importing→converging→idle→switching 状态机） | 模块删除 |
 | 写屏障 | `acquireSessionJsonWriteBarrier` / `readLastSessionWriteFinishedAt`（storage.mjs） | 删除（无 JSON 写路径需要 park） |
@@ -140,7 +140,7 @@ share / lan-access / scheduled-runs 三小域曾各自保留 JSON→SQLite cutov
 
 ## 8. 已知取舍
 
-1. **`listPage` 的 `lastModified` 排序走 `json_extract(meta_json, '$.lastModified')`**：列表 UI 沿用 metadata 的 `lastModified`（会话可能回填早于写时钟的历史时间），无法直接用 `updated_at` 列。排序需要 temp b-tree；EXPLAIN 已验证 scope/archive 过滤仍走 `idx_sessions_list` 索引。中期候选：`json_extract` 表达式索引。
+1. **`listPage` 的 `lastModified` 排序走 `json_extract(meta_json, '$.lastModified')`，且不是单键**：`ORDER BY` 实际是 `(pinned_at IS NOT NULL) DESC, pinned_at DESC, json_extract(...) DESC`——置顶会话永远排在最前，按 `lastModified` 判断「越界该收手」的翻页逻辑必须能跨过置顶区。之所以不能退回单键：列表 UI 沿用 metadata 的 `lastModified`（会话可能回填早于写时钟的历史时间），无法直接用 `updated_at` 列。排序需要 temp b-tree；EXPLAIN 已验证 scope/archive 过滤仍走 `idx_sessions_list` 索引。中期候选：`json_extract` 表达式索引。
 2. **删除后同 key CAS 的 `actualRevision` 报 0**：v2 墓碑不携带 revision（`actualRevision` 对墓碑态解析为 0）。效果上 stale 写（`expectedRevision > 0`）依旧 409 冲突、fresh 重建（null/0）依旧成功，但冲突错误体里的 `actualRevision` 是 0 而非历史值——调用方若依赖该值需知悉。
 3. **`repository()` 先取进程级句柄**：service 的 `repository()` 总是先求值 `getSqliteStorage()`（用于检测句柄重建），即使测试通过 `configureSessionStateService` 注入了 repository 实例——**注入路径仍要求 SQLite 已初始化**（否则抛错）。当前测试均先初始化 storage，未构成实际问题；后续若需要纯内存 repository 测试可拆开这两步。
 4. **`auto_vacuum` 只在建库时生效**（见 §4）：库的所有表都由 baseline 在同一连接内建出，因此现役库天然带增量回收；手工在别处预建表再交给 QuickForge 的库拿不到该布局。

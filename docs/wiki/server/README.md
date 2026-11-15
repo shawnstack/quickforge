@@ -93,7 +93,7 @@ server/
 ├── working-memory.mjs        # 工作记忆（beta）：设置、笔记文件夹与大白话笔记提示词
 ├── note-store.mjs            # 两个记忆目录共用的文件操作：命名校验 / 读 / 写 / 归档式移动
 ├── experiences.mjs           # 经验库：目录、扫描生成 index.md、注入块
-├── project-config.mjs        # 项目配置管理 (556 行)
+├── project-config.mjs        # 项目配置管理 (570 行)
 ├── conversation-compaction.mjs # 对话历史压缩 (389 行)
 ├── context-references.mjs      # @ 文件引用请求校验、canonical details 与本轮路径提示
 ├── selected-capabilities.mjs   # 本轮插件选择规范化、持久化快照与模型临时提示 (76 行)
@@ -389,6 +389,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - Subagent 和自定义 Agent Profile 默认不获得记忆写入工具，避免临时 Agent 修改全局用户信息。
 - 记忆分三块，各管各的：`MEMORY.md` 是用户写的（设置页走 `GET`/`PUT /api/memory`，Agent 走只写的 `manage_global_memory`）；`~/.quickforge/memory/notes/` 是「这件事现在是什么样」的活笔记；`~/.quickforge/memory/experiences/` 是「以后遇到同类问题怎么做」的经验库。三者都是纯 Markdown 文件，互不覆盖，因此不需要标记、不需要保存时重拼。
 - bot 会话的落点不是全局文件：bot 的系统提示注入的是自己工作区根上的 `MEMORY.md`（`buildInstructionsPayload()` 在 `project.kind === 'bot'` 时用它顶掉全局记忆块），所以同一个 `manage_global_memory` 在 bot 会话里写 `<workspaceRoot>/MEMORY.md`（`writeWorkspaceMemory()`，与全局那份共用同一套校验、敏感信息拒收与写锁），其余会话照旧写全局。落点判据只来自会话上下文（`scope` + 项目记录的 `kind`，缺失才按 `projectId` 查一次项目记录），判不出来就抛 `Bot memory file is unavailable for this session.`——**绝不悄悄退回写全局**，那个回退正是 bot 整篇覆盖用户记忆的成因。
+- 读方向同一条规矩（2026-11-16 修）：`readWorkspaceMemoryPrompt()` 返回的是 `{ source, content, enabled }`，**不是裸字符串**——`composeSystemPrompt()` 判 `globalMemory.enabled`，返回字符串时整段 `<memory_policy>` / `<global_user_memory>` 会被跳过（bot 写进自己的记忆、醒来一个字看不到），`?? readGlobalMemoryPrompt()` 那层回退则会让「还没写记忆的 bot」在提示词里看到用户的全局记忆。现在 bot 分支只读自己那份，没有文件就给空文档；普通会话不受影响。
 - 注入策略分三级：`readGlobalMemoryPrompt()` → `<global_user_memory>`（全文）；`readExperiencesPrompt()` → `<experiences>`（**只有扫描生成的索引**，正文按需读）；`readWorkingMemoryPrompt()` → `<working_memory>`（**只有路径和写法规则**，不注入内容）。完整设计见 [记忆体系：工作记忆 + 经验库](../../architecture/memory-system.zh-CN.md)。
 
 ### note-store.mjs / experiences.mjs — 笔记文件与经验库

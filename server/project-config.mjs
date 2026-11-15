@@ -6,7 +6,7 @@ import { existsSync, promises as fs } from 'node:fs'
 import { ensureProjectCache, readProjectConfigData, atomicProjectConfigUpdate, dataDir, readStore, atomicUpdate } from './storage.mjs'
 import { setWorkspaceRoot, assertDirectory } from './utils/workspace.mjs'
 import { loadSelectedGlobalSkills, loadSelectedProjectSkills, mergeSkills } from './skills.mjs'
-import { readGlobalMemoryPrompt } from './global-memory.mjs'
+import { isGlobalMemoryEnabled, readGlobalMemoryPrompt } from './global-memory.mjs'
 import { readWorkingMemoryPrompt } from './working-memory.mjs'
 import { readExperiencesPrompt } from './experiences.mjs'
 
@@ -439,19 +439,30 @@ export async function projectContextFromId(projectId) {
   }
 }
 
+const WORKSPACE_MEMORY_SOURCE = 'bot workspace MEMORY.md'
+
 /**
  * 读某个工作空间自带的 MEMORY.md。bot 的记忆就落在这儿：
  * 一个 bot 一间自己的房，记忆跟着房走，不跟全局那份混。
  */
 async function readWorkspaceMemoryPrompt(workspaceRoot) {
   if (!workspaceRoot) return null
+  // 与全局那份同一个开关：写侧（writeWorkspaceMemory）走 assertMemoryEnabled，
+  // 读侧不跟就会变成「设置里关了记忆，bot 的提示词里还有一整段」的半开组合。
+  if (!(await isGlobalMemoryEnabled())) return null
+
+  let content = null
   try {
-    const content = await fs.readFile(path.join(workspaceRoot, 'MEMORY.md'), 'utf8')
-    const trimmed = content.trim()
-    return trimmed || null
+    content = (await fs.readFile(path.join(workspaceRoot, 'MEMORY.md'), 'utf8')).trim() || null
   } catch {
-    return null
+    // 还没有自己的记忆：给一份空文档。**绝不退回用户的全局记忆**——bot 在提示词里
+    // 看到别人的记忆，就是这个 bug 的读侧（2026-11-16 实测：新建 bot 的
+    // <global_user_memory> 里装的正是用户的偏好）。
   }
+  // 形状必须和 readGlobalMemoryPrompt() 完全一致：`composeSystemPrompt()` 判的是
+  // `globalMemory.enabled`，返回值是裸字符串时整段 <memory_policy> 与
+  // <global_user_memory> 会被跳过——bot 写进自己的记忆，下一次醒来一个字也看不到。
+  return { source: WORKSPACE_MEMORY_SOURCE, content, enabled: true }
 }
 
 async function readInstructionSources(candidates) {
@@ -526,9 +537,12 @@ export async function buildInstructionsPayload(projectId) {
   const activeSkills = mergeSkills(globalSkills, projectSkills)
   // Bot 有自己的 MEMORY.md，就放在它工作空间的根上。有就用它顶掉全局记忆块：
   // 一个 bot 的记忆只属于它，不该和别的 bot（或全局那份）混在一起。
-  const globalMemory = (project?.kind === 'bot' && projectWorkspaceRoot
+  // 两条分支各自返回 { source, content, enabled }，**没有 `?? 全局` 这一层**：那层会让
+  // 「还没写记忆的 bot」在提示词里看到用户的记忆，也会让「已有记忆的 bot」因为之前
+  // 返回值是裸字符串而被渲染层整段跳过（2026-11-16 实测）。
+  const globalMemory = project?.kind === 'bot'
     ? await readWorkspaceMemoryPrompt(projectWorkspaceRoot)
-    : null) ?? await readGlobalMemoryPrompt()
+    : await readGlobalMemoryPrompt()
   const experiences = await readExperiencesPrompt().catch(() => null)
   const workingMemory = await readWorkingMemoryPrompt()
   const stripRuntimeFields = ({ rootDir: _rootDir, instructions: _instructions, location: _location, ...skill }) => skill

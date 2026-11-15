@@ -26,12 +26,22 @@
 
 | 层 | 谁写 | 要不要人审 | 生命周期 |
 | --- | --- | --- | --- |
-| `MEMORY.md` | 用户（+ `manage_global_memory` 代笔，只写不读） | 是 | 长期，手工维护 |
+| `MEMORY.md` | 用户（+ `manage_global_memory` 代笔，只写不读；**bot 会话写的是它自己工作区那份**） | 是 | 长期，手工维护 |
 | `notes/` | 会话中的 AI、记忆整理员 | 否 | 短，过期就改或归档 |
 | `experiences/` | 记忆整理员 | 否 | 长，只增不删 |
 | `skills/` | 人 | 是 | 由经验升级而来 |
 
 **为什么经验不需要人审、技能却需要**：经验是纯文本资料，写坏了读一遍就能发现，而且有快照可以整轮回滚；技能会改变 AI 的行为方式（它会被自动加载进系统提示词），所以必须由人点头。这条边界是硬的，不靠提示词自觉——整理员根本没有碰 `skills/` 的工具。
+
+### bot 会话用的是它自己那份 MEMORY.md
+
+bot 目录也登记在 `projects` 里（`kind: 'bot'`），`buildInstructionsPayload()` 遇到它就把记忆块换成 `<workspaceRoot>/MEMORY.md`——一个 bot 的记忆只属于它，不该和别的 bot（或全局那份）混在一起。**写入侧必须跟着一起判**：`manage_global_memory` 的 handler 按会话上下文解析落点（`scope === 'project'` + 项目记录的 `kind`），bot 会话写 `<workspaceRoot>/MEMORY.md`（`writeWorkspaceMemory()`，与全局那份共用校验、敏感信息拒收与写锁），其余会话照旧写 `~/.quickforge/memory/MEMORY.md`。
+
+两条硬约束：
+
+- **判不出来就报错，绝不退回写全局**：`Bot memory file is unavailable for this session.`（`errorCode: BOT_MEMORY_UNAVAILABLE`）。那个回退正是 2026-11-13「4 个 bot / 37 次写入把用户 425 字记忆整篇盖掉」的成因；判不复核的成本是「用户记忆被覆盖」，判错方向只能是这一侧。
+- **落点要显式标出来**：写入结果里带 `details.target`（`global` / `workspace`），渲染层据此分流文案，否则 bot 的写入会在界面上冒充「全局记忆已保存」。历史消息没有这个字段（那一版工具只会写全局），按全局文案渲染。
+- **读侧返回值必须和全局那份同形**：`readWorkspaceMemoryPrompt()` 返回 `{ source, content, enabled }` 而不是裸字符串——`composeSystemPrompt()` 判的是 `globalMemory.enabled`，返回字符串时整段 `<memory_policy>` / `<global_user_memory>` 会被静默跳过（bot 写进自己的记忆、下一次醒来一个字看不到；2026-11-16 之前一直如此）。同时删掉 `?? readGlobalMemoryPrompt()` 那层回退：bot 还没有自己的记忆时，它也不该在提示词里看到用户的全局记忆。
 
 ## 3. 文件格式
 

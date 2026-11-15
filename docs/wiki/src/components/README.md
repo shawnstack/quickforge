@@ -156,6 +156,8 @@ components/
 │   ├── ShareConversationDialog.tsx # 分享对话对话框 (199 行)
 │   └── SharedConversationPage.tsx  # 查看分享的对话页面 (315 行)
 ├── app/                             # App 主装配层的独立 UI 区域（MainApp 保持接线，区域组件化）
+│   ├── AppDialogs.tsx               # 对话框层：`AppGitDialogs`（主区内 Git 图形 / 提交）+ `AppOverlays`（目录选择 / 技能 / 新建 bot / bot 设置 / 分享 / toast）
+│   ├── AppMain.tsx                  # `<main>` 主区：会话顶栏 / 对话区 / 全局终端坞（`AppMain` + 懒加载占位 `LazyPanelFallback`）
 │   ├── ConversationHeader.tsx       # 主区顶栏：标题/项目 chip/Git 分支菜单/对话-轨迹切换/会话 ⋯ 菜单
 │   ├── DesktopTitlebarMenu.tsx      # 桌面标题栏入口与菜单（关于 / 检查更新 / 退出）
 │   ├── StartupErrorScreen.tsx       # 本地服务不可用的整屏错误页（重试 / 整页刷新）
@@ -595,7 +597,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 `mcp-servers-dialog.tsx` 的展示层拆成两个纯展示组件：都只吃 props、不发请求，接口调用与状态仍留在面板里。
 
 - `mcp/mcp-server-card.tsx` (105 行) # 单个 MCP 服务器行（`McpServerCard`）：状态徽标（connected / error / 其余为 muted）、工具 chips 最多露 12 个（`VISIBLE_TOOLS`）其余折叠成计数、启停 / 编辑 / 删除 / 重连四个入口（重连只在已启用且未连接时可点）
-- `mcp/mcp-server-form.tsx` (177 行) # 表单主体（`McpServerForm`）：名称、`transport` 选择，stdio 时才展开 command / args / cwd / env；args（每行一条）与 env（`key=value`）的文本互转复用 `src/lib/mcp-helpers.ts`
+- `mcp/mcp-server-form.tsx` (177 行) # 表单主体（`McpServerForm`）：名称、`transport` 选择，stdio 时才展开 command / args / cwd / env；args（每行一条）与 env（`key=value`）的解析复用 `src/lib/mcp-helpers.ts`；**输入框走草稿轨**——textarea 显示用户原文、数据仍按解析值即时提交（空行/半截 `FOO` 这类中间态不再被规范化掉），只有外部值不是本次派发的那份（如切到另一台服务器编辑）才回填
 
 ### startup-splash-icon.tsx (23 行)
 

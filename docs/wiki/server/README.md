@@ -448,6 +448,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 校验 Agent 名称、系统提示词、工具白名单、`capabilityPolicy`、模型引用、运行时间和工具调用预算；Markdown/API 的 `allowMcpTools` 与 `allowAgentSkills` 缺失时默认关闭。
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表；QuickForge 自定义 Profile 可编辑两个能力开关，外部 readonly Profile 不可编辑，内置 `general` / `explore` 仅通过 `agent-profile-overrides` 编辑这两个开关、模型和思考等级。子 Agent 只继承父会话当前实际工具集中对应的 MCP/Skills 工具，不从全局额外扩展，MCP 保持父会话审批语义，关闭 Skills 时不注入可用 Skills 目录，并禁止递归 `run_subagent`。
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
+- 内置 Agent 的覆盖项（`config/agent-profile-overrides.json`）在**同一个写队列里一次 read-modify-write** 落盘：文件一时读不出来（半截 JSON、被占用、权限不足）就**直接报错**，不再被当成空表整表覆盖 —— 否则「改一个 agent 的思考档」会把别的 agent 的 `model` / `thinkingLevel` 覆盖一起清掉，接口还返回 200。
 
 ### skills.mjs (538 行)
 

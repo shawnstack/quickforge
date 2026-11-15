@@ -1,7 +1,7 @@
 import { existsSync, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { readStore, userAgentsDir, writeStore } from './storage.mjs'
+import { atomicUpdate, readStore, userAgentsDir } from './storage.mjs'
 import { builtinSubagentProfilePath, ensureBuiltinSubagentMarkdownFiles, subagentDefinitions } from './subagents.mjs'
 import { memoryNoteTools, workspaceTools } from './tools/definitions.mjs'
 import { isWorkingMemoryEnabled } from './working-memory.mjs'
@@ -320,30 +320,36 @@ export async function updateBuiltinAgentOverrides(id, patch = {}) {
   const current = await getAgentProfile(id)
   if (!current) throw requestError('Agent not found', 404)
   if (!current.builtin) throw requestError('Only built-in agents support overrides', 400)
-  const overrides = await readStore(BUILTIN_OVERRIDES_STORE).catch(() => ({}))
-  const base = overrides && typeof overrides === 'object' ? overrides : {}
-  const next = { ...base }
-  const entry = { ...(base[current.name] && typeof base[current.name] === 'object' ? base[current.name] : {}) }
+  // 这里曾经是 `readStore(...).catch(() => ({}))` + `writeStore(next)`：config store 的
+  // writeStore 不先读、直接整表覆盖，所以覆盖项文件一时读不出来（半截 JSON、被杀软或别的
+  // 进程占着、权限不足）时 base 会变成空表，写回去只剩本次这一条 —— 别的内置 agent 的
+  // model / thinkingLevel 覆盖被永久清掉，接口还返 200。改成同一写队列里的一次
+  // read-modify-write：读失败就让它抛，宁可报错，也不替用户清数据。
+  const next = await atomicUpdate(BUILTIN_OVERRIDES_STORE, (data) => {
+    const base = data && typeof data === 'object' ? data : {}
+    const entry = { ...(base[current.name] && typeof base[current.name] === 'object' ? base[current.name] : {}) }
 
-  if (Object.prototype.hasOwnProperty.call(patch, 'model')) {
-    const model = validateModelReference(normalizeModelReference(patch.model))
-    if (model.mode === 'fixed') entry.model = model
-    else delete entry.model
-  }
-  if (Object.prototype.hasOwnProperty.call(patch, 'thinkingLevel')) {
-    const thinkingLevel = normalizeAgentProfileThinkingLevel(patch.thinkingLevel)
-    if (thinkingLevel === 'inherit') delete entry.thinkingLevel
-    else entry.thinkingLevel = thinkingLevel
-  }
-  for (const key of ['allowMcpTools', 'allowAgentSkills']) {
-    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
-    if (patch[key] === true) entry[key] = true
-    else delete entry[key]
-  }
+    if (Object.prototype.hasOwnProperty.call(patch, 'model')) {
+      const model = validateModelReference(normalizeModelReference(patch.model))
+      if (model.mode === 'fixed') entry.model = model
+      else delete entry.model
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'thinkingLevel')) {
+      const thinkingLevel = normalizeAgentProfileThinkingLevel(patch.thinkingLevel)
+      if (thinkingLevel === 'inherit') delete entry.thinkingLevel
+      else entry.thinkingLevel = thinkingLevel
+    }
+    for (const key of ['allowMcpTools', 'allowAgentSkills']) {
+      if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
+      if (patch[key] === true) entry[key] = true
+      else delete entry[key]
+    }
 
-  if (Object.keys(entry).length === 0) delete next[current.name]
-  else next[current.name] = entry
-  await writeStore(BUILTIN_OVERRIDES_STORE, next)
+    const updated = { ...base }
+    if (Object.keys(entry).length === 0) delete updated[current.name]
+    else updated[current.name] = entry
+    return updated
+  })
 
   const definition = subagentDefinitions.find((item) => item.name === current.name)
   return builtinProfileFromSubagent(definition, next[current.name] || null)

@@ -134,4 +134,37 @@ describe('bundled skills', () => {
       instructions: 'Use the user override.',
     })
   })
+
+  // 端到端：解析器认短横线列表之后，技能对象上的 tags 才不是空的。仓库自带的三个插件
+  // 技能就是这么写 metadata.tags 的（用户自己按标准 YAML 写也一样）。
+  it('reads dash-list tags from a standard project SKILL.md', async () => {
+    const projectDir = path.join(tempDir, 'tagged-project')
+    const skillDir = path.join(projectDir, '.claude', 'skills', 'tagged')
+    await fs.mkdir(skillDir, { recursive: true })
+    await fs.writeFile(
+      path.join(skillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: tagged',
+        'description: A skill whose tags are written as a YAML list.',
+        'metadata:',
+        '  version: 1.2.3',
+        '  tags:',
+        '    - alpha',
+        '    - beta',
+        '---',
+        '',
+        'Body.',
+        '',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const { loadProjectSkills } = await import('../../server/skills.mjs')
+    const loaded = await loadProjectSkills(projectDir)
+    const tagged = loaded.find((skill) => skill.name === 'tagged')
+
+    expect(tagged?.tags).toEqual(['alpha', 'beta'])
+    expect(tagged?.version).toBe('1.2.3')
+  })
 })

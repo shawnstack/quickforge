@@ -83,7 +83,7 @@ server/
 ├── storage.mjs               # 文件存储层 (1359 行)
 ├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
-├── skills.mjs                # Agent Skills 管理和加载 (645 行)
+├── skills.mjs                # Agent Skills 管理和加载 (538 行)
 ├── hooks/                    # Hooks 事件钩子（设置规范化 / 事件引擎 / 命令与 Webhook 执行器）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
@@ -449,9 +449,11 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 为 `run_subagent`、定时任务和前端 Agents 页面提供统一列表；QuickForge 自定义 Profile 可编辑两个能力开关，外部 readonly Profile 不可编辑，内置 `general` / `explore` 仅通过 `agent-profile-overrides` 编辑这两个开关、模型和思考等级。子 Agent 只继承父会话当前实际工具集中对应的 MCP/Skills 工具，不从全局额外扩展，MCP 保持父会话审批语义，关闭 Skills 时不注入可用 Skills 目录，并禁止递归 `run_subagent`。
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 
-### skills.mjs (645 行)
+### skills.mjs (538 行)
 
 **用途**: Agent Skills 的发现、加载和管理。
+
+**Front matter 解析**: 统一走 `frontmatter.mjs`（`parseSimpleYamlMap(text, { booleans: false })`），本文件不再维护私有副本——两份实现曾经分叉：共享那份认 YAML 短横线列表，私有那份不认，于是仓库自带的插件技能把 `metadata.tags` 写成列表时被读成空串（技能面板里那三个插件的标签/触发词一直是空的，11-15 修）。值一律按字符串读（`booleans: false`）；`metadata` 里的数组压成逗号串，再由 `splitMetadataList` 切回 `tags` / `triggers`。
 
 **搜索路径**:
 1. `<quickforge>/skills/` — 随 Runtime 分发的内置全局 skills；当前包含 Anthropic `skill-creator`、`plugin-creator` 与 `quickforge-api`（驱动本机 HTTP API 自我操作，见 [QuickForge 本地 API Skill](../architecture/quickforge-api-skill.zh-CN.md)）

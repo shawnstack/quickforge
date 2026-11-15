@@ -129,6 +129,37 @@ function parseBlockScalar(lines, style) {
     : unindented.join('\n').trim()
 }
 
+function firstContentIndex(lines, from) {
+  let index = from
+  while (index < lines.length) {
+    const trimmed = lines[index].trim()
+    if (trimmed && !trimmed.startsWith('#')) return index
+    index += 1
+  }
+  return -1
+}
+
+function isSequenceItem(line, itemIndent) {
+  if (leadingIndent(line) !== itemIndent) return false
+  return /^(?:-|-[ \t])/.test(line.slice(itemIndent))
+}
+
+function parseSequenceItems(lines, startIndex, itemIndent) {
+  const items = []
+  let index = startIndex
+  while (index < lines.length) {
+    const line = lines[index]
+    if (!line.trim()) {
+      index += 1
+      continue
+    }
+    if (!isSequenceItem(line, itemIndent)) break
+    items.push(stripInlineComment(line.slice(itemIndent).replace(/^-/, '')))
+    index += 1
+  }
+  return { items, nextIndex: index }
+}
+
 export function parseSimpleYamlMap(text, options = {}) {
   const result = {}
   const lines = String(text || '').split(/\r?\n/)
@@ -164,6 +195,19 @@ export function parseSimpleYamlMap(text, options = {}) {
       continue
     }
 
+    // 短横线列表（YAML seq）：`key:` 后面跟 `- item`，项可以与键同缩进也可以更深。
+    // 仓库自带的插件 SKILL.md 就用这种写法写 metadata.tags；不认它就会读成空串。
+    const seqStart = firstContentIndex(lines, index + 1)
+    if (seqStart !== -1) {
+      const seqIndent = leadingIndent(lines[seqStart])
+      if (isSequenceItem(lines[seqStart], seqIndent)) {
+        const sequence = parseSequenceItems(lines, seqStart, seqIndent)
+        result[key] = sequence.items
+        index = sequence.nextIndex
+        continue
+      }
+    }
+
     const nested = {}
     let nestedIndex = index + 1
     while (nestedIndex < lines.length) {
@@ -184,7 +228,24 @@ export function parseSimpleYamlMap(text, options = {}) {
       }
 
       const [, nestedKey, nestedRawValue = ''] = nestedMatch
-      nested[nestedKey] = parseYamlScalar(nestedRawValue.trim(), options)
+      if (nestedRawValue.trim()) {
+        nested[nestedKey] = parseYamlScalar(nestedRawValue.trim(), options)
+        nestedIndex++
+        continue
+      }
+
+      const nestedSeqStart = firstContentIndex(lines, nestedIndex + 1)
+      if (nestedSeqStart !== -1) {
+        const nestedItemIndent = leadingIndent(lines[nestedSeqStart])
+        if (nestedItemIndent > indent && isSequenceItem(lines[nestedSeqStart], nestedItemIndent)) {
+          const sequence = parseSequenceItems(lines, nestedSeqStart, nestedItemIndent)
+          nested[nestedKey] = sequence.items
+          nestedIndex = sequence.nextIndex
+          continue
+        }
+      }
+
+      nested[nestedKey] = ''
       nestedIndex++
     }
 

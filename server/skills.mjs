@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { atomicProjectConfigUpdate, configDir, dataDir } from './storage.mjs'
 import { getEnabledPluginSkillSources } from './plugins/registry.mjs'
 import { logger } from './utils/logger.mjs'
+import { parseSimpleYamlMap as parseSharedYamlMap } from './frontmatter.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const bundledSkillsDir = path.resolve(__dirname, '..', 'skills')
@@ -102,134 +103,25 @@ function parseFrontmatter(text) {
   }
 }
 
-function leadingIndent(line) {
-  const match = line.match(/^\s*/)
-  return match ? match[0].length : 0
-}
-
-function stripInlineComment(value) {
-  const trimmed = value.trim()
-  if (trimmed.startsWith('"') || trimmed.startsWith("'")) return trimmed
-  const index = trimmed.indexOf(' #')
-  return index >= 0 ? trimmed.slice(0, index).trimEnd() : trimmed
-}
-
-function parseYamlScalar(value) {
-  const trimmed = stripInlineComment(String(value ?? ''))
-  if (!trimmed) return ''
-
-  if (
-    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
-    (trimmed.startsWith("'") && trimmed.endsWith("'"))
-  ) {
-    return trimmed
-      .slice(1, -1)
-      .replace(/\\"/g, '"')
-      .replace(/\\'/g, "'")
-  }
-
-  return trimmed
-}
-
-function collectIndentedBlock(lines, startIndex, parentIndent) {
-  const block = []
-  let index = startIndex
-  while (index < lines.length) {
-    const line = lines[index]
-    if (!line.trim()) {
-      block.push(line)
-      index++
-      continue
-    }
-    if (leadingIndent(line) <= parentIndent) break
-    block.push(line)
-    index++
-  }
-  return { block, nextIndex: index }
-}
-
-function parseBlockScalar(lines, style) {
-  const nonEmpty = lines.filter((line) => line.trim())
-  const minIndent = nonEmpty.length
-    ? Math.min(...nonEmpty.map((line) => leadingIndent(line)))
-    : 0
-  const unindented = lines.map((line) => line.slice(Math.min(minIndent, line.length)))
-  return style === '>'
-    ? unindented.join(' ').replace(/\s+/g, ' ').trim()
-    : unindented.join('\n').trim()
-}
-
+// 解析逻辑只在 `frontmatter.mjs` 一处维护。这里曾经是一份私有副本，两份实现悄悄分叉：
+// 共享那份认 YAML 短横线列表，这份不认——仓库自带插件技能（metadata.tags 写成列表）的
+// 标签因此一直读成空串。薄封装保留 `booleans: false`，技能清单里的值一律按字符串读。
 function parseSimpleYamlMap(text) {
-  const result = {}
-  const lines = String(text || '').split(/\r?\n/)
-  let index = 0
-
-  while (index < lines.length) {
-    const line = lines[index]
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || leadingIndent(line) > 0) {
-      index++
-      continue
-    }
-
-    const match = line.match(/^([A-Za-z0-9_-]+):(?:\s*(.*))?$/)
-    if (!match) {
-      index++
-      continue
-    }
-
-    const [, key, rawValue = ''] = match
-    const value = rawValue.trim()
-
-    if (value === '|' || value === '>') {
-      const { block, nextIndex } = collectIndentedBlock(lines, index + 1, 0)
-      result[key] = parseBlockScalar(block, value)
-      index = nextIndex
-      continue
-    }
-
-    if (value) {
-      result[key] = parseYamlScalar(value)
-      index++
-      continue
-    }
-
-    const nested = {}
-    let nestedIndex = index + 1
-    while (nestedIndex < lines.length) {
-      const nestedLine = lines[nestedIndex]
-      const nestedTrimmed = nestedLine.trim()
-      if (!nestedTrimmed || nestedTrimmed.startsWith('#')) {
-        nestedIndex++
-        continue
-      }
-
-      const indent = leadingIndent(nestedLine)
-      if (indent <= 0) break
-
-      const nestedMatch = nestedLine.slice(indent).match(/^([A-Za-z0-9_.-]+):(?:\s*(.*))?$/)
-      if (!nestedMatch) {
-        nestedIndex++
-        continue
-      }
-
-      const [, nestedKey, nestedRawValue = ''] = nestedMatch
-      nested[nestedKey] = parseYamlScalar(nestedRawValue.trim())
-      nestedIndex++
-    }
-
-    result[key] = Object.keys(nested).length ? nested : ''
-    index = Object.keys(nested).length ? nestedIndex : index + 1
-  }
-
-  return result
+  return parseSharedYamlMap(text, { booleans: false })
 }
 
 function normalizeMetadata(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const metadata = {}
   for (const [key, item] of Object.entries(value)) {
-    if (!key || item === undefined || item === null || typeof item === 'object') continue
+    if (!key || item === undefined || item === null) continue
+    // 数组（YAML 短横线列表）压成逗号串：metadata 在 API/前端是 Record<string, string>，
+    // tags / triggers 再由 splitMetadataList 按逗号切回来。
+    if (Array.isArray(item)) {
+      metadata[key] = item.map((entry) => String(entry ?? '')).join(', ')
+      continue
+    }
+    if (typeof item === 'object') continue
     metadata[key] = String(item)
   }
   return metadata
@@ -244,6 +136,7 @@ async function listSkillDirectories(root) {
 }
 
 function splitMetadataList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean)
   return String(value || '')
     .split(',')
     .map((item) => item.trim())

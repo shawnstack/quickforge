@@ -1,4 +1,4 @@
-type MemoryToolOutputTextKey = 'memoryContentEmpty' | 'memoryContentSaved'
+type MemoryToolOutputTextKey = 'memoryContentEmpty' | 'memoryContentSaved' | 'memoryContentSavedWorkspace'
 
 type MemoryToolResultLike = {
   isError?: boolean
@@ -32,7 +32,10 @@ export function formatManageGlobalMemoryOutput(
   }
 
   if (action === 'write' && (status === 'saved' || status === undefined)) {
-    return translate('memoryContentSaved')
+    // 同一个工具在 bot 会话里写的是它自己工作区的 MEMORY.md（服务端 details.target
+    // 标记落点）。一律说「全局记忆已保存」，等于让 bot 的写入在界面上冒充用户的记忆。
+    // 历史消息没有 target 字段（那一版只会写全局），仍按全局文案渲染。
+    return translate(result.details.target === 'workspace' ? 'memoryContentSavedWorkspace' : 'memoryContentSaved')
   }
 
   return ''

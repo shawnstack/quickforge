@@ -151,7 +151,7 @@ export async function readGlobalMemoryPrompt(options = {}) {
   }
 }
 
-function writeResult(content, saved) {
+function writeResult(content, saved, target) {
   // `details.action` stays 'write' because the chat renderer keys off it
   // (including for historical messages).
   return {
@@ -159,6 +159,10 @@ function writeResult(content, saved) {
     details: {
       action: 'write',
       status: 'saved',
+      // Which file the write landed on. The same tool writes the user's global
+      // memory for an ordinary session and the bot's own workspace copy for a bot
+      // session, so the "saved" toast must not always claim it was the global one.
+      target,
       markdown: saved.markdown,
       chars: saved.chars,
       path: saved.path,
@@ -171,7 +175,7 @@ function writeResult(content, saved) {
 export async function writeGlobalMemory(params = {}, options = {}) {
   await assertMemoryEnabled(options)
   const saved = await saveGlobalMemoryDocument(params.markdown, options)
-  return writeResult('Global user memory saved.', saved)
+  return writeResult('Global user memory saved.', saved, 'global')
 }
 
 // The same document, for the memory file that belongs to one bot's workspace
@@ -192,5 +196,5 @@ export async function writeWorkspaceMemory(params = {}, workspaceRoot, options =
     chars: validated.length,
     path: WORKSPACE_MEMORY_DISPLAY_PATH,
     file: await writeMarkdownAtomically(path.join(workspaceRoot, GLOBAL_MEMORY_FILE_NAME), validated),
-  }))
+  }, 'workspace'))
 }

@@ -60,7 +60,7 @@ describe('global memory', () => {
 
     const written = await writeGlobalMemory({ markdown }, options)
     expect(written.content).toBe('Global user memory saved.')
-    expect(written.details).toMatchObject({ action: 'write', status: 'saved', markdown })
+    expect(written.details).toMatchObject({ action: 'write', status: 'saved', target: 'global', markdown })
     await expect(readGlobalMemory(options)).resolves.toMatchObject({ markdown })
   })
 

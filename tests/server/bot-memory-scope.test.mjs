@@ -101,7 +101,7 @@ describe('manage_global_memory lands on the file the session actually owns', () 
     await expect(readFile(botMemoryFile(), 'utf8')).resolves.toBe('# bot memory\n\n第一条。\n')
 
     expect(first.content).toBe('Bot workspace memory saved.')
-    expect(first.details).toMatchObject({ action: 'write', status: 'saved', path: 'bot workspace MEMORY.md' })
+    expect(first.details).toMatchObject({ action: 'write', status: 'saved', target: 'workspace', path: 'bot workspace MEMORY.md' })
 
     // 全局那份已经有用户内容时，bot 再写一次也必须一个字都不动（内容 + mtime）。
     await mkdir(path.dirname(globalMemoryFile()), { recursive: true })

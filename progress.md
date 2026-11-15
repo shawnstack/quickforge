@@ -13,5 +13,6 @@
 - 验证：**先证会红**——主助手把两个 server 文件回滚到 HEAD 后独立重跑，3 例红、第一条红在 `expected(true).toBe(false)`（即「全局文件被写了」，而不是返回值文案），恢复后 4 例绿。全量 582 文件 / 6374 例绿 / 2 skipped、`tsc -b` 净、`eslint .` 净、`check:wiki` `matched=399 resolved=399 bad=0`。
 - 已知行为变化：项目记录被删、会话还在的**普通**项目会话，以前写全局，现在抛 `Bot memory file is unavailable for this session.`。这是「绝不悄悄退回写全局」的代价——判错一次就是用户的记忆被整篇覆盖。
 - 回执：`~/.quickforge/bots/bot-b9c0e755/.bot/inbox-from-agents/bot-memory-scope.md`（子会话实现，主助手独立复跑红→绿）。
+- 紧接着补上另一半（01:29）：落点改了、界面文案没改——`formatManageGlobalMemoryOutput` 把任何 `action:'write'` + `status:'saved'` 都渲染成「全局记忆已保存」，于是 bot 写自己那份时，界面上说的还是「你的全局记忆被保存了」。现在服务端在 `details` 里带 `target: 'global' | 'workspace'`，前端按它分流（新增 i18n 键 `memoryContentSavedWorkspace`，中英各一条）；**没有 `target` 的历史消息仍按全局文案渲染**，别把老消息的语义改掉。**先证会红**：新用例在旧格式化函数上红在 `expected '全局记忆已保存。' to be '本 bot 的记忆已保存。'`；再把服务端的 `target` 一行摘掉，两条 server 断言（`target: 'workspace'` / `'global'`）同时红，恢复后全绿。这一笔的闸门：582 文件 / 6375 例绿 / 2 skipped、`tsc -b` 净、`eslint .` 净、`check:wiki` 399/399 bad=0（改 `i18n.ts` 与 `global-memory-tool-output.ts` 招来 3 条行数漂移，当场连同说明一起改掉）。
 - Notes：改动全在 `server/**`，运行实例要重启才生效（当前实例启动于 2026-11-15 01:06，重启等用户明说）。
 

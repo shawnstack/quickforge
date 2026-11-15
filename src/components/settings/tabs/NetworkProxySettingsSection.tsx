@@ -35,6 +35,8 @@ export function NetworkProxySettingsSection({ active }: { active?: boolean } = {
   const [error, setError] = useState('')
 
   const networkProxyRef = useRef({ mode: networkProxyMode, url: networkProxyUrl, saving: networkProxySaving, loaded: networkProxyLoaded, status: networkProxyStatus })
+  // 分区被切走再切回会重新拉一次；先发的那次可能后到，旧快照不许盖掉新的。
+  const loadRequestRef = useRef(0)
 
   const markSaved = (text: string) => {
     setMessage(text)
@@ -42,10 +44,13 @@ export function NetworkProxySettingsSection({ active }: { active?: boolean } = {
   }
 
   const loadNetworkProxy = async () => {
+    loadRequestRef.current += 1
+    const requestId = loadRequestRef.current
     try {
       const response = await fetch('/api/system/network-proxy', { cache: 'no-store' })
       const payload = await response.json().catch(() => null) as NetworkProxyState | null
       if (!response.ok) throw new Error((payload as { error?: string } | null)?.error || t('requestFailed'))
+      if (requestId !== loadRequestRef.current) return
       const mode = payload?.config?.mode || 'direct'
       const url = payload?.config?.proxyUrl || ''
       setNetworkProxyMode(mode)
@@ -55,6 +60,7 @@ export function NetworkProxySettingsSection({ active }: { active?: boolean } = {
       setNetworkProxyLoaded(true)
       networkProxyRef.current = { ...networkProxyRef.current, mode, url, status: payload?.status || null, loaded: true }
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return
       setError(err instanceof Error ? err.message : t('requestFailed'))
     }
   }

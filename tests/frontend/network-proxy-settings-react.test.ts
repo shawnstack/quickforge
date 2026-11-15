@@ -11,7 +11,7 @@ vi.mock('@/components/ui/info-tip', () => ({ InfoTip: () => null }))
 
 import { NetworkProxySettingsSection } from '../../src/components/settings/tabs/NetworkProxySettingsSection'
 
-type Node = ReactElement<{ children?: unknown; disabled?: boolean; onClick?: () => void }>
+type Node = ReactElement<{ children?: unknown; disabled?: boolean; onClick?: () => void; value?: unknown }>
 function nodes(tree: unknown): Node[] {
   if (Array.isArray(tree)) return tree.flatMap(nodes)
   if (!tree || typeof tree !== 'object' || !('props' in tree)) return []
@@ -89,5 +89,47 @@ describe('React network proxy settings', () => {
       expect(refreshButton(tree)?.props.disabled).toBe(false)
     })
     expect(refreshCalls).toBe(2)
+  })
+})
+
+describe('React network proxy settings load ordering', () => {
+  function payloadFor(mode: 'direct' | 'manual', proxyUrl: string) {
+    return JSON.stringify({
+      config: { mode, proxyUrl },
+      status: { effectiveMode: mode, supported: true, source: 'config', runtimeKind: 'desktop' },
+    })
+  }
+
+  it('ignores a stale load that returns after the section is reactivated', async () => {
+    const firstLoad = deferred<Response>()
+    const secondLoad = deferred<Response>()
+    let loads = 0
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === '/api/system/network-proxy') {
+        loads += 1
+        return loads === 1 ? firstLoad.promise : secondLoad.promise
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    let tree = render(true)
+    await flushPromises()
+    tree = render(false)
+    await flushPromises()
+    tree = render(true)
+    await flushPromises()
+    expect(loads).toBe(2)
+
+    secondLoad.resolve(new Response(payloadFor('manual', 'http://127.0.0.1:7890'), { status: 200 }))
+    await vi.waitFor(() => {
+      tree = render(true)
+      expect(tree.some((node) => node.props.value === 'http://127.0.0.1:7890')).toBe(true)
+    })
+
+    firstLoad.resolve(new Response(payloadFor('direct', ''), { status: 200 }))
+    await flushPromises()
+    tree = render(true)
+    expect(tree.some((node) => node.props.value === 'http://127.0.0.1:7890')).toBe(true)
   })
 })

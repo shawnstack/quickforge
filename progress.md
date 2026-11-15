@@ -10,7 +10,7 @@
 - 测试：新增 `tests/frontend/workbench-stale-response.test.ts`（2 例），用 deferred promise + 手动 `window.setTimeout/setInterval` **主动构造「先发后到」的时序**：第二轮先 resolve（新数据落地），第一轮晚到（旧快照）→ 断言列表仍是新数据、`updatedAt` 不回退、进行中的刷新不被旧请求提前结束。
 - 验证：**先证会红**——把修复整块回滚到 HEAD 后 2 例全红，红在 `AssertionError: expected '…' to contain 'NEW-BOT'`（正是旧快照盖掉新数据），不是 TypeError；恢复后 2 例绿。全量 581 文件 / 6370 例绿 / 2 skipped、`tsc -b` 净、`eslint .` 净。
 - 回执：`~/.quickforge/bots/bot-b9c0e755/.bot/inbox-from-agents/workbench-stale-response.md`（子会话实现，主助手独立复跑红→绿）。
-- Notes：① 这一族（`AGENTS.md` Definition of Done 第 5 条）今天已修 5 处；同族仍**未逐个核**的候选：`mcp-servers-dialog.tsx`、`settings/tabs/DefaultOptionsSettingsTab.tsx`、`plugins/PluginFrame.tsx`、`lib/tool-renderers/shared.tsx`；② 扫这一族时守卫词表要含 `requestId` / `disposed`，否则 `project-directory-picker.tsx` 这种**正确写法**会被当成候选（本轮踩过）。
+- Notes：① 这一族（`AGENTS.md` Definition of Done 第 5 条）当天已修 5 处；同族 4 个候选（`mcp-servers-dialog.tsx` / `settings/tabs/DefaultOptionsSettingsTab.tsx` / `plugins/PluginFrame.tsx` / `lib/tool-renderers/shared.tsx`）已由主助手（00:26）与小跟班（11-16 独立复核）各自核过、结论一致：**都不需要加取数序号**——它们要么 one-shot 加载、要么每请求独立处理，不满足「多轮并发取数」这个前提；`DefaultOptionsSettingsTab` 另有一条「加载回来把刚拨的开关盖回去」的窄窗，但并发只有一轮、加序号治不了它，要治得做「加载中禁用控件」，代价大于收益，**判不改**；② 扫这一族时守卫词表要含 `requestId` / `disposed`，否则 `project-directory-picker.tsx` 这种**正确写法**会被当成候选（本轮踩过）。
 
 ## goal 轮次结算「派发前窗口」真机可达性核查（2026-11-15 01:48）
 

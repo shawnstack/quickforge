@@ -75,6 +75,7 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
     editorOpenRef,
     pendingTaskIdsRef,
     taskMenuPositionRef,
+    historyRequestRef,
   } = useScheduledTasksPageState()
   const defaultProjectId = projects[0]?.id ?? ''
 
@@ -108,15 +109,20 @@ export function ScheduledTasksPage({ onOpenSession }: ScheduledTasksPageProps) {
   }
 
   async function loadHistory(filters = appliedHistoryFilters) {
+    historyRequestRef.current += 1
+    const requestId = historyRequestRef.current
     setHistoryLoading(true)
     setError('')
     try {
       const payload = await fetchScheduledTaskHistory(filters)
+      // 翻页/改筛选可以连着点，先发的请求可能后到；旧数据不许盖掉新查询的结果。
+      if (requestId !== historyRequestRef.current) return
       setHistoryPayload(payload)
     } catch (err) {
+      if (requestId !== historyRequestRef.current) return
       setError(err instanceof Error ? err.message : t('requestFailed'))
     } finally {
-      setHistoryLoading(false)
+      if (requestId === historyRequestRef.current) setHistoryLoading(false)
     }
   }
 

@@ -48,6 +48,8 @@ export function useScheduledTasksPageState() {
   const editorOpenRef = useRef(false)
   const pendingTaskIdsRef = useRef(new Set<string>())
   const taskMenuPositionRef = useRef<TaskMenuPosition | null>(null)
+  // 历史查询的请求序号：慢响应回来时页码/筛选可能已经变了，旧数据不能盖新的。
+  const historyRequestRef = useRef(0)
 
   return {
     tasks,
@@ -99,5 +101,6 @@ export function useScheduledTasksPageState() {
     editorOpenRef,
     pendingTaskIdsRef,
     taskMenuPositionRef,
+    historyRequestRef,
   }
 }

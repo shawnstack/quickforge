@@ -440,3 +440,38 @@ describe('ScheduledTasksPage execution history rows', () => {
     expect(rendered).not.toContain('boom')
   })
 })
+
+describe('ScheduledTasksPage history response ordering', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+  function runFixture(title: string) {
+    return { id: `run-${title}`, taskId: 'task-1', taskTitle: title, status: 'success', trigger: 'manual', startedAt: '2026-01-01T00:00:00Z', durationMs: 12 }
+  }
+  function historyResponse(runs: unknown[]) {
+    return { ok: true, json: async () => ({ runs, total: runs.length, page: 1, pageSize: 10 }) }
+  }
+
+  it('keeps the newest history query when the older response arrives late', async () => {
+    harness.states[1] = 'history'
+    const older = deferred<unknown>()
+    const newer = deferred<unknown>()
+    let call = 0
+    harness.fetch.mockImplementation(() => {
+      call += 1
+      return call === 1 ? older.promise : newer.promise
+    })
+
+    void button('query').props.onClick?.()
+    change('keyword', 'newer')
+    void button('query').props.onClick?.()
+    expect(call).toBe(2)
+
+    newer.resolve(historyResponse([runFixture('Fresh run')]))
+    await flush()
+    older.resolve(historyResponse([runFixture('Stale run')]))
+    await flush()
+
+    const rendered = text(render())
+    expect(rendered).not.toContain('Stale run')
+    expect(rendered).toContain('Fresh run')
+  })
+})

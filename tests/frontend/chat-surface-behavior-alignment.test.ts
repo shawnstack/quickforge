@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it, vi } from 'vitest'
 import { readAgentSnapshot } from '../../src/components/chat/surface/ChatSurface'
 import type { Agent, AgentMessage } from '../../src/components/chat/surface/ChatTypes'
@@ -165,7 +166,7 @@ describe('streaming code-block gate', () => {
 })
 
 describe('stable surface key across Deferred→Real promotion', () => {
-  const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+  const appSource = readAppSource()
 
   it('keys the surface by runtime scope id so promotion updates in place', () => {
     // `agent.sessionId` flips from `pending-*` to the real session id at the

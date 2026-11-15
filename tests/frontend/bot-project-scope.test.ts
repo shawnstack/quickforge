@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it } from 'vitest'
 import { isBotProject } from '../../src/lib/bot-project'
 import type { ProjectInfo } from '../../src/lib/types'
@@ -12,7 +13,7 @@ import type { ProjectInfo } from '../../src/lib/types'
  * - 顶栏项目胶囊、分支菜单、空态项目胶囊：bot 项目与 bot 模式都不显示；
  * - 切进 bot 模式：先等列表加载完，再自动打开第一个 bot。
  */
-const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const appSource = readAppSource()
 const botWorkspaceSource = readFileSync(new URL('../../src/hooks/useBotWorkspace.ts', import.meta.url), 'utf8')
 const newChatStateSource = readFileSync(new URL('../../src/hooks/useNewChatEmptyState.ts', import.meta.url), 'utf8')
 const useProjectSource = readFileSync(new URL('../../src/hooks/useProject.ts', import.meta.url), 'utf8')

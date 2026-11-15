@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it } from 'vitest'
 import { findBestPreviewableArtifact } from '../../src/components/workspace/artifact-preview-utils'
 import { extractToolExecutionArtifacts } from '../../src/lib/tool-artifacts'
@@ -64,7 +65,7 @@ describe('findBestPreviewableArtifact', () => {
 })
 
 describe('auto preview source contract', () => {
-  const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+  const appSource = readAppSource()
   const previewActionsSource = readFileSync(new URL('../../src/hooks/useArtifactPreviewActions.ts', import.meta.url), 'utf8')
   const hostSource = readFileSync(new URL('../../src/components/chat/ChatPanelHost.tsx', import.meta.url), 'utf8')
   const utilsSource = readFileSync(new URL('../../src/components/workspace/artifact-preview-utils.ts', import.meta.url), 'utf8')

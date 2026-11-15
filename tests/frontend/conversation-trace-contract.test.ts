@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it } from 'vitest'
 import { appCss } from '../helpers/app-css'
 
@@ -11,7 +12,7 @@ import { appCss } from '../helpers/app-css'
  * that the timeline keeps the DOM+percent contract instead of an SVG viewBox.
  */
 
-const app = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const app = readAppSource()
 const view = readFileSync(new URL('../../src/components/chat/trace/ConversationTraceView.tsx', import.meta.url), 'utf8')
 const css = readFileSync(new URL('../../src/components/chat/trace/conversation-trace.css', import.meta.url), 'utf8')
 const uiState = readFileSync(new URL('../../src/hooks/useUIState.ts', import.meta.url), 'utf8')

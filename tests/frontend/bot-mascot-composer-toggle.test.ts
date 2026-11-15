@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it } from 'vitest'
 
 /**
@@ -9,7 +10,7 @@ import { describe, expect, it } from 'vitest'
  * 同一语义；bot 记录明确写了 showOnComposer: false 才隐藏。存量记录没有这个
  * 字段（老服务端进程写出来的），所以前端判据必须是 `!== false` 而不是直接取反。
  */
-const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const appSource = readAppSource()
 const dialogsSource = readFileSync(
   new URL('../../src/components/bots/BotDialogs.tsx', import.meta.url),
   'utf8',

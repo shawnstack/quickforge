@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
@@ -9,7 +9,7 @@ import type { ProjectInfo } from '../../src/lib/types'
 import { appCss } from '../helpers/app-css'
 
 const css = appCss
-const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const appSource = readAppSource()
 
 const project: ProjectInfo = {
   id: 'project-1',

@@ -1,13 +1,11 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Api, Model } from '@earendil-works/pi-ai'
 import type { BackgroundTaskStatus } from '@/lib/types'
-import { DeferredSessionAgent } from '@/lib/deferred-session-agent'
-import { BotMascot } from '@/components/bots/mascot/BotMascot'
 import { AppGitDialogs, AppOverlays } from '@/components/app/AppDialogs'
+import { AppMain, LazyPanelFallback } from '@/components/app/AppMain'
 import { DesktopTitlebarMenu } from '@/components/app/DesktopTitlebarMenu'
 import { PluginUiToasts } from '@/components/plugins/PluginSlot'
-import { ConversationHeader } from '@/components/app/ConversationHeader'
-import { StartupSplash, ConversationLoadingScreen } from '@/components/app/StartupScreens'
+import { StartupSplash } from '@/components/app/StartupScreens'
 import { StartupErrorScreen } from '@/components/app/StartupErrorScreen'
 import { WindowToolbar } from '@/components/app/WindowToolbar'
 import {
@@ -32,15 +30,8 @@ import type {
 } from '@/lib/types'
 import { sessionTitle } from '@/lib/types'
 import { isSameContextUsageDisplayInfo, type ContextUsageDisplayInfo } from '@/components/chat/context-usage'
-import { FirstUseGuideCard } from '@/components/chat/FirstUseGuideCard'
 import { TurnRollbackDialog } from '@/components/chat/FileRollbackDialog'
-import { ChatConversationSurface } from '@/components/chat/ChatConversationSurface'
-import { ConversationTraceView, type TraceAgentLike } from '@/components/chat/trace/ConversationTraceView'
-import { SessionViewPool } from '@/components/chat/SessionViewPool'
-import { ModelSetupEmptyState } from '@/components/chat/ModelSetupEmptyState'
-import { NewChatProjectPicker } from '@/components/chat/NewChatProjectPicker'
 import { ChatSidebar } from '@/components/sidebar/ChatSidebar'
-import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { useProject } from '@/hooks/useProject'
 import { useAgentAccessMode } from '@/hooks/useAgentAccessMode'
 import { useCrossTabSync } from '@/hooks/useCrossTabSync'
@@ -96,25 +87,15 @@ import { useMobileSidebar } from '@/hooks/useMobileSidebar'
 // --- Code-split secondary views (only loaded when first opened) ---
 // These are conditionally-mounted routes/panels; lazy loading keeps heavy
 // dependencies out of the initial bundle. Props types are inferred.
-const ChatPanelHost = lazy(() =>
-  import('@/components/chat/ChatPanelHost').then((m) => ({ default: m.ChatPanelHost })),
-)
 const SharedConversationPage = lazy(() =>
   import('@/components/share/SharedConversationPage').then((m) => ({ default: m.SharedConversationPage })),
 )
 const WorkspaceInspector = lazy(() =>
   import('@/components/workspace/WorkspaceInspector').then((m) => ({ default: m.WorkspaceInspector })),
 )
-const TerminalDock = lazy(() =>
-  import('@/components/terminal/TerminalDock').then((m) => ({ default: m.TerminalDock })),
-)
 const SettingsWorkspacePage = lazy(() =>
   import('@/components/settings/SettingsWorkspacePage').then((m) => ({ default: m.SettingsWorkspacePage })),
 )
-
-function LazyPanelFallback() {
-  return <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">{t('loading')}</div>
-}
 
 function LazyOverlayFallback() {
   return null
@@ -1231,224 +1212,87 @@ function MainApp() {
         </div>
       ) : null}
 
-      <main className={cn(
-        'flex min-w-0 flex-1 flex-col bg-[var(--quickforge-main-bg)] md:overflow-hidden md:rounded-tl-2xl md:border-l md:border-t border-[color-mix(in_oklab,var(--border)_60%,transparent)]',
-      )}>
-        <ConversationHeader
-          headerRef={conversationHeaderRef}
-          title={agentManager.currentTitle}
-          projectName={headerProject?.name}
-          projectId={headerProject?.id}
-          gitRepository={headerGitRepository}
-          gitBranch={headerGitBranch}
-          gitDirtyCount={headerGitDirtyCount}
-          branchMenuOpen={branchMenuOpen}
-          onBranchMenuToggle={() => setBranchMenuOpen((value) => !value)}
-          onCheckout={handleCheckoutTitleBranch}
-          onBranchCreated={handleBranchCreated}
-          onOpenGraph={() => {
-            setBranchMenuOpen(false)
-            setGitGraphOpen(true)
-          }}
-          onOpenChanges={() => {
-            setBranchMenuOpen(false)
-            openWorkspaceGitChanges()
-          }}
-          showViewSwitch={Boolean(agentManager.currentSessionId)}
-          conversationView={conversationView}
-          onSetConversationView={setConversationView}
-          conversationMenuDisabled={!agentManager.currentSessionId || needsModelSetup}
-          currentSessionPinned={currentSessionPinned}
-          onTogglePinned={handleToggleCurrentSessionPinned}
-          onRename={handleRenameCurrentSession}
-          onShare={handleShareCurrentSession}
-          onArchive={handleArchiveCurrentSession}
-          mobileShell={mobileShell}
-        />
-
-        <section className="relative flex min-h-0 flex-1 flex-col">
-          {visibleLoadingSessionId ? (
-            <ConversationLoadingScreen
-              key={visibleLoadingSessionId}
-              exiting={renderedLoadingSessionId === visibleLoadingSessionId}
-            />
-          ) : null}
-          {needsModelSetup ? (
-            <ModelSetupEmptyState
-              onAddModel={openModelSettings}
-              onUseExample={() => {
-                void activateLiteLlmExampleModel().catch((error) => logger.error('Failed to use LiteLLM example:', error))
-              }}
-            />
-          ) : (
-              <>
-                <ChatConversationSurface className={cn(
-                  showNewChatEmptyState ? 'quickforge-empty-chat' : undefined,
-                  renderedLoadingSessionId === visibleLoadingSessionId && 'quickforge-conversation-enter',
-                )}>
-                  {/*
-                    轨迹视图：铺在对话区之上的同级视图（不是浮层、不是侧栏）。
-                    刻意不卸载 SessionViewPool —— ChatSurface 的滚动位置、输入框草稿、
-                    消息窗口都在它里面，卸载后切回会整树重建；用不透明背景覆盖即可
-                    达到「对话区换成轨迹」的视觉效果，且切回零成本。
-                  */}
-                  {conversationView === 'trace' && agentManager.agent ? (
-                    <div className="quickforge-trace-layer">
-                      <ConversationTraceView
-                        agent={agentManager.agent as unknown as TraceAgentLike}
-                        onOpenChat={() => setConversationView('chat')}
-                      />
-                    </div>
-                  ) : null}
-                  {showNewChatEmptyState ? (
-                    <div className="quickforge-empty-chat-hero" aria-hidden="true">
-                      <h1 className="quickforge-empty-chat-title">{newChatGreeting}</h1>
-                    </div>
-                  ) : null}
-                  <ErrorBoundary>
-                    <Suspense fallback={<LazyPanelFallback />}>
-                    {/*
-                      会话视图保活池：非活跃会话的渲染子树保留在 DOM 中（hidden），
-                      切回时按行 key 复用 fiber，而不是整树重建。
-                      key 与 ChatPanelHost 内部 ChatSurface 的 key 完全一致
-                      （runtimeScopeId），所以「同 key 不重挂载」的语义不变；
-                      Deferred→Real 提升期间 scope id 不变，也不会因为池而多一次切换。
-                    */}
-                    <SessionViewPool
-                      activeKey={agentManager.currentRuntimeScopeId}
-                      activeWeight={agentManager.agent?.state.messages.length ?? 0}
-                      activeView={(
-                    <ChatPanelHost
-                      agent={agentManager.agent}
-                      capabilities={chatCapabilities}
-                      // 稳定 key：Deferred→Real 提升不重挂载 ChatSurface，
-                      // 会话切换（scope id 变化）时由外层 SessionViewPool 决定
-                      // 是复用已保活的子树还是新建。
-                      agentRuntimeScopeId={agentManager.currentRuntimeScopeId}
-                      // bot 模式下把吉祥物贴在输入框顶上：闲着的时候偶尔走一小段，
-                      // 其余时间安静站着；有状态就演思考/干活/提醒。
-                      // bot 模式下默认渲染（拿不到 activeBot 时用默认外观，免得「看不见」
-                      // 被误读成「坏了」）；bot 设置里关掉「在输入框上方显示」才不渲染。
-                      composerMascot={botMode && composerMascotVisible
-                        ? (
-                          <BotMascot
-                            // 小动作组（打招呼/伸懒腰/打哈欠/偷看打字/被夸）只在 idle 生效，
-                            // 由 use-mascot-actions gate；散步优先级最高。
-                            state={mascotStrolling ? 'walk' : mascotAction ?? mascotState}
-                            // 画布 512 里球只占 300（余量留给跳跃），所以尺寸不等于球径：
-                            // size=79 的实际球径约 46.3px。给过 64（球径 37px）被说「没在动」，
-                            // 又给过 104（球径 61px）被说「太大了」—— 79 是球径下限 46px
-                            // （bot-mascot.test.ts 锁的）之上能取到的最小整数；
-                            // 球顶往上探约 46px，压不到最后一条消息。
-                            size={79}
-                            look={activeBot?.mascot}
-                            stroll={mascotStrolling}
-                            // 互动彩蛋（悬停抬眼 / 点一下被戳 / 连点转晕）只给这一只：
-                            // 待机、犯困时才响应，走路和忙状态不理人；事件只挂在球本体，
-                            // 空白处照常穿透到下面的输入框。侧栏和设置预览不加。
-                            interactive
-                          />
-                        )
-                        : undefined}
-                      // 发送文本回调：bot 吉祥物的「被夸」检测（夸奖词 → 回答完演得意）
-                      onComposerSend={handleComposerSend}
-                      onModelSelect={openCustomModelSelector}
-                      revision={agentManager.chatPanelRevision}
-                      agentAccessMode={agentAccessMode}
-                      workspaceToolsEnabled={Boolean(agentManager.currentToolProject?.id)}
-                      project={agentManager.currentToolProject}
-                      projectId={agentManager.currentToolProject?.id}
-                      chatScope={agentManager.chatScope}
-                      onAccessModeChange={setAccessMode}
-                      onRollbackFromMessage={rollbackFromMessage}
-                      onRollbackForResend={rollbackForResend}
-                      onRetryFromMessage={retryFromMessage}
-                      onCopyAnswer={copyAnswer}
-                      onForkFromMessage={forkFromMessage}
-                      onApproveToolCall={handleApproveToolCall}
-                      onRejectToolCall={handleRejectToolCall}
-                      onAnswerAsk={handleAnswerAsk}
-                      onOpenWorkspaceGitChanges={openWorkspaceGitChanges}
-                      onOpenLocalFilePath={openLocalFilePathFromChat}
-                      onOpenFilePreview={openFilePreviewFromArtifactCard}
-                      onRollbackTurn={rollbackTurnFromArtifactCard}
-                      rolledBackTurns={rolledBackTurns}
-                      onReviewFileChanges={reviewFileChangesFromArtifactCard}
-                      onRevealFile={revealFileFromArtifactCard}
-                      onArtifactsChange={(artifacts) => {
-                        setCurrentSessionArtifactsState({
-                          projectId: agentManager.currentToolProject?.id,
-                          sessionId: agentManager.currentSessionId,
-                          artifacts,
-                        })
-                      }}
-                      onLivePresentArtifacts={openLivePresentedArtifacts}
-                      onContextUsageDisplayChange={handleContextUsageDisplayChange}
-                      onInitialRenderReady={handleSessionInitialRenderReady}
-                      onInitialRenderError={handleSessionInitialRenderError}
-                      restoredDraft={restoredDraft}
-                      onRestoredDraftConsumed={consumeRestoredDraft}
-                      newChatEmptyState={showNewChatEmptyState}
-                      taskLauncherEnabled
-                      // 主聊天页专属：发送后把该条用户消息锚定到可视区顶部（侧聊/分享页不传）。
-                      anchorSentUserMessage
-                      taskLauncherVisible={taskLauncherAgent !== null && taskLauncherAgent === agentManager.agent
-                        && agentManager.agent instanceof DeferredSessionAgent && !agentManager.currentSessionId && showNewChatEmptyState}
-                      onTaskLauncherDismiss={invalidateTaskLauncher}
-                      // 轨迹视图盖住对话时，对话区左侧的轮次导航条要一并隐藏——
-                      // 它是 host 的绝对定位子节点（z-index 20 > 轨迹层 10），
-                      // 不隐藏会浮在轨迹面板上面。
-                      hideTurnNavigation={conversationView === 'trace'}
-                    />
-                      )}
-                    />
-                    </Suspense>
-                  </ErrorBoundary>
-                  {showNewChatEmptyState && !botMode ? (
-                    <NewChatProjectPicker
-                      projects={projects}
-                      selectedProject={emptyStateProject}
-                      branch={emptyStateBranch}
-                      branchMenu={emptyStateProject?.id && emptyStateBranch ? {
-                        projectId: emptyStateProject.id,
-                        dirtyCount: titleGitStatus?.counts?.total ?? 0,
-                        onCheckout: handleCheckoutTitleBranch,
-                        onCreated: handleBranchCreated,
-                        onOpenGraph: () => setGitGraphOpen(true),
-                        onOpenChanges: openWorkspaceGitChanges,
-                      } : undefined}
-                      onSelectProject={handleSelectEmptyStateProject}
-                      onClearProject={handleClearEmptyStateProject}
-                      onNewProject={handleSelectEmptyStateNewProject}
-                      onCreateProject={remoteClient ? undefined : handleCreateEmptyStateProject}
-                      workspacePath={defaultWorkspace?.path}
-                    />
-                  ) : null}
-                </ChatConversationSurface>
-                {showFirstUseGuide ? (
-                  <FirstUseGuideCard
-                    hasProject={Boolean(agentManager.currentToolProject?.id)}
-                    onConfigureModel={openModelSettings}
-                    onAddProject={selectProjectDirectory}
-                    onCopyExamplePrompt={handleCopyFirstGuidePrompt}
-                    onDismiss={handleDismissFirstUseGuide}
-                  />
-                ) : null}
-
-              </>
-          )}
-        </section>
-        {terminalDockOpen && !remoteClient && agentManager.currentToolProject?.id ? (
-          <Suspense fallback={<LazyPanelFallback />}>
-            <TerminalDock
-              project={agentManager.currentToolProject}
-              pendingCommand={pendingTerminalCommand}
-              onPendingCommandHandled={handlePendingTerminalCommandHandled}
-              onCollapse={() => setTerminalDockOpen(false)}
-            />
-          </Suspense>
-        ) : null}
-      </main>
+      <AppMain
+        conversationHeaderRef={conversationHeaderRef}
+        agentManager={agentManager}
+        headerProject={headerProject}
+        headerGitRepository={headerGitRepository}
+        headerGitBranch={headerGitBranch}
+        headerGitDirtyCount={headerGitDirtyCount}
+        branchMenuOpen={branchMenuOpen}
+        setBranchMenuOpen={setBranchMenuOpen}
+        handleCheckoutTitleBranch={handleCheckoutTitleBranch}
+        handleBranchCreated={handleBranchCreated}
+        setGitGraphOpen={setGitGraphOpen}
+        openWorkspaceGitChanges={openWorkspaceGitChanges}
+        conversationView={conversationView}
+        setConversationView={setConversationView}
+        needsModelSetup={needsModelSetup}
+        currentSessionPinned={currentSessionPinned}
+        handleToggleCurrentSessionPinned={handleToggleCurrentSessionPinned}
+        handleRenameCurrentSession={handleRenameCurrentSession}
+        handleShareCurrentSession={handleShareCurrentSession}
+        handleArchiveCurrentSession={handleArchiveCurrentSession}
+        mobileShell={mobileShell}
+        visibleLoadingSessionId={visibleLoadingSessionId}
+        renderedLoadingSessionId={renderedLoadingSessionId}
+        openModelSettings={openModelSettings}
+        activateLiteLlmExampleModel={activateLiteLlmExampleModel}
+        chatCapabilities={chatCapabilities}
+        botMode={botMode}
+        composerMascotVisible={composerMascotVisible}
+        mascotStrolling={mascotStrolling}
+        mascotAction={mascotAction}
+        mascotState={mascotState}
+        activeBot={activeBot}
+        handleComposerSend={handleComposerSend}
+        openCustomModelSelector={openCustomModelSelector}
+        agentAccessMode={agentAccessMode}
+        setAccessMode={setAccessMode}
+        rollbackFromMessage={rollbackFromMessage}
+        rollbackForResend={rollbackForResend}
+        retryFromMessage={retryFromMessage}
+        copyAnswer={copyAnswer}
+        forkFromMessage={forkFromMessage}
+        handleApproveToolCall={handleApproveToolCall}
+        handleRejectToolCall={handleRejectToolCall}
+        handleAnswerAsk={handleAnswerAsk}
+        openLocalFilePathFromChat={openLocalFilePathFromChat}
+        openFilePreviewFromArtifactCard={openFilePreviewFromArtifactCard}
+        rollbackTurnFromArtifactCard={rollbackTurnFromArtifactCard}
+        rolledBackTurns={rolledBackTurns}
+        reviewFileChangesFromArtifactCard={reviewFileChangesFromArtifactCard}
+        revealFileFromArtifactCard={revealFileFromArtifactCard}
+        setCurrentSessionArtifactsState={setCurrentSessionArtifactsState}
+        openLivePresentedArtifacts={openLivePresentedArtifacts}
+        handleContextUsageDisplayChange={handleContextUsageDisplayChange}
+        handleSessionInitialRenderReady={handleSessionInitialRenderReady}
+        handleSessionInitialRenderError={handleSessionInitialRenderError}
+        restoredDraft={restoredDraft}
+        consumeRestoredDraft={consumeRestoredDraft}
+        showNewChatEmptyState={showNewChatEmptyState}
+        newChatGreeting={newChatGreeting}
+        taskLauncherAgent={taskLauncherAgent}
+        invalidateTaskLauncher={invalidateTaskLauncher}
+        projects={projects}
+        emptyStateProject={emptyStateProject}
+        emptyStateBranch={emptyStateBranch}
+        titleGitStatus={titleGitStatus}
+        handleSelectEmptyStateProject={handleSelectEmptyStateProject}
+        handleClearEmptyStateProject={handleClearEmptyStateProject}
+        handleSelectEmptyStateNewProject={handleSelectEmptyStateNewProject}
+        handleCreateEmptyStateProject={handleCreateEmptyStateProject}
+        remoteClient={remoteClient}
+        defaultWorkspace={defaultWorkspace}
+        showFirstUseGuide={showFirstUseGuide}
+        selectProjectDirectory={selectProjectDirectory}
+        handleCopyFirstGuidePrompt={handleCopyFirstGuidePrompt}
+        handleDismissFirstUseGuide={handleDismissFirstUseGuide}
+        terminalDockOpen={terminalDockOpen}
+        pendingTerminalCommand={pendingTerminalCommand}
+        handlePendingTerminalCommandHandled={handlePendingTerminalCommandHandled}
+        setTerminalDockOpen={setTerminalDockOpen}
+      />
       {agentManager.currentToolProject?.id || agentManager.currentSessionId || workspaceInspectorOpen ? (
         <>
           {workspaceInspectorOpen ? <div aria-hidden="true" className="hidden w-px shrink-0 bg-[color-mix(in_oklab,var(--border)_30%,var(--quickforge-sidebar-bg))] lg:block" /> : null}

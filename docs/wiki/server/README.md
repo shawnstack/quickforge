@@ -66,7 +66,7 @@ server/
 ├── agent-goal-runner.mjs     # Legacy Goal 薄门面（re-export 26 个导出名，实现拆入下述 goal-* 模块）
 ├── goal-policy.mjs           # Legacy Goal 常量与白名单（规划权限 / 证据与结算工具集 / 重试阈值 / requestError）
 ├── goal-session-state.mjs    # Legacy Goal 会话记账（准入与模式判定 / stats / 终止意图 / 受信工具记录 / 每会话锁 / agent 空闲等待）
-├── goal-waiters.mjs          # Legacy Goal 完成等待器注册表（durable 终态快照 / stopped 会话 / per-session waiter 三容器在 **Legacy 侧**唯一持有；v2 的同名三容器在 `goal/runner.mjs` 内自成一套）
+├── goal-waiters.mjs          # Legacy Goal 完成等待器注册表（durable 终态快照 / stopped 会话 / per-session waiter 三容器在 Legacy 侧唯一持有；v2 的同名三容器在 goal/runner.mjs 内自成一套）
 ├── goal-budget.mjs           # Legacy Goal 预算断言与用量核算（assertGoalBudget / budgetRemainingMs / usageOnly）
 ├── goal-prompts.mjs          # Legacy Goal prompt 文案组装（规划与续跑提示词 / 可见轮文案 / XML 转义）
 ├── goal-run-orchestration.mjs # Legacy Goal 运行编排（runnerDeps 注入 / commit 屏障 / begin-finish-fail / 续跑调度 / startGoalPlanning）

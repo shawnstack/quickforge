@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import {
   MASCOT_DURATIONS,
   MASCOT_EYE_SHAPE,
@@ -115,7 +116,7 @@ describe('尺寸下限：球径太小就看不出 squash & stretch', () => {
   }
 
   it('输入框那只的球径不小于 46px（给过 64 → 37px，用户反馈「不如设计稿生动」）', () => {
-    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const appSource = readAppSource()
     // 46px 是「10% 的压扁拉伸 ≈ 4.6px」的下限；再小就只剩抖动。
     // 上界由用户的眼睛定：104（球径 61px）被否过「太大了」，别往那个方向加。
     expect(ballDiameter(appSource)).toBeGreaterThanOrEqual(46)
@@ -151,7 +152,7 @@ describe('在输入框顶上溜达', () => {
   })
 
   it('空闲不再被强行切成走路，只有散步窗口里才演 walk', () => {
-    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const appSource = readAppSource()
     // 散步窗口判定随 bot 块迁入 useBotWorkspace；App 侧只接渲染 props。
     const botWorkspaceSource = readFileSync(new URL('../../src/hooks/useBotWorkspace.ts', import.meta.url), 'utf8')
     expect(appSource).not.toContain("mascotState === 'idle' ? 'walk'")
@@ -245,7 +246,7 @@ describe('互动动作（hover / poke / dizzy）', () => {
   })
 
   it('互动只给输入框上方那只；侧栏行和设置预览不加', () => {
-    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const appSource = readAppSource()
     expect(appSource).toMatch(/<BotMascot[\s\S]{0,1200}?interactive/)
     const listSource = readFileSync(
       new URL('../../src/components/bots/BotSidebarList.tsx', import.meta.url),
@@ -358,7 +359,7 @@ describe('动作组（peek / wave / stretch / yawn / pleased / surprise）', () 
   })
 
   it('小动作只挂在输入框上方那只，且不抢业务状态（walk > action > mascotState）', () => {
-    const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+    const appSource = readAppSource()
     expect(appSource).toContain("state={mascotStrolling ? 'walk' : mascotAction ?? mascotState}")
     const hookSource = readFileSync(
       new URL('../../src/components/bots/mascot/use-mascot-actions.ts', import.meta.url),

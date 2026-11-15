@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it } from 'vitest'
 
 const pickerSource = readFileSync(new URL('../../src/components/chat/NewChatProjectPicker.tsx', import.meta.url), 'utf8')
-const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const appSource = readAppSource()
 const projectHookSource = readFileSync(new URL('../../src/hooks/useProject.ts', import.meta.url), 'utf8')
 const projectRouteSource = readFileSync(new URL('../../server/routes/project.mjs', import.meta.url), 'utf8')
 const projectConfigSource = readFileSync(new URL('../../server/project-config.mjs', import.meta.url), 'utf8')

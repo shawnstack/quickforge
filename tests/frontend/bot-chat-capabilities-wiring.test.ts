@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { readAppSource } from './helpers/app-source'
 import { describe, expect, it } from 'vitest'
 import { BOT_CHAT_CAPABILITIES, QUICKFORGE_CHAT_CAPABILITIES } from '../../src/lib/chat-capabilities'
 
@@ -10,7 +11,7 @@ import { BOT_CHAT_CAPABILITIES, QUICKFORGE_CHAT_CAPABILITIES } from '../../src/l
  * - 注入：`App.tsx` 在 bot 语境把它交给 `ChatPanelHost`，并同步给历史动作；
  * - 防御层：`useChatActions` 在真干活之前再判一次能力位。
  */
-const appSource = readFileSync(new URL('../../src/App.tsx', import.meta.url), 'utf8')
+const appSource = readAppSource()
 const chatActionsSource = readFileSync(new URL('../../src/hooks/useChatActions.ts', import.meta.url), 'utf8')
 
 describe('BOT_CHAT_CAPABILITIES', () => {

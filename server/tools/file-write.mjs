@@ -113,7 +113,10 @@ async function editFileLocked(params, context, runtime) {
     throw error
   }
 
-  const nextText = text.replace(oldText, newText)
+  // 替换串必须走函数体：直接传字符串时 String.prototype.replace 会把 $$ / $& / $` / $' / $n
+  // 当替换语义解释。newText 是模型给的任意正文（模板串里的 $$、正则里的 '\$&'、文档里讲
+  // Math 的 $...$），按字符串传会把写进文件的内容静默换掉。
+  const nextText = text.replace(oldText, () => newText)
   const relativePath = toWorkspaceRelative(file, context)
   const diff = createTextDiff(text, nextText, relativePath)
 

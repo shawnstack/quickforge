@@ -357,6 +357,23 @@ describe('toolEditFile', () => {
     expect(updates[0].details.diff.addedLines).toBe(result.details.diff.addedLines)
     expect(updates[0].details.diff.removedLines).toBe(result.details.diff.removedLines)
   })
+
+  // String.prototype.replace 会把替换串里的 $$ / $& / $` / $' / $n 当语义解释：
+  // newText 是模型给的任意正文，一旦含有这些组合（模板串里的 $${n}、正则里的 '\\$&'、
+  // 文档里讲 Math 的 $...$），写进文件的内容就被悄悄换掉。
+  it('treats replacement metacharacters in newText literally', async () => {
+    await fs.writeFile(path.join(tmpDir, 'metachar.txt'), 'cost = formatCost(n)\nescaped = escaped\n', 'utf8')
+    await toolHandlers.edit_file(
+      { path: 'metachar.txt', oldText: 'formatCost(n)', newText: '`$${n.toFixed(2)}`' },
+      context,
+    )
+    await toolHandlers.edit_file(
+      { path: 'metachar.txt', oldText: 'escaped = escaped', newText: "'\\$&' + $' + $`" },
+      context,
+    )
+    const written = await fs.readFile(path.join(tmpDir, 'metachar.txt'), 'utf8')
+    expect(written).toBe("cost = `$${n.toFixed(2)}`\n'\\$&' + $' + $`\n")
+  })
 })
 
 describe('toolPresentFiles', () => {

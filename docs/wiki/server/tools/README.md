@@ -13,7 +13,7 @@
 | [index.mjs](../../../../server/tools/index.mjs) | 工具注册表/装配薄层：装配 `toolHandlers` 并再导出各模块公开面，导入方仍统一 `import './tools/index.mjs'` | 51 |
 | [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 301 |
 | [file-search.mjs](../../../../server/tools/file-search.mjs) | `read_file` + `grep_files`：ripgrep 优先、Node 回退、limit 短路 | 451 |
-| [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一 | 138 |
+| [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一、替换串按字面写入（newText 里的 `$$` / `$&` / `` $` `` / `$'` 不参与 replace 语义） | 141 |
 | [skill-resources.mjs](../../../../server/tools/skill-resources.mjs) | `activate_skill` / `read_skill_resource` / `loadSkillToolContext` | 68 |
 | [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 98 |
 | [run-command.mjs](../../../../server/tools/run-command.mjs) | `run_command`：超时、tail 预览、命令日志落盘（单文件 8MB 封顶）、后台 detach | 543 |

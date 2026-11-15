@@ -118,6 +118,18 @@ function collectIndentedBlock(lines, startIndex, parentIndent) {
   return { block, nextIndex: index }
 }
 
+// 块标量头：`|` 或 `>`，后面最多跟一个 chomping 指示符（`+` 保留 / `-` 去掉）和一个
+// 缩进指示符 `1`-`9`，两者顺序任意。返回 null 表示这不是块标量头（例如值本身就是字面量 "-"）。
+// 两个指示符只用来识别「这是块标量」，不改变尾部换行与去缩进的处理：消费方（description /
+// summary 等）一直拿到的是 trim 过的值，改成 YAML 严格语义会凭空多出尾换行。
+function parseBlockScalarHeader(value) {
+  const match = /^([|>])([0-9+-]{0,2})$/.exec(value)
+  if (!match) return null
+  const flags = match[2] || ''
+  if (flags.length === 2 && !/^[+-][1-9]$|^[1-9][+-]$/.test(flags)) return null
+  return { style: match[1] }
+}
+
 function parseBlockScalar(lines, style) {
   const nonEmpty = lines.filter((line) => line.trim())
   const minIndent = nonEmpty.length
@@ -182,9 +194,13 @@ export function parseSimpleYamlMap(text, options = {}) {
     const [, key, rawValue = ''] = match
     const value = rawValue.trim()
 
-    if (value === '|' || value === '>') {
+    // YAML 块标量头允许带 chomping 指示符（`-` / `+`）和缩进指示符（`1`-`9`），
+    // 例如 `description: |-`。只认裸 `|` / `>` 时，头会被当成字面量 "-"，紧接着整段正文
+    // 以「缩进过深、不属于任何键」为由被逐行丢掉：值只剩 "|-"，一个字都不剩，也没有错误标记。
+    const blockHeader = parseBlockScalarHeader(value)
+    if (blockHeader) {
       const { block, nextIndex } = collectIndentedBlock(lines, index + 1, 0)
-      result[key] = parseBlockScalar(block, value)
+      result[key] = parseBlockScalar(block, blockHeader.style)
       index = nextIndex
       continue
     }

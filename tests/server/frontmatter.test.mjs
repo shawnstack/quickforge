@@ -48,3 +48,30 @@ describe('frontmatter YAML sequences', () => {
     expect(map.metadata).toEqual({ displayName: 'X', version: '1' })
   })
 })
+
+// YAML 允许块标量头带 chomping（`-` / `+`）和缩进指示符（`1`~`9`）。只认裸 `|` / `>` 时，
+// `description: |-` 会被当成字面量 "-"，真正的多行正文随后被当成「缩进过深、不属于任何键」逐行丢掉：
+// 值变成 "|-"，正文一个字都不剩，而且没有任何错误标记。`|-` 是 Jekyll/Hexo/多数技能文档的默认写法。
+describe('frontmatter block scalars with indicators', () => {
+  it('parses a literal block scalar that carries a chomping indicator', () => {
+    const map = parseSimpleYamlMap('description: |-\n  line one\n  line two\ntitle: x')
+    expect(map.description).toBe('line one\nline two')
+    expect(map.title).toBe('x')
+  })
+
+  it('parses a folded block scalar that carries a chomping indicator', () => {
+    const map = parseSimpleYamlMap('summary: >-\n  c\n  d\n')
+    expect(map.summary).toBe('c d')
+  })
+
+  it('parses an indentation indicator without leaking the header', () => {
+    const map = parseSimpleYamlMap('description: |2-\n  indented body\n')
+    expect(map.description).toBe('indented body')
+  })
+
+  it('keeps a plain "-" value that is not a block header', () => {
+    const map = parseSimpleYamlMap('dash: -\nplus: +\n')
+    expect(map.dash).toBe('-')
+    expect(map.plus).toBe('+')
+  })
+})

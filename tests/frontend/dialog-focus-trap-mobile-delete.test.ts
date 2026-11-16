@@ -4,6 +4,10 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { MobileServerConnectPage } from '@/components/mobile/MobileServerConnectPage'
+import { applyAppLanguageFromSnapshot } from '@/lib/i18n'
+
+// 语言钉：下方按中文 aria-label / 按钮文案定位元素，测试环境默认语言可能是 en，先钉死 zh。
+applyAppLanguageFromSnapshot('zh')
 
 /**
  * 调用方回归：手机连接页只在「删除这台服务器？」这一层声明 dialog，

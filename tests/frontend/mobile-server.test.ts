@@ -6,6 +6,10 @@ import {
   readMobileServerSettings,
   saveMobileServerSettings,
 } from '../../src/lib/mobile-server'
+import { applyAppLanguageFromSnapshot } from '../../src/lib/i18n'
+
+// 语言钉：下方断言的报错文案是中文，测试环境默认语言可能是 en，先钉死 zh。
+applyAppLanguageFromSnapshot('zh')
 
 const legacyStorageKey = 'quickforge:mobile-server-url'
 const settingsStorageKey = 'quickforge:mobile-server-settings:v1'

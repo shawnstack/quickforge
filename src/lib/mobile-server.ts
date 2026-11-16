@@ -1,4 +1,5 @@
 import { Capacitor } from '@capacitor/core'
+import { t } from '@/lib/i18n'
 
 const MOBILE_SERVER_STORAGE_KEY = 'quickforge:mobile-server-url'
 const MOBILE_SERVER_SETTINGS_STORAGE_KEY = 'quickforge:mobile-server-settings:v1'
@@ -28,25 +29,25 @@ function isTailscaleHostname(hostname: string): boolean {
 
 export function normalizeTailscaleServerUrl(value: string): string {
   const trimmed = value.trim()
-  if (!trimmed) throw new Error('请输入 QuickForge 服务地址')
+  if (!trimmed) throw new Error(t('mobileServerErrorEmpty'))
 
   const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
   let url: URL
   try {
     url = new URL(withProtocol)
   } catch {
-    throw new Error('服务地址格式不正确')
+    throw new Error(t('mobileServerErrorInvalidUrl'))
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('服务地址只支持 HTTP 或 HTTPS')
+    throw new Error(t('mobileServerErrorProtocol'))
   }
-  if (url.username || url.password) throw new Error('服务地址不能包含用户名或密码')
+  if (url.username || url.password) throw new Error(t('mobileServerErrorCredentials'))
   if (!isTailscaleHostname(url.hostname) && !isTailscaleIPv4(url.hostname)) {
-    throw new Error('该服务器地址不受支持')
+    throw new Error(t('mobileServerErrorUnsupported'))
   }
   if (url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('请输入服务根地址，不要附加路径、参数或锚点')
+    throw new Error(t('mobileServerErrorRootOnly'))
   }
 
   if (!url.port) url.port = '5176'

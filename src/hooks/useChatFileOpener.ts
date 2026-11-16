@@ -4,6 +4,7 @@ import { resolveWorkspacePath } from '@/components/workspace/workspace-api'
 import { workspaceInspectorRuntimeScopeMatches } from '@/components/workspace/workspace-inspector-request'
 import type { WorkspaceInspectorOpenRequestInput, WorkspaceInspectorRuntimeScope } from '@/components/workspace/workspace-types'
 import { isCurrentProjectRequest } from '@/lib/project-request-guard'
+import { t } from '@/lib/i18n'
 import type { AddToast } from '@/hooks/useAgentSessionEvents'
 
 /** 对话里的本地文件路径打开规则（原 MainApp 内联的 openLocalFilePathFromChat）。
@@ -41,15 +42,15 @@ export function useChatFileOpener(context: {
         const payload = await response.json().catch(() => null) as { error?: string; message?: string } | null
         throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`)
       } catch (error) {
-        const message = error instanceof Error ? error.message : '打开临时附件失败'
-        addToast({ sessionId: currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
+        const message = error instanceof Error ? error.message : t('chatFileOpenAttachmentFailed')
+        addToast({ sessionId: currentSessionId ?? '', title: t('chatFileOpenFailedTitle'), status: 'error', message })
         return
       }
     }
     const projectId = currentToolProjectId
     const requestScope = workspaceInspectorScopeRef.current
     if (!projectId) {
-      addToast({ sessionId: currentSessionId ?? '', title: '无法打开文件', status: 'error', message: '当前对话没有关联项目。' })
+      addToast({ sessionId: currentSessionId ?? '', title: t('chatFileOpenFailedTitle'), status: 'error', message: t('chatFileNoProject') })
       return
     }
     const requestId = chatFileRequestIdRef.current + 1
@@ -63,8 +64,8 @@ export function useChatFileOpener(context: {
     } catch (error) {
       if (!isCurrentProjectRequest({ projectId, requestId }, currentToolProjectIdRef.current, chatFileRequestIdRef.current)) return
       if (!workspaceInspectorRuntimeScopeMatches(requestScope, workspaceInspectorScopeRef.current)) return
-      const message = error instanceof Error ? error.message : '打开文件失败'
-      addToast({ sessionId: currentSessionId ?? '', title: '无法打开文件', status: 'error', message })
+      const message = error instanceof Error ? error.message : t('chatFileOpenFailed')
+      addToast({ sessionId: currentSessionId ?? '', title: t('chatFileOpenFailedTitle'), status: 'error', message })
     }
   }, [addToast, chatFileRequestIdRef, currentSessionId, currentToolProjectId, currentToolProjectIdRef, requestWorkspaceInspector, workspaceInspectorScopeRef])
 

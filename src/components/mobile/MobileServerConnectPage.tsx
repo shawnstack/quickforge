@@ -7,6 +7,7 @@ import {
   saveMobileServerSettings,
   type MobileServerSettings,
 } from '@/lib/mobile-server'
+import { t } from '@/lib/i18n'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 
 /** 跳转前连接动画的最小展示时长，避免“点击即跳转”让用户感知不到正在建立连接。 */
@@ -99,7 +100,7 @@ export function MobileServerConnectPage() {
       }
     } catch (saveError) {
       setSaved(false)
-      setError(saveError instanceof Error ? saveError.message : '无法保存 QuickForge 服务地址')
+      setError(saveError instanceof Error ? saveError.message : t('mobileServerSaveFailed'))
     }
   }
 
@@ -113,7 +114,7 @@ export function MobileServerConnectPage() {
       persistSettings({ ...settings, lastUsedUrl: url })
       setConnectingUrl(url)
     } catch (connectError) {
-      setError(connectError instanceof Error ? connectError.message : '无法连接到 QuickForge 服务')
+      setError(connectError instanceof Error ? connectError.message : t('mobileServerConnectFailed'))
     }
   }
 
@@ -135,7 +136,7 @@ export function MobileServerConnectPage() {
       setSaved(false)
     } catch (deleteError) {
       setDeletingUrl(null)
-      setError(deleteError instanceof Error ? deleteError.message : '无法删除服务器地址')
+      setError(deleteError instanceof Error ? deleteError.message : t('mobileServerDeleteFailed'))
     }
   }
 
@@ -178,7 +179,7 @@ export function MobileServerConnectPage() {
             <Server className="size-6" />
           </div>
         </div>
-        <p className="mt-9 text-sm font-medium">正在建立连接…</p>
+        <p className="mt-9 text-sm font-medium">{t('mobileServerConnecting')}</p>
         <p className="mt-2 w-full max-w-xs truncate text-center font-mono text-xs text-muted-foreground">{connectingLabel}</p>
       </main>
     )
@@ -193,16 +194,16 @@ export function MobileServerConnectPage() {
             <Server className="size-5" aria-hidden="true" />
           </div>
           <div className="min-w-0 pt-0.5">
-            <h1 className="text-lg font-semibold tracking-tight">连接 QuickForge</h1>
-            <p className="mt-1 text-sm leading-5 text-muted-foreground">选择一台已保存的服务器，或添加新的 Tailscale 地址。</p>
+            <h1 className="text-lg font-semibold tracking-tight">{t('mobileServerConnectTitle')}</h1>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">{t('mobileServerConnectDescription')}</p>
           </div>
         </header>
 
         {settings.urls.length > 0 ? (
           <section aria-labelledby="quickforge-mobile-saved-servers">
             <div className="mb-2.5 flex items-center justify-between px-1">
-              <h2 id="quickforge-mobile-saved-servers" className="text-xs font-medium text-muted-foreground">已保存的服务器</h2>
-              <span className="text-xs">{settings.urls.length} 台</span>
+              <h2 id="quickforge-mobile-saved-servers" className="text-xs font-medium text-muted-foreground">{t('mobileServerSavedServers')}</h2>
+              <span className="text-xs">{t('mobileServerCount', { n: settings.urls.length })}</span>
             </div>
 
             <div className="overflow-hidden rounded-2xl border border-border bg-background">
@@ -218,16 +219,16 @@ export function MobileServerConnectPage() {
                         type="button"
                         className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors"
                         onClick={() => connectServer(url)}
-                        title={`连接 ${alias || url}`}
+                        title={t('mobileServerConnectTo', { name: alias || url })}
                       >
                         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground">
                           <Server className="size-4" aria-hidden="true" />
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-2">
-                            <span className="truncate text-sm font-medium text-foreground">{alias || 'QuickForge 服务器'}</span>
+                            <span className="truncate text-sm font-medium text-foreground">{alias || t('mobileServerFallbackName')}</span>
                             {active ? (
-                              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">上次使用</span>
+                              <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{t('mobileServerLastUsed')}</span>
                             ) : null}
                           </span>
                           <span className="mt-1 block truncate font-mono text-xs text-muted-foreground">{url}</span>
@@ -241,8 +242,8 @@ export function MobileServerConnectPage() {
                           setManagingUrl(isManaging ? null : url)
                           if (isManaging) cancelEditAlias()
                         }}
-                        aria-label={`管理 ${alias || url}`}
-                        title="管理服务器"
+                        aria-label={t('mobileServerManage', { name: alias || url })}
+                        title={t('mobileServerManageTitle')}
                         aria-expanded={isManaging}
                       >
                         {isManaging ? <X className="size-4" aria-hidden="true" /> : <MoreHorizontal className="size-5" aria-hidden="true" />}
@@ -254,7 +255,7 @@ export function MobileServerConnectPage() {
                         {isEditing ? (
                           <div>
                             <label className="block text-xs font-medium text-muted-foreground" htmlFor={`quickforge-mobile-alias-${url}`}>
-                              服务器别名
+                              {t('mobileServerAliasLabel')}
                             </label>
                             <input
                               id={`quickforge-mobile-alias-${url}`}
@@ -268,7 +269,7 @@ export function MobileServerConnectPage() {
                                 if (event.key === 'Enter') saveAlias(url)
                                 if (event.key === 'Escape') cancelEditAlias()
                               }}
-                              placeholder="例如：公司开发机"
+                              placeholder={t('mobileServerAliasPlaceholder')}
                               className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring"
                             />
                             <div className="mt-2.5 flex justify-end gap-2">
@@ -277,7 +278,7 @@ export function MobileServerConnectPage() {
                                 className="inline-flex h-9 items-center justify-center rounded-xl px-3 text-sm text-muted-foreground transition-colors hover:text-foreground"
                                 onClick={cancelEditAlias}
                               >
-                                取消
+                                {t('cancel')}
                               </button>
                               <button
                                 type="button"
@@ -285,7 +286,7 @@ export function MobileServerConnectPage() {
                                 onClick={() => saveAlias(url)}
                               >
                                 <Check className="size-4" aria-hidden="true" />
-                                保存
+                                {t('save')}
                               </button>
                             </div>
                           </div>
@@ -297,7 +298,7 @@ export function MobileServerConnectPage() {
                               onClick={() => startEditAlias(url)}
                             >
                               <Pencil className="size-4 text-muted-foreground" aria-hidden="true" />
-                              编辑别名
+                              {t('mobileServerEditAlias')}
                             </button>
                             <button
                               type="button"
@@ -305,7 +306,7 @@ export function MobileServerConnectPage() {
                               onClick={() => setDeletingUrl(url)}
                             >
                               <Trash2 className="size-4 text-muted-foreground" aria-hidden="true" />
-                              删除服务器
+                              {t('mobileServerDeleteServer')}
                             </button>
                           </div>
                         )}
@@ -323,14 +324,14 @@ export function MobileServerConnectPage() {
                 onClick={openAddForm}
               >
                 <Plus className="size-4" aria-hidden="true" />
-                添加服务器
+                {t('mobileServerAddServer')}
               </button>
             ) : null}
 
             {saved && !showAddForm ? (
               <p className="mt-2 flex items-center justify-center gap-1.5 text-sm text-muted-foreground" role="status">
                 <Check className="size-4" aria-hidden="true" />
-                服务器已保存
+                {t('mobileServerSaved')}
               </p>
             ) : null}
           </section>
@@ -340,7 +341,7 @@ export function MobileServerConnectPage() {
           <section className={settings.urls.length > 0 ? 'mt-7' : ''} aria-labelledby="quickforge-mobile-add-server">
             <div className="mb-2.5 flex items-center justify-between px-1">
               <h2 id="quickforge-mobile-add-server" className="text-xs font-medium text-muted-foreground">
-                {settings.urls.length > 0 ? '添加服务器' : '添加第一台服务器'}
+                {settings.urls.length > 0 ? t('mobileServerAddServer') : t('mobileServerAddFirstServer')}
               </h2>
               {settings.urls.length > 0 ? (
                 <button
@@ -351,7 +352,7 @@ export function MobileServerConnectPage() {
                     setShowAddForm(false)
                   }}
                 >
-                  收起
+                  {t('mobileServerCollapse')}
                 </button>
               ) : null}
             </div>
@@ -359,11 +360,11 @@ export function MobileServerConnectPage() {
             <form className="rounded-2xl border border-border bg-background p-5 shadow-quickforge" onSubmit={connect}>
               <div className="mb-5 flex gap-2.5 rounded-xl bg-muted/30 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
                 <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                <p>仅支持 Tailnet 内的 <span className="font-mono">.ts.net</span> 或 <span className="font-mono">100.64.0.0/10</span> 地址，未填写端口时默认使用 5176。</p>
+                <p>{t('mobileServerAddressHintBefore')} <span className="font-mono">.ts.net</span> {t('mobileServerAddressHintMiddle')} <span className="font-mono">100.64.0.0/10</span> {t('mobileServerAddressHintAfter')}</p>
               </div>
 
               <label className="block text-sm font-medium" htmlFor="quickforge-mobile-server">
-                服务器地址
+                {t('mobileServerAddressLabel')}
               </label>
               <input
                 id="quickforge-mobile-server"
@@ -382,14 +383,14 @@ export function MobileServerConnectPage() {
               />
               {normalizedPreview ? (
                 <p className="mt-2 break-all text-xs text-muted-foreground">
-                  将连接到 <span className="font-mono">{normalizedPreview}</span>
+                  {t('mobileServerWillConnectBefore')} <span className="font-mono">{normalizedPreview}</span>
                 </p>
               ) : (
-                <p className="mt-2 text-xs text-muted-foreground">请确保手机与服务器已登录同一个 Tailnet。</p>
+                <p className="mt-2 text-xs text-muted-foreground">{t('mobileServerTailnetHint')}</p>
               )}
 
               <label className="mt-5 block text-sm font-medium" htmlFor="quickforge-mobile-server-alias">
-                服务器别名 <span className="font-normal text-muted-foreground">（可选）</span>
+                {t('mobileServerAliasLabel')} <span className="font-normal text-muted-foreground">{t('mobileServerOptionalSuffix')}</span>
               </label>
               <input
                 id="quickforge-mobile-server-alias"
@@ -402,7 +403,7 @@ export function MobileServerConnectPage() {
                   setError('')
                   setSaved(false)
                 }}
-                placeholder="例如：公司开发机"
+                placeholder={t('mobileServerAliasPlaceholder')}
                 className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring"
               />
 
@@ -412,7 +413,7 @@ export function MobileServerConnectPage() {
                 type="submit"
                 className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-92 active:opacity-85"
               >
-                保存并连接
+                {t('mobileServerSaveAndConnect')}
                 <ArrowRight className="size-4" aria-hidden="true" />
               </button>
               <button
@@ -420,7 +421,7 @@ export function MobileServerConnectPage() {
                 className="mt-2 inline-flex h-10 w-full items-center justify-center rounded-xl text-sm text-muted-foreground transition-colors hover:text-foreground"
                 onClick={() => addServer(false)}
               >
-                仅保存，稍后连接
+                {t('mobileServerSaveOnly')}
               </button>
             </form>
           </section>
@@ -431,9 +432,9 @@ export function MobileServerConnectPage() {
       {deletingUrl ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/35 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:items-center" role="presentation">
           <section ref={deleteConfirmRef} className="w-full max-w-sm rounded-2xl border border-border bg-background p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="quickforge-mobile-delete-title">
-            <h2 id="quickforge-mobile-delete-title" className="text-base font-semibold">删除这台服务器？</h2>
+            <h2 id="quickforge-mobile-delete-title" className="text-base font-semibold">{t('mobileServerDeleteConfirmTitle')}</h2>
             <p className="mt-2 break-all text-sm leading-6 text-muted-foreground">
-              “{deletingLabel}”将从已保存列表中移除，之后仍可重新添加。
+              {t('mobileServerDeleteConfirmBody', { name: deletingLabel })}
             </p>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
@@ -441,14 +442,14 @@ export function MobileServerConnectPage() {
                 className="inline-flex h-11 items-center justify-center rounded-xl border border-border text-sm font-medium transition-colors"
                 onClick={() => setDeletingUrl(null)}
               >
-                取消
+                {t('cancel')}
               </button>
               <button
                 type="button"
                 className="inline-flex h-11 items-center justify-center rounded-xl bg-destructive text-sm font-medium text-destructive-foreground transition-opacity hover:opacity-92 active:opacity-85"
                 onClick={() => deleteServer(deletingUrl)}
               >
-                删除
+                {t('delete')}
               </button>
             </div>
           </section>

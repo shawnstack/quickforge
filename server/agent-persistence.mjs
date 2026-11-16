@@ -194,7 +194,7 @@ async function persistAuthoritativeSessionState(session, sessionData, metadata, 
 /**
  * Persist session data to storage.
  */
-async function persistSessionUnlocked(session, options = {}) {
+async function persistSessionUnlocked(session, options = {}, diagnostics = null) {
   const { sessionId, agent, scope, projectId, source, title, titleSource, createdAt, lastModified: storedLastModified, status, startedAt, finishedAt, model, modelRef, thinkingLevel, accessMode, yoloMode, contextCompaction } = session
   const messages = options.messages ?? agent.state.messages
   const goalBody = options.goal === undefined ? session.goal || null : options.goal
@@ -321,6 +321,13 @@ async function persistSessionUnlocked(session, options = {}) {
     session.persistedStorageRevision = saved.revision
     session.persistedStateVersion = saved.stateVersion
     persistedMetadata = saved.metadata
+    // Hand the storage plan back to persistSession so the slow-persist warning
+    // can say *what* was written, not just how long it took.
+    if (diagnostics) {
+      diagnostics.messageStoragePlan = saved.messageStoragePlan ?? null
+      diagnostics.messagePlanRows = saved.messagePlanRows ?? null
+      diagnostics.storedMessageCount = saved.messageCount ?? null
+    }
   } catch (err) {
     logger.error(`Failed to persist session ${sessionId}:`, err, { sessionId })
     return null
@@ -343,16 +350,22 @@ export async function persistSession(session, options = {}) {
   // cross-session persists run independently instead of piling onto one
   // global chain that also gates destroyAgent.
   const lockKey = `session:${session.sessionId}`
+  const diagnostics = {}
   const result = await withSessionPersistenceLock(() => {
     if (options.canPersist && !options.canPersist()) return null
-    return persistSessionUnlocked(session, options)
+    return persistSessionUnlocked(session, options, diagnostics)
   }, lockKey)
   const durationMs = performance.now() - startedAt
   if (durationMs >= SLOW_PERSIST_LOG_MS) {
     logger.warn(`Session ${session.sessionId} persist took ${Math.round(durationMs)}ms (queue wait + write)`, {
       sessionId: session.sessionId,
       durationMs: Math.round(durationMs),
+      // In-memory message count: kept for continuity with the existing log
+      // consumers. It is NOT what the write cost — see messagePlanRows.
       messageCount: session.agent?.state?.messages?.length ?? 0,
+      messageStoragePlan: diagnostics.messageStoragePlan ?? null,
+      messagePlanRows: diagnostics.messagePlanRows ?? null,
+      storedMessageCount: diagnostics.storedMessageCount ?? null,
     })
   }
   return result

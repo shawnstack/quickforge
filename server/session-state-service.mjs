@@ -283,7 +283,18 @@ async function savePairWithPlan(state, metadata, options, plan, existing) {
   // agent-manager can maintain its conflict-detection counters without
   // re-reading the message table on every save.
   const totalMessageCount = repository().messageCount({ scope: saved.scope, projectId: saved.projectId, sessionId: saved.sessionId })
-  return { ...saved, messageStoragePlan: plan.mode, messageCount: totalMessageCount }
+  return {
+    ...saved,
+    messageStoragePlan: plan.mode,
+    // Rows this plan actually wrote: 0 for body-only, otherwise exactly what the
+    // plan handed to the transaction. `messageCount` below is the stored total
+    // *after* the write, so a log line carrying only that cannot distinguish
+    // "rewrote 15k rows" from "appended 1 row" — the two differ by orders of
+    // magnitude, and that blind spot kept the slow-persist investigation in
+    // "maybe it's a full replace?" territory (decisions §38/§39).
+    messagePlanRows: plan.mode === 'body-only' ? 0 : plan.messages.length,
+    messageCount: totalMessageCount,
+  }
 }
 
 async function savePair(state, metadata, options = {}) {

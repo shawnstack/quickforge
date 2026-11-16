@@ -245,7 +245,7 @@ function messageStoragePlan(state, existing, { forceMessagesReplace = false } = 
   return { mode: 'append', messages: tail }
 }
 
-// body-only 的写入不能再携带 messages 数组（理由见 savePairWithPlan 的调用点）：
+// body-only 的写入不能再携带 messages 数组（理由见两个调用点：savePairWithPlan 与 applySessionBatch）：
 // 它让 normalizeRecord 在主线程把每条消息重新编码一遍，又让 repository 按
 // replace 把全部行重写一遍，等于把「增量计划」白算了。
 function withoutMessages(record) {
@@ -781,7 +781,12 @@ export async function applySessionBatch(operations) {
         }, metadata)
       : synchronize(state, metadata, entry.sessionId, existing)
     const upsert = {
-      record,
+      // 与单条保存那条路（savePairWithPlan）同一个理由：body-only 已经证明存储
+      // 的行就是要写的行（行数 + 尾部 digest + 中部采样 digest 全过），再把
+      // messages 交给 repository 只会让 normalizeRecord 在主线程重编码每条消息，
+      // 而且因为 record.messages 存在，messagesMode 会被判成 replace，把全部行
+      // 删了重写——计划明明说「不用写」，实现却做了最重的那种写（decisions §41）。
+      record: plan.mode === 'body-only' ? withoutMessages(record) : record,
       expectedRevision: entry.expectedRevision ?? existing?.revision ?? 0,
       expectedStateVersion: entry.expectedStateVersion,
     }

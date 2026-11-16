@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../server/sqlite/database.mjs'
 import { createSessionStateRepository } from '../../server/sqlite/session-state-repository.mjs'
 import {
+  applySessionBatch,
   configureSessionStateService,
   saveSessionStatePair,
 } from '../../server/session-state-service.mjs'
@@ -104,5 +105,47 @@ describe('body-only 计划不重写消息行（存储 v2）', () => {
     expect(saved.messageStoragePlan).toBe('append')
     expect(rowJson(storage, 0)).toContain(CORRUPTED)
     expect(rowJson(storage, 3)).toContain('m3')
+  })
+
+  it('批量 set（存储 v2）：消息未变时同样不动消息行', async () => {
+    corruptRow(storage, 0)
+    const revision = repository.findBySessionId('s-body-only').revision
+
+    // 前端 SessionsStore.save() 的形状：一次 batch 里 sessions 体 + metadata 成对写。
+    const result = await applySessionBatch([
+      {
+        store: 'sessions',
+        type: 'set',
+        key: 's-body-only',
+        value: { id: 's-body-only', scope: 'global', title: 'Batch renamed', messages: MESSAGES },
+        expectedRevision: revision,
+      },
+      { store: 'sessions-metadata', type: 'set', key: 's-body-only', value: { title: 'Batch renamed' } },
+    ])
+
+    expect(result.saved).toBe(1)
+    // 计划若真是 body-only，旧行就该原封不动。
+    expect(rowJson(storage, 0)).toContain(CORRUPTED)
+    const record = repository.findBySessionId('s-body-only')
+    expect(record.state.title).toBe('Batch renamed')
+    expect(record.state.messageStorage).toBe('split')
+  })
+
+  it('对照：批量 set 里的新尾行必须真的插进去', async () => {
+    const revision = repository.findBySessionId('s-body-only').revision
+    const grown = [...MESSAGES, { role: 'user', content: 'm3', timestamp: '2026-01-01T00:00:03.000Z' }]
+
+    await applySessionBatch([
+      {
+        store: 'sessions',
+        type: 'set',
+        key: 's-body-only',
+        value: { id: 's-body-only', scope: 'global', title: 'Batch grown', messages: grown },
+        expectedRevision: revision,
+      },
+    ])
+
+    expect(rowJson(storage, 3)).toContain('m3')
+    expect(repository.findBySessionId('s-body-only').state.title).toBe('Batch grown')
   })
 })

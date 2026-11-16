@@ -158,7 +158,7 @@ components/
 │   └── ScheduledTasksPageSections.tsx # 编辑器/详情/列表/历史纯 render helpers
 ├── share/
 │   ├── ShareConversationDialog.tsx # 分享对话对话框 (199 行)
-│   └── SharedConversationPage.tsx  # 查看分享的对话页面 (315 行)
+│   └── SharedConversationPage.tsx  # 查看分享的对话页面 (316 行)
 ├── app/                             # App 主装配层的独立 UI 区域（MainApp 保持接线，区域组件化）
 │   ├── AppDialogs.tsx               # 对话框层：`AppGitDialogs`（主区内 Git 图形 / 提交）+ `AppOverlays`（目录选择 / 技能 / 新建 bot / bot 设置 / 分享 / toast）
 │   ├── AppMain.tsx                  # `<main>` 主区：会话顶栏 / 对话区 / 全局终端坞（`AppMain` + 懒加载占位 `LazyPanelFallback`）
@@ -225,7 +225,7 @@ components/
 │   └── mcp-server-form.tsx          # 表单主体（名称 / transport / stdio 命令与环境），args 与 env 走文本互转
 ├── mcp-servers-dialog.tsx           # MCP 服务器管理面板（表单 / JSON 双模式编辑、启停与重连）
 ├── startup-splash-icon.tsx          # 启动闪屏螺栓图标（`app/StartupScreens.tsx` 复用）
-├── project-directory-picker.tsx    # 项目目录选择器 (330 行)
+├── project-directory-picker.tsx    # 项目目录选择器 (331 行)
 ├── settings/                        # 设置页：左导航 + tab 宿主 + 15 个设置页 + 自定义 Provider 面板，概览见下文「设置」小节
 │   ├── SettingsWorkspacePage.tsx    # 设置页外壳：分组导航与 tab 宿主（tab 定义在 lib/settings-tabs）
 │   ├── SettingsSelect.tsx           # 可搜索下拉（键盘与 aria 由内部状态机驱动）
@@ -530,7 +530,7 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 - SSE 流式加载分享对话消息
 - 密码验证
 
-### project-directory-picker.tsx (330 行)
+### project-directory-picker.tsx (331 行)
 
 - 文件系统目录选择器
 - 树形浏览，支持选择任意目录作为项目路径
@@ -619,7 +619,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 - `dreaming/dreaming-data.ts` (252 行) # 传输类型与 fetch 层：`DreamingOverview` / `DreamingRun` / `DreamingExperience` / `DreamingSettings` 等类型，overview、settings 保存、手动触发、runs 列表与详情、restore，以及经验列表与「打开目录」，外加时间 / 耗时格式化（`formatDreamingTimestamp` / `formatDreamingDuration`）
 - `dreaming/DreamingSettingsTab.tsx` (759 行) # 「设置 → Dreaming」整页：概览、排期与模型选择（`formatModelOptionLabel` / `modelRefKey`）、手动触发与运行历史、经验库浏览与打开、restore 操作
 
-### mcp-servers-dialog.tsx (394 行)
+### mcp-servers-dialog.tsx (395 行)
 
 设置页里的 MCP 服务器管理面板（`McpServersPanel`）：列表 + **表单 / JSON 双模式**编辑器（草稿互转复用 `src/lib/mcp-helpers.ts`）。增改走 `PUT /api/mcp/servers`，删除走 `DELETE /api/mcp/servers/:name`，启停走 `.../:name/enabled`，单个重连走 `POST /api/mcp/reconnect/:name`。JSON 视图里粘贴的配置若含多台服务器，保存会被明确拦下（草稿只装得下一台，照常保存＝其余静默消失），提示一次只能保存一台。
 
@@ -650,17 +650,17 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 - `settings/tabs/DataSettingsTab.tsx` (59 行) # 「数据」父页：三个子页（备份恢复 / 归档会话 / 分享链接）的切换与懒挂载，`visited` 保证切回子页不重挂
 - `settings/tabs/BackupSettingsTab.tsx` (488 行) # 备份与恢复：导出范围五选（设置 / MCP / provider keys / 自定义 Provider / 定时任务）、导入前预检（`ok`、应用与版本、导出时间、是否含密钥）与 `replace` / `merge` 两种恢复模式
-- `settings/tabs/ArchivedConversationsSettingsTab.tsx` (359 行) # 归档会话管理：按 `offset` 翻页取满服务端 `total`（页大小 500、上限 20 页）、本地化时间显示、取消归档（清掉 `archivedAt`）；取不满时列表上方显式说明「列出 N / 共 M 条」，不再静默截断；「全部删除」的确认框按当前状态说真实范围（有筛选时说明删的是全部而非筛出的、只列出一部分时说明剩余留在归档）
+- `settings/tabs/ArchivedConversationsSettingsTab.tsx` (361 行) # 归档会话管理：按 `offset` 翻页取满服务端 `total`（页大小 500、上限 20 页）、本地化时间显示、取消归档（清掉 `archivedAt`）；取不满时列表上方显式说明「列出 N / 共 M 条」，不再静默截断；「全部删除」的确认框按当前状态说真实范围（有筛选时说明删的是全部而非筛出的、只列出一部分时说明剩余留在归档）
 
 #### 网络与局域网
 
 - `settings/tabs/NetworkSettingsTab.tsx` (18 行) # 「网络」父页：把局域网访问与网络代理两段叠进一页，自身只负责分组标题与排版
 - `settings/tabs/NetworkProxySettingsSection.tsx` (312 行) # 网络代理：四模式（直连 / 系统 / 手动 / PAC）+ 运行时状态（生效模式、是否支持、来源、运行时类型）；平台不支持时 `unsupported` 只读回显，不给假开关
-- `settings/tabs/LanAccessSettingsTab.tsx` (406 行) # 局域网访问：开关、访问密码（可一键生成 16 位随机串）与已授权设备列表（地址、UA、签发与过期时间）
+- `settings/tabs/LanAccessSettingsTab.tsx` (408 行) # 局域网访问：开关、访问密码（可一键生成 16 位随机串）与已授权设备列表（地址、UA、签发与过期时间）
 
 #### 记忆与 Hooks
 
-- `settings/tabs/MemorySettingsTab.tsx` (198 行) # 全局记忆：`MEMORY.md` 的开关、Markdown 编辑与保存（走 `/api/memory`）、文档路径与条目计数
+- `settings/tabs/MemorySettingsTab.tsx` (199 行) # 全局记忆：`MEMORY.md` 的开关、Markdown 编辑与保存（走 `/api/memory`）、文档路径与条目计数
 - `settings/tabs/WorkingMemorySettingsTab.tsx` (301 行) # 工作记忆：开关 + 目录路径 + 只读笔记列表。**写笔记的提示词是服务端内部契约，此页刻意不暴露**——用户改不到「文件名＝一句话结论」的格式
 - `settings/tabs/HooksSettingsTab.tsx` (865 行) # Hooks 管理：增删改 hook（事件 / 命令 / 超时）、总开关、执行记录分页（成功 / 失败 / 超时）与手动测试执行、结果输出查看
 
@@ -669,7 +669,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 - `settings/tabs/CustomProvidersSettingsTab.tsx` (549 行) # 自定义 Provider 页装配层：列表 / 详情两栏，草稿态与已落库态分开处理，预设（openai / deepseek / glm / ollama / litellm / custom）、连接草稿与模型草稿的互转、协议推断
 - `settings/custom-providers/provider-list-pane.tsx` (159 行) # 左栏列表：Provider 条目、密钥是否已配置的标记、按预设新增与删除
 - `settings/custom-providers/provider-detail-pane.tsx` (94 行) # 右栏详情壳：标题、返回、删除菜单与 `children` 插槽（连接段与模型清单塞进来）
-- `settings/custom-providers/connection-section.tsx` (255 行) # 连接段：baseUrl / 协议 / 自定义请求头；API Key 只在点「查看」时按需回显（草稿或未配置返回空串）
+- `settings/custom-providers/connection-section.tsx` (258 行) # 连接段：baseUrl / 协议 / 自定义请求头；API Key 只在点「查看」时按需回显（草稿或未配置返回空串）
 - `settings/custom-providers/model-list-section.tsx` (354 行) # 模型清单：发现模型（草稿态未落库故不可发现）、增删改模型草稿、可见性开关与单模型连通性测试
 - `settings/custom-providers/shared.ts` (150 行) # 面板共用类型与预设常量：`ProviderProtocol` / `AnyModel` / `HeaderRow` / `PresetKey` / `PROVIDER_PRESETS`
 
@@ -677,8 +677,8 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 - `settings/tabs/AboutSettingsTab.tsx` (497 行) # 关于页：应用信息（名称 / 版本 / 仓库 / 主页）+ 更新检查（频率 startup / daily / weekly / off、上次检查时间、被忽略的版本）
 - `settings/tabs/AppearanceSettingsTab.tsx` (283 行) # 外观页：主题（light / dark）与字号（界面 / 消息两套，12–18px、默认 13），保存后即时应用
-- `settings/tabs/DefaultOptionsSettingsTab.tsx` (719 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
-- `settings/tabs/ProjectCommandsSettingsTab.tsx` (408 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口
+- `settings/tabs/DefaultOptionsSettingsTab.tsx` (720 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
+- `settings/tabs/ProjectCommandsSettingsTab.tsx` (410 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口
 
 ## 流式渲染缓存与有界窗口（2026-10-29）
 

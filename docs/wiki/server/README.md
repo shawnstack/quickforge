@@ -660,7 +660,24 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `formatHelpText()` — 生成 `/help` 输出（内置命令区 + 自定义命令区）
 - `createCommandFile()` — 在项目 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖），供 REST 路由和 `/command new` 复用
 
+### 自定义命令的参数替换：`$ARGUMENTS` 与 `argument-hint`
+
+**用途**: 一条自定义命令要「吃下」用户敲在命令名后面的那段话，靠的就是正文里的 `$ARGUMENTS` 占位符。**本节只讲用法**；紧随其后的「替换串语义」一节讲的是这条机制历史上被写坏的三笔缺陷，别拿那节当教程。
+
+**替换规则**:
+
+- 占位符替换成「斜杠命令名之后、第一个空白之后的剩余全文」：命令文本先整体 `trim()`，再用 `/^\/([A-Za-z0-9][A-Za-z0-9-]*)(?:\s+([\s\S]*))?$/` 切出名字与其余部分，其余部分再 `trim()` 即为参数（`parseSlashInvocationText()`，`server/custom-commands.mjs:142-154`）。
+- **没给参数时替换成空串**，不是把 `$ARGUMENTS` 原样留在正文里。所以占位符前面那句引导语不能省——否则命令体读起来像「参数丢了」，而不是「这次没带参数」。
+- 正文里出现**多次会全部替换**（`command.body.replace(/\$ARGUMENTS/g, …)`，`:285`，全局正则）。
+- 替换走函数体 `() => invocation.arguments`，插进去的是字面量：用户在命令后面打的 `$&`、`$$`、`$1`、`$'`、以及「美元符紧跟反引号」这一组合**都不会被当成替换串解释**，用户侧不需要做任何转义（`:282-285` 的注释；让用户输入当替换串的那笔缺陷是 `b649c481`）。
+
+**`argument-hint`**: frontmatter 字段（同时接受 `argument_hint` 别名，`:123`），**纯界面提示**——只出现在斜杠补全的用法串与提示行（`src/components/chat/command-suggestions.ts:206-207`）、以及项目命令设置页里命令名后面的后缀（`src/components/settings/tabs/ProjectCommandsSettingsTab.tsx:378`），**不参与替换、不影响任何行为**。
+
+**`/command new` 的脚手架**: 新建命令文件的模板（`createCommandFile()`，模板在 `custom-commands.mjs:539-552`）自带 `argument-hint: "[arguments]"` 与正文末尾的 `$ARGUMENTS`，可直接当本节的例子。同处 frontmatter 的权限字段 `allow_edit` / `allow_commands` **默认是允许**：判据为 `!== false`（`:286-289`），不写即开，只有显式写 `false` 才关。
+
 ### 替换串语义：第二参是字符串时 `$` 序列会被解释（跨模块）
+
+**本节是缺陷回顾，不是用法**: 自定义命令里 `$ARGUMENTS` 该怎么写、没给参数会替换成什么、`argument-hint` 管什么，见上一节「自定义命令的参数替换」。
 
 `String.prototype.replace(search, replacement)` 的第二参即使只是一个普通字符串，也会被当成「替换模板」解析 `$&`、`$$`、`$n` 以及两个「复制原文」用的 token。**字面量替换串永远安全**（只命中你自己写死的字符）；**把模型输出、用户输入或运行期数据当替换串才是缺陷**——而且症状是静默改写：不抛错、不告警，只有肉眼看出多了或少了半段才发现。
 

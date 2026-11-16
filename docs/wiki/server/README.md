@@ -48,6 +48,7 @@ goal 路由错误补机器码：`POST /api/agents/:sessionId/goal` 对非法 act
 server/
 ├── index.mjs                 # 服务器入口 (1033 行)
 ├── health-redaction.mjs      # `/api/health` 的本机路径收口：远程客户端看到的 `*Dir` / `workspaceRoot` / `project.path` 一律 null (31 行)
+├── log-file-name.mjs         # 日志文件名的日期口径（本地日期；服务端轮转与 CLI 打印/监听共用一份实现，别各写一遍）(26 行)
 ├── agent-manager.mjs         # Agent 生命周期编排 + facade (137 行；压缩/命令/审批/subagent/持久化已拆至 agent-* 模块)
 ├── agent-session-store.mjs   # 模块级可变状态唯一 owner（agentSessions / pendingRestores / subagent 错误 details 暂存）
 ├── agent-session-events.mjs  # 共享事件核心（emitSessionEvent/分帧转换/消息构造器/context usage）

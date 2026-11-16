@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { serverLogFilePath } from '../server/log-file-name.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -219,8 +220,9 @@ function isProcessRunning(pid) {
 }
 
 function getLogFile() {
-  const date = new Date().toISOString().slice(0, 10)
-  return path.join(getDataDir(), 'logs', `server-${date}.log`)
+  // 口径见 server/log-file-name.mjs：服务端按**本地**日期轮转，CLI 打印的路径必须同口径，
+  // 否则本地 00:00–08:00 会把用户引到一个服务端根本没在写的文件上。
+  return serverLogFilePath(path.join(getDataDir(), 'logs'))
 }
 
 function sleep(ms) {

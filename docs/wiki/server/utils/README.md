@@ -4,7 +4,7 @@
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [logger.mjs](../../../../server/utils/logger.mjs) | 日志工具 | 190 |
+| [logger.mjs](../../../../server/utils/logger.mjs) | 日志工具（文件名的日期口径见 `server/log-file-name.mjs`） | 186 |
 | [process-error-guards.mjs](../../../../server/utils/process-error-guards.mjs) | 进程级异常兜底 | 63 |
 | [network.mjs](../../../../server/utils/network.mjs) | 网络工具 | 38 |
 | [platform.mjs](../../../../server/utils/platform.mjs) | 平台工具 (跨平台) | 328 |
@@ -24,9 +24,10 @@
 
 ## 各工具说明
 
-### logger.mjs — 日志工具 (190 行)
+### logger.mjs — 日志工具 (186 行)
 
 - 输出到 stderr 和文件 (`~/.quickforge/logs/server-YYYY-MM-DD.log`)
+- **文件名按本地日期翻页**，与行内时间戳同口径；口径本体在 `server/log-file-name.mjs`，`bin/quickforge.mjs` 打印 / 监听日志路径时用的是同一份实现（以前 CLI 用 UTC，本地 00:00–08:00 会把用户引到服务端没在写的文件上）
 - 级别: `info`, `warn`, `error`
 - 支持自动日志轮转
 

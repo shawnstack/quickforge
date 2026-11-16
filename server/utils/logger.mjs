@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { logsDir } from '../storage.mjs'
+import { localDateKey, serverLogFileName } from '../log-file-name.mjs'
 
 // --- Level control ---
 const LEVELS = { ERROR: 0, WARN: 1, INFO: 2, DEBUG: 3 }
@@ -23,15 +24,10 @@ function timestamp() {
     + `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}.${pad(now.getMilliseconds(), 3)}`
 }
 
-function localDateKey() {
-  const now = new Date()
-  const pad = (value) => String(value).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-}
-
 // --- Log file (daily rotation) ---
+// 日期口径与文件名都在 server/log-file-name.mjs（本地日期），CLI 用的是同一份实现。
 function logFile() {
-  return path.join(logsDir, `server-${localDateKey()}.log`)
+  return path.join(logsDir, serverLogFileName())
 }
 
 // --- File write stream (async, buffered) ---

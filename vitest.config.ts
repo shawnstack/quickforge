@@ -9,7 +9,9 @@ export default defineConfig({
   },
   test: {
     include: ['tests/**/*.test.{mjs,ts}'],
-    setupFiles: ['tests/setup-goal-engine.mjs'],
+    // setup-data-dir 必须排第一：storage.mjs / logger.mjs 在 import 时就定型
+    // dataDir / logsDir，晚一步设就仍会写进真实的 ~/.quickforge/logs。
+    setupFiles: ['tests/setup-data-dir.mjs', 'tests/setup-goal-engine.mjs'],
     globals: true,
     testTimeout: 15_000,
     server: {

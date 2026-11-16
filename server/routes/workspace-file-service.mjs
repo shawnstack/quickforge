@@ -54,12 +54,41 @@ function previewContentType(filePath) {
   return map[ext] || 'application/octet-stream'
 }
 
+// fs 的原始失败会把绝对路径塞进 message（`ENOENT ... realpath 'C:\Users\...'`），
+// sendError 再把它原样回给前端、状态码退化成 500，前端分不清「文件被删了」和「服务端崩了」。
+// 这里只映射两种可预期的失效；其余错误原样抛，绝不把未知故障吞成 404。
+const WORKSPACE_FILE_FAILURES = [
+  { codes: ['ENOENT', 'ENOTDIR'], statusCode: 404, errorCode: 'WORKSPACE_FILE_NOT_FOUND', message: 'File not found' },
+  { codes: ['EACCES', 'EPERM'], statusCode: 403, errorCode: 'WORKSPACE_FILE_PERMISSION_DENIED', message: 'Permission denied' },
+]
+
+function workspaceFileIssueFromError(error) {
+  const failure = WORKSPACE_FILE_FAILURES.find((entry) => entry.codes.includes(error?.code))
+  if (!failure) return error
+  const mapped = new Error(failure.message)
+  mapped.statusCode = failure.statusCode
+  mapped.errorCode = failure.errorCode
+  // 保留原始 fs code：既有 pin 断言 `code === 'ENOENT'`（workspace-file-meta.test.mjs）。
+  // sendError 优先取 errorCode，所以响应体里的 code 是 WORKSPACE_FILE_NOT_FOUND。
+  mapped.code = error.code
+  return mapped
+}
+
+async function statWorkspaceFileChecked(file, context) {
+  try {
+    // 安全校验内部先做 realpath：文件缺失时它比 fs.stat 更早抛错，两处都得盖住。
+    await assertSafeWorkspacePath(file, context, { allowSensitive: true })
+    return await fs.stat(file)
+  } catch (error) {
+    throw workspaceFileIssueFromError(error)
+  }
+}
+
 // 安全校验 + stat（不读内容）：普通读取与 meta 轻量探测共用，保证两条路径
-// 的 400/413/ENOENT 错误语义完全一致。
+// 的 400/403/404/413 错误语义完全一致。
 export async function statWorkspaceTextFile(context, relativePath) {
   const file = resolveWorkspacePath(relativePath, context)
-  await assertSafeWorkspacePath(file, context, { allowSensitive: true })
-  const stat = await fs.stat(file)
+  const stat = await statWorkspaceFileChecked(file, context)
   if (!stat.isFile()) {
     const error = new Error('Path is not a file')
     error.statusCode = 400

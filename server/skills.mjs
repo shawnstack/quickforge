@@ -6,6 +6,7 @@ import { atomicProjectConfigUpdate, configDir, dataDir } from './storage.mjs'
 import { getEnabledPluginSkillSources } from './plugins/registry.mjs'
 import { logger } from './utils/logger.mjs'
 import { parseSimpleYamlMap as parseSharedYamlMap } from './frontmatter.mjs'
+import { clampNumber } from './tools/params.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const bundledSkillsDir = path.resolve(__dirname, '..', 'skills')
@@ -527,8 +528,14 @@ export async function readSkillResource(skill, resourcePath, options = {}) {
 
   const text = await fs.readFile(file, 'utf8')
   const lines = text.split(/\r?\n/)
-  const offset = Math.max(1, Number(options.offset || 1))
-  const limit = Math.min(2000, Math.max(1, Number(options.limit || 200)))
+  // Paging params go through the same clampNumber as read_file / grep_files: a
+  // model occasionally writes "abc" or 2.7, and `Math.max(1, NaN)` is still NaN —
+  // which degraded slice() to "cut from the start" while prefixing every returned
+  // line with "NaN: ", and a non-numeric limit made the whole page empty.
+  // `|| undefined` keeps the legacy "empty string / 0 / null means not provided"
+  // behavior (defaults: offset 1, limit 200; limit capped at 2000).
+  const offset = clampNumber(options.offset || undefined, 1, 1, Number.MAX_SAFE_INTEGER)
+  const limit = clampNumber(options.limit || undefined, 200, 1, 2000)
   const selected = lines.slice(offset - 1, offset - 1 + limit)
   const content = selected.map((line, index) => `${offset + index}: ${line}`).join('\n')
   const suffix = offset - 1 + limit < lines.length ? `\n\n[showing ${selected.length} of ${lines.length} lines]` : ''

@@ -89,7 +89,7 @@ server/
 ├── storage.mjs               # 文件存储层 (1368 行)
 ├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
-├── skills.mjs                # Agent Skills 管理和加载 (546 行)
+├── skills.mjs                # Agent Skills 管理和加载 (553 行)
 ├── hooks/                    # Hooks 事件钩子（设置规范化 / 事件引擎 / 命令与 Webhook 执行器）
 ├── mcp/                      # MCP Client 配置、连接和工具适配
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
@@ -461,9 +461,11 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - 提供 AI 填充能力，生成 Agent 名称、显示名称、描述和系统提示词，工具权限仍由用户手动配置。
 - 内置 Agent 的覆盖项（`config/agent-profile-overrides.json`）在**同一个写队列里一次 read-modify-write** 落盘：文件一时读不出来（半截 JSON、被占用、权限不足）就**直接报错**，不再被当成空表整表覆盖 —— 否则「改一个 agent 的思考档」会把别的 agent 的 `model` / `thinkingLevel` 覆盖一起清掉，接口还返回 200。
 
-### skills.mjs (546 行)
+### skills.mjs (553 行)
 
 **用途**: Agent Skills 的发现、加载和管理。
+
+**read_skill_resource 分页**: `offset` / `limit` 统一走 `tools/params.mjs` 的 `clampNumber`（与 `read_file` / `grep_files` 同一条路径）——非数字退回默认（1 / 200）、小数截断、`limit` 上限 2000。此前这里是手写的 `Math.max(1, Number(…))`：模型把参数写成 `"abc"` 时 `NaN` 一路传进 `slice()`，返回的每行前缀变成 `NaN: `，`limit` 非数字时整页直接为空（11-16 22:52 修，4 例测试，先证 3 例会红）。
 
 **Front matter 解析**: 统一走 `frontmatter.mjs`（`parseSimpleYamlMap(text, { booleans: false })`），本文件不再维护私有副本——两份实现曾经分叉：共享那份认 YAML 短横线列表，私有那份不认，于是仓库自带的插件技能把 `metadata.tags` 写成列表时被读成空串（技能面板里那三个插件的标签/触发词一直是空的，11-15 修）。值一律按字符串读（`booleans: false`）；`metadata` 里的数组压成逗号串，再由 `splitMetadataList` 切回 `tags` / `triggers`。
 

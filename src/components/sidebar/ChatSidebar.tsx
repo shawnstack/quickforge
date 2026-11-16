@@ -625,10 +625,15 @@ export const ChatSidebar = memo(function ChatSidebar({
     window.addEventListener('click', closeViewSortMenu)
     window.addEventListener('blur', closeViewSortMenu)
     window.addEventListener('resize', closeViewSortMenu)
+    const handleViewSortEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeViewSortMenu()
+    }
+    window.addEventListener('keydown', handleViewSortEscape)
     return () => {
       window.removeEventListener('click', closeViewSortMenu)
       window.removeEventListener('blur', closeViewSortMenu)
       window.removeEventListener('resize', closeViewSortMenu)
+      window.removeEventListener('keydown', handleViewSortEscape)
     }
   }, [viewSortMenuOpen, closeViewSortMenu])
 

@@ -304,7 +304,7 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
       <section className="rounded-lg border border-border">
         <div className="grid gap-2 border-b border-border p-3 sm:grid-cols-[minmax(0,1fr)_12rem]">
           <input
-            className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+            className="rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
             type="search"
             value={query}
             placeholder={t('searchArchivedConversations')}

@@ -24,9 +24,14 @@ export function useDesktopTitlebarMenu({ openAboutSettings }: { openAboutSetting
     if (!desktopTitlebarMenuOpen) return
     window.addEventListener('click', closeDesktopTitlebarMenu)
     window.addEventListener('blur', closeDesktopTitlebarMenu)
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeDesktopTitlebarMenu()
+    }
+    window.addEventListener('keydown', handleEscape)
     return () => {
       window.removeEventListener('click', closeDesktopTitlebarMenu)
       window.removeEventListener('blur', closeDesktopTitlebarMenu)
+      window.removeEventListener('keydown', handleEscape)
     }
   }, [closeDesktopTitlebarMenu, desktopTitlebarMenuOpen])
 

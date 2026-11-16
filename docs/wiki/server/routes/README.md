@@ -112,11 +112,23 @@ Agent 会话管理核心路由。
 
 ## backup.mjs
 
-备份导出、检查和导入接口允许本机及已通过 LAN 密码认证的远程客户端调用；未认证远程请求禁止访问。
+备份与恢复路由，含两套入口：**权威备份**（整机数据的完整导出 / 检查 / 导入，走维护锁与快照校验，允许本机及已通过 LAN 密码认证的远程客户端调用，未认证远程请求禁止访问）与**用户设置备份**（设置界面用的可携带配置，不含项目注册表与对话历史）。恢复前的内部安全备份仍保留项目注册表，用于同机回滚。
+
+`scope` 的五个值 `all` / `config` / `sessions` / `shares` / `lan-access` 服务端**全部仍接受**（`server/routes/backup.mjs:28` 的 `backupScopes`）；设置界面不再提供 `all` / `sessions` 只是 UI 取舍，不是服务端契约，别据此认为旧参数已废弃。
+
+**权威备份端点**:
 
 - `GET /api/backup/export` — 支持 `scope`（`all`/`config`/`sessions`/`shares`/`lan-access`）与 `sections` 细分；权威模式下会话导出在维护锁内做 `quick_check` + count/digest 校验，并新增顶层 `sessionState: { phase, count, digest }`；权威模式下 `all`/`shares` scope 同时纳入 share 权威导出（share 维护锁内 quick_check + verifyIntegrity + exportSnapshot，记录含 token 哈希），新增顶层 `shareState: { phase, count, digest }`（旧客户端忽略未知字段）；权威模式下 `all`/`lan-access` scope 同时纳入 lan-access 权威导出（lan-access 维护锁内 quick_check + verifyIntegrity + exportSnapshot，配置含 token 哈希非明文、剔除 revision），新增顶层 `lanAccessState: { phase, count, digest }`（count = token 数）
 - `POST /api/backup/import` — replace/merge 模式；含 conversations 的恢复在权威模式下走 `restoreSessionStateSnapshot`（维护锁 + 计划文件 + 失败补偿，只触碰会话表、不影响 `scheduled_task_runs`），维护锁占用时返回 423 `session_state_maintenance`；含 shares 的恢复在权威模式下走 `restoreShareStateSnapshot`（share 维护锁 + 计划文件 + 失败补偿，replace 全量 / merge 保留 local-only、backup 同 key 覆盖，不影响 F5/F7/F9），维护锁占用时返回 423 `share_maintenance`；v1 conversation-shares.json 形状归一化导入；空 `shares: {}` 语义：replace 清空、merge 保留；metadata-only 会话恢复在权威模式拒绝（400）；含 lanAccess 的恢复在权威模式下走 `restoreLanAccessStateSnapshot`（lan-access 维护锁 + `lan-access-restore-plan.json` 计划文件 + 失败补偿，replace 全量 / merge 保留本地配置字段与 tokens、backup 同 key 覆盖，恢复覆盖 enabled 开关，不影响 F5/F7/F9/F10），维护锁占用时返回 423 `lan_access_maintenance`；v1 lan-access.json 形状归一化导入
 - `POST /api/backup/inspect` / `inspect-file` — 检查备份内容与警告（含 shares 替换警告、lan-access「将替换局域网访问配置」警告），`inspect-file` 生成一次性 import token
+
+**用户设置备份端点**:
+
+- `GET /api/backup/export?sections=settings,mcp,providerKeys,customProviders,scheduledTasks` — 按数据项导出用户设置备份；至少选择一项。`providerKeys` 与其他设置项一致，不需要额外开关。项目注册表和对话数据均不接受导出。
+- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 旧客户端兼容参数；用户导出不再包含项目注册表，新设置界面也不再使用 `all` / `sessions`。
+- `POST /api/backup/inspect` — 检查 JSON 请求体中的备份并返回预览；高于当前格式版本的备份会被拒绝。
+- `POST /api/backup/inspect-file` — 上传备份文件，按设置数据项检查并返回 `importToken`。旧完整备份中的对话和项目注册表会被忽略并明确告知；格式异常的数据项通过 `invalidSections` 返回，不阻塞其他有效项。
+- `POST /api/backup/import` — 使用 `{ "importToken": "...", "sections": [...], "mode": "replace|merge" }` 恢复所选数据，也兼容直接传入 `backup`。导入令牌仅在成功后删除，失败可重试；写入前会创建包含本机项目注册表的安全备份。项目绑定的定时任务若找不到对应本地项目，会保留绑定信息并自动暂停。
 
 ## project.mjs (242 行)
 
@@ -288,17 +300,6 @@ Hooks 设置页配套路由（引擎见 [server/hooks/](../README.md#hooks--hook
 - `GET /api/session-assets/:sessionId/:assetId` — 读取当前会话的生成图片资产；服务端按会话 bucket 定位文件并返回受控图片 MIME、`nosniff` 与私有不可变缓存头。
 - 路由只接受服务端生成的 UUID 图片 ID，不接受任意相对路径。
 
-## backup.mjs
-
-数据设置备份和恢复路由。用户设置备份只处理可携带配置数据，不包含本机项目注册表与对话历史；恢复前的内部安全备份仍会保留项目注册表，用于同机回滚。
-
-**主要端点**:
-- `GET /api/backup/export?sections=settings,mcp,providerKeys,customProviders,scheduledTasks` — 按数据项导出用户设置备份；至少选择一项。`providerKeys` 与其他设置项一致，不需要额外开关。项目注册表和对话数据均不接受导出。
-- `GET /api/backup/export?scope=all|config|sessions&includeSecrets=0|1` — 旧客户端兼容参数；用户导出不再包含项目注册表，新设置界面也不再使用 `all` / `sessions`。
-- `POST /api/backup/inspect` — 检查 JSON 请求体中的备份并返回预览；高于当前格式版本的备份会被拒绝。
-- `POST /api/backup/inspect-file` — 上传备份文件，按设置数据项检查并返回 `importToken`。旧完整备份中的对话和项目注册表会被忽略并明确告知；格式异常的数据项通过 `invalidSections` 返回，不阻塞其他有效项。
-- `POST /api/backup/import` — 使用 `{ "importToken": "...", "sections": [...], "mode": "replace|merge" }` 恢复所选数据，也兼容直接传入 `backup`。导入令牌仅在成功后删除，失败可重试；写入前会创建包含本机项目注册表的安全备份。项目绑定的定时任务若找不到对应本地项目，会保留绑定信息并自动暂停。
-
 ## lan-access.mjs
 
 LAN 共享访问管理路由。
@@ -326,9 +327,10 @@ LAN 共享访问管理路由。
 
 ## workspace.mjs
 
-Workspace Inspector 后端 API。
+Workspace Inspector 后端 API，同时也是工作区文件与 Git 能力路由：同一文件里既有按需读目录 / 搜索 / 预览，也有一整套 Git 写操作。
 
-**主要端点**:
+**读取端点（Inspector / Composer）**:
+
 - `GET /api/workspace/children?projectId=...&path=.&limit=&cursor=` — 按需列出一个目录的直接子节点，目录优先并使用大小写不敏感主排序及确定性次级排序；相对路径统一使用 `/`。`cursor` 是当前排序结果中的 offset 编码，不是目录快照，目录在分页间变化时可能出现重复或跳过；响应必含 `root/path/entries/nextCursor/truncated`。单个超大目录仍需读取并排序整层后才能分页
 - `GET /api/workspace/search?projectId=...&query=&limit=` — 独立搜索整个项目并按名称/相对路径匹配，不依赖前端已加载节点；至少 2 个字符，结果有上限。底层优先 ripgrep：`rg --files --hidden --no-ignore`（内置 `@vscode/ripgrep` 优先，回退系统 `rg`）拿全量候选清单，Node 侧做与旧遍历一致的路径子串匹配——隐藏文件、敏感文件可见与不尊重 `.gitignore` 均为既有行为，`node_modules`/`.git` 通过 glob 排除对齐 SKIP_DIRS，目录条目从文件路径的父目录推导，Windows 路径归一化为 `/` 风格；带 60 秒超时（超时杀进程树并 504）与 200k 行输出护栏。rg 不可用或执行失败时回退原有栈式遍历（保留每目录 `readdir` 前 realpath validator 与 TOCTOU 缩窗口语义，同样支持取消）。客户端断开（`req` aborted / 连接提前关闭）会中止 rg 子进程或遍历。`truncated: true` 表示还有额外匹配或达到安全上限；rg 不跟随符号链接目录（旧遍历会跟随工作区内安全链接），空目录条目在 rg 路径下不可见
 - `GET /api/workspace/mention-children?projectId=...&path=.` — Composer `@` 文件引用专用目录浏览；`projectId` 必须对应仍存在的已注册项目，未知或已删除项目返回 HTTP 404 / `PROJECT_NOT_FOUND`，不会回退默认 workspace。只读取 `path` 的直接子节点并一次返回当前层全部安全文件/目录（目录优先排序），不递归、不分页；始终启用 mention 级敏感路径与 realpath/符号链接边界检查，排除 `.env*`、密钥/证书、credentials/secrets、`.git` 及指向敏感或项目外目标的链接。目录只用于逐层导航，不能成为 context reference
@@ -337,22 +339,10 @@ Workspace Inspector 后端 API。
 - `GET /api/git/status?projectId=...` — 基于 `git status --porcelain=v1 -z --untracked-files=all --branch` 返回扁平的工作区文件变更列表（未跟踪目录展开为具体文件，不返回目录分组项）；`branch`/`detached` 取自同一条命令的 `## ` 头记录（不再单独跑 `branch --show-current`），该命令退出码同时用于判定仓库（非仓库 128 返回 `{ isGitRepository: false, files: [] }`）。默认附加 `git diff HEAD --numstat` 的每个文件增删行数（`additions`/`deletions`）；未跟踪/新增文件按工作区文件行数估算，最多统计排序后的 100 个文件，单文件上限 1MB、单次总量上限 10MB、并发数 6，超限文件仍返回状态但省略增删行数。`light=1` 跳过 numstat 与行数统计，只返回 branch/counts 与文件状态（供分支徽标等只需 branch/counts 的调用方；标题栏需 `additions/deletions` 走 full）。客户端断开（`req` aborted 或连接提前关闭）时中止该链路的 git 子进程（进程树清理）并静默结束，不再白跑到 2 分钟超时；取消贯穿 status/numstat/detached HEAD 兜底子进程，行数统计的文件读取不中止
 - `GET /api/git/file-diff?projectId=...&path=...` — 返回单文件 `oldContent/newContent`，供 Monaco DiffEditor 展示。客户端断开（`req` aborted / 连接提前关闭）时中止内部 git status 与 `git show` 子进程（fs 读取不中止，口径同 status）
 
-**路径边界**: 工作区文件读取、静态预览和外部打开分别使用各自的路径校验及文件类型/大小限制；目录 children/search 会限制在 workspace 内并跳过 `.git`、`node_modules` 及不安全的符号链接。search 对每个待遍历目录在读取前重新校验真实路径，但文件系统检查与后续读取之间仍存在不可完全消除的 TOCTOU；客户端取消请求也不保证已经开始的服务端目录扫描立即停止（git 读接口（status/branches/log/file-diff）与 `/api/workspace/search` 例外：客户端断开时会中止相应 git / rg 子进程与遍历）。
+**写入与打开端点（Git 写操作、外部打开）**:
 
-## workspace.mjs
-
-工作区文件与 Git 能力路由。
-
-**主要端点**:
-- `GET /api/workspace/children` — 按目录路径分页读取直接子节点，供 Files 树按需展开；offset cursor 只定位当前排序结果，不承诺目录快照。
-- `GET /api/workspace/search` — 独立搜索项目进行路径/名称匹配（ripgrep 优先、遍历兜底，带 60s 超时与客户端断开中止），不依赖前端已经展开的目录；`truncated` 表示存在额外匹配或达到安全上限。上述 JSON 接口均返回 `Cache-Control: no-store`，但前端会在当前 Inspector 会话内保留各目录已加载页、展开和错误状态。
-- `GET /api/workspace/mention-children` — Composer `@` 文件引用的安全逐层目录浏览；严格已注册 `projectId`，一次返回当前目录全部直接子文件/目录，不递归不分页，敏感路径及指向敏感/外部目标的符号链接不会出现。
-- `GET /api/workspace/file?projectId=...&path=...` — 安全读取工作区文本文件。
-- `GET /api/workspace/preview/:projectId/:path` — 为 HTML/SVG/图片/Markdown 等允许类型提供静态预览；ETag 协商缓存（`private, no-cache` + `"<mtimeMs>-<size>"`），未变化请求返回 304 零重传。
 - `POST /api/workspace/resolve-path` — 将绝对路径解析为当前项目内的相对路径。
 - `POST /api/workspace/open-external` — 在资源管理器中打开选中变更文件所在目录，或在 VS Code / IntelliJ IDEA 中直接打开工作区内的选中文件；路径经过工作区边界校验。
-- `GET /api/git/status` — 获取 Git 仓库状态、当前分支、变更计数和文件列表；`light=1` 跳过 numstat 与行数统计；客户端断开时中止 git 子进程。
-- `GET /api/git/file-diff` — 获取单文件工作区 diff 内容；客户端断开时中止 git 子进程。
 - `POST /api/git/stage` — 暂存单个变更文件。
 - `POST /api/git/stage-all` — 暂存全部工作区变更。
 - `POST /api/git/unstage` — 将单个已暂存文件退回未暂存。
@@ -367,6 +357,12 @@ Workspace Inspector 后端 API。
 - `POST /api/git/commit` — 提交已暂存内容；可选 `includeUnstaged` 时先执行 `git add -A`。
 - `POST /api/git/push` — 执行 `git push`，无 upstream 等错误直接返回给前端。
 - `POST /api/git/commit-and-push` — 提交后执行 `git push`。
+
+**路径边界**:
+
+工作区文件读取、静态预览和外部打开分别使用各自的路径校验及文件类型/大小限制；目录 children/search 会限制在 workspace 内并跳过 `.git`、`node_modules` 及不安全的符号链接。search 对每个待遍历目录在读取前重新校验真实路径，但文件系统检查与后续读取之间仍存在不可完全消除的 TOCTOU；客户端取消请求也不保证已经开始的服务端目录扫描立即停止（git 读接口（status/branches/log/file-diff）与 `/api/workspace/search` 例外：客户端断开时会中止相应 git / rg 子进程与遍历）。
+
+**preview 是路径前缀匹配**：服务端判据为 `url.pathname.startsWith('/api/workspace/preview/')`（`server/routes/workspace.mjs:465`），实际形状是 `/api/workspace/preview/<projectId>/<任意相对路径>`，层数不限；旧文档写的单路径参数 `/api/workspace/preview/:projectId/:path` 会让人误以为只支持一层。
 
 ## static.mjs (160 行)
 

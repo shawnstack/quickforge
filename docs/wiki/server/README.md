@@ -649,6 +649,28 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 - `formatHelpText()` — 生成 `/help` 输出（内置命令区 + 自定义命令区）
 - `createCommandFile()` — 在项目 `.ai/commands/` 下新建命令文件（带 frontmatter 模板，`flag:'wx'` 防覆盖），供 REST 路由和 `/command new` 复用
 
+### 替换串语义：第二参是字符串时 `$` 序列会被解释（跨模块）
+
+`String.prototype.replace(search, replacement)` 的第二参即使只是一个普通字符串，也会被当成「替换模板」解析 `$&`、`$$`、`$n` 以及两个「复制原文」用的 token。**字面量替换串永远安全**（只命中你自己写死的字符）；**把模型输出、用户输入或运行期数据当替换串才是缺陷**——而且症状是静默改写：不抛错、不告警，只有肉眼看出多了或少了半段才发现。
+
+修法一律 `() => 值`（函数体形式，返回值按字面量处理），不要靠手动转义 `$`。
+
+症状 → 实际被解释的 token：
+
+- 插入了「匹配之前」的整段前缀 → 美元符后紧跟一个反引号（两个字符连着）
+- 插入了「匹配之后」的整段后缀 → `$'`
+- 插入了被匹配的原文 → `$&`
+- 美元符少了一半、整段塌陷 → `$$`
+- 插入了捕获组内容 → `$1`（或 `$<name>`）
+
+同族三笔缺陷（均已修，回归测试 `tests/frontend/i18n-interpolation.test.ts`、`tests/server/custom-commands.test.mjs`）：
+
+- `925cf0ac` — `edit_file` 的 `newText`：模型给的替换文本里含前两种 token 时，写回的文件会凭空复制整段前缀（那种 `(+19 -0)` 的怪 diff 就是它）
+- `b649c481` — 自定义命令的 `$ARGUMENTS` 展开：**用户输入**被当替换串，展开结果直接进 systemPrompt
+- `7ec4d401` — 前端 `t(key, params)` 插值：参数值是运行期字符串，`$&` 让占位符原样留下，复制后缀那个 token 把占位符之后的正文插进来
+
+机械判据：`x.replace(a, b)` 里 `b` 既不是字面量也不是函数时，逐个核对它是不是运行期数据。前端 `t()` 的具体口径见 `docs/wiki/src/lib/README.md` 的 `i18n.ts` 段。
+
 ### session-utils.mjs (118 行)
 
 会话工具函数：构建系统提示词、生成会话标题。

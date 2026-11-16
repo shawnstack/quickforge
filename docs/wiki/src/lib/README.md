@@ -206,6 +206,7 @@
 - 日期区域设置
 - **surface 文案统一走 `appTranslations`**：聊天 surface（`MessageEditor` / `ThinkingBlock` / `AssistantMessage` / `ToolMessage` / `AttachmentTile` / `AttachmentOverlay` / `AttachmentPreview` / `ApiKeyPromptDialog` / `CodeBlock` / `ChatSurface`）不再硬编码文案，全部调用 `t()`；新增或修改 surface 文案**必须同时补齐 `appTranslations.en` 与 `appTranslations.zh` 的同名键**（中英成对维护），并优先复用既有键（`thinking*` / `input` / `output` / `stop` / `close` / `save` / `cancel` / `composerPlaceholder`、```svg 与 ```mermaid 预览、`executeInTerminal`、`moreActions` 等）。装饰层可见文案同规则（`openLocalFileWithPath` / `gitBranchLabel` / `toolCommand*` 等）。
 - **测试约定（文案断言固定语言）**：surface 组件的 `renderToStaticMarkup` 断言因默认语言回退 `navigator.language`（中文机器上即 zh），必须在测试内固定语言（文件级 `beforeEach(applyAppLanguageFromSnapshot('en'))`），另保留一处 zh 断言覆盖本地化生效；见 `tests/frontend/chat-surface-editor.test.ts` 与其余 `chat-surface-*.test.ts`。
+- **插值一律走函数体替换**：`t(key, params)` 的参数值可能是运行期字符串（实现是 `text.replaceAll('{name}', () => String(value))`）——第二参若写成字符串，`replace` 会把它当替换模板解析，`$&` / `$'` 之类会被解释成「插入原文」，症状是静默多出或少掉半段。同族机制、症状对照表与三笔出处见 `docs/wiki/server/README.md` 的「替换串语义」小节（`7ec4d401`）。
 
 ### pi-chat.ts (497 行)
 

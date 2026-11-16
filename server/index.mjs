@@ -69,6 +69,7 @@ import { closeSqliteStorage, getSqliteStorage, getSqliteStorageSummary, initiali
 import { recoverScheduledRunsRestorePlan } from './scheduled-runs-backup.mjs'
 import { getSessionIndexDiagnostics, initializeSessionIndex } from './session-index-service.mjs'
 import { createNodeProcessEnv } from './utils/process-env.mjs'
+import { redactHostPathsForRemote } from './health-redaction.mjs'
 import { isAuthenticatedAppClient } from './access-policy.mjs'
 import { STARTUP_STATES, getStartupError, getStartupState, resolveMaintenanceGate, setStartupState, withStartupRecoveryGuidance } from './startup-state.mjs'
 
@@ -113,7 +114,7 @@ async function getSystemStatus({ isLocalRequest = true, remoteAuthorized = false
   const packageInfo = await getPackageInfo(projectRoot)
   const restartAllowed = isAuthenticatedAppClient({ isLocalRequest, remoteAuthorized })
   const restartSupported = restartAllowed && restartSupport.supported
-  return {
+  const status = {
     ok: true,
     mode: isDev ? 'development' : 'production',
     pid: process.pid,
@@ -143,6 +144,9 @@ async function getSystemStatus({ isLocalRequest = true, remoteAuthorized = false
     lanUrls: getLanUrls(port),
     project: getActiveProject(config),
   }
+  // `/api/health` 在局域网免密路径里（`isLanAccessBootstrapPath`），本机绝对路径不能跟着出门；
+  // 判据、实测与消费面核查见 `server/health-redaction.mjs` 头注释。
+  return redactHostPathsForRemote(status)
 }
 
 function spawnRestartSupervisor() {

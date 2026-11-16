@@ -46,7 +46,8 @@ goal 路由错误补机器码：`POST /api/agents/:sessionId/goal` 对非法 act
 
 ```
 server/
-├── index.mjs                 # 服务器入口 (1029 行)
+├── index.mjs                 # 服务器入口 (1033 行)
+├── health-redaction.mjs      # `/api/health` 的本机路径收口：远程客户端看到的 `*Dir` / `workspaceRoot` / `project.path` 一律 null (31 行)
 ├── agent-manager.mjs         # Agent 生命周期编排 + facade (137 行；压缩/命令/审批/subagent/持久化已拆至 agent-* 模块)
 ├── agent-session-store.mjs   # 模块级可变状态唯一 owner（agentSessions / pendingRestores / subagent 错误 details 暂存）
 ├── agent-session-events.mjs  # 共享事件核心（emitSessionEvent/分帧转换/消息构造器/context usage）
@@ -118,7 +119,7 @@ server/
 
 ## 核心模块
 
-### index.mjs (1029 行)
+### index.mjs (1033 行)
 
 **用途**: 服务器入口 / 主路由分发。启动 HTTP 服务器，注册所有 API 路由。
 
@@ -129,7 +130,7 @@ server/
 **主要功能**:
 - HTTP 路由分发（基于 `url.pathname` 匹配）
 - 中间件：CORS、JSON 请求体大小限制
-- `GET /api/health` — 健康检查，返回 `version` 与 `package` 元数据，并按当前请求返回 `isLocalRequest` 与 `capabilities`；远端客户端的终端、重启和打开本机应用能力为关闭状态
+- `GET /api/health` — 健康检查，返回 `version` 与 `package` 元数据，并按当前请求返回 `isLocalRequest` 与 `capabilities`；远端客户端的终端、重启和打开本机应用能力为关闭状态。**本机绝对路径也是收口的**：这条路径在局域网免密白名单里（`isLanAccessBootstrapPath`），所以非本机请求拿到的 `dataDir` / `configDir` / `storageDir` / `cacheDir` / `logsDir` / `workspaceRoot` / `project.path` 一律是 `null`（`server/health-redaction.mjs`，字段保留、只清值）
 - `GET /api/diagnostics` — 仅本机可访问的运行时诊断快照（非本机 403 `Diagnostics are only available to local clients`）：event loop lag 分位、在途请求与耗时、按路径聚合耗时、最近慢请求、活跃 socket 连接数、全局 SSE 流数、进程内存。数据由 `server/runtime-diagnostics.mjs` 采集；用于区分「浏览器侧连接池排队」与「服务端事件循环阻塞」
 - 静态文件服务（`serveStatic`）
 - SSE（`/api/agents/events`, `/api/agents/:sessionId/stream`）

@@ -117,7 +117,7 @@ function ShareEditDialog({
           </div>
 
           <div className="space-y-2">
-            <label className="block text-sm font-medium">{t('sharePasswordTitle')}</label>
+            <span className="block text-sm font-medium">{t('sharePasswordTitle')}</span>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <input
                 value={passwordInput}
@@ -125,6 +125,7 @@ function ShareEditDialog({
                 disabled={removePassword}
                 className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm"
                 placeholder={share.hasPassword ? t('sharePasswordPlaceholderKeep') : t('sharePasswordPlaceholderNone')}
+                aria-label={t('sharePasswordTitle')}
                 type="text"
                 autoComplete="new-password"
               />

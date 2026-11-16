@@ -194,7 +194,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
   }
 
   const dialog = (
-    <div ref={dialogRef} className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-6 py-8" role="dialog" aria-modal="true" onMouseDown={(event) => {
+    <div ref={dialogRef} className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 px-6 py-8" role="dialog" aria-modal="true" aria-label={t('gitToolsCommitOrPush')} onMouseDown={(event) => {
       if (event.target === event.currentTarget && !busy) {
         setBranchMenuOpen(false)
         onClose()
@@ -254,6 +254,7 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
               }
             }}
             placeholder={t('gitCommitMessagePlaceholder')}
+            aria-label={t('gitCommitMessagePlaceholder')}
             disabled={Boolean(busy)}
             className="min-h-40 w-full resize-none bg-transparent pr-12 text-base leading-7 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:opacity-60"
           />

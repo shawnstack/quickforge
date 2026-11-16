@@ -165,6 +165,7 @@ export function MemorySettingsTab() {
           <div className="quickforge-memory-editor-control">
             <textarea
               className="quickforge-settings-textarea quickforge-settings-mono quickforge-memory-editor"
+              aria-label={t('memoryContent')}
               value={markdown}
               disabled={!enabled || busy}
               spellCheck={false}

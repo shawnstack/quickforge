@@ -762,7 +762,7 @@ export function renderTaskListView(ctx: TaskListViewContext) {
               <span>{t('paginationSummary', { page: historyPayload.page, pages: totalHistoryPages, total: historyPayload.total })}</span>
               <div className="flex items-center gap-2">
                 <div className="w-24">
-                  <select className="quickforge-settings-select" value={historyPayload.pageSize} onChange={(event) => changeHistoryPageSize(Number(event.target.value))}>
+                  <select className="quickforge-settings-select" aria-label={t('rowsPerPage')} value={historyPayload.pageSize} onChange={(event) => changeHistoryPageSize(Number(event.target.value))}>
                     {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{t('pageSize', { size })}</option>)}
                   </select>
                 </div>

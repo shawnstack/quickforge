@@ -314,6 +314,7 @@ export function LanAccessSettingsTab({ active }: { active?: boolean } = {}) {
                 value={password}
                 onChange={(event) => setPassword(event.currentTarget.value)}
                 placeholder={hasPassword ? t('lanAccessPasswordPlaceholderConfigured') : t('lanAccessPasswordPlaceholder')}
+                aria-label={t('lanAccessPassword')}
               />
               <button
                 className="quickforge-lan-password-toggle"
@@ -361,6 +362,7 @@ export function LanAccessSettingsTab({ active }: { active?: boolean } = {}) {
             <select
               className="quickforge-settings-select"
               value={String(sessionTtlHours)}
+              aria-label={t('lanAccessSessionTtl')}
               onChange={(event) => setSessionTtlHours(Number(event.currentTarget.value) || 12)}
             >
               <option value="1">1 {t('hour')}</option>

@@ -565,6 +565,7 @@ export function DreamingSettingsTab() {
               className="h-9 w-full rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-55"
               type="time"
               value={settings.executeTime}
+              aria-label={t('dreamingExecuteTime')}
               disabled={!settings.enabled || saving}
               onChange={(event) => void updateSettings({ executeTime: event.currentTarget.value })}
             />
@@ -627,6 +628,7 @@ export function DreamingSettingsTab() {
                 type="search"
                 value={experienceQuery}
                 placeholder={t('dreamingExperienceSearchPlaceholder')}
+                aria-label={t('dreamingExperienceSearchPlaceholder')}
                 onChange={(event) => setExperienceQuery(event.currentTarget.value)}
               />
               <Button

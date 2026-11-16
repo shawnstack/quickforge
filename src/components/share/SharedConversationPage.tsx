@@ -246,6 +246,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             onKeyDown={(event) => { if (event.key === 'Enter') void unlock() }}
             className="mt-5 h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
             placeholder="密码"
+            aria-label={t('sharePasswordTitle')}
             autoFocus
           />
           {error ? <div className="mt-3 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}

@@ -267,6 +267,7 @@ export function ProjectDirectoryPicker({
                     value={newFolderName}
                     onChange={(event) => setNewFolderName(event.target.value)}
                     placeholder={t('newDirectoryNamePlaceholder')}
+                    aria-label={t('newDirectoryNamePlaceholder')}
                     disabled={loading || submitting || creatingFolder}
                     autoFocus
                     onKeyDown={(event) => {

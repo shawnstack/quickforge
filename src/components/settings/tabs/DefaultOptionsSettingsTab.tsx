@@ -516,6 +516,7 @@ export function DefaultOptionsSettingsTab({ active }: { active?: boolean } = {})
                   type="text"
                   value={customShellCommand}
                   placeholder={t('terminalShellCommandPlaceholder')}
+                  aria-label={t('terminalShellCommand')}
                   onChange={(event) => setCustomShellCommand(event.currentTarget.value)}
                 />
                 <button

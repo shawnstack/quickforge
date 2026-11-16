@@ -308,11 +308,13 @@ export function ArchivedConversationsSettingsTab({ active }: { active?: boolean 
             type="search"
             value={query}
             placeholder={t('searchArchivedConversations')}
+            aria-label={t('searchArchivedConversations')}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
           <select
             className="rounded-md border border-input bg-background px-3 py-2 text-sm"
             value={projectFilter}
+            aria-label={t('archivedProjectFilter')}
             onChange={(event) => setProjectFilter(event.currentTarget.value)}
           >
             <option value="all">{t('allProjects')}</option>

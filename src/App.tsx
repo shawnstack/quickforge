@@ -1165,6 +1165,7 @@ function MainApp() {
           className="fixed inset-0 z-50 outline-none md:hidden"
           role="dialog"
           aria-modal="true"
+          aria-label={t('mobileSidebarName')}
         >
           <button
             type="button"

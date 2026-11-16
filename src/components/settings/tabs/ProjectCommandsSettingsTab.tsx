@@ -299,6 +299,7 @@ export function ProjectCommandsSettingsTab() {
             <select
               className="quickforge-settings-select"
               value={project?.id ?? ''}
+              aria-label={t('project')}
               onChange={(event) => selectProject(event.currentTarget.value)}
             >
               {projects.map((item) => (
@@ -320,6 +321,7 @@ export function ProjectCommandsSettingsTab() {
               className="quickforge-settings-textarea quickforge-settings-mono"
               value={commandDir}
               placeholder={t('commandDirectoryPlaceholder')}
+              aria-label={t('commandDirectories')}
               onChange={(event) => updateCommandDir(event.currentTarget.value)}
             ></textarea>
           </div>

@@ -35,9 +35,9 @@ export function AttachmentPreviewErrorFallback({ message, onClose }: { message: 
   useDialogFocusTrap(dialogRef)
 
   return (
-    <div ref={dialogRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6" role="alertdialog" aria-modal="true">
+    <div ref={dialogRef} className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-6" role="alertdialog" aria-modal="true" aria-labelledby="attachment-preview-error-title">
       <div className="max-w-md rounded-lg border border-border bg-background p-4 text-center shadow-lg">
-        <div className="text-sm font-medium text-destructive">{t('attachmentPreviewErrorTitle')}</div>
+        <div id="attachment-preview-error-title" className="text-sm font-medium text-destructive">{t('attachmentPreviewErrorTitle')}</div>
         {message ? <div className="mt-2 break-words text-xs text-muted-foreground">{message}</div> : null}
         <button
           type="button"

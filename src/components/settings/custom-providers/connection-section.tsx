@@ -154,6 +154,7 @@ export function ConnectionSection(props: ConnectionSectionProps) {
               name="qf-provider-api-key"
               autoComplete="new-password"
               placeholder={keyConfigured && !keyValue ? t('storedKeyHiddenHint') : t('apiKeyPlaceholder')}
+              aria-label={t('apiKeyPlaceholder')}
               onChange={(event) => { setKeyValue(event.currentTarget.value); setKeyFromStore(false) }}
             />
             <button
@@ -198,12 +199,14 @@ export function ConnectionSection(props: ConnectionSectionProps) {
                     className="quickforge-settings-input"
                     value={row.key}
                     placeholder={t('headerName')}
+                    aria-label={t('headerName')}
                     onChange={(event) => updateHeaderRow(index, 'key', event.currentTarget.value)}
                   />
                   <input
                     className="quickforge-settings-input"
                     value={row.value}
                     placeholder={t('headerValue')}
+                    aria-label={t('headerValue')}
                     onChange={(event) => updateHeaderRow(index, 'value', event.currentTarget.value)}
                   />
                   <button

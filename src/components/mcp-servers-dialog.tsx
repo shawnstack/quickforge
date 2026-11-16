@@ -306,6 +306,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
               </span>
               <textarea
                 className="quickforge-settings-textarea quickforge-settings-mono min-h-96"
+                aria-label={t('mcpTabJson')}
                 value={jsonText}
                 onChange={(event) => onJsonTextChange(event.target.value)}
                 spellCheck={false}

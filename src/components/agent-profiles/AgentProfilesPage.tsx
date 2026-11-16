@@ -523,6 +523,7 @@ export function AgentProfilesPage() {
                   disabled={definitionReadonly || aiFillLoading}
                   onChange={(event) => setAiFillInstruction(event.target.value)}
                   placeholder={t('aiFillAgentPlaceholder')}
+                  aria-label={t('aiFillAgent')}
                 />
                 <div className="mt-2 flex justify-end">
                   <Button variant="outline" size="sm" onClick={() => void handleAiFillAgent()} disabled={definitionReadonly || aiFillLoading || !aiFillInstruction.trim()}>

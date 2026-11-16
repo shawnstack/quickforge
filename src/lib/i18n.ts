@@ -4721,7 +4721,15 @@ export function getAppLanguage(): AppLanguage {
 }
 
 export function t(key: AppTextKey, params?: Record<string, string | number>) {
-  let text: string = appTranslations[getAppLanguage()][key] ?? appTranslations.en[key]
+  // 未知键不能变 undefined：`AppTextKey` 只是编译期的联合类型，`src/**` 里还有 9 处
+  // `as AppTextKey` 绕过它（goal 状态词、artifact 类别、错误码映射——每处都有
+  // if / Object.hasOwn / `?? 'unknown'` 兜底，所以今天不是缺陷）。但漏网一个键就是：
+  // 不带 params 时返回 undefined（界面静默空白、不报错），带 params 时 `text.replaceAll`
+  // 直接 TypeError 把整棵子树打掉。所以兜到键名本身——缺翻译时看见 camelCase 键名，
+  // 比看见空白或白屏容易被发现；开发态再补一条 warn（生产不刷 console）。
+  const hit = appTranslations[getAppLanguage()][key] ?? appTranslations.en[key]
+  if (hit === undefined && import.meta.env?.DEV) console.warn('[i18n] 缺少翻译键：', key)
+  let text: string = hit ?? key
   if (!params) return text
   for (const [name, value] of Object.entries(params)) {
     // 替换串必须走函数体：params 里的值可能是运行期字符串（git 分支名、文件路径、命令原文、

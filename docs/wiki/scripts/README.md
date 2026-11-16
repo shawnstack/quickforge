@@ -13,7 +13,7 @@
 | [archive-harness.mjs](../../../scripts/archive-harness.mjs) | Harness 状态归档：done/superseded 的 feature 与进度写入 docs/archive/ | 213 |
 | [migrate-bot-workspaces.mjs](../../../scripts/migrate-bot-workspaces.mjs) | 一次性迁移 bot 工作目录名（显示名 → bot- 加 id 前 8 位） | 166 |
 | [precompress-assets.mjs](../../../scripts/precompress-assets.mjs) | 为构建产物生成 .br / .gz 兄弟文件（npm run build 末尾调用） | 81 |
-| [session-message-benchmark.mjs](../../../scripts/session-message-benchmark.mjs) | 开发期基准：整身会话 messages 存储测量（拆表决策依据） | 411 |
+| [session-message-benchmark.mjs](../../../scripts/session-message-benchmark.mjs) | 开发期基准：整身会话 messages 存储测量（拆表决策依据）；`sqliteCommitMs` 是派生值（saveMs − 单独测的 encodeMs），body-only 不再编码后可能算出负数，已夹到 0 | 416 |
 | [sqlite-synchronous-benchmark.mjs](../../../scripts/sqlite-synchronous-benchmark.mjs) | 开发期基准：synchronous=NORMAL 与 FULL 的会话保存热路径对比 | 173 |
 | [vendor-node-pty.mjs](../../../scripts/vendor-node-pty.mjs) | 同步最小 node-pty 运行时到 vendor/node-pty（lib + prebuilds） | 96 |
 

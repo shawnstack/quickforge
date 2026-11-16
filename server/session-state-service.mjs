@@ -245,6 +245,20 @@ function messageStoragePlan(state, existing, { forceMessagesReplace = false } = 
   return { mode: 'append', messages: tail }
 }
 
+// body-only 的写入不能再携带 messages 数组（理由见 savePairWithPlan 的调用点）：
+// 它让 normalizeRecord 在主线程把每条消息重新编码一遍，又让 repository 按
+// replace 把全部行重写一遍，等于把「增量计划」白算了。
+function withoutMessages(record) {
+  if (!Array.isArray(record.state?.messages)) return record
+  const state = { ...record.state }
+  delete state.messages
+  // normalizeRecord would have set this marker while extracting the array; the
+  // body has to keep declaring split storage even when this save writes no rows,
+  // otherwise assembleState stops reattaching the stored messages on read.
+  state.messageStorage = MESSAGES_SPLIT_VALUE
+  return { ...record, state }
+}
+
 async function savePairWithPlan(state, metadata, options, plan, existing) {
   // Recheck after chunked encoding yields, before dispatching the CAS write.
   if (options.canPersist && !options.canPersist()) return null
@@ -274,7 +288,14 @@ async function savePairWithPlan(state, metadata, options, plan, existing) {
       expectedStateVersion: options.expectedStateVersion,
     })
   } else {
-    saved = await heavyOp('save', finalRecord, {
+    // body-only means the plan already proved the stored rows are exactly what
+    // this save would write (count + tail digest + mid-row digest). Letting the
+    // messages array travel on defeated that: `normalizeRecord` re-encoded every
+    // message on the main thread and the repository rewrote every row as a full
+    // replace — a 15k-message session paid ~260ms per body-only persist instead
+    // of a single-row UPSERT (measured in a temp DB; decisions §40). Dropping
+    // the array here is what makes the write genuinely body-only.
+    saved = await heavyOp('save', withoutMessages(finalRecord), {
       expectedRevision: options.expectedRevision,
       expectedStateVersion: options.expectedStateVersion,
     })

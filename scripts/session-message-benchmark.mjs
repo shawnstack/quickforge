@@ -278,7 +278,12 @@ async function main() {
           saveMsMin: round1(Math.min(...saveTimings)),
           saveMsMax: round1(Math.max(...saveTimings)),
           encodeMs: round1(encodeMs),
-          sqliteCommitMs: round1(saveMs - encodeMs),
+          // Derived, not measured: saveMs is the whole save while encodeMs is a
+          // separately measured canonical encode of the same payload. A save
+          // path that legitimately skips encoding (body-only, decisions §40)
+          // lands *below* the standalone encode, so clamp at zero — a negative
+          // duration is not a reading, it's arithmetic noise.
+          sqliteCommitMs: round1(Math.max(0, saveMs - encodeMs)),
           readMs: round1(readMs),
           readMsMin: round1(Math.min(...readTimings)),
           readMsMax: round1(Math.max(...readTimings)),

@@ -36,7 +36,7 @@
 
 主结构分割线（左侧功能区与对话区之间的竖线、顶部栏与内容区之间的横线）应该统一使用同一套强度。
 
-当前统一配方：1px 宽度 + `color-mix(in_oklab,var(--border)_60%,transparent)`（App.tsx 对话区包裹线/对话 header 底线、ChatSidebar footer 顶线、SettingsWorkspacePage 包裹线/设置 header 底线共用）。调整强度时需全组同步，不要只改个别位置。
+当前统一配方：1px 宽度 + `color-mix(in_oklab,var(--border)_60%,transparent)`（`components/app/AppMain.tsx:232` 对话区包裹线 / `components/app/ConversationHeader.tsx:88` 对话 header 底线、`components/sidebar/chat-sidebar/SidebarFooter.tsx:39` 侧栏 footer 顶线、`components/settings/SettingsWorkspacePage.tsx` 的 `:269` 包裹线与 `:270` 设置 header 底线共用）。调整强度时需全组同步，不要只改个别位置。
 
 不要不同位置用不同强度的分割线，否则页面结构会显得不统一、不齐整。
 
@@ -227,7 +227,7 @@ Hover 反馈需要存在，让可点击性明显，但不能太重：
 输入框是主要交互入口，需要比普通列表更有存在感，但仍保持克制：
 
 - 柔和的卡片感（圆角、轻阴影、柔和边框）
-- 聚焦状态不要有大灰色外圈或大面积 ring
+- 聚焦用与 `src/components/ui/input.tsx` 一致的 2px `--ring` 环（浅色为中性灰）；不要深色大外圈、不要多层叠加
 - 发送按钮明确、图标居中
 - 避免背景渐变过强、聚焦时大面积灰圈、尺寸过大、图标不居中
 

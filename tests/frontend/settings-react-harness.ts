@@ -16,6 +16,10 @@ export const hooks = {
     if (!(index in harness.refs)) harness.refs[index] = { current: initial }
     return harness.refs[index]
   },
+  // Components that memoize with useCallback/useMemo are still driveable here: the
+  // harness only needs to hand the callback back, it never compares identities.
+  useCallback: <T>(fn: T) => fn,
+  useMemo: <T>(fn: () => T) => fn(),
   useState: (initial: unknown) => {
     const index = harness.cursor++
     if (!(index in harness.states)) harness.states[index] = typeof initial === 'function' ? initial() : initial

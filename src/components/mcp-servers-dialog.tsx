@@ -14,6 +14,7 @@ import {
   draftToJson,
   jsonTextForTab,
   jsonToDraft,
+  mcpServerNamesInJson,
   serverToDraft,
   type McpServerFormData,
 } from '@/lib/mcp-helpers'
@@ -151,6 +152,15 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     if (jsonError && activeTab === 'json') {
       setError(jsonError)
       return
+    }
+    // 草稿只装得下一台服务器，JSON 视图里手写/粘贴的配置可能含多台：照常保存＝其余
+    // 服务器静默消失，所以这里明确拦下来，让用户只留要存的那台（或分开粘贴）。
+    if (activeTab === 'json') {
+      const names = mcpServerNamesInJson(jsonText)
+      if (names.length > 1) {
+        setError(t('mcpMultipleServersSave', { count: names.length }))
+        return
+      }
     }
     setSaving(true)
     setError('')

@@ -619,9 +619,9 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 - `dreaming/dreaming-data.ts` (252 行) # 传输类型与 fetch 层：`DreamingOverview` / `DreamingRun` / `DreamingExperience` / `DreamingSettings` 等类型，overview、settings 保存、手动触发、runs 列表与详情、restore，以及经验列表与「打开目录」，外加时间 / 耗时格式化（`formatDreamingTimestamp` / `formatDreamingDuration`）
 - `dreaming/DreamingSettingsTab.tsx` (759 行) # 「设置 → Dreaming」整页：概览、排期与模型选择（`formatModelOptionLabel` / `modelRefKey`）、手动触发与运行历史、经验库浏览与打开、restore 操作
 
-### mcp-servers-dialog.tsx (384 行)
+### mcp-servers-dialog.tsx (394 行)
 
-设置页里的 MCP 服务器管理面板（`McpServersPanel`）：列表 + **表单 / JSON 双模式**编辑器（草稿互转复用 `src/lib/mcp-helpers.ts`）。增改走 `POST /api/mcp/servers`，删除走 `DELETE /api/mcp/servers/:name`，启停走 `.../:name/enabled`，单个重连走 `POST /api/mcp/reconnect/:name`。
+设置页里的 MCP 服务器管理面板（`McpServersPanel`）：列表 + **表单 / JSON 双模式**编辑器（草稿互转复用 `src/lib/mcp-helpers.ts`）。增改走 `PUT /api/mcp/servers`，删除走 `DELETE /api/mcp/servers/:name`，启停走 `.../:name/enabled`，单个重连走 `POST /api/mcp/reconnect/:name`。JSON 视图里粘贴的配置若含多台服务器，保存会被明确拦下（草稿只装得下一台，照常保存＝其余静默消失），提示一次只能保存一台。
 
 ### mcp/（MCP 服务器管理面板拆件）
 

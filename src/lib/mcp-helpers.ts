@@ -117,6 +117,22 @@ export function jsonToDraft(text: string): McpServerFormData {
 }
 
 /**
+ * 一份配置文本里到底有几台服务器（解析不出时返回空数组）。
+ *
+ * 草稿只装得下一台（`jsonToDraft` 取 `mcpServers` 的第一条），所以保存前要用它判断：
+ * 粘贴了多台的配置如果照常保存，其余服务器会静默消失。
+ */
+export function mcpServerNamesInJson(text: string): string[] {
+  try {
+    const payload: unknown = JSON.parse(text)
+    if (!isRecord(payload) || !isRecord(payload.mcpServers)) return []
+    return Object.keys(payload.mcpServers)
+  } catch {
+    return []
+  }
+}
+
+/**
  * 切到 JSON 视图时该显示什么文本。
  *
  * 只有当前文本仍是我们上次从 draft 生成的那份副本时才重新生成。单服务器的 draft 装不下

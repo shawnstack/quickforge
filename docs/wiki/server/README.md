@@ -57,11 +57,13 @@ server/
 ├── agent-compaction.mjs      # /summary /compact /clear 会话压缩业务
 ├── agent-prompt-commands.mjs # 斜杠命令状态解析与命令 prompt 模板
 ├── agent-approval-orchestrator.mjs # 审批 / ask_user / ACP Promise 编排
+├── agent-approval-responses.mjs # 审批 / ask 的响应组装与落库（approveToolCall / rejectToolCall / answerAsk，依赖 approval-store 与 ask-store）
 ├── agent-subagent-runner.mjs # run_subagent 生命周期与 SUBAGENT_* 常量
 ├── agent-workflow-runner.mjs # run_workflow 主进程编排（worker 生命周期 / Agent+工具有界队列 / 超时与 abort / details）
 ├── agent-workflow-worker.mjs # run_workflow 脚本 worker（vm 上下文 / hooks / worker 协议）
 ├── agent-workflow-tools.mjs  # run_workflow tool() 执行入口（会话工具集 / 审批 / workspace 归因）
 ├── agent-persistence.mjs     # 会话持久化（CAS 权威快照 / debounce / 降级标记；lastModified = max(末尾消息时间, createdAt)，避免预置历史的会话（fork）被排到列表底部）
+├── session-persistence-lock.mjs # 按 key 的 FIFO 持久化队列：同 key 严格串行、不同 key 并行（JSON 镜像与自动归档仍用全局 key）
 ├── session-lease.mjs         # 会话写入租约纯逻辑（TTL / 续约 / 接管 / fence / canWrite）
 ├── agent-session-lease.mjs   # 租约装配层（接 agentSessions + 广播 session_lease 帧）
 ├── agent-goal-state.mjs      # Legacy Goal 纯状态模型（13 状态 / 预算 / 证据与验收校验 / 恢复映射）
@@ -82,6 +84,8 @@ server/
 ├── dreaming/                 # 记忆整理员：逐会话采集 / 整理提示词 / agent 执行 / 整目录快照 / runner
 ├── acp/                      # ACP AgentSideConnection stdio 适配层
 ├── agent-profiles.mjs        # Agent Profile 配置层，合并内置和自定义 Agent
+├── model-catalog.mjs         # 模型目录与模型引用解析（MODEL_REFERENCE_VERSION / listModelCatalog / resolveModelBinding）
+├── agent-profile-schema.mjs  # Agent Profile 的 schema 校验与能力策略（CAPABILITY_POLICIES / applyCapabilityPolicy / 模型引用归一化与解析）
 ├── storage.mjs               # 文件存储层 (1368 行)
 ├── sqlite/                   # node:sqlite 基础连接、事务、health 与 append-only migration
 ├── network-proxy.mjs         # 直连、真实系统代理与手动 HTTP(S) 代理运行时
@@ -91,6 +95,8 @@ server/
 ├── plugins/                  # 本地插件 manifest、加载和工具适配
 ├── share-store.mjs           # 分享数据存储 (423 行)
 ├── session-utils.mjs         # 会话工具 (118 行)
+├── agent-session-queries.mjs # 会话查询投影（createSessionQueries；从 session store 与审批 / ask store 汇总，依赖注入避免回指 manager）
+├── text-attachments.mjs      # 粘贴文本附件的落盘（cacheDir/global/tmp/conversations，单条上限 200 万字符）
 ├── system-prompt.mjs         # 系统提示词合成；todo_write 通用计划规则位于项目任务专属段之外
 ├── working-memory.mjs        # 工作记忆（beta）：设置、笔记文件夹与大白话笔记提示词
 ├── note-store.mjs            # 两个记忆目录共用的文件操作：命名校验 / 读 / 写 / 归档式移动
@@ -111,6 +117,7 @@ server/
 ├── scheduled-task-runner.mjs  # 常驻调度守护循环 (117 行)
 ├── scheduled-task-instruction-parser.mjs # 自然语言→cron 草稿解析 (113 行)
 ├── terminal/                 # 本地交互式终端 PTY 会话管理
+├── project-route-context.mjs # 路由层把 projectId 解析成请求上下文（resolveRequestedProject）
 ├── routes/                   # API 路由处理器
 ├── tools/                    # 工作区工具定义和实现
 └── utils/                    # 工具函数

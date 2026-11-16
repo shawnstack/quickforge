@@ -20,7 +20,7 @@
 | [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 106 |
 | [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳：落点由会话决定——bot 会话写自己工作区的 `<workspaceRoot>/MEMORY.md`（`writeWorkspaceMemory`），其余写全局（`writeGlobalMemory`），判不出目标就报错、不回退 | 74 |
 | [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 64 |
-| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（read_file / grep_files / run_command 参数归一化） | 12 |
+| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（read_file / grep_files / run_command / read_skill_resource 参数归一化） | 12 |
 | [memory-notes.mjs](../../../../server/tools/memory-notes.mjs) | 记忆笔记四工具（工作记忆 + 经验库，Dreaming curator 共用） | 192 |
 
 ---

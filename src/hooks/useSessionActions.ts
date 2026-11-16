@@ -76,7 +76,6 @@ export function useSessionActions({
   const archiveSession = useCallback(async (sessionId: string) => {
     const storage = storageRef.current
     if (!storage) return
-    disposeAgentTask(taskMapRef.current, sessionId)
 
     const session = await storage.sessions.get(sessionId) as QuickForgeSessionData | null
     if (!session) return
@@ -87,6 +86,7 @@ export function useSessionActions({
     const nextSession: QuickForgeSessionData = { ...session, archivedAt }
     const nextMetadata: QuickForgeSessionMetadata = { ...metadata, archivedAt }
     await storage.sessions.save(nextSession, nextMetadata)
+    disposeAgentTask(taskMapRef.current, sessionId)
     removeSession(sessionId)
     notifySessionsChanged()
     if (currentSessionIdRef.current === sessionId) {

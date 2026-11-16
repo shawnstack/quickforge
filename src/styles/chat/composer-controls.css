@@ -145,7 +145,7 @@
 .quickforge-composer .quickforge-agent-access-inline.quickforge-agent-access-inline-full,
 .quickforge-composer .quickforge-agent-access-inline.quickforge-agent-access-inline-full[aria-expanded="true"],
 .quickforge-composer .quickforge-agent-access-inline.quickforge-agent-access-inline-full:hover:not(:disabled) {
-  color: #d97706 !important;
+  color: var(--quickforge-warn-strong) !important;
 }
 
 .quickforge-agent-access-trigger-icon,

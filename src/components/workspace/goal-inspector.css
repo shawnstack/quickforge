@@ -3,7 +3,7 @@
    stays pinned at the bottom. Tone colors reuse the goal card/strip mapping
    through the local --quickforge-goal-tone variable (see data-tone below). */
 .quickforge-goal-inspector {
-  --goal-inspector-warning: #d97706;
+  --goal-inspector-warning: var(--quickforge-warn-strong);
   --goal-inspector-success: rgb(4 143 101);
   display: flex;
   flex: 1;
@@ -15,7 +15,7 @@
 
 .quickforge-goal-inspector[data-tone="info"],
 .quickforge-goal-inspector[data-tone="active"] { --quickforge-goal-tone: #3478d4; }
-.quickforge-goal-inspector[data-tone="warning"] { --quickforge-goal-tone: #d97706; }
+.quickforge-goal-inspector[data-tone="warning"] { --quickforge-goal-tone: var(--quickforge-warn-strong); }
 .quickforge-goal-inspector[data-tone="success"] { --quickforge-goal-tone: rgb(4 143 101); }
 .quickforge-goal-inspector[data-tone="danger"] { --quickforge-goal-tone: var(--destructive); }
 

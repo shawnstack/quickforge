@@ -142,6 +142,10 @@ body {
   /* 通用语义色：供状态提示/徽标使用，纯 token（不进 @theme inline 映射）。 */
   --success: oklch(0.55 0.13 158);
   --warning: oklch(0.7 0.15 70);
+  /* 警告强调色：主界面 28 处字面量（#d97706 / amber-600）的收口目标。
+     暗色暂无 override、与亮色同值 —— 现在这 28 处本来就两个主题同一个值，
+     提亮到 amber-400 会改观感，属独立决策（见 .bot/proposal-semantic-colors.md D1）。 */
+  --quickforge-warn-strong: #d97706;
   --info: oklch(0.4 0.18 240);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);

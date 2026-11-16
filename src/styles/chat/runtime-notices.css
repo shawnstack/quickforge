@@ -372,7 +372,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 }
 
 .quickforge-reconnect[data-state='failed'] {
-  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  color: color-mix(in oklab, var(--quickforge-warn-strong) 88%, var(--foreground));
 }
 
 .quickforge-reconnect[data-state='failed'] .quickforge-reconnect-icon svg {
@@ -397,7 +397,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 
 .quickforge-reconnect-retry:hover {
   background: var(--muted);
-  border-color: color-mix(in oklab, #d97706 40%, var(--border));
+  border-color: color-mix(in oklab, var(--quickforge-warn-strong) 40%, var(--border));
 }
 
 /* Turn terminal error: one-line lightweight row.
@@ -513,7 +513,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   margin: 0.25rem 0 0 2.5rem;
   font-size: 0.75rem;
   line-height: 1.5;
-  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  color: color-mix(in oklab, var(--quickforge-warn-strong) 88%, var(--foreground));
 }
 
 .quickforge-error-switch-model {
@@ -523,14 +523,14 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   padding: 0;
   border: 0;
   background: transparent;
-  color: color-mix(in oklab, #d97706 92%, var(--foreground));
+  color: color-mix(in oklab, var(--quickforge-warn-strong) 92%, var(--foreground));
   text-decoration: underline;
   text-underline-offset: 3px;
-  text-decoration-color: color-mix(in oklab, #d97706 45%, transparent);
+  text-decoration-color: color-mix(in oklab, var(--quickforge-warn-strong) 45%, transparent);
 }
 
 .quickforge-error-switch-model:hover {
-  color: #d97706;
+  color: var(--quickforge-warn-strong);
 }
 
 /* 详情就地展开：mono 原文（数据层 errorMessage），默认收起。 */
@@ -580,7 +580,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 }
 
 .quickforge-reconnect[data-state='unreachable'] .quickforge-reconnect-title {
-  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  color: color-mix(in oklab, var(--quickforge-warn-strong) 88%, var(--foreground));
   font-weight: 500;
 }
 
@@ -614,8 +614,8 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   font-size: 0.75rem;
   line-height: 1.5;
   color: var(--muted-foreground);
-  border-top: 1px solid color-mix(in oklab, #d97706 35%, var(--border));
-  background: color-mix(in oklab, #d97706 8%, var(--background));
+  border-top: 1px solid color-mix(in oklab, var(--quickforge-warn-strong) 35%, var(--border));
+  background: color-mix(in oklab, var(--quickforge-warn-strong) 8%, var(--background));
   font-variant-numeric: tabular-nums;
   animation: quickforge-reconnect-enter 180ms ease-out both;
 }
@@ -636,7 +636,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 }
 
 .quickforge-unreachable-strip-title {
-  color: color-mix(in oklab, #d97706 88%, var(--foreground));
+  color: color-mix(in oklab, var(--quickforge-warn-strong) 88%, var(--foreground));
   font-weight: 500;
 }
 
@@ -664,7 +664,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
 
 .quickforge-unreachable-help-toggle:hover {
   background: var(--muted);
-  border-color: color-mix(in oklab, #d97706 40%, var(--border));
+  border-color: color-mix(in oklab, var(--quickforge-warn-strong) 40%, var(--border));
 }
 
 .quickforge-unreachable-strip-help {
@@ -676,7 +676,7 @@ html.dark .quickforge-reconnect[data-state='reconnected'] {
   flex-direction: column;
   gap: 3px;
   padding-top: 6px;
-  border-top: 1px dashed color-mix(in oklab, #d97706 25%, var(--border));
+  border-top: 1px dashed color-mix(in oklab, var(--quickforge-warn-strong) 25%, var(--border));
   font-size: 0.6875rem;
   color: var(--muted-foreground);
 }

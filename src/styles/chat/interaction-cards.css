@@ -1,7 +1,7 @@
 /* Tool approval card */
 .quickforge-approval-card { position: relative; overflow: hidden; margin: 0 1rem 1rem; border: 1px solid var(--border); border-radius: calc(var(--radius) + .125rem); background: color-mix(in oklab, var(--background) 96%, var(--muted)); box-shadow: 0 1px 2px rgb(15 23 42 / .04); pointer-events: auto; }
-.quickforge-approval-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--quickforge-approval-tone, #d97706); content: ""; }
-.quickforge-approval-card--warning { --quickforge-approval-tone: #d97706; }
+.quickforge-approval-card::before { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--quickforge-approval-tone, var(--quickforge-warn-strong)); content: ""; }
+.quickforge-approval-card--warning { --quickforge-approval-tone: var(--quickforge-warn-strong); }
 .quickforge-approval-card--info { --quickforge-approval-tone: #3478d4; }
 .quickforge-approval-body { padding: .875rem .9375rem .8125rem 1.0625rem; }
 .quickforge-approval-status-row, .quickforge-approval-actions, .quickforge-approval-status, .quickforge-approval-badges, .quickforge-approval-impact-row, .quickforge-approval-details-toggle { display: flex; align-items: center; }

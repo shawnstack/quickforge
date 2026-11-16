@@ -490,7 +490,7 @@ html.dark .quickforge-goal-report-criterion[data-status="passed"] .quickforge-go
 }
 
 .quickforge-goal-report-criterion[data-status="needs_review"] .quickforge-goal-report-criterion-icon {
-  color: #d97706;
+  color: var(--quickforge-warn-strong);
 }
 
 .quickforge-goal-report-scope {
@@ -510,9 +510,9 @@ html.dark .quickforge-goal-report-criterion[data-status="passed"] .quickforge-go
 }
 
 .quickforge-goal-report-blocker {
-  border-left: 2px solid #d97706;
+  border-left: 2px solid var(--quickforge-warn-strong);
   border-radius: 0 0.375rem 0.375rem 0;
-  background: color-mix(in oklab, #d97706 6%, transparent);
+  background: color-mix(in oklab, var(--quickforge-warn-strong) 6%, transparent);
   padding: 0.25rem 0.625rem;
 }
 

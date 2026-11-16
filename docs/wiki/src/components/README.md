@@ -317,7 +317,7 @@ components/
 
 ### ChatSidebar.tsx
 
-- 模块拆分（2216 行 → 装配层 1165 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，四个变体共用时间/状态槽：运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
+- 模块拆分（2216 行 → 装配层 1202 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，四个变体共用时间/状态槽：运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
 - 左侧聊天列表面板；移动端抽屉为 100% 全屏宽（`w-full`），不再受 85vw 上限限制；桌面侧栏默认/最小宽度为 304px、最大宽度为 520px，侧栏通过 `ResizeObserver` 回报实际宽度，供右侧 Workspace Inspector 在 1200px / 75vw 上限之外同时保留左栏、1px 分隔线和 440px 对话区
 - 桌面侧栏收缩态固定为 `w-14`：不会因 `window.resize` 或浏览器缩放恢复展开宽度，收缩/移动清理时会移除遗留的内联 `width`
 - 支持全局会话 / 项目会话切换

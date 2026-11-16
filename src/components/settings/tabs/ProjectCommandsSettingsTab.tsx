@@ -108,11 +108,10 @@ export function ProjectCommandsSettingsTab() {
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => {
+      // 防抖定时器的清理与卸载 flush 由下方卸载专用 effect 独占：React 卸载时按
+      // effect 声明顺序跑 cleanup，这里若先把 timer 清空，后面的 flush 会以为
+      // 没有待写值而提前返回，改动就静默丢了。
       cancelled = true
-      if (saveTimerRef.current !== null) {
-        window.clearTimeout(saveTimerRef.current)
-        saveTimerRef.current = null
-      }
     }
      
   }, [])
@@ -196,8 +195,21 @@ export function ProjectCommandsSettingsTab() {
     }
   }
 
+  // 卸载 = 800ms 防抖窗口的最后一次机会：只 clearTimeout 会让「填完立刻切走」静默丢改动。
+  useEffect(() => () => {
+    if (saveTimerRef.current === null) return
+    window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+    void save()   // save() 只读 ref，正是最新的值
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只捕获首帧的 save（它读 ref）；加 deps 会变成每次渲染都 flush
+  }, [])
+
   const selectProject = (projectId: string) => {
-    clearSaveTimer()
+    // 先把上一个项目的待写值落盘：save() 读的是尚未更新的 projectRef/commandDirRef
+    if (saveTimerRef.current !== null) {
+      clearSaveTimer()
+      void save()
+    }
     const selected = projects.find((item) => item.id === projectId)
     if (!selected) return
     const nextCommandDir = typeof selected.commandDir === 'string' ? selected.commandDir : ''

@@ -20,6 +20,20 @@ async function mount(commandDir = '') {
   expect(hasText('Loaded command')).toBe(true)
   fetchMock.mockClear()
 }
+/** 挂载并自行收集 effect cleanup：harness.effects.forEach 会把 cleanup 丢掉，卸载语义必须自己还原。 */
+async function mountWithCleanups(commandDir = '') {
+  fetchMock.mockImplementation(async (url: string) => url === '/api/project'
+    ? json({ project: { id: 'project-1', name: 'Project', commandDir } })
+    : json({ commands: [{ name: 'test', description: 'Loaded command' }] }))
+  render()
+  const cleanups = harness.effects
+    .map((effect) => effect())
+    .filter((cleanup): cleanup is () => void => typeof cleanup === 'function')
+  await vi.waitFor(() => expect(button('createCommand')?.props.disabled).toBe(false))
+  expect(hasText('Loaded command')).toBe(true)
+  fetchMock.mockClear()
+  return cleanups
+}
 function postedBody(url: string) {
   const call = fetchMock.mock.calls.find(([target]) => target === url)!
   expect(call[1].method).toBe('POST')
@@ -107,5 +121,45 @@ describe('React project commands settings', () => {
     await mount(); fetchMock.mockResolvedValue(json({ error: 'Cannot open directory' }, 500))
     button('openCommandDir').props.onClick()
     await vi.waitFor(() => expect(hasText('Cannot open directory')).toBe(true))
+  })
+  it('flushes the pending debounced save when the tab unmounts inside the debounce window', async () => {
+    const unmount = await mountWithCleanups('initial')
+    vi.useFakeTimers()
+    fetchMock.mockImplementation(async (url: string) => (url.endsWith('/command-dir')
+      ? json({ project: { id: 'project-1', name: 'Project', commandDir: 'initial' } })
+      : json({ commands: [] })))
+    render().find((node) => node.type === 'textarea')!.props.onChange({ currentTarget: { value: 'typed-then-left' } })
+    // 卸载（切 tab / 关设置页）：800ms 防抖还没到期，这是最后一次把改动写出去的机会
+    unmount.forEach((cleanup) => cleanup())
+    const puts = fetchMock.mock.calls
+      .filter(([url]) => url.endsWith('/command-dir'))
+      .map(([, init]) => JSON.parse(String(init.body)).commandDir)
+    expect(puts).toEqual(['typed-then-left'])
+  })
+  it('flushes the previous project pending save when switching projects inside the debounce window', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === '/api/project') {
+        return json({
+          project: { id: 'project-1', name: 'Project One', commandDir: 'dir-a' },
+          projects: [
+            { id: 'project-1', name: 'Project One', commandDir: 'dir-a' },
+            { id: 'project-2', name: 'Project Two', commandDir: 'dir-b' },
+          ],
+        })
+      }
+      return json({ commands: [] })
+    })
+    render()
+    harness.effects.forEach((effect) => effect())
+    await vi.waitFor(() => expect(render().some((node) => node.type === 'select')).toBe(true))
+    fetchMock.mockClear()
+    render().find((node) => node.type === 'textarea')!.props.onChange({ currentTarget: { value: 'edited-in-a' } })
+    render().find((node) => node.type === 'select')!.props.onChange({ currentTarget: { value: 'project-2' } })
+    const puts = fetchMock.mock.calls
+      .filter(([url]) => url === '/api/project/project-1/command-dir')
+      .map(([, init]) => JSON.parse(String(init.body)).commandDir)
+    expect(puts).toEqual(['edited-in-a'])
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/project/project-2/command-dir')).toBe(false)
+    for (let index = 0; index < 5; index += 1) await Promise.resolve()
   })
 })

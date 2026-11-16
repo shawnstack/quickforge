@@ -554,15 +554,17 @@ export const ChatSidebar = memo(function ChatSidebar({
     setProjectMenuId(null)
     setProjectMenuPosition(null)
     setDeletingProjectId(projectId)
+    // 删除请求必须同步发出：放进 fade 定时器里的话，卸载或连点第二个项目都会把
+    // 前一个请求 clearTimeout 掉，删除就静默丢了。定时器只负责动画状态收尾。
+    void Promise.resolve(onDeleteProject(projectId)).catch(() => {
+      setDeletingProjectId((current) => current === projectId ? null : current)
+    })
     if (projectDeleteAnimationTimeoutRef.current !== null) {
       window.clearTimeout(projectDeleteAnimationTimeoutRef.current)
     }
     projectDeleteAnimationTimeoutRef.current = window.setTimeout(() => {
       projectDeleteAnimationTimeoutRef.current = null
       setConfirmingDeleteProjectId((current) => current === projectId ? null : current)
-      void Promise.resolve(onDeleteProject(projectId)).catch(() => {
-        setDeletingProjectId((current) => current === projectId ? null : current)
-      })
     }, deleteSessionFadeMs)
   }
   const toggleSessionPinFromActions = (event: React.MouseEvent<HTMLButtonElement>, sessionId: string) => {
@@ -580,15 +582,17 @@ export const ChatSidebar = memo(function ChatSidebar({
     event.stopPropagation()
     setDeletingSessionId(sessionId)
     hideSessionHoverTip(sessionId)
+    // 删除请求必须同步发出：放进 fade 定时器里的话，卸载或连点第二个会话都会把
+    // 前一个请求 clearTimeout 掉，删除就静默丢了。定时器只负责动画状态收尾。
+    void Promise.resolve(onDeleteSession(sessionId)).catch(() => {
+      setDeletingSessionId((current) => current === sessionId ? null : current)
+    })
     if (deleteAnimationTimeoutRef.current !== null) {
       window.clearTimeout(deleteAnimationTimeoutRef.current)
     }
     deleteAnimationTimeoutRef.current = window.setTimeout(() => {
       deleteAnimationTimeoutRef.current = null
       setConfirmingDeleteSessionId((current) => current === sessionId ? null : current)
-      void Promise.resolve(onDeleteSession(sessionId)).catch(() => {
-        setDeletingSessionId((current) => current === sessionId ? null : current)
-      })
     }, deleteSessionFadeMs)
   }
 

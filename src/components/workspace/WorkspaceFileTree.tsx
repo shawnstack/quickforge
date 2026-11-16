@@ -111,7 +111,7 @@ function WorkspaceTreeRows({ entries, depth, props }: {
               tabIndex={0}
               aria-label={t('openPreview')}
               title={t('openPreview')}
-              className="-mr-1 shrink-0 rounded p-0.5 opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+              className="-mr-1 shrink-0 rounded p-0.5 opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
               onClick={(event) => {
                 event.stopPropagation()
                 props.onPreviewFile?.(node.path)

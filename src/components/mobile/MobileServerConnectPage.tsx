@@ -269,7 +269,7 @@ export function MobileServerConnectPage() {
                                 if (event.key === 'Escape') cancelEditAlias()
                               }}
                               placeholder="例如：公司开发机"
-                              className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus:shadow-quickforge"
+                              className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring"
                             />
                             <div className="mt-2.5 flex justify-end gap-2">
                               <button
@@ -378,7 +378,7 @@ export function MobileServerConnectPage() {
                   setSaved(false)
                 }}
                 placeholder="devbox.example.ts.net"
-                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus:shadow-quickforge"
+                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring"
               />
               {normalizedPreview ? (
                 <p className="mt-2 break-all text-xs text-muted-foreground">
@@ -403,7 +403,7 @@ export function MobileServerConnectPage() {
                   setSaved(false)
                 }}
                 placeholder="例如：公司开发机"
-                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus:shadow-quickforge"
+                className="mt-2 h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm outline-none transition-[border-color,box-shadow] focus-visible:ring-2 focus-visible:ring-ring"
               />
 
               {error ? <p className="mt-3 text-sm text-destructive" role="alert">{error}</p> : null}

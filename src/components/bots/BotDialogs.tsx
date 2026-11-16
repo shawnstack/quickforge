@@ -20,7 +20,7 @@ import { MASCOT_PALETTES } from './mascot/mascot-geometry'
 
 const OVERLAY = 'fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-[2px]'
 const CARD = 'flex max-h-[min(88vh,46rem)] w-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-quickforge'
-const FIELD = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus:border-ring'
+const FIELD = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none transition-colors focus-visible:border-ring'
 const BUTTON = 'inline-flex h-8 items-center justify-center rounded-lg px-3 text-sm transition-colors'
 const PRIMARY = `${BUTTON} bg-primary text-primary-foreground hover:bg-primary/90`
 const GHOST = `${BUTTON} border border-border text-muted-foreground hover:text-foreground`

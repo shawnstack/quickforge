@@ -562,7 +562,7 @@ export function DreamingSettingsTab() {
 
           <Field label={t('dreamingExecuteTime')} hint={t('dreamingExecuteTimeHint')}>
             <input
-              className="h-9 w-full rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-sm text-foreground outline-none transition-colors focus:border-[color-mix(in_oklab,var(--border)_70%,transparent)] disabled:opacity-55"
+              className="h-9 w-full rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-55"
               type="time"
               value={settings.executeTime}
               disabled={!settings.enabled || saving}
@@ -623,7 +623,7 @@ export function DreamingSettingsTab() {
           {view === 'experiences' ? (
             <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
               <input
-                className="h-8 w-full max-w-56 rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[color-mix(in_oklab,var(--border)_70%,transparent)]"
+                className="h-8 w-full max-w-56 rounded-md border border-transparent bg-[color-mix(in_oklab,var(--muted)_60%,transparent)] px-2.5 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
                 type="search"
                 value={experienceQuery}
                 placeholder={t('dreamingExperienceSearchPlaceholder')}

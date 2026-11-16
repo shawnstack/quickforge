@@ -224,7 +224,7 @@ export function SettingsWorkspacePage({ initialTab, customProvider, onBack }: Se
               }}
               placeholder={t('searchSettings')}
               aria-label={t('searchSettings')}
-              className="h-8 w-full rounded-lg border border-transparent bg-[var(--quickforge-sidebar-hover-bg)] pl-8 pr-7 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[color-mix(in_oklab,var(--border)_60%,transparent)]"
+              className="h-8 w-full rounded-lg border border-transparent bg-[var(--quickforge-sidebar-hover-bg)] pl-8 pr-7 text-xs text-foreground outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring"
             />
             {searchQuery
               ? (

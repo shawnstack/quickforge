@@ -9,6 +9,18 @@ export function sendJson(res, status, value, cacheControl) {
   res.end(body)
 }
 
+// 「请求错误」该记 ERROR 还是 WARN：4xx 是客户端/协议错（参数缺失、body 太大、JSON
+// 坏、会话写租约冲突、找不到），5xx 才是服务端自己出错。index.mjs 的请求级 catch
+// 以前一律 logger.error，于是「当天 ERROR 13 条」逐条读完全是 4xx 噪音，ERROR 计数
+// 失去信号（decisions §42）。
+//
+// 保守边界：只把「数字且 4xx」判成 WARN；没有 statusCode（sendError 会当 500 写出）、
+// 非数字、以及 0/200 这类非错误码一律 ERROR——宁可吵，不可漏。
+export function requestErrorLogLevel(error) {
+  const status = error?.statusCode
+  return typeof status === 'number' && status >= 400 && status < 500 ? 'warn' : 'error'
+}
+
 export function sendError(res, error) {
   if (res.headersSent) {
     try { res.end() } catch { /* ignore */ }

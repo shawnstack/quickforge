@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { sendJson, sendError } from './utils/response.mjs'
+import { sendJson, sendError, requestErrorLogLevel } from './utils/response.mjs'
 import { openBrowser } from './utils/platform.mjs'
 import { ensureStorage, dataDir, configDir, storageDir, cacheDir, logsDir, migrateMemoryLayout, getMemoryLayoutMigration, createPhysicalSessionStateFsAdapter } from './storage.mjs'
 import { migrateNotesSettingsKey } from './working-memory.mjs'
@@ -819,7 +819,14 @@ const server = createServer(async (req, res) => {
 
     await serveStatic(req, res, url)
   } catch (error) {
-    reqLogger.error(error.message || 'Request error', { stack: error.stack })
+    // 4xx 走 WARN：客户端/协议错不该冒充「服务端出事了」——否则 ERROR 计数会被
+    // 租约冲突、空 body 这类常态噪音占满，而我每跳第一眼看的就是这个数
+    // （decisions §42）。5xx（含拿不到 statusCode 的异常）仍记 ERROR 并保留 stack。
+    if (requestErrorLogLevel(error) === 'error') {
+      reqLogger.error(error.message || 'Request error', { stack: error.stack })
+    } else {
+      reqLogger.warn(error.message || 'Request error', { status: error.statusCode, code: error.errorCode || error.code })
+    }
     sendError(res, error)
   }
 })

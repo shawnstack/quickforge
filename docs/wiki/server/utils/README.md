@@ -8,7 +8,7 @@
 | [process-error-guards.mjs](../../../../server/utils/process-error-guards.mjs) | 进程级异常兜底 | 63 |
 | [network.mjs](../../../../server/utils/network.mjs) | 网络工具 | 38 |
 | [platform.mjs](../../../../server/utils/platform.mjs) | 平台工具 (跨平台) | 328 |
-| [response.mjs](../../../../server/utils/response.mjs) | HTTP 响应工具 | 53 |
+| [response.mjs](../../../../server/utils/response.mjs) | HTTP 响应工具（`sendError` 序列化 + `requestErrorLogLevel` 请求级错误分级） | 65 |
 | [text-diff.mjs](../../../../server/utils/text-diff.mjs) | 文本差异对比 | 215 |
 | [workspace.mjs](../../../../server/utils/workspace.mjs) | 工作区路径工具 | 224 |
 | [password-auth.mjs](../../../../server/utils/password-auth.mjs) | 密码哈希和令牌生成 | 44 |
@@ -53,12 +53,13 @@
 - `openBrowser()` — 打开浏览器
 - `spawnCollect()` — 子进程执行并收集输出
 
-### response.mjs — HTTP 响应工具 (53 行)
+### response.mjs — HTTP 响应工具 (65 行)
 
 - `sendJson()` — 发送 JSON 响应
 - `sendError()` — 发送错误响应
 - `readJsonBody()` — 读取并解析 JSON 请求体（带大小限制）
 - `decodeSegment()` — URL 解码路径段
+- `requestErrorLogLevel()` — 请求级错误该记 ERROR 还是 WARN：数字且 4xx（参数缺失 / body 太大 / JSON 坏 / 会话写租约冲突 / 找不到）判 `warn`，5xx 与拿不到 `statusCode` 的异常判 `error`（`sendError` 会把后者当 500 写出）。`server/index.mjs` 的请求级 catch 按它分流、只有 5xx 带 stack——4xx 是客户端/协议错，不该占用「服务端出事了」这个指标
 
 ### text-diff.mjs — 文本差异 (215 行)
 

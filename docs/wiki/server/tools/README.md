@@ -12,7 +12,7 @@
 |------|------|------|
 | [index.mjs](../../../../server/tools/index.mjs) | 工具注册表/装配薄层：装配 `toolHandlers` 并再导出各模块公开面，导入方仍统一 `import './tools/index.mjs'` | 51 |
 | [definitions.mjs](../../../../server/tools/definitions.mjs) | 工具元数据定义 (名称、参数 Schema) | 301 |
-| [file-search.mjs](../../../../server/tools/file-search.mjs) | `read_file` + `grep_files`：ripgrep 优先、Node 回退、limit 短路 | 451 |
+| [file-search.mjs](../../../../server/tools/file-search.mjs) | `read_file` + `grep_files`：ripgrep 优先、Node 回退、limit 短路；offset/limit 与 grep 参数统一走 `clampNumber`（非数字退回默认、小数截断） | 456 |
 | [file-write.mjs](../../../../server/tools/file-write.mjs) | `write_file` + `edit_file`：会话文件锁、写前备份 journal、行尾归一、替换串按字面写入（newText 里的 `$$` / `$&` / `` $` `` / `$'` 不参与 replace 语义） | 141 |
 | [skill-resources.mjs](../../../../server/tools/skill-resources.mjs) | `activate_skill` / `read_skill_resource` / `loadSkillToolContext` | 68 |
 | [present-files.mjs](../../../../server/tools/present-files.mjs) | `present_files`：kind 推断与预览分流 | 98 |
@@ -20,7 +20,7 @@
 | [process-control.mjs](../../../../server/tools/process-control.mjs) | 子进程管理器：`killProcessTree`（Windows taskkill /T /F）+ 运行命令/后台任务注册表与 abort 入口 | 106 |
 | [global-memory.mjs](../../../../server/tools/global-memory.mjs) | `manage_global_memory` 薄壳：落点由会话决定——bot 会话写自己工作区的 `<workspaceRoot>/MEMORY.md`（`writeWorkspaceMemory`），其余写全局（`writeGlobalMemory`），判不出目标就报错、不回退 | 74 |
 | [todo-write.mjs](../../../../server/tools/todo-write.mjs) | `todo_write` 防御校验与汇总 | 64 |
-| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（grep_files / run_command 参数归一化） | 12 |
+| [params.mjs](../../../../server/tools/params.mjs) | 共享 `clampNumber`（read_file / grep_files / run_command 参数归一化） | 12 |
 | [memory-notes.mjs](../../../../server/tools/memory-notes.mjs) | 记忆笔记四工具（工作记忆 + 经验库，Dreaming curator 共用） | 192 |
 
 ---
@@ -83,7 +83,7 @@ index.mjs 只做注册表装配：`toolHandlers` 把工具名绑定到上表各�
 
 | Handler | 对应工具 | 功能描述 |
 |---------|---------|---------|
-| `toolReadFile` | `read_file` | 读取文件，支持 offset/limit 分页 |
+| `toolReadFile` | `read_file` | 读取文件，支持 offset/limit 分页；两个参数都经 `clampNumber` 归一化（非数字退回默认 1 / 200，小数截断，limit 上限 2000），不会在行号前缀里出现 `NaN` |
 | `toolGrepFiles` | `grep_files` | 使用内置 ripgrep 优先搜索文件内容，支持正则、glob、上下文和只返回匹配文件；异常时回退 Node.js 搜索 |
 | `toolWriteFile` | `write_file` | 写入文件，自动创建父目录 |
 | `toolEditFile` | `edit_file` | 查找并替换文本，验证唯一性 |

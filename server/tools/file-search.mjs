@@ -26,8 +26,13 @@ export async function toolReadFile(params, context) {
 
   const text = await fs.readFile(file, 'utf8')
   const lines = splitLines(text)
-  const offset = Math.max(1, Number(params?.offset || 1))
-  const limit = Math.min(2000, Math.max(1, Number(params?.limit || 200)))
+  // Paging params go through clampNumber like grep_files' limit/context: a model
+  // occasionally writes "abc" or 2.7, and Math.max(1, NaN) is still NaN — which
+  // degraded slice() to "cut from the start" while prefixing every returned line
+  // with "NaN: ". `|| undefined` keeps the legacy "empty string / 0 / null means
+  // not provided" behavior (defaults: offset 1, limit 200).
+  const offset = clampNumber(params?.offset || undefined, 1, 1, Number.MAX_SAFE_INTEGER)
+  const limit = clampNumber(params?.limit || undefined, 200, 1, 2000)
   const selected = lines.slice(offset - 1, offset - 1 + limit)
   const content = selected.map((line, index) => `${offset + index}: ${line}`).join('\n')
   const suffix = offset - 1 + limit < lines.length ? `\n\n[showing ${selected.length} of ${lines.length} lines]` : ''

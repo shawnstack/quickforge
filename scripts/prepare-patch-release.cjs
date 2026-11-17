@@ -86,10 +86,21 @@ function commandText(command, args) {
   return [command, ...args].map((part) => (part.includes(' ') ? JSON.stringify(part) : part)).join(' ')
 }
 
+// 只有 Windows 的批处理（npm / npx 这些 .cmd）需要经 shell 起：Node 自 20.12 起对不带 shell 的
+// .cmd 直接抛 EINVAL（CVE-2024-27980 加固）。其余命令——尤其是 `process.execPath` 这种带空格的
+// 完整路径——必须直起，否则 cmd 会把参数裸拼进命令行，路径在第一个空格处被切断。
+function needsShell(command) {
+  return process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)
+}
+
 function run(command, args, options = {}) {
   const cwd = options.cwd || root
   console.log(`\n$ ${commandText(command, args)}`)
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: false })
+  // shell 只对 .cmd/.bat 开：npm 在 Windows 是批处理，Node 自 20.12 起对不带 shell 的 .cmd
+  // 直接抛 EINVAL（CVE-2024-27980 的加固）；反过来对 node.exe 这种带空格的完整路径开 shell，
+  // 参数会被裸拼进命令行，`"C:\Program Files\nodejs\node.exe"` 切成 `C:\Program` 就报
+  // 「不是内部或外部命令」（DEP0190 说的正是这件事）。两边都踩过，所以按命令后缀判。
+  const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: needsShell(command) })
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`Command failed with exit code ${result.status}: ${commandText(command, args)}`)
@@ -98,7 +109,7 @@ function run(command, args, options = {}) {
 
 function capture(command, args, options = {}) {
   const cwd = options.cwd || root
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', shell: false })
+  const result = spawnSync(command, args, { cwd, encoding: 'utf8', shell: needsShell(command) })
   if (result.error) return ''
   if (result.status !== 0) return ''
   return result.stdout.trim()

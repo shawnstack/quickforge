@@ -20,6 +20,12 @@ import type { SharedSessionState } from '@/lib/shared-server-agent'
 import type { RestoredDraft } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
+// 与 ShareConversationDialog（e71b6c38）同族：Error.message 是服务端原文（恒定、非译文），
+// 只有非 Error 兜底才走 i18n 键；渲染侧现取译文，语言切换立即生效。
+type SharedPageError =
+  | { kind: 'message'; text: string }
+  | { kind: 'key'; key: 'sharedUnlockFailed' | 'sharedUpdateModelFailed' | 'conversationLoadFailed' | 'fetchModelsFailed' | 'rollbackFailed' }
+
 function providerFromModel(model: Model<Api>) {
   return {
     id: `shared-${model.provider}`,
@@ -86,7 +92,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
   const [agent, setAgent] = useState<SharedServerAgent | null>(null)
   const [permission, setPermission] = useState<'read' | 'operate'>('read')
   const [title, setTitle] = useState('QuickForge 分享对话')
-  const [error, setError] = useState<string>()
+  const [error, setError] = useState<SharedPageError>()
   const [loading, setLoading] = useState(false)
   const [restoredDraft, setRestoredDraft] = useState<RestoredDraft>()
   const autoUnlockAttemptedRef = useRef(false)
@@ -115,7 +121,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
       const sharedAgent = createAgentFromState(shareId, state)
       setAgent(sharedAgent)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlock shared conversation')
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'sharedUnlockFailed' })
     } finally {
       setLoading(false)
     }
@@ -132,7 +138,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             await unlock('')
           }
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Failed to load shared conversation')
+          setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'conversationLoadFailed' })
         }
       })()
     }, 0)
@@ -163,12 +169,12 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
           }
           installSharedPageStorage(shareId, model)
           void agent.updateModel(model).catch((err) => {
-            setError(err instanceof Error ? err.message : 'Failed to update model')
+            setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'sharedUpdateModelFailed' })
           })
         },
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load models')
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'fetchModelsFailed' })
     }
   }, [agent, shareId])
 
@@ -201,7 +207,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         attachments,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to roll back')
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'rollbackFailed' })
     }
   }, [agent])
 
@@ -225,7 +231,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
       await agent.rollback(messageIndex)
       return true
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to roll back')
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'rollbackFailed' })
       return false
     }
   }, [agent])
@@ -249,7 +255,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
             aria-label={t('sharePasswordTitle')}
             autoFocus
           />
-          {error ? <div className="mt-3 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div> : null}
+          {error ? <div className="mt-3 rounded-md border bg-destructive/10 px-3 py-2 text-sm text-destructive">{error.kind === 'key' ? t(error.key) : error.text}</div> : null}
           <Button className="mt-5 w-full" onClick={() => void unlock()} disabled={loading || !password.trim()}>
             {loading ? t('loading') : '用密码打开分享对话'}
           </Button>
@@ -284,7 +290,7 @@ export function SharedConversationPage({ shareId }: { shareId: string }) {
         </div>
       </header>
 
-      {error ? <div className="mx-auto w-full max-w-4xl px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {error ? <div className="mx-auto w-full max-w-4xl px-4 py-2 text-sm text-destructive">{error.kind === 'key' ? t(error.key) : error.text}</div> : null}
 
       <ChatPanelHost
         agent={agent}

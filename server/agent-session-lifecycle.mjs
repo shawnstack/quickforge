@@ -63,6 +63,7 @@ import { createServerTools, rebuildSessionTools, appendGoalTools, workflowApprov
 import { sessionSkillsContext } from './tool-wiring.mjs'
 import { transformSessionContext } from './agent-context-transform.mjs'
 import { resetIdleTimer } from './agent-idle-recycler.mjs'
+import { isBotOwnedSessionId } from './bots.mjs'
 import { subscribeAgentSessionEvents } from './agent-run-events.mjs'
 import { currentSessionTurnId } from './agent-turn-ids.mjs'
 
@@ -729,7 +730,12 @@ async function restoreAgentUnlocked(sessionId) {
       createdAt: sessionData.createdAt,
       lastModified: sessionData.lastModified,
       contextCompaction: sessionData.contextCompaction || null,
-      idleRetention: sessionData.idleRetention || null,
+      // 存量 bot 会话（第一刀之前建的）body 里仍带 idleRetention:'always'；
+      // restore 不继承残留豁免，会话照常被 idle 回收，destroy 的 final persist
+      // 会把存储里的这个字段一并抹掉——自愈，无需迁移。
+      idleRetention: isBotOwnedSessionId(sessionId) && sessionData.idleRetention === 'always'
+        ? null
+        : (sessionData.idleRetention || null),
       stateVersion: sessionData.stateVersion,
       persistedStateVersion: sessionData.stateVersion,
       persistedStorageRevision: record?.revision ?? null,

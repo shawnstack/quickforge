@@ -13,6 +13,12 @@ import path from 'node:path'
  *   2. SSE 活动 touchSession → 计时器被重置，推进 10 分钟仍在；
  *   3. running 状态 → 计时器到点只重置不销毁（既有行为锁死）。
  *
+ * 第 1.5 刀（存量自愈）两条：
+ *   4. 第一刀之前建的存量 bot 会话 body 里仍带 idleRetention:'always'，
+ *      restore 不继承豁免（timer 照挂、10 分钟照回收），且 destroy 的
+ *      final persist 把存储里的残留抹掉——自愈，无需迁移；
+ *   5. 普通会话存储里的 'always' 豁免照常继承（既有行为，不许被这刀改掉）。
+ *
  * 路子照 agent-manager.background-idle.test.mjs：mock 掉 pi-agent-core 的
  * Agent（不建真模型客户端），fake timers 只假 setTimeout/clearTimeout/
  * setInterval/clearInterval——createAgent 里真实 setTimeout 建的 idle timer
@@ -202,5 +208,82 @@ describe('bot session idle recycling (memory cut #1)', () => {
     session.status = 'running'
     await vi.advanceTimersByTimeAsync(TEN_MINUTES + 1000)
     expect(agentSessions.has(sessionId)).toBe(true)
+  })
+
+  /**
+   * 第 4 例（第 1.5 刀，存量自愈）：第一刀之前的存量 bot 会话 body 里仍带
+   * idleRetention:'always'。模拟手段：seed 后直接往存储 body/meta 里塞回这个
+   * 字段（等价于存量残留），销毁内存会话模拟重启，restoreAgent 后断言：
+   *   a) 内存 session.idleRetention !== 'always'（豁免没被继承）；
+   *   b) idleTimer 挂上了（会照常被回收）——裸 timer 不会销毁会话这条
+   *      安全性已由第 1 例锁死，这里只验证 timer 的存在性。
+   * 改造前此测试必须红在断言 a 上（现状：restore 原样继承 'always'）。
+   */
+  it('does not inherit a legacy idleRetention always exemption when restoring a bot session', async () => {
+    const sessionId = await seedBotSession()
+
+    // 模拟存量残留：直接往存储 body + metadata 里塞回 idleRetention:'always'。
+    // saveSessionBody 走 savePair → synchronize → canonicalize（剥 undefined 键），
+    // 'always' 是实值会落库；这是第一刀之前 createAgent 持久化时的真实写法。
+    const { saveSessionBody } = await import('../../server/session-state-service.mjs')
+    await saveSessionBody(sessionId, { idleRetention: 'always' })
+
+    // 存储里确实带着残留，前置成立。
+    const { readSessionStateRecord } = await import('../../server/session-state-service.mjs')
+    expect(readSessionStateRecord(sessionId)?.state?.idleRetention).toBe('always')
+
+    // 销毁内存会话（模拟重启：存储在、内存无）。
+    const { agentSessions } = await import('../../server/agent-session-store.mjs')
+    const { destroyAgent, restoreAgent } = await import('../../server/agent-manager.mjs')
+    await destroyAgent(sessionId)
+    expect(agentSessions.has(sessionId)).toBe(false)
+
+    // restore：豁免必须没被继承。
+    const restored = await restoreAgent(sessionId)
+    expect(restored).toBeTruthy()
+    expect(restored.idleRetention).not.toBe('always')
+
+    // timer 挂上了 → 会照常被 idle 回收（第 1 例已验证回收本身的安全性）。
+    expect(restored.idleTimer).not.toBeNull()
+
+    // 自愈闭环：restore 后的 destroy final persist 把存储 body + metadata 里
+    // 的残留一并抹掉（sessionData.idleRetention = null || undefined →
+    // 显式 undefined 覆盖旧 'always'，JSON 序列化剥 undefined 键）——无需迁移。
+    await destroyAgent(sessionId)
+    const healed = readSessionStateRecord(sessionId)
+    expect(healed?.state?.idleRetention).toBeUndefined()
+    expect(healed?.metadata?.idleRetention).toBeUndefined()
+  })
+
+  /**
+   * 第 5 例（反例，锁既有行为）：普通会话（id 非 bot- 前缀）存储里的
+   * idleRetention:'always' 豁免照常继承——普通会话的 always 豁免是既有
+   * 行为（例如 ACP 会话靠它保活），这一刀不许把它改掉。
+   * 判据可验：把第 4 例的三元条件反着写（无条件清掉 'always'）时，
+   * 本例的 expect(...).toBe('always') 变红。
+   */
+  it('still inherits idleRetention always for an ordinary (non-bot) session', async () => {
+    const sessionId = `manual-${Date.now().toString(36)}`
+    const { createAgent, destroyAgent, restoreAgent } = await import('../../server/agent-manager.mjs')
+
+    // 建普通会话并落盘（消息塞进 agent 状态再 persist：persist 读的是
+    // session.agent.state.messages，新建路径不灌 config.messages——restore
+    // 路径才灌，这是本文件 seedBotSession 的同款手法）。
+    const session = await createAgent(sessionId, { scope: 'global' })
+    expect(session.idleRetention).toBeNull()
+    session.agent.state.messages.push({ role: 'user', content: [{ type: 'text', text: 'hi' }] })
+
+    // 手动标记豁免并落盘：等价于历史上带豁免的普通会话（如 ACP 会话）。
+    session.idleRetention = 'always'
+    const { persistSessionState } = await import('../../server/agent-manager.mjs')
+    await persistSessionState(session)
+
+    await destroyAgent(sessionId)
+
+    const restored = await restoreAgent(sessionId)
+    expect(restored).toBeTruthy()
+    // 普通会话的 always 豁免原样继承，timer 不挂（既有行为，不许被这刀改掉）。
+    expect(restored.idleRetention).toBe('always')
+    expect(restored.idleTimer).toBeNull()
   })
 })

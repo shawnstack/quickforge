@@ -5,7 +5,7 @@
 | 文件 | 说明 | 行数 |
 |------|------|------|
 | [prepare-offline-package.cjs](../../../scripts/prepare-offline-package.cjs) | 准备 package-offline 发布包 | 32 |
-| [prepare-patch-release.cjs](../../../scripts/prepare-patch-release.cjs) | patch 发布准备（版本/文档/test-lint-build/打包；不执行 Git/publish） | 351 |
+| [prepare-patch-release.cjs](../../../scripts/prepare-patch-release.cjs) | patch 发布准备（版本/文档/test-lint-build/打包；不执行 Git/publish） | 379 |
 | [prepare-runtime-package.cjs](../../../scripts/prepare-runtime-package.cjs) | 准备运行时发行包 | 19 |
 | [sqlite-compatibility-spike.mjs](../../../scripts/sqlite-compatibility-spike.mjs) | 开发期 `node:sqlite` 共同 API、WAL 与双进程锁等待兼容性探针 | 374 |
 | [session-index-query-benchmark.mjs](../../../scripts/session-index-query-benchmark.mjs) | 开发期 1k/10k（可传 50k）JSON 与 warm SQL 会话分页对比，输出 JSON Lines 与 EXPLAIN | 126 |
@@ -19,7 +19,7 @@
 
 ---
 
-### `prepare-patch-release.cjs` (351 行)
+### `prepare-patch-release.cjs` (379 行)
 
 - 提升 patch 版本并更新 `README.md` / `CHANGELOG.md`
 - 依次执行 `npm run test`、`npm run lint`、`npm run build`（任一失败即停止；`--no-test` / `--no-lint` / `--no-build` 跳过）

@@ -43,8 +43,8 @@ export async function ensureBotSession(bot) {
     titleSource: 'manual',
     thinkingLevel: bot.thinkingLevel || 'medium',
     accessMode: bot.accessMode || 'full-access',
-    // 持久会话：绝不能被空闲清理掉，否则「一个 bot 一条会话」就断了。
-    idleRetention: 'always',
+    // bot 会话与普通会话一样接受 10 分钟空闲回收：销毁只清内存，存储仍在；
+    // 下次心跳 / 打开时走 restoreAgent 恢复（见 agent-idle-recycler.mjs）。
     ...(bot.modelRef ? { modelRef: bot.modelRef } : {}),
     ...(bot.model ? { model: bot.model } : {}),
   })

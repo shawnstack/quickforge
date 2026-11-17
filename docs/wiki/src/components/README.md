@@ -157,7 +157,7 @@ components/
 │   ├── scheduled-tasks-types.ts    # 领域类型
 │   └── ScheduledTasksPageSections.tsx # 编辑器/详情/列表/历史纯 render helpers
 ├── share/
-│   ├── ShareConversationDialog.tsx # 分享对话对话框 (199 行)
+│   ├── ShareConversationDialog.tsx # 分享对话对话框 (203 行)
 │   └── SharedConversationPage.tsx  # 查看分享的对话页面 (316 行)
 ├── app/                             # App 主装配层的独立 UI 区域（MainApp 保持接线，区域组件化）
 │   ├── AppDialogs.tsx               # 对话框层：`AppGitDialogs`（主区内 Git 图形 / 提交）+ `AppOverlays`（目录选择 / 技能 / 新建 bot / bot 设置 / 分享 / toast）

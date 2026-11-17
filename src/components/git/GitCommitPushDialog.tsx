@@ -6,6 +6,7 @@ import { ArrowUpFromLine, Check, ChevronDown, GitBranch, GitCommitHorizontal, Lo
 import { GitBranchMenu } from '@/components/git/GitBranchMenu'
 import { canCommitGitChanges, gitFilesForCommit, isDetachedGitStatus } from '@/components/git/git-commit-dialog-logic'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { initializePiStorage, loadLastUsedSessionOptions } from '@/lib/pi-chat'
@@ -66,6 +67,8 @@ export function GitCommitPushDialog({ open, projectId, status, onClose, onChecko
   // `aria-modal="true"` 已经声明「对话框之外的界面不可交互」，键盘不跟着守住的话，
   // 读屏用户会被 Tab 带进背后那块自己念作不可交互、实际却能聚焦的对话界面。
   useDialogFocusTrap(dialogRef)
+  // 无障碍树那条线：沿途兄弟置 inert，兑现 aria-modal 的「之外不可交互」。
+  useModalIsolation(dialogRef)
 
   useEffect(() => {
     if (!open) return

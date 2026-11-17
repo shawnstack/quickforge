@@ -5,9 +5,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { promptApiKey } from '@/components/chat/surface/ApiKeyPromptDialog'
 import { openAttachmentOverlay } from '@/components/chat/surface/AttachmentOverlay'
+import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
+import { GitGraphDialog } from '@/components/git/GitGraphDialog'
+import { SkillDetailDialog } from '@/components/skills/SkillDetailDialog'
+import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { useModalIsolation } from '@/hooks/useModalIsolation'
+import type { SkillSummary } from '@/lib/types'
 import { setAppStorage, type AppStorage } from '@/storage'
+
+// 例 8–10 挂真实组件：提交对话框的默认模型来自 pi 存储、提交图挂载即拉取
+// git log——与 inert 无关的异步链全部打桩，别拖进 jsdom。
+vi.mock('@/lib/pi-chat', () => ({
+  initializePiStorage: async () => ({}),
+  loadLastUsedSessionOptions: async () => ({}),
+}))
+vi.mock('@/components/workspace/workspace-api', () => ({
+  getGitLog: async () => ({ commits: [] }),
+  commitAndPushGitChanges: async () => ({}),
+  commitGitChanges: async () => ({}),
+  generateGitCommitMessage: async () => 'generated',
+  pushGitBranch: async () => ({}),
+  createGitBranch: async () => ({}),
+  getGitBranches: async () => ({ branches: [] }),
+}))
 
 /**
  * `aria-modal` 的背景隔离：弹层挂载期间沿途兄弟节点被设为 `inert`，卸载按引用计数还原。
@@ -19,6 +40,8 @@ import { setAppStorage, type AppStorage } from '@/storage'
  * `#root` 是它的兄弟）。例 5 走 `showConfirm` 真实调用点；例 6–7 走命令式
  * `createRoot` 的两种挂载形态：`promptApiKey`（inline，dialog 在自己的
  * container 里）与 `openAttachmentOverlay`（createPortal 直挂 body）。
+ * 例 8–10 挂声明式 portal 组件本体（提交/推送、提交图、技能详情）：
+ * 组件挂载即弹层、卸载即关闭，与真实调用点的宿主渲染同一条路径。
  */
 
 function ModalHost({
@@ -228,5 +251,110 @@ describe('useModalIsolation', () => {
     // close() 里 root.unmount() 的 effect cleanup 必须同步摘 inert。
     expect(appRoot.hasAttribute('inert')).toBe(false)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  /** 例 8–10 共用：宿主 container 挂 body，组件把弹层 portal 到 body。 */
+  function mountPortalApp(app: ReactElement): { root: Root; appRoot: HTMLDivElement } {
+    const appRoot = bodySibling('root')
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    disposables.push(container)
+    const root = createRoot(container)
+    roots.push(root)
+    act(() => {
+      root.render(app)
+    })
+    return { root, appRoot }
+  }
+
+  it('真实组件：GitCommitPushDialog 打开时背景被隔离，卸载后同步摘掉', async () => {
+    const status: GitStatusResponse = {
+      isGitRepository: true,
+      branch: 'main',
+      counts: { staged: 1, unstaged: 0, untracked: 0, conflicts: 0, total: 1 },
+      files: [{ path: 'src/app.ts', status: 'modified', staged: true, additions: 3, deletions: 1 }],
+    }
+    const { root, appRoot } = mountPortalApp(createElement(GitCommitPushDialog, {
+      open: true,
+      projectId: 'project-1',
+      status,
+      onClose: () => {},
+      onCheckout: async () => {},
+      onRefreshStatus: async () => status,
+      onStatusChange: () => {},
+      onCompleted: () => {},
+    }))
+    // 挂载效果里有 onRefreshStatus 的微任务链，先在 act 里刷掉再取样。
+    await act(async () => {})
+    // portal 挂载：ref div（role=dialog，自带遮罩）直接落在 body 下，
+    // #root 与宿主 container 都是它的兄弟。
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    expect(dialog).toBeInstanceOf(HTMLElement)
+    // 弹层自身与祖先链（body）不被隔。
+    expect(dialog?.hasAttribute('inert')).toBe(false)
+    expect(document.body.hasAttribute('inert')).toBe(false)
+
+    // 真实宿主就是卸载整个组件来关弹层：cleanup 必须同步摘 inert。
+    act(() => root.unmount())
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+  })
+
+  it('真实组件：GitGraphDialog 打开时背景被隔离，卸载后同步摘掉', () => {
+    const { root, appRoot } = mountPortalApp(createElement(GitGraphDialog, {
+      projectId: 'project-1',
+      projectName: 'quickforge',
+      onClose: () => {},
+    }))
+    // portal 挂载：遮罩是 body 直接子节点，dialog div 在遮罩里，
+    // 钩子沿途把遮罩的兄弟（#root、宿主 container）置 inert。
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    expect(dialog).toBeInstanceOf(HTMLElement)
+    // 弹层自身与祖先链（遮罩、body）不被隔。
+    expect(dialog?.hasAttribute('inert')).toBe(false)
+    expect(dialog?.parentElement?.hasAttribute('inert')).toBe(false)
+    expect(document.body.hasAttribute('inert')).toBe(false)
+
+    act(() => root.unmount())
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+  })
+
+  it('真实组件：SkillDetailDialog 打开时背景被隔离，卸载后同步摘掉', () => {
+    const skill = {
+      name: 'demo-skill',
+      displayName: 'Demo Skill',
+      description: 'summary',
+      scope: 'global',
+      path: '/skills/demo-skill',
+      triggers: ['demo'],
+      tags: ['tag'],
+    } as unknown as SkillSummary
+    const { root, appRoot } = mountPortalApp(createElement(SkillDetailDialog, {
+      skill,
+      scope: 'global',
+      content: null,
+      contentLoading: false,
+      contentError: '',
+      enabled: true,
+      pending: false,
+      bulkSaving: false,
+      listLoading: false,
+      copiedTarget: null,
+      onToggle: () => {},
+      onReloadContent: () => {},
+      onCopyText: () => {},
+      onClose: () => {},
+    }))
+    // portal 挂载：与提交图同款拓扑（遮罩是 body 子节点，dialog 在遮罩里）。
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    expect(dialog).toBeInstanceOf(HTMLElement)
+    expect(dialog?.hasAttribute('inert')).toBe(false)
+    expect(dialog?.parentElement?.hasAttribute('inert')).toBe(false)
+    expect(document.body.hasAttribute('inert')).toBe(false)
+
+    act(() => root.unmount())
+    expect(appRoot.hasAttribute('inert')).toBe(false)
   })
 })

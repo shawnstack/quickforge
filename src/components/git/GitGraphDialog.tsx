@@ -7,6 +7,7 @@ import type { GitLogCommit, GitLogDecoration } from '@/components/workspace/work
 import { getDateLocale, t } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 
 type GitGraphDialogProps = {
   projectId: string
@@ -60,6 +61,8 @@ export function GitGraphDialog({ projectId, projectName, onClose }: GitGraphDial
 
   // Esc 已在下面的键盘 effect 里处理；这里补 Tab 循环，并把 aria-modal 声明补上。
   useDialogFocusTrap(dialogRef)
+  // 无障碍树那条线：沿途兄弟置 inert，兑现 aria-modal 的「之外不可交互」。
+  useModalIsolation(dialogRef)
 
   const refresh = useCallback(async () => {
     setLoading(true)

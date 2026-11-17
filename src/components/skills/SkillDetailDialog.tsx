@@ -5,6 +5,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { t } from '@/lib/i18n'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import type { SkillContent } from '@/lib/skills-client'
 import type { SkillSummary, SkillsScope } from '@/lib/types'
 import { cn } from '@/lib/utils'
@@ -95,6 +96,8 @@ export function SkillDetailDialog({
 
   // 弹窗一直是 aria-modal，此前只有遮罩点击与关闭按钮能退出：补 Esc，补 Tab 循环。
   useDialogFocusTrap(detailDialogRef)
+  // 无障碍树那条线：沿途兄弟置 inert，兑现 aria-modal 的「之外不可交互」。
+  useModalIsolation(detailDialogRef)
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {

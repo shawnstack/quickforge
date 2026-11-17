@@ -54,6 +54,7 @@
     "lint": "eslint .",
     "check:wiki": "node scripts/check-wiki-line-claims.mjs",
     "check:wiki:strict": "node scripts/check-wiki-line-claims.mjs --strict",
+    "check:release": "node scripts/check-release-consistency.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

@@ -154,15 +154,23 @@ function replaceKnownVersionRefs(text, oldVersion, newVersion) {
   return updated
 }
 
+// README 版本号改写的四种形态（纯函数，tests/scripts/prepare-patch-release.test.mjs 直接喂字符串断言）：
+// 前三种是老 README 的静态 badge / 安装命令 / 离线包名；第四种「当前版本 **X.Y.Z**」是 shields.io
+// 动态徽章化后仅存的明文版本号——v2.5.0 发版时前三种全部失配，这一行只能人工手改，故收进脚本。
+function rewriteReadmeVersion(content, version) {
+  let updated = content
+  updated = updated.replace(/badge\/version-\d+\.\d+\.\d+-blue/g, `badge/version-${version}-blue`)
+  updated = updated.replace(/@shawnstack\/quickforge@\d+\.\d+\.\d+/g, `@shawnstack/quickforge@${version}`)
+  updated = updated.replace(/shawnstack-quickforge-\d+\.\d+\.\d+\.tgz/g, `shawnstack-quickforge-${version}.tgz`)
+  updated = updated.replace(/(当前版本[ \t]*)\*\*\d+\.\d+\.\d+\*\*/g, `$1**${version}**`)
+  return { content: updated, changed: updated !== content }
+}
+
 function updateReadme(oldVersion, newVersion) {
   const readmePath = path.join(root, 'README.md')
-  let text = fs.readFileSync(readmePath, 'utf8')
-  const before = text
-  text = replaceKnownVersionRefs(text, oldVersion, newVersion)
-  text = text.replace(/badge\/version-\d+\.\d+\.\d+-blue/g, `badge/version-${newVersion}-blue`)
-  text = text.replace(/@shawnstack\/quickforge@\d+\.\d+\.\d+/g, `@shawnstack/quickforge@${newVersion}`)
-  text = text.replace(/shawnstack-quickforge-\d+\.\d+\.\d+\.tgz/g, `shawnstack-quickforge-${newVersion}.tgz`)
-  if (text !== before) fs.writeFileSync(readmePath, text.replace(/\r\n/g, '\n'))
+  const before = fs.readFileSync(readmePath, 'utf8')
+  const { content } = rewriteReadmeVersion(replaceKnownVersionRefs(before, oldVersion, newVersion), newVersion)
+  if (content !== before) fs.writeFileSync(readmePath, content.replace(/\r\n/g, '\n'))
 }
 
 function statusFiles(statusText) {
@@ -354,9 +362,18 @@ function main() {
   printSummary(version, branch)
 }
 
-try {
-  main()
-} catch (error) {
-  console.error(`\nRelease preparation failed: ${error.message}`)
-  process.exitCode = 1
+// 直接 node 运行本文件才执行主流程：require.main 一道闸之外，再核对「进程入口就是本文件」，
+// 防止测试运行器（vitest/vite-node）包装加载时误触发发版动作；被 import 时只导出纯函数。
+const invokedAsScript =
+  require.main === module && path.resolve(process.argv[1] || '') === __filename
+
+if (invokedAsScript) {
+  try {
+    main()
+  } catch (error) {
+    console.error(`\nRelease preparation failed: ${error.message}`)
+    process.exitCode = 1
+  }
 }
+
+module.exports = { rewriteReadmeVersion }

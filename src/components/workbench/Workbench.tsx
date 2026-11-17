@@ -20,6 +20,7 @@ import { BotMascot } from '@/components/bots/mascot/BotMascot'
 import { fetchScheduledTasks } from '@/components/scheduled-tasks/scheduled-tasks-data'
 import type { ScheduledTask } from '@/components/scheduled-tasks/scheduled-tasks-types'
 import { fetchTodayStats, formatTokenCount, type TodayStats } from '@/lib/workbench-today-stats'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { useUIStore } from '@/stores/ui-store'
 import { WorkbenchScreensaver, type ScreensaverData } from './WorkbenchScreensaver'
 import { fmtClock, fmtHm, fmtSpan, pad } from './workbench-format'
@@ -163,6 +164,8 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
   const prevSessionsRef = useRef(new Map<string, boolean>())
   const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
   const prevFocusRef = useRef<Element | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const drawerRef = useRef<HTMLDivElement | null>(null)
   // 取数序号：20s 轮询与 requestRefresh（让取数 effect 重跑并立刻再发一轮）会同时有多轮在飞，
   // 先发的旧响应可能后到。判据是「旧响应一个 state 都不许写」——不是少写几个：bots/tasks/sessions/
   // today/loadError/lastLoadedAt 全在这个序号后面，finally 里的 setRefreshing 同理，
@@ -323,6 +326,10 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
     if (prev instanceof HTMLElement) prev.focus()
     return undefined
   }, [drawer])
+
+  // 两个陷阱互斥：抽屉开着时根陷阱让位，Tab 只在抽屉里循环
+  useDialogFocusTrap(rootRef, { enabled: !drawer, restoreFocus: true })
+  useDialogFocusTrap(drawerRef, { enabled: Boolean(drawer) })
 
   const allFlights = useMemo(() => {
     const list: Flight[] = []
@@ -533,7 +540,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="qf-wb" role="dialog" aria-modal="true" aria-label={t('workbenchTitle')}>
+    <div ref={rootRef} className="qf-wb" role="dialog" aria-modal="true" aria-label={t('workbenchTitle')}>
       <div className="qf-wb__appbar">
         <div className="qf-wb__title"><b>{t('workbenchTitle')}</b><span>OVERVIEW</span></div>
         <div className="qf-wb__clock" aria-label={clock}>
@@ -773,7 +780,7 @@ export function WorkbenchTower({ onClose }: { onClose: () => void }) {
       {drawer ? (
         <>
           <div className="qf-wb__scrim" onClick={() => setDrawer(null)} />
-          <div className="qf-wb__drawer" role="dialog" aria-modal="true" aria-label={drawerBot?.name ?? drawerTask?.title ?? ''}>
+          <div ref={drawerRef} className="qf-wb__drawer" role="region" aria-label={drawerBot?.name ?? drawerTask?.title ?? ''}>
             <div className="qf-wb__drawer-scroll">
               {drawerBot ? (
                 <>

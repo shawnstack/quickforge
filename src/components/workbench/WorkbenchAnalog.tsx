@@ -18,6 +18,7 @@ import {
 import { fetchScheduledTasks } from '@/components/scheduled-tasks/scheduled-tasks-data'
 import type { ScheduledTask } from '@/components/scheduled-tasks/scheduled-tasks-types'
 import { fetchTodayStats, formatTokenCount, type TodayStats } from '@/lib/workbench-today-stats'
+import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
 import { useUIStore } from '@/stores/ui-store'
 import {
   fetchOverallRunStats,
@@ -248,6 +249,8 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
   const prevSessionsRef = useRef(new Map<string, boolean>())
   const drawerCloseRef = useRef<HTMLButtonElement | null>(null)
   const prevFocusRef = useRef<Element | null>(null)
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const drawerRef = useRef<HTMLElement | null>(null)
   // 取数序号：20s 轮询本身会自重叠（一次取数超过 20s，或页面挂起后恢复），requestRefresh 还会让
   // 取数 effect 重跑并立刻再发一轮。判据是「旧响应一个 state 都不许写」——不是少写几个：
   // bots/tasks/today/overall/completions/loadError/lastLoadedAt 全在这个序号后面，finally 里的
@@ -376,6 +379,10 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
     if (prev instanceof HTMLElement) prev.focus()
     return undefined
   }, [drawer])
+
+  // 两个陷阱互斥：抽屉开着时根陷阱让位，Tab 只在抽屉里循环
+  useDialogFocusTrap(rootRef, { enabled: !drawer, restoreFocus: true })
+  useDialogFocusTrap(drawerRef, { enabled: Boolean(drawer) })
 
   const allFlights = useMemo(() => {
     const list: Flight[] = []
@@ -579,7 +586,7 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
     : [5, 10, 15, 30, 60, 120, 180, 360, 720, 1440]
 
   return (
-    <div className="qf-wba" data-material={material} role="dialog" aria-modal="true" aria-label={t('workbenchTitle')}>
+    <div ref={rootRef} className="qf-wba" data-material={material} role="dialog" aria-modal="true" aria-label={t('workbenchTitle')}>
       {/* 控制台自视口顶部起铺满；材质切换并入铭牌控件，不设说明条 */}
 
       <div className="qf-wba__unit qf-wba__rise">
@@ -791,7 +798,14 @@ export function WorkbenchAnalog({ onClose }: { onClose: () => void }) {
       </div>
 
       <div className={cn('qf-wba__scrim', drawer && 'qf-wba__is-on')} onClick={() => setDrawer(null)} />
-      <aside className={cn('qf-wba__drawer', drawer && 'qf-wba__is-on')} aria-hidden={!drawer} role="dialog" aria-modal="true" aria-label={drawerBot?.name ?? drawerTask?.title ?? ''}>
+      <aside
+        ref={drawerRef}
+        className={cn('qf-wba__drawer', drawer && 'qf-wba__is-on')}
+        inert={drawer ? undefined : true}
+        aria-hidden={!drawer}
+        role="region"
+        aria-label={drawerBot?.name ?? drawerTask?.title ?? ''}
+      >
         <i className="qf-wba__screw qf-wba__screw--tl" /><i className="qf-wba__screw qf-wba__screw--tr" />
         <i className="qf-wba__screw qf-wba__screw--bl" /><i className="qf-wba__screw qf-wba__screw--br" />
         <div className="qf-wba__drawer__inner">

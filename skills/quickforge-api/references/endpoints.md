@@ -87,7 +87,7 @@ bot 的服务端路由在 `server/routes/bots.mjs`（详见 `docs/wiki/server/bo
 | `/api/backup/*` | 覆盖存储 |
 | `/api/plugins/*`、`/api/mcp*` | 装代码、装外部通道 |
 | `DELETE /api/memory`、`/api/working-memory` 写接口 | 已有专门工具，且这些工具带用户授权语义 |
-| `/api/agents/events`（SSE） | 这条是**全局**流（`server/routes/agent.mjs` 的 `handleGlobalStream`），连接层没有抢占锁，连上不会踢掉谁的页面；但每条连接都要常驻接收全部会话事件，bot 拿它没用——盯状态用轮询 `status` / `show <id>`。真正带抢占锁（409 `Session is already active in another tab`）的是会话级 `GET /api/agents/:sessionId/events`，仓内零调用方，别去连 |
+| `/api/agents/events`（SSE） | 这条是**全局**流（`server/routes/agent.mjs` 的 `handleGlobalStream`），连接层没有抢占锁，连上不会踢掉谁的页面；但每条连接都要常驻接收全部会话事件，bot 拿它没用——盯状态用轮询 `status` / `show <id>`。真正带抢占锁（409 `Session is already active in another tab`）的是会话级 `GET /api/agents/:sessionId/stream`（同名 HEAD 走 `isSseConnected`，同样 409；`agent.mjs:235–237` 定义、`:881` 抢锁），仓内零调用方，别去连 |
 
 ## 身份与环境变量
 

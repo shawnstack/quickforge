@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import { t } from '@/lib/i18n'
 import { loadModelCatalog } from '@/lib/model-reference'
 import { getAppStorage } from '@/storage'
@@ -194,6 +195,8 @@ export function ApiKeyPromptDialog({ provider, getKey, saveKey, onResolve, pollI
   // `aria-modal="true"` 声明了「提示框之外的界面不可交互」，键盘不跟着守住，
   // Tab 就能走到背后那块自己念作不可交互、实际却能聚焦的对话界面上。
   useDialogFocusTrap(dialogRef)
+  // 无障碍树那条线：沿途兄弟置 inert，兑现 aria-modal 的「之外不可交互」。
+  useModalIsolation(dialogRef)
 
   useEffect(() => () => {
     // Drop a pending "✗ Invalid" reset when the dialog goes away.

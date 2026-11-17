@@ -1923,5 +1923,21 @@
     "verification": "只读核实：读全局 MEMORY.md 与各 bot 记忆文件、查 sqlite session_messages 的写入回执（4 个 bot / 37 次）、对齐文件 mtime 与质检bot 会话时间（06:34:24）。恢复后回读文件为 425 字的「# 用户偏好」原文。未改任何 server 代码，未跑测试（本轮无代码改动）。",
     "updatedAt": "2026-11-16",
     "boundaries": "本轮只恢复用户数据 + 记录，不改产品代码（用户明确选择「只记录，暂不改代码」）。根因未修 ⇒ bot 每次心跳仍可能再次覆盖全局 MEMORY.md（间隔约 3 小时）。恢复用的 425 字版本是数据库里最后一版非 bot 写入，无法排除之后用户在 UI 手动改过；若要精确回滚到某个时间点，只能以该备份为准。"
+  },
+  {
+    "id": "modal-isolation-imperative-chat-surface",
+    "title": "隔离刀 2：命令式 createRoot 两处接 useModalIsolation（API-key 提示、附件浮层）",
+    "status": "done",
+    "summary": "主助手 2026-11-17 09:23 派下、被两跳漏掉的活，11:13 确认「先做这一段」。ApiKeyPromptDialog（inline 挂载：createRoot 自建容器 append 到 body，dialog div 渲染在容器内）与 AttachmentOverlay（portal 挂载：createPortal 直挂 body，容器是 overlay 的兄弟）各接 `useModalIsolation`——import 一行 + `useDialogFocusTrap` 调用后紧跟一行，与隔离刀 1（b0ad53d5 的 confirm/prompt 两处）完全同构。aria-modal 声明的「弹层之外不可交互」由此在无障碍树上兑现：键盘线（Tab 循环/焦点归还）仍归 useDialogFocusTrap，两边不合并。",
+    "files": [
+      "src/components/chat/surface/ApiKeyPromptDialog.tsx（+2 行：import 与 useModalIsolation(dialogRef)）",
+      "src/components/chat/surface/AttachmentOverlay.tsx（+2 行：import 与 useModalIsolation(overlayRef)）",
+      "tests/frontend/modal-isolation.test.ts（新增 2 例真实调用点：promptApiKey inline 挂载、openAttachmentOverlay portal 挂载，jsdom 真渲染断言 body 级兄弟 inert 挂载时设置、卸载时同步摘除）",
+      "docs/wiki/src/hooks/README.md（useModalIsolation 接入面「两处」→「四处」）",
+      "docs/wiki/src/components/README.md（AttachmentOverlay/ApiKeyPromptDialog 两条补挂载形态与钩子接线）"
+    ],
+    "verification": "先证红：接钩子前 2 个新用例红在 expected false to be true（inert 无人设置），接后全绿；npx vitest run modal-isolation + chat-surface-api-key-dialog → 27 passed；npx tsc -b 净；eslint 3 个改动文件净；check:wiki matched=401 resolved=401 historical=1 bad=0；全量 npm run test 结果见 session-handoff。",
+    "updatedAt": "2026-11-17",
+    "boundaries": "AttachmentPreviewErrorFallback（overlay 崩溃兜底弹层，role=alertdialog）也有自己的 useDialogFocusTrap，但派活表只列 :123 主体，未接（记 Notes）；受控弹层的 enabled 联动、其余 8 处 focus-trap 调用点不在本刀；未动 dist/package-dist/package-offline；未 push。"
   }
 ]

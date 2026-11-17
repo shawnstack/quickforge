@@ -3,13 +3,12 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## 前端三处「延迟写 / 延迟发，卸载或抢占就静默丢」（2026-11-16 16:40）
+## 隔离刀 2：命令式 createRoot 两处接 useModalIsolation（2026-11-17 11:40）
 
-- 问题：把「用户输入 → 持久层」或「用户点击 → 请求」放进定时器，中间就多出一个窗口；窗口里卸载、切 tab、切项目、连点，动作就静默消失（没有报错、没有提示，界面还显示已保存）。扫了 `src` 里 163 处 `setTimeout`，真正「延迟写持久层」的只有 5 处：三处做对（`WorkbenchScreensaverSettings` 卸载 flush、`ChatPanelHost` 草稿卸载＋视图切走双 flush、`message-queue` 的 `cleanup()` 两分支），三处是洞。
-- P0 `ProjectCommandsSettingsTab.tsx`：800ms 防抖的 cleanup 只 `clearTimeout` 不 flush，而该 tab 不在 `STATE_PRESERVING_TAB_KEYS` 里（切走即真卸载），于是「填完命令目录 800ms 内切走 / 关设置」＝PUT 从未发出。改法：新增**卸载专用** flush effect（放在 `save` 定义之后，避免 use-before-define），并**删掉挂载 effect cleanup 里的 timer 清理**——React 卸载时按 effect 声明顺序正向跑 cleanup，旧的若先清 timer，后面新的 flush 会以为没有待写值而提前返回（子会话实测过：保留旧清理，新用例就是红的）。
-- P1 同文件 `selectProject`：切项目前 `clearSaveTimer()` 把待写值直接扔掉。改法：有待写就先 `clearSaveTimer()` + `save()`，再切 `projectRef` / `commandDirRef`。
-- P2 `ChatSidebar.tsx`：`onDeleteSession` / `onDeleteProject` 被塞进 140ms 动画定时器——140ms 内卸载不补发，且 140ms 内确认第二个会把前一个 `clearTimeout` 掉，**第一个删除请求永远发不出**。改法：请求在确认时同步发出，定时器只负责 `setConfirmingDelete*` 复位。
-- 测试（全部先证会红）：`tests/frontend/project-commands-settings-tab.test.ts` 加 2 例（卸载 flush / 切项目 flush，新增 `mountWithCleanups` 自行收集 `harness.effects` 的 cleanup——原 harness 只 push 不执行）；新建 `tests/frontend/sidebar-delete-request-flush.test.ts` 2 例（同步派发 / 连点两次都发出）。**修复前 4 例红在断言上**：`expected [] to deeply equal ['typed-then-left']`、`expected "vi.fn()" to be called 1 times, but got 0 times`。
-- 验证：主助手独立复核，不看自述——把 P0 的 flush 跳过（`if (1 === 1) return`）后**只有 P0 那条红**，其余 13 条绿；把 P2 的同步调用注释掉后两条全红；两次还原后文件 sha1 与备份一致、无探针残留。全量 585 文件 / 6387 例绿 / 2 skipped、`tsc -b` 净、`eslint .` 净。
-- Notes：`confirmDelete*` 失败分支仍只复位状态、没有用户可见错误提示（与修复前一致，未扩大范围）；同族观察保留不改：卸载时若有 save 在飞，`pendingSaveAfterCurrentRef` 会让它的 `finally` 再排一个 800ms 定时器并最终发出 PUT——修复前就有的路径，语义是「最终写出去」。判据与三对三错表在 `~/.quickforge/bots/bot-b9c0e755/.bot/decisions.md` §21。
+- 任务：主助手 09:23 派下（被两跳漏掉）、11:13 确认「先做这一段」——`ApiKeyPromptDialog.tsx` 与 `AttachmentOverlay.tsx` 各接 `useModalIsolation`，范围就 2 源文件 + 1 测试文件。接法与隔离刀 1（`b0ad53d5`，confirm/prompt 两处）完全同构：import 一行 + `useDialogFocusTrap` 调用后紧跟一行调用。
+- 两种挂载形态都被覆盖：`promptApiKey` 是 inline（createRoot 自建容器 append 到 body，dialog div 在容器里，#root 是容器的兄弟）；`openAttachmentOverlay` 是 portal（overlay div 经 createPortal 直挂 body，#root 与它互为兄弟，createRoot 容器是另一个兄弟）。钩子「只隔兄弟、不碰祖先链」对两种拓扑都成立。
+- 测试（先证红）：`tests/frontend/modal-isolation.test.ts` 新增 2 例真实调用点（例 6 promptApiKey 点遮罩关闭、例 7 openAttachmentOverlay Esc 关闭），jsdom 真渲染，断言 body 级兄弟（#root）挂载时带 inert、卸载后**不等宏任务**同步摘掉。接钩子前 2 例红在 `expected false to be true`，接后全绿——把实现换回「不接钩子」测试必红，判据成立。
+- 验证：modal-isolation 7 例 + chat-surface-api-key-dialog 20 例全绿；`tsc -b` 净；eslint 3 个改动文件净；`check:wiki` matched=401 resolved=401 historical=1 bad=0；全量 `npm run test` 结果见 session-handoff。
+- wiki 同步：`docs/wiki/src/hooks/README.md`（useModalIsolation 接入面「两处」→「四处」）、`docs/wiki/src/components/README.md`（两条组件条目补挂载形态与钩子接线）。
+- Notes：`AttachmentPreviewErrorFallback`（overlay 崩溃兜底，role=alertdialog，自带 focus trap）未接 useModalIsolation——不在本刀范围；后续刀次可考虑。起点核过：HEAD `6ec506c8`、dev、工作树干净。
 

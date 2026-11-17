@@ -6,6 +6,7 @@ import { createRoot } from 'react-dom/client'
 import { Download, X } from 'lucide-react'
 import { t } from '@/lib/i18n'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import type { Attachment } from './ChatTypes'
 import { resolveAttachmentKind } from './attachment-loader'
 import { resolveAttachmentPayload } from './attachment-client'
@@ -121,6 +122,8 @@ export function AttachmentOverlay({ attachment, onClose }: AttachmentOverlayProp
 
   // Esc 在上面处理；这里只管 Tab 循环，别让焦点跑到背后的对话流里。
   useDialogFocusTrap(overlayRef)
+  // 无障碍树那条线：沿途兄弟置 inert，兑现 aria-modal 的「之外不可交互」。
+  useModalIsolation(overlayRef)
 
   const [downloadError, setDownloadError] = useState('')
   const handleDownload = () => {

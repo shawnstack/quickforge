@@ -1,10 +1,13 @@
 // @vitest-environment jsdom
 import { act, createElement, type ReactElement, type RefObject } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { promptApiKey } from '@/components/chat/surface/ApiKeyPromptDialog'
+import { openAttachmentOverlay } from '@/components/chat/surface/AttachmentOverlay'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { useModalIsolation } from '@/hooks/useModalIsolation'
+import { setAppStorage, type AppStorage } from '@/storage'
 
 /**
  * `aria-modal` 的背景隔离：弹层挂载期间沿途兄弟节点被设为 `inert`，卸载按引用计数还原。
@@ -13,7 +16,9 @@ import { useModalIsolation } from '@/hooks/useModalIsolation'
  *
  * 例 1–4 用最小 harness 直测钩子；弹层容器与兄弟节点都直接挂 body，
  * 与真实调用点的拓扑一致（`renderMessageDialog` 的容器自己 append 到 body，
- * `#root` 是它的兄弟）。例 5 走 `showConfirm` 真实调用点。
+ * `#root` 是它的兄弟）。例 5 走 `showConfirm` 真实调用点；例 6–7 走命令式
+ * `createRoot` 的两种挂载形态：`promptApiKey`（inline，dialog 在自己的
+ * container 里）与 `openAttachmentOverlay`（createPortal 直挂 body）。
  */
 
 function ModalHost({
@@ -162,5 +167,66 @@ describe('useModalIsolation', () => {
     })
     expect(appRoot.hasAttribute('inert')).toBe(false)
     expect(settled).toBe(false)
+  })
+
+  it('真实调用点：promptApiKey 打开时背景被隔离，点遮罩关闭后同步摘掉', async () => {
+    // promptApiKey 内部走 getAppStorage()，先塞一个最小 stub。
+    setAppStorage({
+      providerKeys: {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => {}),
+      },
+      customProviders: {
+        getAll: vi.fn(async () => []),
+      },
+    } as unknown as AppStorage)
+
+    const appRoot = bodySibling('root')
+
+    let settled: boolean | undefined
+    await act(async () => {
+      void promptApiKey('anthropic').then((value) => {
+        settled = value
+      })
+    })
+    // inline 挂载：dialog div 渲染在 promptApiKey 自己 append 的 container 里，
+    // container 是 body 直接子节点，#root 正好是它的兄弟。
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const dialog = document.querySelector<HTMLDivElement>('.qf-api-key-prompt-dialog')
+    expect(dialog).toBeInstanceOf(HTMLDivElement)
+    // 弹层自身与祖先链不被隔。
+    expect(dialog?.hasAttribute('inert')).toBe(false)
+
+    await act(async () => {
+      dialog?.click() // 点击遮罩 → resolveFalse → finish(false)
+    })
+    // 不等宏任务就断言：unmount 的 cleanup 必须同步摘 inert。
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+    expect(settled).toBe(false)
+  })
+
+  it('真实调用点：openAttachmentOverlay 打开时背景被隔离，Esc 关闭后同步摘掉', () => {
+    const appRoot = bodySibling('root')
+
+    const onClose = vi.fn()
+    act(() => {
+      openAttachmentOverlay(
+        { id: 'att-1', type: 'image', fileName: 'shot.png', mimeType: 'image/png', size: 3, content: 'aGk=' },
+        onClose,
+      )
+    })
+    // portal 挂载：overlay div 直接落在 body 下，与 #root 互为兄弟
+    // （createRoot 的 container 是它的另一个兄弟，被隔也不影响弹层自身）。
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const overlay = document.querySelector<HTMLDivElement>('.qf-attachment-overlay')
+    expect(overlay).toBeInstanceOf(HTMLDivElement)
+    expect(overlay?.hasAttribute('inert')).toBe(false)
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    // close() 里 root.unmount() 的 effect cleanup 必须同步摘 inert。
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

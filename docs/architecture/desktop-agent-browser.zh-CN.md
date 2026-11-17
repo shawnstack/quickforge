@@ -62,13 +62,14 @@ React 渲染进程            只有一块占位区域 + 只读状态栏
 | 会话隔离 | 独立 persist:quickforge-agent-browser 分区，与主窗口 cookie 完全隔离 |
 | 导航 | 仅 http(s)；localhost、*.localhost、回环、私网、链路本地、CGNAT、IPv4-mapped IPv6 一律拒绝并返回可读原因 |
 | 页面内跳转 | will-navigate 同样过策略；setWindowOpenHandler 一律 deny |
+| 页面内请求（网络层） | configureSession 注册 webRequest.onBeforeRequest，与导航共用同一份 host 判定：页面自己发起的 fetch/XHR/WebSocket 以及服务端 30x 重定向到私网一律 cancel；data:/blob:/about: 等浏览器内部 scheme 与相对路径放行（相对 URL 的 host 与顶层一致，顶层已被导航策略把关） |
 | 权限 | setPermissionRequestHandler 与 setPermissionCheckHandler 全拒；setDisplayMediaRequestHandler 拒绝 |
 | 下载 | will-download 直接 preventDefault() |
 | 渲染进程 | sandbox: true、contextIsolation: true、nodeIntegration: false、无 preload、webSecurity 保持开启 |
 | 渲染进程桥 | 只暴露 isAvailable / getState / setBounds / setVisible / onStateChange，且校验 senderFrame 必须是主窗口主 frame |
 | MCP 通道 | 只听 127.0.0.1:0，强制 Authorization: Bearer 一次性 token，无状态（没有可复用的 session） |
 
-这些不变量无法在 CI 里跑真实 Electron，已用源码契约测试锁住：tests/server/desktop-browser-wiring-contract.test.mjs。其中「唯一 CDP 控制层」是按目录扫描整个 desktop/ 断言的（只有 browser/cdp-client.mjs 允许出现 .debugger.），新增第二个调试器入口会直接让测试变红。
+这些不变量无法在 CI 里跑真实 Electron，已用源码契约测试锁住：tests/server/desktop-browser-wiring-contract.test.mjs。网络层那一行除了源码断言（configureSession 函数体必须同时出现 webRequest.onBeforeRequest 与 shouldBlockSubresource），还有一个行为级证据：tests/server/desktop-browser-host.test.mjs 用 electron 替身真驱动一次 createBrowserHost，断言注册的 listener 对 127.0.0.1 回 cancel、对公网回放行。同一处还断言 policy.mjs 里的私网网段表与 blocked 名单**各只允许出现一次**——出现第二份就说明导航层与子资源层开始漂移。其中「唯一 CDP 控制层」是按目录扫描整个 desktop/ 断言的（只有 browser/cdp-client.mjs 允许出现 .debugger.），新增第二个调试器入口会直接让测试变红。
 
 ## 6. 会话生命周期与自愈
 

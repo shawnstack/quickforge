@@ -2,7 +2,7 @@ import path from 'node:path'
 import { WebContentsView, session as electronSession } from 'electron'
 import { CdpClient, CdpTimeoutError } from './cdp-client.mjs'
 import { PageActions } from './page-actions.mjs'
-import { BROWSER_SESSION_PARTITION, normalizeNavigableUrl } from './policy.mjs'
+import { BROWSER_SESSION_PARTITION, normalizeNavigableUrl, shouldBlockSubresource } from './policy.mjs'
 import { DEFAULT_BOUNDS, clampBounds, isFiniteRect } from './layout.mjs'
 
 /** 新视图等待渲染进程就绪（首个 dom-ready）的上限。 */
@@ -75,6 +75,14 @@ export function createBrowserHost({ screenshotDir, onStateChange } = {}) {
     ses.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
     ses.setPermissionCheckHandler(() => false)
     ses.setDisplayMediaRequestHandler?.((_request, callback) => callback({}))
+    // 网络层拦截：will-navigate 只看得到「谁在导航」，页面自己发起的 fetch/XHR/
+    // WebSocket 以及重定向不走那条路，必须按同一份 host 网段表（policy.mjs）拦下。
+    // webRequest 的语义是「设置即替换前一个 listener」，而 configureSession() 在每次
+    // ensureView() 都会执行，重复注册天然幂等——故意不用 flag 去防重：flag 只会引入
+    // 「上次注册失败也被记住」的新状态。listener 保持同步、只做纯函数判定。
+    ses.webRequest.onBeforeRequest((details, callback) => {
+      callback({ cancel: shouldBlockSubresource(details.url).block })
+    })
     ses.on('will-download', (event) => event.preventDefault())
     return ses
   }

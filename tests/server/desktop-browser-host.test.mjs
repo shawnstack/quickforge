@@ -54,11 +54,13 @@ const electron = vi.hoisted(() => {
 
   const session = {
     fromPartition(partition) {
-      const entry = { partition, listeners: new Map(), permissionRequest: null, permissionCheck: null, displayMedia: null }
+      const entry = { partition, listeners: new Map(), permissionRequest: null, permissionCheck: null, displayMedia: null, beforeRequest: null }
       entry.setPermissionRequestHandler = (handler) => { entry.permissionRequest = handler }
       entry.setPermissionCheckHandler = (handler) => { entry.permissionCheck = handler }
       entry.setDisplayMediaRequestHandler = (handler) => { entry.displayMedia = handler }
       entry.on = (name, handler) => { entry.listeners.set(name, handler) }
+      // webRequest.onBeforeRequest 的语义是「设置即替换前一个 listener」。
+      entry.webRequest = { onBeforeRequest: (listener) => { entry.beforeRequest = listener } }
       created.sessions.push(entry)
       return entry
     },
@@ -172,7 +174,7 @@ describe('desktop browser host', () => {
     expect(view.visible).toBe(false)
   })
 
-  it('denies permissions, new windows and downloads in the browser session', async () => {
+  it('denies permissions, new windows, downloads and private-network requests in the browser session', async () => {
     electron.created.views.length = 0
     electron.created.sessions.length = 0
     const { host } = createHost()
@@ -186,6 +188,13 @@ describe('desktop browser host', () => {
     const download = { preventDefault: vi.fn() }
     ses.listeners.get('will-download')(download)
     expect(download.preventDefault).toHaveBeenCalled()
+    // 网络层拦截已接线：页面内请求打到本机回环要被 cancel，公网放行。
+    const cancel = vi.fn()
+    ses.beforeRequest({ url: 'http://127.0.0.1:5176/api/health' }, cancel)
+    expect(cancel).toHaveBeenCalledWith({ cancel: true })
+    cancel.mockClear()
+    ses.beforeRequest({ url: 'https://example.com/app.js' }, cancel)
+    expect(cancel).toHaveBeenCalledWith({ cancel: false })
   })
 
   it('disposes the view, detaches the debugger and forgets the window', async () => {

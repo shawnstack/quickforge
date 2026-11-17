@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeNavigableUrl } from '../../desktop/browser/policy.mjs'
+import { normalizeNavigableUrl, shouldBlockSubresource } from '../../desktop/browser/policy.mjs'
 
 describe('desktop browser navigation policy', () => {
   it('accepts public http(s) urls and defaults bare hosts to https', () => {
@@ -32,6 +32,7 @@ describe('desktop browser navigation policy', () => {
     'http://localhost:5176',
     'http://LOCALHOST/',
     'http://app.localhost',
+    'http://localhost./x',
     'http://127.0.0.1:32176/api/health',
     'http://127.1.2.3',
     'http://10.0.0.5',
@@ -55,5 +56,44 @@ describe('desktop browser navigation policy', () => {
   it('keeps public IPv4 addresses reachable', () => {
     expect(normalizeNavigableUrl('http://8.8.8.8/')).toMatchObject({ ok: true, hostname: '8.8.8.8' })
     expect(normalizeNavigableUrl('http://172.32.0.1/')).toMatchObject({ ok: true, hostname: '172.32.0.1' })
+  })
+})
+
+describe('desktop browser subresource policy', () => {
+  it.each([
+    'http://127.0.0.1:5176/api/health',
+    'http://localhost:5176/',
+    'http://localhost./x',
+    'http://LOCALHOST./x',
+    'http://[::1]:5176/',
+    'http://[::ffff:127.0.0.1]/',
+    'ws://127.0.0.1:5176/stream',
+    'http://169.254.169.254/latest/meta-data',
+    'http://10.0.0.5/a.js',
+    'http://100.64.1.1/',
+    'http://0.0.0.0/',
+  ])('blocks in-page request to %s', (input) => {
+    const result = shouldBlockSubresource(input)
+    expect(result).toMatchObject({ block: true, reason: 'blocked-host' })
+    expect(result.message).toContain('Blocked by the desktop browser policy')
+  })
+
+  it.each([
+    'https://example.com/app.js',
+    'wss://example.com/socket',
+    'data:image/png;base64,AAA',
+    'blob:https://example.com/9f1c',
+    'about:blank',
+    '/api/x',
+    'a.js',
+    '',
+    '   ',
+    null,
+  ])('lets in-page request %s through', (input) => {
+    expect(shouldBlockSubresource(input)).toEqual({ block: false })
+  })
+
+  it('blocks an unparseable absolute http url as invalid instead of guessing', () => {
+    expect(shouldBlockSubresource('http://')).toEqual({ block: true, reason: 'invalid' })
   })
 })

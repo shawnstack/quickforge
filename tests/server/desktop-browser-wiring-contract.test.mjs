@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 const read = (relativePath) => readFileSync(new URL(`../../${relativePath}`, import.meta.url), 'utf8')
 
 const host = read('desktop/browser/browser-host.mjs')
+const configureSessionBody = host.match(/function configureSession\(\) \{([\s\S]*?)\n {2}\}/)?.[1] ?? ''
 const cdp = read('desktop/browser/cdp-client.mjs')
 const mcpServer = read('desktop/browser/mcp-server.mjs')
 const policy = read('desktop/browser/policy.mjs')
@@ -37,6 +38,17 @@ describe('desktop browser security contract', () => {
     expect(policy).toContain("'localhost'")
     expect(policy).toContain('PRIVATE_IPV4_RANGES')
     expect(policy).toContain("new Set(['http:', 'https:'])")
+  })
+
+  it('enforces the host policy at the network layer for in-page requests', () => {
+    // 页面自己发起的 fetch/XHR/WebSocket 不经过 will-navigate，必须在网络层
+    // （configureSession 的 webRequest）按同一份策略拦下。
+    expect(configureSessionBody).toContain('webRequest.onBeforeRequest')
+    expect(configureSessionBody).toContain('shouldBlockSubresource')
+    // 网段表与 blocked 名单只允许存在一份：导航层与子资源层共用 hostVerdict，
+    // 第二份表出现就意味着两层判定开始漂移。
+    expect(policy.match(/const PRIVATE_IPV4_RANGES/g) ?? []).toHaveLength(1)
+    expect(policy.match(/const BLOCKED_HOSTNAMES/g) ?? []).toHaveLength(1)
   })
 
   it('owns CDP from a single place and re-attaches defensively', () => {

@@ -6,6 +6,7 @@
 |------|------|------|
 | [prepare-offline-package.cjs](../../../scripts/prepare-offline-package.cjs) | 准备 package-offline 发布包 | 32 |
 | [prepare-patch-release.cjs](../../../scripts/prepare-patch-release.cjs) | patch 发布准备（版本/文档/test-lint-build/打包；不执行 Git/publish） | 379 |
+| [check-release-consistency.mjs](../../../scripts/check-release-consistency.mjs) | 发版一致性体检（只读）：package.json / CHANGELOG 最新 `## [X.Y.Z]` / README 顶部「当前版本 **X.Y.Z**」三处对齐，并要求 CHANGELOG 有对应小节；`git status` 的未提交项只逐条打印、不计错；`npm run check:release`，退出码与 `check:wiki` 同口径（bad>0 为 1） | 68 |
 | [prepare-runtime-package.cjs](../../../scripts/prepare-runtime-package.cjs) | 准备运行时发行包 | 19 |
 | [sqlite-compatibility-spike.mjs](../../../scripts/sqlite-compatibility-spike.mjs) | 开发期 `node:sqlite` 共同 API、WAL 与双进程锁等待兼容性探针 | 374 |
 | [session-index-query-benchmark.mjs](../../../scripts/session-index-query-benchmark.mjs) | 开发期 1k/10k（可传 50k）JSON 与 warm SQL 会话分页对比，输出 JSON Lines 与 EXPLAIN | 126 |
@@ -26,6 +27,13 @@
 - 生成 `package-dist/`、`package-offline/` 及离线 tarball（`--no-pack` 跳过）
 - 不执行 Git commit/tag/push，也不 npm publish；只输出待人工复核的命令
 - 支持 `--dry-run` 预览、`--notes` / `--notes-file` 指定发布说明、`--skip-version` 续跑
+
+### `check-release-consistency.mjs` (68 行)
+
+- 版本三处一致：`package.json` 的 `version` ↔ `CHANGELOG.md` 最新的 `## [X.Y.Z]`（只认 X.Y.Z 形状的标题，`[Unreleased]` 天然跳过）↔ `README.md` 顶部的「当前版本 **X.Y.Z**」
+- `CHANGELOG` 小节存在：`package.json` 的版本号必须能在 `CHANGELOG.md` 找到对应标题
+- 工作树交代：`git status --porcelain` 有未提交项就逐条打印——**不算错**，只提醒发版前确认每一项归属（v2.5.0 收尾时工作树里就有别人改到一半的文件）
+- 只读、不改任何文件；输出照 `check:wiki` 风格（先计数、再明细、末行 `bad=N`），退出码同口径
 
 ### `session-index-query-benchmark.mjs`
 

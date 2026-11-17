@@ -64,7 +64,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 4866 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键；**未知键兜到键名本身**（返回键名而不是 `undefined`、带 params 也不抛 `TypeError`），开发态再补一条 `console.warn` |
+| `i18n.ts` | 4872 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键；**未知键兜到键名本身**（返回键名而不是 `undefined`、带 params 也不抛 `TypeError`），开发态再补一条 `console.warn` |
 | `error-messages.ts` | 42 | 已知上游代码异常文案的展示层国际化：`translateErrorMessage(message)` 以「精确/参数正则 → i18n key」规则表映射 pi-ai（Request was aborted、流异常结束）、ai-http-logger（AI stream idle/total timeout）、undici fetch failed 与 server-agent prompt HTTP 兜底等已知英文异常串；数据层保持原文（持久化、appendAssistantErrorMessageOnce 去重、subagent trace 去重都依赖原始文本），仅在展示层（message-actions 错误红块装饰、local-tools subagent 错误原因卡）调用；未匹配的动态正文原样显示 |
 | `error-noise.ts` | 13 | 良性错误噪音识别：`isResizeObserverLoopError(value)` 对字符串或 `Error.message` 匹配 `ResizeObserver loop`（覆盖 "completed with undelivered notifications" 与 "loop limit exceeded" 变体，普通对象不识别）；`main.tsx` 全局 error/unhandledrejection 入口命中即降级 `logger.debug`（`quickforge_debug=1` 才可见），真实错误仍按 error 级别上报 |
 | `pi-chat.ts` | 497 | Pi Chat 初始化和模型管理 |
@@ -162,6 +162,7 @@
 | `bot-project.ts` | 14 | bot 专属目录也注册成项目（文件工具要它的 path 当 workspaceRoot），但不是「用户项目」：`isBotProject` 收 `kind === 'bot'` 这一条判据，供 `activeProject`、会话自带 project、按 projectId 拉 git 状态等通道复用——`project-store` 只过滤得到「项目列表」那一层 |
 | `deleted-project-recovery.ts` | 46 | 项目被删后的恢复决策：`ready` / 当前会话项目 / 项目列表（刻意不含 bot 目录）/ `activeProject` / `recoveringProjectId` → `none` / `project` / `global` 三选一 |
 | `desktop-app.ts` | 13 | 「是否运行在桌面端」唯一判定：`isDesktopApp()` 读主进程注入的 `__quickforgeDesktopApp` 与 `body.quickforge-desktop-app`，取代此前散在更新检查 / 连接提示 / 关于页的几份表达式 |
+| `desktop-autostart-bridge.ts` | 52 | 开机自启动的窄桥：渲染进程只会 `getState` / `setEnabled`，路径、`--hidden` 启动参数与注册表细节全在主进程（`desktop/autostart-contract.mjs`）；回包一律归一化，不支持的平台上 `openAtLogin` 强制为 false，非桌面端返回 null |
 | `desktop-browser-bridge.ts` | 69 | 内嵌浏览器的窄桥：渲染进程只拿到 `isAvailable` / `getState` / `setBounds` / `setVisible` / `onStateChange`，既拿不到 `webContents` 也读不到网页内容；非桌面端返回 null |
 | `font-size-settings.ts` | 123 | 字号设置：界面 / 消息两套 px（范围 12–18、默认 13），含一次性强制 13px 迁移键 `font-size-settings-force-13px-v1` |
 | `global-memory-tool-output.ts` | 42 | `manage_global_memory` 的输出文案投影：`formatManageGlobalMemoryOutput` 把空内容 / 已保存映射成 i18n key，**写入按 `details.target` 分流**（`workspace` → 「本 bot 的记忆已保存」，其余含无 target 的历史消息 → 「全局记忆已保存」），流式中不提前报结果 |
@@ -194,7 +195,7 @@
 
 ## 核心模块
 
-### i18n.ts (4866 行)
+### i18n.ts (4872 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 

@@ -4,6 +4,7 @@ const NOTIFICATION_REQUEST_CHANNEL = 'quickforge:desktop-notification-request'
 const NOTIFICATION_OPEN_SESSION_CHANNEL = 'quickforge:desktop-notification-open-session'
 const BROWSER_REQUEST_CHANNEL = 'quickforge:desktop-browser-request'
 const BROWSER_STATE_CHANNEL = 'quickforge:desktop-browser-state'
+const AUTOSTART_REQUEST_CHANNEL = 'quickforge:desktop-autostart-request'
 
 contextBridge.exposeInMainWorld('QuickForgeDesktopNotifications', {
   isSupported() {
@@ -63,5 +64,16 @@ contextBridge.exposeInMainWorld('QuickForgeDesktopBrowser', {
     return () => {
       ipcRenderer.removeListener(BROWSER_STATE_CHANNEL, listener)
     }
+  },
+})
+
+// 开机自启动桥：渲染进程只能说「现在要不要自启动」，既拿不到注册表细节，
+// 也不能指定可执行文件路径与启动参数 —— 这些由主进程按平台决定。
+contextBridge.exposeInMainWorld('QuickForgeDesktopAutostart', {
+  getState() {
+    return ipcRenderer.invoke(AUTOSTART_REQUEST_CHANNEL, { type: 'get-state' })
+  },
+  setEnabled(enabled) {
+    return ipcRenderer.invoke(AUTOSTART_REQUEST_CHANNEL, { type: 'set-enabled', enabled: Boolean(enabled) })
   },
 })

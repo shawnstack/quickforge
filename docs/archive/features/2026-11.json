@@ -1939,5 +1939,25 @@
     "verification": "先证红：接钩子前 2 个新用例红在 expected false to be true（inert 无人设置），接后全绿；npx vitest run modal-isolation + chat-surface-api-key-dialog → 27 passed；npx tsc -b 净；eslint 3 个改动文件净；check:wiki matched=401 resolved=401 historical=1 bad=0；全量 npm run test 结果见 session-handoff。",
     "updatedAt": "2026-11-17",
     "boundaries": "AttachmentPreviewErrorFallback（overlay 崩溃兜底弹层，role=alertdialog）也有自己的 useDialogFocusTrap，但派活表只列 :123 主体，未接（记 Notes）；受控弹层的 enabled 联动、其余 8 处 focus-trap 调用点不在本刀；未动 dist/package-dist/package-offline；未 push。"
+  },
+  {
+    "id": "desktop-launch-at-startup",
+    "title": "桌面端「开机自启动」开关：读写系统登录项，自启动拉起时只驻留托盘",
+    "status": "done",
+    "summary": "用户问「当前 QF 能不能设置开机自启动」，仓库里一处都没有（desktop/ 与 src/ 里 setLoginItemSettings / openAtLogin / launchAtLogin 零命中）。落在关于页：桌面端多一个开关，读写系统登录项（Windows 注册表启动项 / macOS 登录项），Linux 不显示。三个不显眼但会坏事的点各自收在一处纯函数里（desktop/autostart-contract.mjs）：① Windows 上 getLoginItemSettings 按 path + args 匹配注册表项，读的时候用默认参数（path=execPath、args=[]）永远匹配不到带 --hidden 的那一条，开关会点完自己弹回去，所以读与写必须共用同一份 path/args，关闭时也要带上否则删不掉；② portable 版每次启动解包到新的临时目录，写 process.execPath 下次开机就失效，必须优先 PORTABLE_EXECUTABLE_FILE；③ 自启动拉起时不该弹窗抢焦点，Windows 靠写进登录项的 --hidden 参数判断（不信 wasOpenedAtLogin），macOS 才用 wasOpenedAtLogin。渲染进程只能 getState / setEnabled，路径与启动参数不给页面。前端状态机在 useDesktopAutostart：状态真相在系统里、前端不缓存不持久化，读与写共用一条请求序号丢弃晚到的旧响应，且不做乐观更新（写失败时开关停在真实值上）。",
+    "files": [
+      "desktop/autostart-contract.mjs（新）：请求白名单解析、登录项 path/args 推导（读写共用）、portable 路径、shouldStartHidden",
+      "desktop/electron-main.mjs：autostart IPC handler（主窗口主 frame 守卫 + 幂等）、readAutostartState / writeAutostartEnabled、boot 里 resolveStartHidden、ready-to-show 按 startHidden 决定不弹窗",
+      "desktop/electron-preload.cjs：QuickForgeDesktopAutostart 窄桥（只 getState / setEnabled）",
+      "src/lib/desktop-autostart-bridge.ts（新）：类型 + 归一化 + isDesktopApp 门禁",
+      "src/hooks/useDesktopAutostart.ts（新）：读回系统状态、序号守卫、无乐观更新",
+      "src/components/settings/tabs/AboutSettingsTab.tsx：桌面端专属开关（SettingsSwitch）",
+      "src/lib/i18n.ts：launchAtStartup / launchAtStartupDescription / launchAtStartupFailed 中英成对",
+      "tests/server/desktop-autostart-contract.test.mjs、tests/frontend/use-desktop-autostart.test.ts、tests/frontend/desktop-autostart-bridge.test.ts、tests/frontend/electron-autostart-structure.test.ts（新，共 22 例）",
+      "docs/wiki/README.md（桌面端能力清单）、docs/wiki/src/lib/README.md、docs/wiki/src/hooks/README.md、docs/wiki/src/components/README.md"
+    ],
+    "verification": "定向 4 文件 22 例全绿 + 既有 3 文件（i18n-placeholder-parity / settings-workspace-react / electron-desktop-notifications-structure）44 例全绿；两条变异验证实测变红（去掉写响应的序号守卫 → 「晚到旧响应」用例红；buildLoginItemQuery 改成空参数 → 「读写同一份 path/args」用例红）；npx tsc -b 净、改动文件 eslint 净、npm run lint 全量净、npm run build 通过、npm run check:wiki bad=0；全量 npm run test 见 session-handoff。",
+    "updatedAt": "2026-11-17",
+    "boundaries": "Linux 不支持（isAutostartSupported 只收 win32/darwin），设置页在该平台不渲染开关；状态不落服务端 settings、不进 app-settings-cache（真相在系统登录项）；未改 installer.nsh（不做安装期默认自启，off-by-default）；未做「最小化启动 / 托盘快捷开关」等其他启动项 UI；未提交 commit / tag / push；未手工触碰 dist / package-dist / package-offline（npm run build 产生的 dist 未被 git 跟踪）。"
   }
 ]

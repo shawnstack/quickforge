@@ -7,6 +7,13 @@ import { startQuickForge, stopQuickForge } from '../server/public-api.mjs'
 import { createBrowserHost } from './browser/browser-host.mjs'
 import { createDesktopBrowserMcpServer } from './browser/mcp-server.mjs'
 import { parseBrowserRequest } from './browser/ipc-contract.mjs'
+import {
+  buildLoginItemQuery,
+  buildLoginItemSettings,
+  isAutostartSupported,
+  parseAutostartRequest,
+  shouldStartHidden,
+} from './autostart-contract.mjs'
 import { createDesktopNetworkRuntime } from './system-proxy-runtime.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -18,6 +25,7 @@ const notificationRequestChannel = 'quickforge:desktop-notification-request'
 const notificationOpenSessionChannel = 'quickforge:desktop-notification-open-session'
 const browserRequestChannel = 'quickforge:desktop-browser-request'
 const browserStateChannel = 'quickforge:desktop-browser-state'
+const autostartRequestChannel = 'quickforge:desktop-autostart-request'
 const maxNotificationTitleLength = 200
 const maxNotificationBodyLength = 2_000
 const maxNotificationSessionIdLength = 512
@@ -41,6 +49,8 @@ let trayLanguage = null
 let desktopTheme = 'light'
 let notificationHandlerInitialized = false
 let browserHandlerInitialized = false
+let autostartHandlerInitialized = false
+let startHidden = false
 let browserHost = null
 let browserMcpServer = null
 const activeNotifications = new Set()
@@ -234,6 +244,71 @@ function registerDesktopBrowserHandler() {
       return true
     }
     return null
+  })
+}
+
+function loginItemPathOptions() {
+  return {
+    executablePath: process.execPath,
+    portableExecutableFile: process.env.PORTABLE_EXECUTABLE_FILE,
+  }
+}
+
+function readLoginItemSettings() {
+  try {
+    return app.getLoginItemSettings(buildLoginItemQuery({ platform: process.platform, ...loginItemPathOptions() }))
+  } catch {
+    return null
+  }
+}
+
+function autostartSupported() {
+  // 开发模式（npm run dev / electron .）的 process.execPath 是 electron.exe：写进登录项
+  // 会在开机时拉起一个空壳 Electron。这个能力只在打包后的桌面端开放。
+  return isAutostartSupported() && app.isPackaged
+}
+
+function readAutostartState() {
+  const supported = autostartSupported()
+  return {
+    supported,
+    // 读回来的值才是真相：系统可能拒绝写（组策略、受限注册表），不能让界面以为已生效。
+    openAtLogin: supported && readLoginItemSettings()?.openAtLogin === true,
+  }
+}
+
+function writeAutostartEnabled(enabled) {
+  if (!autostartSupported()) return readAutostartState()
+  try {
+    app.setLoginItemSettings(buildLoginItemSettings({
+      enabled,
+      platform: process.platform,
+      ...loginItemPathOptions(),
+    }))
+  } catch {
+    // 写失败不抛给渲染进程：回读系统状态并原样返回，开关会停在真实值上。
+  }
+  return readAutostartState()
+}
+
+function resolveStartHidden() {
+  return shouldStartHidden({
+    platform: process.platform,
+    argv: process.argv,
+    loginItemSettings: readLoginItemSettings(),
+  })
+}
+
+function registerDesktopAutostartHandler() {
+  if (autostartHandlerInitialized) return
+  autostartHandlerInitialized = true
+  ipcMain.handle(autostartRequestChannel, (event, request) => {
+    // 与通知/浏览器桥同一条安全线：只接受主窗口主 frame 的请求，内嵌网页到不了这里。
+    if (!isMainWindowMainFrame(event.senderFrame)) return null
+    const parsed = parseAutostartRequest(request)
+    if (!parsed) return null
+    if (parsed.type === 'get-state') return readAutostartState()
+    return writeAutostartEnabled(parsed.enabled)
   })
 }
 
@@ -447,7 +522,12 @@ function createWindow(url) {
   })
 
   mainWindow.once('ready-to-show', () => {
-    mainWindow?.show()
+    // 开机自启动拉起时只驻留托盘：不弹窗、不抢焦点，用户从托盘或再次启动应用时才出窗口。
+    if (startHidden) {
+      startHidden = false
+    } else {
+      mainWindow?.show()
+    }
     updateTrayMenu()
   })
 
@@ -579,6 +659,8 @@ async function boot() {
     app.setName(appName)
     if (process.platform === 'win32') app.setAppUserModelId(appUserModelId)
     registerDesktopNotificationHandler()
+    registerDesktopAutostartHandler()
+    startHidden = resolveStartHidden()
     await startDesktopBrowserRuntime()
 
     const desktopRuntimeVersion = await getDesktopRuntimeVersion()

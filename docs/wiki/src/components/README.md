@@ -675,7 +675,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 #### 其余设置页
 
-- `settings/tabs/AboutSettingsTab.tsx` (497 行) # 关于页：应用信息（名称 / 版本 / 仓库 / 主页）+ 更新检查（频率 startup / daily / weekly / off、上次检查时间、被忽略的版本）
+- `settings/tabs/AboutSettingsTab.tsx` (521 行) # 关于页：应用信息（名称 / 版本 / 仓库 / 主页）+ 更新检查（频率 startup / daily / weekly / off、上次检查时间、被忽略的版本）+ 桌面端专属「开机自启动」开关（状态来自系统登录项，不落服务端设置）
 - `settings/tabs/AppearanceSettingsTab.tsx` (283 行) # 外观页：主题（light / dark）与字号（界面 / 消息两套，12–18px、默认 13），保存后即时应用
 - `settings/tabs/DefaultOptionsSettingsTab.tsx` (720 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
 - `settings/tabs/ProjectCommandsSettingsTab.tsx` (410 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口

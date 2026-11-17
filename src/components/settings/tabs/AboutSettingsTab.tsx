@@ -11,6 +11,8 @@ import {
 } from '@/lib/update-check-settings'
 import { requestUpdateCheck } from '@/lib/update-check-poll'
 import { InfoTip } from '@/components/ui/info-tip'
+import { SettingsSwitch } from '@/components/settings/tabs/shared'
+import { useDesktopAutostart } from '@/hooks/useDesktopAutostart'
 
 type AboutInfo = {
   name: string
@@ -77,6 +79,7 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
   const [frequency, setFrequency] = useState<UpdateCheckFrequency>(DEFAULT_UPDATE_CHECK_SETTINGS.frequency)
   const [lastCheckAt, setLastCheckAt] = useState<string | null>(null)
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus | undefined>(undefined)
+  const autostart = useDesktopAutostart({ active })
 
   const loadServiceStatus = async () => {
     const response = await fetch('/api/health', { cache: 'no-store' })
@@ -427,6 +430,27 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
       <section className="quickforge-settings-section" aria-label={t('projectInfo')}>
         {infoRows()}
       </section>
+
+      {desktopApp && (autostart.loading || autostart.state.supported) ? (
+        <section className="quickforge-settings-section" aria-label={t('launchAtStartup')}>
+          <div className="quickforge-settings-row">
+            <div className="quickforge-settings-row-main">
+              <div className="quickforge-settings-row-title">
+                {t('launchAtStartup')}
+                <InfoTip label={t('launchAtStartupDescription')} />
+              </div>
+            </div>
+            <div className="quickforge-settings-row-control">
+              <SettingsSwitch
+                checked={autostart.state.openAtLogin}
+                disabled={autostart.loading || autostart.saving}
+                onChange={(checked) => void autostart.setEnabled(checked)}
+              />
+            </div>
+          </div>
+          {autostart.error ? <div className="quickforge-settings-alert">{autostart.error}</div> : null}
+        </section>
+      ) : null}
 
       <section className="quickforge-settings-section" aria-label={desktopApp ? t('desktopUpdates') : t('runtimeUpdates')}>
         {desktopApp ? null : (

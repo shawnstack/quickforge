@@ -27,6 +27,7 @@
 | [useSidebarOrdering.ts](../../../../src/hooks/useSidebarOrdering.ts) | 23 | 侧栏「区块顺序 + 视图/排序模式」兼容层（状态在 `src/stores/sidebar-ordering-store.ts`，localStorage 持久化），桌面/移动两处 `ChatSidebar` 共享（组件已直连订阅） |
 | [useProjectExternalOpen.ts](../../../../src/hooks/useProjectExternalOpen.ts) | 67 | 「在资源管理器 / VS Code / IDEA 中打开项目」：裸请求 + 带 alert 反馈的两层封装 |
 | [useDesktopTitlebarMenu.ts](../../../../src/hooks/useDesktopTitlebarMenu.ts) | 46 | 桌面标题栏菜单（关于 / 检查更新 / 退出）开合状态与动作，点击外部/失焦/Esc 自动收起 |
+| [useDesktopAutostart.ts](../../../../src/hooks/useDesktopAutostart.ts) | 80 | 「开机自启动」开关状态机：状态真相在系统登录项，前端不缓存也不持久化（每次激活回读）；读与写共用一条请求序号，晚到的旧响应整条丢弃（连点两次时后发的先回、先发的后回），且不做乐观更新——`checked` 只在主进程回读系统状态后才变，写失败时开关停在真实值上并给出 `launchAtStartupFailed` |
 | [useAgentApprovalActions.ts](../../../../src/hooks/useAgentApprovalActions.ts) | 58 | 工具审批 / ask_user 应答统一出口（走当前 agent，失败统一抛错）；自动上下文压缩不再需要审批，对应 handler 已删除 |
 | [useTurnFileRollback.ts](../../../../src/hooks/useTurnFileRollback.ts) | 67 | 每轮产物卡「撤销本轮」：目标收集、会话切换静默关闭、轮键记账（rolledBackTurns） |
 | [useMobileSidebar.ts](../../../../src/hooks/useMobileSidebar.ts) | 109 | 移动端侧栏抽屉（Escape/焦点管理，Tab 循环由 `useDialogFocusTrap` 守住）+ 先收抽屉再转发桌面动作的 `*FromSidebar` 包装；抽屉开合直连 `ui-store` |

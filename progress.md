@@ -3,14 +3,17 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## 隔离刀 4+5：九处声明式弹层全部接完 useModalIsolation，并与非模态弹层划清边界（2026-11-17 15:00）
+## 桌面端「开机自启动」开关：读写系统登录项 + 自启动拉起只驻留托盘（2026-11-17 16:40）
 
-- 任务：接续隔离刀 3（`bf98c1c6`），把余下声明式弹层按同一配方收口。刀 4 三处——`SidebarSearchDialog`（内联、非 portal）、`NewBotDialog` 与 `BotSettingsDialog`（`enabled` 与 `open` / `bot` 联动）；刀 5 三处——`ShareActionsSheet`（分享操作面板）、`MobileServerConnectPage` 删除确认（`enabled: Boolean(deletingUrl)`）、`HooksSettingsTab` 编辑面板（`enabled: editorOpen`）。
-- 本刀纠正的约定：ref 取**遮罩层**，不取卡片。`BotSettingsDialog` 的遮罩里有一颗 `absolute inset-0` 全屏关闭按钮，它是卡片的兄弟——拿卡片当起点会把它一并 `inert`，而 `inert` 会拦掉点击，遮罩就点不动了；`SidebarSearchDialog` 的遮罩自带 `onMouseDown` 关闭，同理。这条已写进注释、测试与 hooks wiki，后续刀次照此办理。
-- 「常挂 + 条件显隐」的弹层必须传 `enabled`：DOM 被拔掉不会重跑 effect，ref 变 null 也不触发，计数永不归零、`inert` 会留在背景上。移动端删除确认与 hooks 编辑面板都是这个形态。
-- 边界：非模态弹层一例都不接。`SkillsPageHead` 的路径 popover 与 `CodeBlock` 的语言菜单刻意不声明 `aria-modal`（页头其余按钮仍可用），接上会把它们一起 inert 掉——这条写成了反向契约断言，谁手滑接上就红。
-- 测试（先证红）：`tests/frontend/modal-isolation.test.ts` 新增 3 例（SidebarSearchDialog 内联拓扑 / NewBotDialog / BotSettingsDialog 断言全屏关闭热区不带 `inert`），接线前三例红在 `expected false to be true`，接后 13 例全绿。刀 5 三个宿主是页面级组件（挂载要 mock 一整页请求），用源码契约法锁接线：新增 `tests/frontend/modal-isolation-wiring.test.ts` 3 例，删掉接线 / 去掉 `enabled` 实测变红（`git stash` 掉接线跑过）。
-- 验证：`modal-isolation` 13 例 + `modal-isolation-wiring` 3 例 + 相关 3 个测试文件 32 例全绿；`tsc -b` 净；eslint 改动文件净；`check:wiki` matched=401 resolved=400 historical=1 bad=0；全量 `npm run test` 结果见 session-handoff。
-- wiki 同步：`docs/wiki/src/hooks/README.md`（接入面「七处」→「十三处」，写明 ref 取遮罩、必须带 `enabled`、非模态弹层不接三条规则）、`docs/wiki/src/components/README.md`（`BotDialogs.tsx` 行数 650→659 并补两个弹层的钩子接线；`HooksSettingsTab.tsx` 行数 865→868 补接线；ChatSidebar 装配层那条补搜索弹层）。
-- Notes：`AttachmentPreviewErrorFallback`（overlay 崩溃兜底，role=alertdialog）未接——它渲染在已接隔离的 overlay 里，父层已隔背景；`App.tsx` 移动侧栏抽屉（`useMobileSidebar` 已有 focus trap）与 `Workbench` / `WorkbenchAnalog` 的全屏 `role=dialog` 根待判断语义，见 handoff 下一步。
+- 任务：用户问「当前 QF 能不能设置开机自启动」。仓库里一处都没有（`desktop/`、`src/` 里 `setLoginItemSettings` / `openAtLogin` / `launchAtLogin` 零命中），只有托盘常驻。新做成关于页的一个桌面端专属开关，状态真相留在系统登录项里。
+- 三个不显眼但会坏事的点各自收进 `desktop/autostart-contract.mjs`（纯函数，可单测）：
+  1. **读和写必须用同一份 path/args**。Electron 在 Windows 上按 path + 参数匹配注册表启动项：读的时候用默认参数（path=execPath、args=[]）永远匹配不到带 `--hidden` 的那一条，开关会点完自己弹回去；关闭时省掉 args 也删不掉那一项。`buildLoginItemQuery` / `buildLoginItemSettings` 由同一处推导，测试直接断言两边 path/args 相等。
+  2. **portable 版必须写 `PORTABLE_EXECUTABLE_FILE`**。portable 每次启动都解包到新的临时目录，`process.execPath` 指向临时文件，写进登录项下次开机就失效。
+  3. **自启动拉起时只驻留托盘**。Windows 靠我们写进登录项的 `--hidden` 参数判断（`wasOpenedAtLogin` 只有 macOS 有意义，Windows 上信它会把握手动双击也吞成静默启动）；macOS 走 `wasOpenedAtLogin`。`ready-to-show` 里按 `startHidden` 决定不 `show()`，托盘照旧建。
+- 前端：`useDesktopAutostart` 是状态机，状态真相在系统里（不落服务端 settings、不进 `app-settings-cache`）。两条守卫按 AGENTS.md 里那两类历史缺陷写的：**读与写共用一条请求序号**，晚到的旧响应整条丢弃（连点两次「后发的先回、先发的后回」会被整块盖回去）；**不做乐观更新**，`checked` 只在主进程回读系统状态之后变，写失败时开关停在真实值上 + `launchAtStartupFailed`。
+- 安全边界：渲染进程只有 `getState` / `setEnabled`。路径、启动参数、注册表细节全在主进程，`parseAutostartRequest` 白名单把多传 `path` / `args` 的请求整条丢弃（结构测试另断言 preload 里不出现 `openAtLogin` / `setLoginItemSettings`）。
+- 测试（22 例新增）：`tests/server/desktop-autostart-contract.test.mjs`（10，真跑纯函数）、`tests/frontend/use-desktop-autostart.test.ts`（4，harness 驱动状态机）、`tests/frontend/desktop-autostart-bridge.test.ts`（4，jsdom）、`tests/frontend/electron-autostart-structure.test.ts`（4，源码契约）。**两条变异验证实测变红**：去掉写响应的序号守卫 → 「晚到旧响应」用例红；`buildLoginItemQuery` 改成返回 `{}` → 「读写同一份 path/args」用例红。
+- 验证：定向 4 文件 22 例 + 受影响既有 3 文件全绿；`tsc -b` 净；改动文件 eslint 净；全量 `npm run lint` 净；`npm run build` 通过；`npm run check:wiki` matched=403 resolved=402 historical=1 bad=0；全量 `npm run test` **605 文件 / 6482 passed + 2 skipped**。
+- wiki 同步：`docs/wiki/README.md`（桌面端能力清单加「开机自启动」一条）、`src/lib/README.md`（新增 `desktop-autostart-bridge.ts`，`i18n.ts` 4866→4872）、`src/hooks/README.md`（新增 `useDesktopAutostart.ts`）、`src/components/README.md`（`AboutSettingsTab.tsx` 497→521 并补开关说明）。
+- Notes：① Linux 上 `setLoginItemSettings` 是空实现，开关不渲染（`isAutostartSupported` 只收 win32/darwin）；开发模式（`app.isPackaged` 为 false）同样不显示——那时 `process.execPath` 是 electron.exe，写进登录项会在开机时拉起空壳；② 卸载时 electron-builder 不会清理我们自己写的 Run 项，会残留一条指向已删 exe 的无效项（Windows 忽略），将来要收口就挂 `installer.nsh` 的 `customUnInstall`；③ 未改 `installer.nsh`，安装后默认不自启（opt-in）；④ 未 commit / tag / push；`npm run build` 重新生成的 `dist/` 未被 git 跟踪，工作树只有源码与 wiki 变更。
 

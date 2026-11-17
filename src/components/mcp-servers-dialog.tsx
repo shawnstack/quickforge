@@ -26,6 +26,15 @@ type McpServersPanelProps = {
 
 type EditorTab = 'form' | 'json'
 
+/**
+ * 错误态只存结构化信息、渲染侧现取译文（e71b6c38 在 ShareConversationDialog 确立的
+ * 判别联合）：`t()` 键走 key（渲染时现取，切语言跟随），服务端/异常原文走 message
+ * （原文恒定，直显）。
+ */
+type McpPanelError =
+  | { kind: 'message'; text: string }
+  | { kind: 'key'; key: 'mcpLoadFailed' | 'mcpMultipleServersSave' | 'mcpSaveFailed' | 'mcpDeleteFailed' | 'mcpReconnectFailed'; params?: Record<string, string | number> }
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null)
   if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`)
@@ -38,7 +47,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
   const [saving, setSaving] = useState(false)
   const [togglingNames, setTogglingNames] = useState<Set<string>>(new Set())
   const [reconnectingName, setReconnectingName] = useState<string | null>(null)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<McpPanelError | undefined>()
 
   // Editor state (edit mode)
   const [editMode, setEditMode] = useState(false)
@@ -56,13 +65,13 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
 
   const loadServers = useCallback(async () => {
     setLoading(true)
-    setError('')
+    setError(undefined)
     try {
       const response = await fetch('/api/mcp/servers')
       const payload = await readJsonResponse<McpServersPayload>(response)
       applyServers(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('mcpLoadFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'mcpLoadFailed' })
     } finally {
       setLoading(false)
     }
@@ -103,7 +112,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     setJsonText(nextJson)
     setActiveTab('form')
     setEditMode(true)
-    setError('')
+    setError(undefined)
   }
 
   const startEdit = (server: McpServer) => {
@@ -116,7 +125,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     setJsonError('')
     setActiveTab('form')
     setEditMode(true)
-    setError('')
+    setError(undefined)
   }
 
   const exitEditMode = () => {
@@ -125,7 +134,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     jsonBaselineRef.current = ''
     setJsonText('')
     setJsonError('')
-    setError('')
+    setError(undefined)
   }
 
   const onDraftChange = (next: McpServerFormData) => {
@@ -150,7 +159,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     if (saving) return
     // If the user has an invalid JSON in the json tab, block saving.
     if (jsonError && activeTab === 'json') {
-      setError(jsonError)
+      setError({ kind: 'message', text: jsonError })
       return
     }
     // 草稿只装得下一台服务器，JSON 视图里手写/粘贴的配置可能含多台：照常保存＝其余
@@ -158,12 +167,12 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
     if (activeTab === 'json') {
       const names = mcpServerNamesInJson(jsonText)
       if (names.length > 1) {
-        setError(t('mcpMultipleServersSave', { count: names.length }))
+        setError({ kind: 'key', key: 'mcpMultipleServersSave', params: { count: names.length } })
         return
       }
     }
     setSaving(true)
-    setError('')
+    setError(undefined)
     try {
       const response = await fetch('/api/mcp/servers', {
         method: 'PUT',
@@ -174,7 +183,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
       applyServers(payload)
       exitEditMode()
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('mcpSaveFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'mcpSaveFailed' })
     } finally {
       setSaving(false)
     }
@@ -188,20 +197,20 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
       variant: 'destructive',
     })
     if (!confirmed) return
-    setError('')
+    setError(undefined)
     try {
       const response = await fetch(`/api/mcp/servers/${encodeURIComponent(name)}`, { method: 'DELETE' })
       const payload = await readJsonResponse<McpServersPayload>(response)
       applyServers(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('mcpDeleteFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'mcpDeleteFailed' })
     }
   }
 
   const toggleServerEnabled = async (server: McpServer) => {
     if (togglingNames.has(server.name)) return
     setTogglingNames((prev) => new Set(prev).add(server.name))
-    setError('')
+    setError(undefined)
     try {
       const response = await fetch(`/api/mcp/servers/${encodeURIComponent(server.name)}/enabled`, {
         method: 'PUT',
@@ -211,7 +220,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
       const payload = await readJsonResponse<McpServersPayload>(response)
       applyServers(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('mcpSaveFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'mcpSaveFailed' })
     } finally {
       setTogglingNames((prev) => {
         const next = new Set(prev)
@@ -224,13 +233,13 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
   const reconnectServer = async (name: string) => {
     if (reconnectingName) return
     setReconnectingName(name)
-    setError('')
+    setError(undefined)
     try {
       const response = await fetch(`/api/mcp/reconnect/${encodeURIComponent(name)}`, { method: 'POST' })
       const payload = await readJsonResponse<McpServersPayload>(response)
       applyServers(payload)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('mcpReconnectFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'mcpReconnectFailed' })
     } finally {
       setReconnectingName(null)
     }
@@ -286,7 +295,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
           </div>
         </div>
 
-        {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
+        {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error.kind === 'key' ? t(error.key, error.params) : error.text}</div> : null}
 
         {renderEditorTabs()}
 
@@ -367,7 +376,7 @@ export function McpServersPanel({ active = true, className }: McpServersPanelPro
         </button>
       </div>
 
-      {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error}</div> : null}
+      {error ? <div className="quickforge-settings-alert quickforge-settings-warning-attached">{error.kind === 'key' ? t(error.key, error.params) : error.text}</div> : null}
 
       {loading && servers.length === 0 ? (
         <div className="quickforge-settings-empty-row inline-flex items-center gap-2">

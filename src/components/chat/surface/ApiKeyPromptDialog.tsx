@@ -183,10 +183,21 @@ type ApiKeyPromptDialogProps = {
   pollIntervalMs?: number
 }
 
+/**
+ * 错误态只存键与插值参数、渲染侧现取译文（与 ShareConversationDialog / 桌面自启动
+ * 同判据）：把 `t(...)` 的渲染结果存进 state 会把当前语言冻结，切语言后错误句
+ * 不再跟随。保存失败的插值参数（`outcome.error`，`String(error)` 原文）不是译文，
+ * 照常作为参数存储。
+ */
+type ApiKeyPromptError = {
+  key: 'apiKeyPromptSaveFailed' | 'apiKeyPromptInvalid'
+  params?: Record<string, string | number>
+}
+
 export function ApiKeyPromptDialog({ provider, getKey, saveKey, onResolve, pollIntervalMs }: ApiKeyPromptDialogProps) {
   const [keyInput, setKeyInput] = useState('')
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<ApiKeyPromptError | null>(null)
   const resolvedRef = useRef(false)
   const invalidResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -248,11 +259,11 @@ export function ApiKeyPromptDialog({ provider, getKey, saveKey, onResolve, pollI
     }
     setSaving(false)
     if (outcome.status === 'failed') {
-      setError(t('apiKeyPromptSaveFailed', { error: outcome.error }))
+      setError({ key: 'apiKeyPromptSaveFailed', params: { error: outcome.error } })
       return
     }
     // Rejected key: show the legacy "✗ Invalid" state and clear it after 5s.
-    setError(t('apiKeyPromptInvalid'))
+    setError({ key: 'apiKeyPromptInvalid' })
     if (invalidResetTimer.current !== null) clearTimeout(invalidResetTimer.current)
     invalidResetTimer.current = setTimeout(() => {
       invalidResetTimer.current = null
@@ -300,7 +311,7 @@ export function ApiKeyPromptDialog({ provider, getKey, saveKey, onResolve, pollI
             {saving ? t('testingConnection') : t('save')}
           </Button>
         </div>
-        {error ? <div className="mt-2 text-xs text-destructive">{error}</div> : null}
+        {error ? <div className="mt-2 text-xs text-destructive">{t(error.key, error.params)}</div> : null}
         <div className="mt-3 flex justify-end">
           <Button variant="ghost" size="sm" onClick={resolveFalse}>
             {t('cancel')}

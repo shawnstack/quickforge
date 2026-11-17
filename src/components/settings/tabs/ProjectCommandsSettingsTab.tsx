@@ -13,6 +13,15 @@ type CommandSummary = {
 
 type CreateCommandResult = { ok: boolean; reason?: string; name?: string }
 
+/**
+ * 错误态只存结构化信息、渲染侧现取译文（e71b6c38 在 ShareConversationDialog 确立的
+ * 判别联合）：`t()` 键走 key（渲染时现取，切语言跟随），服务端/异常原文走 message
+ * （原文恒定，直显）。
+ */
+type ProjectCommandsError =
+  | { kind: 'message'; text: string }
+  | { kind: 'key'; key: 'requestFailed' | 'commandAlreadyExists' | 'invalidCommandName'; params?: Record<string, string | number> }
+
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...init,
@@ -56,7 +65,7 @@ export function ProjectCommandsSettingsTab() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<ProjectCommandsError | undefined>()
   const [message, setMessage] = useState('')
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [project, setProject] = useState<ProjectInfo | undefined>(undefined)
@@ -104,7 +113,7 @@ export function ProjectCommandsSettingsTab() {
         if (nextProject) await loadCommands(nextProject)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : t('requestFailed'))
+        if (!cancelled) setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'requestFailed' })
       })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => {
@@ -146,7 +155,7 @@ export function ProjectCommandsSettingsTab() {
     setSaving(true)
     savingRef.current = true
     setSaved(false)
-    setError('')
+    setError(undefined)
     setMessage('')
 
     try {
@@ -184,7 +193,7 @@ export function ProjectCommandsSettingsTab() {
         await loadCommands(nextProject)
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('requestFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'requestFailed' })
     } finally {
       setSaving(false)
       savingRef.current = false
@@ -220,7 +229,7 @@ export function ProjectCommandsSettingsTab() {
     lastSavedCommandDirRef.current = nextCommandDir
     setSaved(false)
     setMessage('')
-    setError('')
+    setError(undefined)
     setCommands([])
     void loadCommands(selected)
   }
@@ -236,12 +245,12 @@ export function ProjectCommandsSettingsTab() {
   const openCommandDir = async () => {
     const currentProject = projectRef.current
     if (!currentProject) return
-    setError('')
+    setError(undefined)
     setMessage('')
     try {
       await openCommandDirectory(currentProject.id, commandDirRef.current)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('requestFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'requestFailed' })
     }
   }
 
@@ -255,7 +264,7 @@ export function ProjectCommandsSettingsTab() {
       cancelLabel: t('cancel'),
     })
     if (!name) return
-    setError('')
+    setError(undefined)
     setMessage('')
     try {
       const result = await submitNewCommand(currentProject.id, name)
@@ -263,12 +272,12 @@ export function ProjectCommandsSettingsTab() {
         setMessage(t('commandCreated', { name: result.name ?? name }))
         await loadCommands(currentProject)
       } else if (result.reason === 'exists') {
-        setError(t('commandAlreadyExists', { name: result.name ?? name }))
+        setError({ kind: 'key', key: 'commandAlreadyExists', params: { name: result.name ?? name } })
       } else {
-        setError(t('invalidCommandName'))
+        setError({ kind: 'key', key: 'invalidCommandName' })
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('requestFailed'))
+      setError(err instanceof Error ? { kind: 'message', text: err.message } : { kind: 'key', key: 'requestFailed' })
     }
   }
 
@@ -280,7 +289,7 @@ export function ProjectCommandsSettingsTab() {
     return (
       <div className="quickforge-settings-stack">
         <div className="quickforge-settings-note">{t('selectProjectForCommands')}</div>
-        {error ? <div className="quickforge-settings-alert">{error}</div> : null}
+        {error ? <div className="quickforge-settings-alert">{error.kind === 'key' ? t(error.key, error.params) : error.text}</div> : null}
       </div>
     )
   }
@@ -404,7 +413,7 @@ export function ProjectCommandsSettingsTab() {
       {saving ? <div className="quickforge-settings-note">{t('saving')}</div> : null}
       {saved ? <div className="quickforge-settings-message">{t('projectCommandsSaved')}</div> : null}
       {message ? <div className="quickforge-settings-message">{message}</div> : null}
-      {error ? <div className="quickforge-settings-alert">{error}</div> : null}
+      {error ? <div className="quickforge-settings-alert">{error.kind === 'key' ? t(error.key, error.params) : error.text}</div> : null}
     </div>
   )
 }

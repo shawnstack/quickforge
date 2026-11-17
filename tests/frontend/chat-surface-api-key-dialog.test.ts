@@ -424,7 +424,7 @@ describe('dialog Invalid-state contract', () => {
   })
 
   it('shows ✗ Invalid for 5s and Testing... while the probe runs', () => {
-    expect(source).toContain("t('apiKeyPromptInvalid')")
+    expect(source).toContain("'apiKeyPromptInvalid'")
     expect(source).toContain('5000')
     expect(source).toContain("t('testingConnection')")
   })

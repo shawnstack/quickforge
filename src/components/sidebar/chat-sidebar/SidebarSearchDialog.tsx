@@ -6,6 +6,7 @@ import type { QuickForgeSessionMetadata } from '@/lib/types'
 import { searchDialogClass } from './sidebar-classes'
 import { formatSessionTime } from './sidebar-utils'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 
 export type SidebarSearchResult = {
   session: QuickForgeSessionMetadata
@@ -31,12 +32,16 @@ export function SidebarSearchDialog({
   onSelectResult: (sessionId: string) => void
 }) {
   const panelRef = useRef<HTMLDivElement>(null)
+  // 隔离从**遮罩**起算而不是从卡片起算：遮罩自己就是关闭热区（onMouseDown），
+  // 卡片只是它的子节点——拿卡片当起点会把遮罩里的兄弟连热点一起 inert 掉。
+  const overlayRef = useRef<HTMLDivElement>(null)
 
   // 搜索弹窗是 aria-modal：Tab 只在输入框与结果之间循环，别漏到下面的侧栏。
   useDialogFocusTrap(panelRef)
+  useModalIsolation(overlayRef)
 
   return (
-    <div className={searchDialogClass} role="dialog" aria-modal="true" aria-label={t('searchDialog')} onMouseDown={() => onClose()}>
+    <div ref={overlayRef} className={searchDialogClass} role="dialog" aria-modal="true" aria-label={t('searchDialog')} onMouseDown={() => onClose()}>
       <div ref={panelRef} className="w-full max-w-xl rounded-2xl border border-border bg-popover p-3 shadow-quickforge" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-center gap-2 rounded-xl border border-input bg-background px-3 py-2 focus-within:border-ring focus-within:ring-2 focus-within:ring-ring">
           <Search className="size-4 shrink-0" />

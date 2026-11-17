@@ -3,12 +3,12 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## 隔离刀 2：命令式 createRoot 两处接 useModalIsolation（2026-11-17 11:40）
+## 隔离刀 4：三处声明式弹层接 useModalIsolation，并纠正 ref 应该从遮罩起算（2026-11-17 14:55）
 
-- 任务：主助手 09:23 派下（被两跳漏掉）、11:13 确认「先做这一段」——`ApiKeyPromptDialog.tsx` 与 `AttachmentOverlay.tsx` 各接 `useModalIsolation`，范围就 2 源文件 + 1 测试文件。接法与隔离刀 1（`b0ad53d5`，confirm/prompt 两处）完全同构：import 一行 + `useDialogFocusTrap` 调用后紧跟一行调用。
-- 两种挂载形态都被覆盖：`promptApiKey` 是 inline（createRoot 自建容器 append 到 body，dialog div 在容器里，#root 是容器的兄弟）；`openAttachmentOverlay` 是 portal（overlay div 经 createPortal 直挂 body，#root 与它互为兄弟，createRoot 容器是另一个兄弟）。钩子「只隔兄弟、不碰祖先链」对两种拓扑都成立。
-- 测试（先证红）：`tests/frontend/modal-isolation.test.ts` 新增 2 例真实调用点（例 6 promptApiKey 点遮罩关闭、例 7 openAttachmentOverlay Esc 关闭），jsdom 真渲染，断言 body 级兄弟（#root）挂载时带 inert、卸载后**不等宏任务**同步摘掉。接钩子前 2 例红在 `expected false to be true`，接后全绿——把实现换回「不接钩子」测试必红，判据成立。
-- 验证：modal-isolation 7 例 + chat-surface-api-key-dialog 20 例全绿；`tsc -b` 净；eslint 3 个改动文件净；`check:wiki` matched=401 resolved=401 historical=1 bad=0；全量 `npm run test` 结果见 session-handoff。
-- wiki 同步：`docs/wiki/src/hooks/README.md`（useModalIsolation 接入面「两处」→「四处」）、`docs/wiki/src/components/README.md`（两条组件条目补挂载形态与钩子接线）。
-- Notes：`AttachmentPreviewErrorFallback`（overlay 崩溃兜底，role=alertdialog，自带 focus trap）未接 useModalIsolation——不在本刀范围；后续刀次可考虑。起点核过：HEAD `6ec506c8`、dev、工作树干净。
+- 任务：接续隔离刀 3（`bf98c1c6`），把余下声明式弹层按同一配方接入——`SidebarSearchDialog`（内联、非 portal）、`NewBotDialog` 与 `BotSettingsDialog`（`enabled` 分别与 `open` / `bot` 联动）。范围 3 源文件 + 1 测试文件 + 2 个 wiki 文件。
+- 本刀纠正的约定：ref 取**遮罩层**，不取卡片。`BotSettingsDialog` 的遮罩里有一颗 `absolute inset-0` 全屏关闭按钮，它是卡片的兄弟——拿卡片当起点会把它一并 `inert`，而 `inert` 会拦掉点击，遮罩就点不动了；`SidebarSearchDialog` 的遮罩自带 `onMouseDown` 关闭，同理。这条已写进注释、测试与 hooks wiki，后续刀次照此办理。
+- 测试（先证红）：`tests/frontend/modal-isolation.test.ts` 新增 3 例——SidebarSearchDialog 的内联拓扑（遮罩不 portal，靠沿途兄弟一路隔到 body）、NewBotDialog、BotSettingsDialog（额外断言全屏关闭热区不带 `inert`）。接钩子前三例红在 `expected false to be true`，接后 13 例全绿。
+- 验证：相关 3 个测试文件 32 例全绿；`tsc -b` 净；eslint 3 个改动文件净；`check:wiki` matched=401 resolved=400 historical=1 bad=0；全量 `npm run test` 6457 passed + 2 skipped。
+- wiki 同步：`docs/wiki/src/hooks/README.md`（接入面「七处」→「十处」，并写明 ref 取遮罩的规则）、`docs/wiki/src/components/README.md`（`BotDialogs.tsx` 行数 650→659 并补两个弹层的钩子接线；ChatSidebar 装配层那条补搜索弹层）。
+- Notes：剩余未接点位与「工作台全屏根算不算弹层」的判断见 session-handoff 的「下一步」。
 

@@ -3,10 +3,13 @@ import { act, createElement, type ReactElement, type RefObject } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { BotSettingsDialog, NewBotDialog } from '@/components/bots/BotDialogs'
+import type { BotSummary } from '@/components/bots/bots-data'
 import { promptApiKey } from '@/components/chat/surface/ApiKeyPromptDialog'
 import { openAttachmentOverlay } from '@/components/chat/surface/AttachmentOverlay'
 import { GitCommitPushDialog } from '@/components/git/GitCommitPushDialog'
 import { GitGraphDialog } from '@/components/git/GitGraphDialog'
+import { SidebarSearchDialog } from '@/components/sidebar/chat-sidebar/SidebarSearchDialog'
 import { SkillDetailDialog } from '@/components/skills/SkillDetailDialog'
 import type { GitStatusResponse } from '@/components/workspace/workspace-types'
 import { showConfirm } from '@/components/ui/confirm-dialog'
@@ -20,6 +23,11 @@ vi.mock('@/lib/pi-chat', () => ({
   initializePiStorage: async () => ({}),
   loadLastUsedSessionOptions: async () => ({}),
 }))
+// bot 设置弹窗挂载即拉一次记忆文件：只把那一支打桩，其余（心跳换算等）走真实实现。
+vi.mock('@/components/bots/bots-data', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/bots/bots-data')>()
+  return { ...actual, fetchBotMemory: async () => ({ content: '' }) }
+})
 vi.mock('@/components/workspace/workspace-api', () => ({
   getGitLog: async () => ({ commits: [] }),
   commitAndPushGitChanges: async () => ({}),
@@ -42,6 +50,9 @@ vi.mock('@/components/workspace/workspace-api', () => ({
  * container 里）与 `openAttachmentOverlay`（createPortal 直挂 body）。
  * 例 8–10 挂声明式 portal 组件本体（提交/推送、提交图、技能详情）：
  * 组件挂载即弹层、卸载即关闭，与真实调用点的宿主渲染同一条路径。
+ * 例 11–13 补两种新拓扑：`SidebarSearchDialog` 的遮罩**不 portal**（渲染在侧栏
+ * DOM 里，靠沿途兄弟一路隔到 body），以及 bot 两个弹层——其中设置弹窗的遮罩里
+ * 还有一颗 `inset-0` 关闭热区，隔离必须从遮罩起算，卡片的兄弟不能被隔。
  */
 
 function ModalHost({
@@ -352,6 +363,91 @@ describe('useModalIsolation', () => {
     expect(dialog).toBeInstanceOf(HTMLElement)
     expect(dialog?.hasAttribute('inert')).toBe(false)
     expect(dialog?.parentElement?.hasAttribute('inert')).toBe(false)
+    expect(document.body.hasAttribute('inert')).toBe(false)
+
+    act(() => root.unmount())
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+  })
+
+  it('真实组件：SidebarSearchDialog 内联挂载时背景被隔离，卸载后同步摘掉', () => {
+    // 非 portal：遮罩直接渲染在侧栏 DOM 里（宿主 container 的子节点），
+    // #root 是 body 上更上层的兄弟——钩子沿父链走完整条链才隔到 app 根，
+    // 与例 8–10 的「遮罩直挂 body」不是同一条路径。
+    const appRoot = bodySibling('root')
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    disposables.push(container)
+    const root = createRoot(container)
+    roots.push(root)
+    const inputRef: RefObject<HTMLInputElement | null> = { current: null }
+    act(() => {
+      root.render(createElement(SidebarSearchDialog, {
+        query: 'a',
+        results: [],
+        inputRef,
+        onQueryChange: () => {},
+        onClose: () => {},
+        onSelectResult: () => {},
+      }))
+    })
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const overlay = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    expect(overlay).toBeInstanceOf(HTMLElement)
+    // 遮罩自带 onMouseDown 关闭：它被隔就点不动了，卡片的输入框同理。
+    expect(overlay?.hasAttribute('inert')).toBe(false)
+    expect(inputRef.current?.hasAttribute('inert')).toBe(false)
+    expect(document.body.hasAttribute('inert')).toBe(false)
+
+    act(() => root.unmount())
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+  })
+
+  it('真实组件：NewBotDialog 打开时背景被隔离，卸载后同步摘掉', () => {
+    const { root, appRoot } = mountPortalApp(createElement(NewBotDialog, {
+      open: true,
+      onCancel: () => {},
+      onCreate: () => {},
+    }))
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const overlay = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    expect(overlay).toBeInstanceOf(HTMLElement)
+    expect(overlay?.hasAttribute('inert')).toBe(false)
+    expect(document.body.hasAttribute('inert')).toBe(false)
+
+    act(() => root.unmount())
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+  })
+
+  it('真实组件：BotSettingsDialog 隔离从遮罩起算——整屏关闭热区不能被隔', async () => {
+    const bot = {
+      id: 'bot-1',
+      name: 'demo-bot',
+      workspacePath: '/bots/demo-bot',
+      memoryFile: 'MEMORY.md',
+      projectId: null,
+      sessionId: null,
+      thinkingLevel: 'medium',
+      accessMode: 'default',
+      heartbeat: { enabled: false, intervalMinutes: 15, lastWakeAt: null },
+      mascot: { palette: 'amber', look: 'idle' },
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    } as unknown as BotSummary
+    const { root, appRoot } = mountPortalApp(createElement(BotSettingsDialog, {
+      bot,
+      onClose: () => {},
+      onChanged: () => {},
+    }))
+    await act(async () => {})
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    const overlay = document.querySelector<HTMLElement>('[role="dialog"][aria-modal="true"]')
+    expect(overlay).toBeInstanceOf(HTMLElement)
+    // 这个遮罩里除了卡片还有一个 absolute inset-0 的关闭按钮（点遮罩关闭）。
+    // 隔离必须从遮罩起算而不是从卡片起算：inert 会让那颗按钮点不动。
+    expect(overlay?.hasAttribute('inert')).toBe(false)
+    const closeHotZone = overlay?.querySelector<HTMLButtonElement>('button[aria-label]')
+    expect(closeHotZone).toBeInstanceOf(HTMLButtonElement)
+    expect(closeHotZone?.hasAttribute('inert')).toBe(false)
     expect(document.body.hasAttribute('inert')).toBe(false)
 
     act(() => root.unmount())

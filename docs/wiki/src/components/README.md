@@ -317,7 +317,7 @@ components/
 
 ### ChatSidebar.tsx
 
-- 模块拆分（2216 行 → 装配层 1202 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，四个变体共用时间/状态槽：运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
+- 模块拆分（2216 行 → 装配层 1202 行 + `chat-sidebar/` 目录 14 个文件）：`ChatSidebar.tsx` 保留 props 装配、区块/项目 DnD 接线与菜单状态；四个会话分区（置顶/时间线/项目内/全局）的行渲染统一为 `SidebarSessionRow`（变体判别 `pinned | timeline | project | global`，四个变体共用时间/状态槽：运行中显示 Loader2、完成未读显示 emerald 点，均替换时间文本）；类名常量集中在 `sidebar-classes.ts`、纯工具在 `sidebar-utils.ts`；宽度拖拽 `useSidebarResize`、渐进展示状态机 `useSidebarSessionDisplay`；`SessionHoverTip` / `ViewSortMenu` / `ProjectMenu` / `SidebarSearchDialog` / `SidebarHeaderNav` / `SidebarFooter` 为独立叶子组件（搜索弹层声明 `aria-modal`，焦点锁卡片、`inert` 背景隔离从遮罩起算，两者都走共享钩子）。源码契约测试统一从 `tests/frontend/helpers/sidebar-module.ts` 读取模块源码
 - 左侧聊天列表面板；移动端抽屉为 100% 全屏宽（`w-full`），不再受 85vw 上限限制；桌面侧栏默认/最小宽度为 304px、最大宽度为 520px，侧栏通过 `ResizeObserver` 回报实际宽度，供右侧 Workspace Inspector 在 1200px / 75vw 上限之外同时保留左栏、1px 分隔线和 440px 对话区
 - 桌面侧栏收缩态固定为 `w-14`：不会因 `window.resize` 或浏览器缩放恢复展开宽度，收缩/移动清理时会移除遗留的内联 `width`
 - 支持全局会话 / 项目会话切换
@@ -598,7 +598,7 @@ bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自�
 
 - `bots/bots-data.ts` (236 行) # bot 的前端数据层：类型（`BotHeartbeat` / `BotMascot` / `BotSummary` / `BotPatch`）、`/api/bots*` 全套请求（fetch / create / patch / reorder / delete / wake / feed / ensureBotSessionOpen / openBotWorkspace / memory 读写）、心跳间隔拆分 `splitHeartbeatInterval`，以及状态投影 `botStatusSummary` + `formatBotAwakeAgo`（「X 分钟前」优先 `lastActivityAt`，缺失回退 `heartbeat.lastWakeAt`）
 - `bots/BotSidebarList.tsx` (257 行) # 侧栏 bot 列表：复用普通会话行样式，接 dnd-kit 拖拽排序（落到 `reorderBots`），行首小吉祥物 + 状态点
-- `bots/BotDialogs.tsx` (650 行) # 新建 bot 与 bot 设置两个对话框：名称 / 项目、心跳开关与间隔（含「到点必醒」`alwaysWake`）、吉祥物外观（身体色 / 眼睛色 / 是否动 / `showOnComposer`）、`MEMORY.md` 编辑（`fetchBotMemory` / `saveBotMemory`）
+- `bots/BotDialogs.tsx` (659 行) # 新建 bot 与 bot 设置两个对话框：名称 / 项目、心跳开关与间隔（含「到点必醒」`alwaysWake`）、吉祥物外观（身体色 / 眼睛色 / 是否动 / `showOnComposer`）、`MEMORY.md` 编辑（`fetchBotMemory` / `saveBotMemory`）；两个弹层的 `aria-modal` 都兑现成共享钩子——焦点锁卡片（`useDialogFocusTrap`）、背景隔离从**遮罩**起算（`useModalIsolation`，遮罩里的 `inset-0` 关闭热区不能被 `inert`）
 - `bots/BotAvatar.tsx` (51 行) # 黑白线描小头像：只做线描 + 实心圆点、不填色块；「点一下会动」由调用方把 `popKey` 加一让 svg 重挂来重播一次，不常驻不循环
 - `bots/bot-avatar.css` (67 行) # 小头像样式与 pop 动画
 - `bots/mascot/BotMascot.tsx` (289 行) # 吉祥物主体：几何 + 质感层（哑光陶瓷光影与呼吸，全页唯一一份渐变 defs 复用）+ 状态 / 交互 hook 装配；`BotMascotLook` 与服务端 `bot.mascot` 对齐

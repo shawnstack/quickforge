@@ -3,6 +3,7 @@ import { FolderOpen, Loader2, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { t } from '@/lib/i18n'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import {
   feedBot,
   fetchBotMemory,
@@ -114,15 +115,18 @@ export function NewBotDialog({
 }) {
   const [name, setName] = useState('')
   const panelRef = useRef<HTMLDivElement>(null)
+  // 背景隔离从遮罩起算（弹层自身与遮罩里的东西都不该被隔）。
+  const overlayRef = useRef<HTMLDivElement>(null)
 
   // 弹窗声明了 aria-modal，Tab 就必须在卡片内循环，不能漏到背后的侧栏。
   useDialogFocusTrap(panelRef, { enabled: open })
+  useModalIsolation(overlayRef, { enabled: open })
 
   const trimmed = name.trim()
   if (!open) return null
 
   return (
-    <div className={OVERLAY} role="dialog" aria-modal="true" aria-label={t('newBot')}>
+    <div ref={overlayRef} className={OVERLAY} role="dialog" aria-modal="true" aria-label={t('newBot')}>
       <div ref={panelRef} className={cn(CARD, 'max-w-md')}>
         <div className="px-5 pt-4 pb-2">
           <div className="text-sm font-semibold">{t('newBot')}</div>
@@ -308,7 +312,11 @@ export function BotSettingsDialog({
 
   // 焦点锁在卡片上：遮罩那层整屏按钮是关闭热区，不该成为 Tab 的落点。
   const panelRef = useRef<HTMLDivElement>(null)
+  // 但**背景隔离**必须从遮罩起算：那颗整屏关闭按钮是卡片的兄弟，拿卡片当起点
+  // 会把它 inert 掉——inert 会拦掉点击，点遮罩就关不掉了。
+  const overlayRef = useRef<HTMLDivElement>(null)
   useDialogFocusTrap(panelRef, { enabled: Boolean(bot) })
+  useModalIsolation(overlayRef, { enabled: Boolean(bot) })
 
   if (!bot) return null
 
@@ -316,6 +324,7 @@ export function BotSettingsDialog({
 
   return (
     <div
+      ref={overlayRef}
       className={OVERLAY}
       role="dialog"
       aria-modal="true"

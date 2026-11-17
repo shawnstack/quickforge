@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -32,6 +33,7 @@ function PromptDialogInner({
 
   // 命令式弹窗没有外层容器接管焦点，陷阱与「关掉后还给原处」都交给钩子。
   useDialogFocusTrap(dialogRef, { restoreFocus: true })
+  useModalIsolation(dialogRef)
 
   useEffect(() => {
     valueRef.current = value

@@ -216,7 +216,7 @@ components/
 │   ├── button.tsx                  # 按钮组件 (40 行)
 │   ├── confirm-dialog.tsx          # 确认对话框（命令式 showConfirm/showAlert；模块级互斥防叠加、focus trap、关闭后焦点恢复）
 │   ├── input.tsx                   # 输入框组件 (19 行)：聚焦反馈 `focus-visible:border-ring` + `focus-visible:ring-2` + `focus-visible:ring-ring`（**有意补齐**：旧 `focus-visible:border-primary` 在移除依赖前是死类、不渲染聚焦边框，故与移除依赖前实际渲染不同）
-│   ├── prompt-dialog.tsx           # 提示输入对话框 (129 行)
+│   ├── prompt-dialog.tsx           # 提示输入对话框 (131 行)
 │   └── toast.tsx                   # Toast 通知组件 (153 行)
 ├── ErrorBoundary.tsx               # 错误边界组件 (63 行)
 ├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (33 行)

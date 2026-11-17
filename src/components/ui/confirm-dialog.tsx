@@ -4,6 +4,7 @@ import type { ReactElement } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot } from 'react-dom/client'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import { Button, type ButtonProps } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -49,6 +50,7 @@ function MessageDialog({
   // Tab 焦点陷阱搬进共用钩子（行为等价）；焦点归还仍由 renderMessageDialog 统一负责，
   // 所以这里不开 restoreFocus，免得同一处聚焦两次。
   useDialogFocusTrap(dialogRef)
+  useModalIsolation(dialogRef)
 
   const resolveCancelOnce = useCallback(() => {
     if (resolvedRef.current) return

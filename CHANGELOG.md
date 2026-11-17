@@ -4,6 +4,68 @@ All notable changes to QuickForge will be documented in this file.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-17
+
+### Added
+
+- **Workbench.** A full-screen working surface that turns running and recently finished sessions into a departure board: in-flight and docked sessions, a TODAY band (sessions, tokens, task runs and success rate) reading existing endpoints only, and an optional screensaver that enters after 30 minutes of inactivity and exits on any input. A second analog tower face is available, and the palette moved from amber to deep jade with warm platinum text. Pinned sessions no longer flatten the TODAY numbers.
+
+- **Bot mode.** Bots get a sidebar list of their own (drag to reorder, rename in place, open data folder from settings), and the sidebar now follows whichever session you open instead of keeping the mode you last picked. Each bot's heartbeat template is a real file in its own directory (`.bot/heartbeat.md`) that is seeded once, never overwritten, and falls back to the built-in text if deleted; the fixed header and footer — self-evolution grant, `[报告]` convention, no-commit note — are appended by the server so a bot cannot edit them away. `heartbeat.intervalMinutes` and `heartbeat.alwaysWake` are editable in the UI, and new bots default to a 15-minute interval at `xhigh` reasoning.
+
+- **The mascot.** Redrawn as a matte-ceramic figure with a three-layer light model (top gradient, bottom darkening, edge reflection), a breathing idle animation, and a v3 expression set driven by `useMascotActions`. It can be hidden above the composer, and it recolours itself under dark themes.
+
+- **Self-scheduling and survival.** A session can add recurring or one-off work for itself and delete only what it created; the `quickforge-api` skill ships the bot commands for that. A context "fuel gauge" endpoint reports how much room is left, and the survival protocol tells a session when to stop starting work and write things down instead.
+
+- **Built-in QuickForge API skill + experience library.** A shipped skill documenting this product's own HTTP API, and an experience library with a genericity axis so lessons learned in one workspace can be reused in another.
+
+- **Accessibility: focus traps and background isolation.** `useDialogFocusTrap` was extracted and rolled out in five waves across dialogs, drawers, the workbench and its analog twin, the code-block lightbox and the mobile connect flow; the workbench roots hand the trap over to the drawer while it is open, and the drawer itself is a `region` rather than a second `dialog`. `useModalIsolation` then makes `aria-modal="true"` actually true for assistive tech: along the ancestor chain every sibling is set `inert`, refcounted at module level, with pre-existing `inert` values preserved and cleanup synchronous so focus restoration cannot race it. It covers both declarative dialogs and the two `createRoot` overlays. Twenty-five form controls and overlays gained accessible names (seventeen files, three new keys), the two menus close on Escape, and inputs use one `focus-visible` ring instead of two conventions.
+
+- **Command log limits.** A single runaway command wrote 1.8 GB and the directory reached 7.46 GB before anyone noticed. Each command log is now capped at 8 MB — output past the cap is dropped and a truncation marker is written at close, while the preview tail window is unaffected — and the directory is cleaned at startup with a 14-day / 512 MB double gate.
+
+- **Session loading.** Re-opening the session you are already looking at short-circuits instead of re-fetching, using the same three-condition guard as the fast-path work that preceded it.
+
+### Changed
+
+- **i18n coverage.** The mobile connect page and the file-open toasts now go through `t()` (42 new key pairs). An unknown key returns the key itself and warns in development instead of returning `undefined` or throwing a `TypeError`.
+
+- **The wiki line-claim checker** now understands five declaration shapes (including backtick and link table cells) and reports resolved against unresolved coverage: claims under watch went from 160 to 401 (401 matched / 400 resolved, zero drift at HEAD), with an explicit exemption bucket for in-flight work and a `--strict` mode for CI. Several real drifts were found this way, including claims that had been silently unverifiable for months.
+
+### Fixed
+
+- **Late responses no longer overwrite newer state.** A family of races where a slow reply arrived after a faster one and both were applied in arrival order: archived-task history, switching between projects, proxy settings revisited, the directory picker after navigating away and back, session run status, and workbench polling could each end up displaying the older answer. Each fix constructs the out-of-order arrival in a test rather than only the happy path.
+
+- **Body-only storage now only writes bodies.** The split plan for large sessions re-encoded and rewrote every message row instead of the changed ones; a 15,000-message session went from 260 ms to 2.4 ms per persist, and the same plan is honoured by batch writes so archiving and restoring no longer rewrite whole conversations.
+
+- **Dollar sequences are literal text, not replacement templates.** `edit_file` passed `newText` to a string replace, so `$$`, `$&` and `$'` inside written code were silently substituted; custom commands did the same to `$ARGUMENTS`, and `t()` to runtime interpolation values. All three now pass a function, which is the only form where the replacement string is never interpreted.
+
+- **Editors stopped losing input.** Switching tabs in the MCP editor discarded hand-written JSON, its `args`/`env` text boxes dropped intermediate keystrokes, command autosave rewrote files without their trailing newlines, pasting several MCP servers saved only the first, and unmounting or switching away from the command directory silently discarded edits.
+
+- **Goal and scheduled-task lifecycles.** Stopping a goal in the window between "round begun" and "round dispatched" either wasted a round or left the session stuck; the same window existed in the legacy engine and in the default v2 engine. A first run whose persistence failed pinned the task as permanently running, and an idle wait that timed out left an armed chain nobody advanced — it now disarms.
+
+- **Silent truncation removed.** A commit message over 4,000 characters was quietly shortened (now a 400 that states the real length), opening a 21st project silently evicted the oldest one (the cap is gone), and the archived-conversation list stopped at 1,000 rows regardless of `total` (it now pages by total).
+
+- **Errors and logs mean what they say.** A missing workspace file returned 500 with an absolute path in the body instead of 404; request-level 4xx responses were logged as `ERROR`, which made the error count useless; `/api/health` no longer exposes absolute paths to LAN clients; the CLI log hint resolves the same local-date file the server writes.
+
+- **Bot memory isolation.** A bot writing its own memory could overwrite the user's global memory: writes now land in the bot's own workspace, the UI says so, and the read direction was fixed too so a bot can load what it wrote.
+
+- **Things read back correctly.** Plugin skill tags written as YAML dash lists, `description` block scalars that start with an indicator, and custom commands' second private frontmatter copy all used to read as empty; pasting more than one MCP server in JSON view now saves all of them; changing one built-in agent's thinking level no longer clears other agents' overrides; saving the skill picker no longer disables skills that happened not to be loaded at that moment.
+
+- **Smaller fixes.** A heartbeat wake no longer looks like a user message; "X minutes ago" for a bot now uses the session's last activity instead of the last completed heartbeat; `/clear` keeps the conversation title; a malformed share link no longer turns the whole app into an error page; the delete-all confirmation states the real scope after filtering; `read_file` and `read_skill_resource` no longer produce `NaN` offsets and empty pages; a lease release without a `clientId` no longer demotes the window that is writing; hook events no longer spawn one process per event in parallel; the PWA no longer serves a stale build behind the Service Worker.
+
+### Removed
+
+- Heartbeat `wakeCount` / `idleCount` are gone. Counting how many times a bot woke said nothing useful; the interval and the reason are what actually explain a schedule.
+
+### Released
+
+- Prepared `@shawnstack/quickforge@2.5.0` for npm publishing with the `latest` tag.
+- Built offline release tarball: `package-offline/shawnstack-quickforge-2.5.0.tgz`.
+- The offline release tarball contains QuickForge runtime files and installs npm dependencies from the registry:
+
+  ```bash
+  npm install -g ./package-offline/shawnstack-quickforge-2.5.0.tgz
+  ```
+
 ## [2.4.2] - 2026-11-09
 
 ### Fixed

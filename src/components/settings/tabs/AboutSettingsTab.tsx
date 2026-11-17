@@ -431,24 +431,37 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
         {infoRows()}
       </section>
 
-      {desktopApp && (autostart.loading || autostart.state.supported) ? (
-        <section className="quickforge-settings-section" aria-label={t('launchAtStartup')}>
+      {desktopApp ? (
+        <section
+          className="quickforge-settings-section"
+          aria-label={t('launchAtStartup')}
+          aria-busy={autostart.loading || autostart.saving}
+        >
           <div className="quickforge-settings-row">
             <div className="quickforge-settings-row-main">
               <div className="quickforge-settings-row-title">
                 {t('launchAtStartup')}
                 <InfoTip label={t('launchAtStartupDescription')} />
               </div>
+              {!autostart.loading && !autostart.state.supported ? (
+                <div className="quickforge-settings-row-description">{t('launchAtStartupUnsupported')}</div>
+              ) : null}
             </div>
-            <div className="quickforge-settings-row-control">
-              <SettingsSwitch
-                checked={autostart.state.openAtLogin}
-                disabled={autostart.loading || autostart.saving}
-                onChange={(checked) => void autostart.setEnabled(checked)}
-              />
-            </div>
+            {autostart.loading || autostart.state.supported ? (
+              <div className="quickforge-settings-row-control">
+                <SettingsSwitch
+                  checked={autostart.state.openAtLogin}
+                  disabled={autostart.loading || autostart.saving}
+                  onChange={(checked) => void autostart.setEnabled(checked)}
+                />
+              </div>
+            ) : null}
           </div>
-          {autostart.error ? <div className="quickforge-settings-alert">{autostart.error}</div> : null}
+          {autostart.failed ? (
+            <div className="quickforge-settings-alert" role="alert">
+              {t('launchAtStartupFailed')}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -515,7 +528,7 @@ export function AboutSettingsTab({ active }: { active?: boolean } = {}) {
       {restartSection()}
 
       {message ? <div className="quickforge-settings-message">{message}</div> : null}
-      {error ? <div className="quickforge-settings-alert">{error}</div> : null}
+      {error ? <div className="quickforge-settings-alert" role="alert">{error}</div> : null}
     </div>
   )
 }

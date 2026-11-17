@@ -33,6 +33,9 @@ describe('useDesktopAutostart', () => {
     let controller = render()
     expect(controller.loading).toBe(true)
     expect(controller.state).toEqual({ supported: false, openAtLogin: false })
+    // 初值必须是「未失败」：首屏回读还没回来时组件就在渲染，failed 一开始是 true 的话
+    // 用户还没点任何东西就会看到 role=alert 的失败提示。
+    expect(controller.failed).toBe(false)
 
     state.resolve({ supported: true, openAtLogin: true })
     await flushPromises()
@@ -90,7 +93,72 @@ describe('useDesktopAutostart', () => {
     controller = render()
 
     expect(controller.state.openAtLogin).toBe(false)
-    expect(controller.error).toBe('launchAtStartupFailed')
+    expect(controller.failed).toBe(true)
     expect(controller.saving).toBe(false)
+  })
+
+  it('keeps the failure as a flag instead of a translated string', async () => {
+    bridge.getState.mockResolvedValue({ supported: true, openAtLogin: false })
+    bridge.setEnabled.mockRejectedValue(new Error('denied'))
+    render()
+    await flushPromises()
+    let controller = render()
+
+    await controller.setEnabled(true)
+    controller = render()
+
+    expect(controller.failed).toBe(true)
+    // 状态里不许存翻译结果：存了就冻在切换语言那一刻的文案上。
+    expect(JSON.stringify(controller)).not.toContain('launchAtStartupFailed')
+  })
+
+  it('clears the failure flag after a later successful toggle', async () => {
+    bridge.getState.mockResolvedValue({ supported: true, openAtLogin: false })
+    bridge.setEnabled.mockRejectedValueOnce(new Error('denied'))
+    render()
+    await flushPromises()
+    let controller = render()
+
+    await controller.setEnabled(true)
+    controller = render()
+    expect(controller.failed).toBe(true)
+
+    bridge.setEnabled.mockResolvedValue({ supported: true, openAtLogin: true })
+    await controller.setEnabled(true)
+    controller = render()
+
+    expect(controller.failed).toBe(false)
+    expect(controller.state.openAtLogin).toBe(true)
+  })
+
+  it('ignores a late rejection from an older toggle', async () => {
+    bridge.getState.mockResolvedValue({ supported: true, openAtLogin: false })
+    render()
+    await flushPromises()
+    let controller = render()
+
+    // 先发「开」被拒（晚到），再发「关」先成功：旧失败不许污染新成功。
+    const enableRejection = deferred<void>()
+    const disableResponse = deferred<{ supported: boolean; openAtLogin: boolean }>()
+    bridge.setEnabled
+      .mockReturnValueOnce(enableRejection.promise)
+      .mockReturnValueOnce(disableResponse.promise)
+
+    const enabling = controller.setEnabled(true)
+    const disabling = controller.setEnabled(false)
+
+    disableResponse.resolve({ supported: true, openAtLogin: false })
+    await flushPromises()
+    controller = render()
+    expect(controller.failed).toBe(false)
+    expect(controller.saving).toBe(false)
+
+    enableRejection.reject(new Error('denied'))
+    await flushPromises()
+    controller = render()
+    expect(controller.failed).toBe(false)
+    expect(controller.saving).toBe(false)
+
+    await Promise.all([enabling, disabling])
   })
 })

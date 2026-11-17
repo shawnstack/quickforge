@@ -21,7 +21,7 @@ export const settingsTabDefinitions = [
   { key: 'dreaming', name: 'dreamingTab', description: 'dreamingDescription', group: 'memory', beta: true, keywords: '梦境记忆 记忆整理 dreaming 记忆 memory 经验 experience 长期 long-term 沉淀 consolidate beta' },
   { key: 'projectCommands', name: 'projectCommands', description: 'projectCommandsDescription', group: 'automation', keywords: '项目命令 commands slash 目录' },
   { key: 'data', name: 'dataManagement', description: 'dataManagementDescription', group: 'automation', keywords: '数据管理 data backup 备份 restore 恢复 archived 归档 conversations 对话 share 分享 links 链接 import 导入 export 导出' },
-  { key: 'about', name: 'about', description: 'aboutQuickForgeDescription', group: undefined, keywords: '关于 about version 版本 update 更新 docs 文档 github' },
+  { key: 'about', name: 'about', description: 'aboutQuickForgeDescription', group: undefined, keywords: '关于 about version 版本 update 更新 docs 文档 github 自启动 开机自启 登录项 startup autostart login' },
 ] as const
 
 export type SettingsInitialTab = typeof settingsTabDefinitions[number]['key']

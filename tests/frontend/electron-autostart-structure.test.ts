@@ -50,10 +50,12 @@ describe('Electron autostart security structure', () => {
     expect(readyToShow).toContain('mainWindow?.show()')
   })
 
-  it('shows the switch only in the desktop app and never persists it locally', () => {
+  it('shows the switch only on supported desktops and explains why otherwise', () => {
     expect(aboutSource).toContain("import { useDesktopAutostart } from '@/hooks/useDesktopAutostart'")
     expect(aboutSource).toContain('useDesktopAutostart({ active })')
-    expect(aboutSource).toContain('desktopApp && (autostart.loading || autostart.state.supported)')
+    expect(aboutSource).toContain('{desktopApp ? (')
+    expect(aboutSource).toContain('{autostart.loading || autostart.state.supported ? (')
+    expect(aboutSource).toContain('launchAtStartupUnsupported')
     expect(aboutSource).toContain('disabled={autostart.loading || autostart.saving}')
     expect(aboutSource).toContain('onChange={(checked) => void autostart.setEnabled(checked)}')
   })

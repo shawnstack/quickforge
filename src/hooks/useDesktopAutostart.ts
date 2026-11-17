@@ -4,13 +4,13 @@ import {
   getDesktopAutostartBridge,
   type DesktopAutostartState,
 } from '@/lib/desktop-autostart-bridge'
-import { t } from '@/lib/i18n'
 
 export type DesktopAutostartController = {
   state: DesktopAutostartState
   loading: boolean
   saving: boolean
-  error: string
+  /** 失败只说「失败了」，文案由渲染侧现取，切语言才不会冻在旧语言上。 */
+  failed: boolean
   setEnabled: (enabled: boolean) => Promise<void>
 }
 
@@ -29,7 +29,7 @@ export function useDesktopAutostart({ active = true }: { active?: boolean } = {}
   const [state, setState] = useState<DesktopAutostartState>(DEFAULT_DESKTOP_AUTOSTART_STATE)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const [failed, setFailed] = useState(false)
   const requestSeq = useRef(0)
 
   useEffect(() => {
@@ -62,19 +62,19 @@ export function useDesktopAutostart({ active = true }: { active?: boolean } = {}
     if (!bridge) return
     const seq = ++requestSeq.current
     setSaving(true)
-    setError('')
+    setFailed(false)
     try {
       const next = await bridge.setEnabled(enabled)
       if (seq !== requestSeq.current) return
       setState(next)
     } catch {
       if (seq !== requestSeq.current) return
-      setError(t('launchAtStartupFailed'))
+      setFailed(true)
     } finally {
       if (seq === requestSeq.current) setSaving(false)
     }
   }, [])
 
-  return { state, loading, saving, error, setEnabled }
+  return { state, loading, saving, failed, setEnabled }
 }
 

@@ -158,7 +158,7 @@ components/
 │   └── ScheduledTasksPageSections.tsx # 编辑器/详情/列表/历史纯 render helpers
 ├── share/
 │   ├── ShareConversationDialog.tsx # 分享对话对话框 (203 行)
-│   └── SharedConversationPage.tsx  # 查看分享的对话页面 (316 行)
+│   └── SharedConversationPage.tsx  # 查看分享的对话页面 (322 行)
 ├── app/                             # App 主装配层的独立 UI 区域（MainApp 保持接线，区域组件化）
 │   ├── AppDialogs.tsx               # 对话框层：`AppGitDialogs`（主区内 Git 图形 / 提交）+ `AppOverlays`（目录选择 / 技能 / 新建 bot / bot 设置 / 分享 / toast）
 │   ├── AppMain.tsx                  # `<main>` 主区：会话顶栏 / 对话区 / 全局终端坞（`AppMain` + 懒加载占位 `LazyPanelFallback`）
@@ -619,7 +619,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 - `dreaming/dreaming-data.ts` (252 行) # 传输类型与 fetch 层：`DreamingOverview` / `DreamingRun` / `DreamingExperience` / `DreamingSettings` 等类型，overview、settings 保存、手动触发、runs 列表与详情、restore，以及经验列表与「打开目录」，外加时间 / 耗时格式化（`formatDreamingTimestamp` / `formatDreamingDuration`）
 - `dreaming/DreamingSettingsTab.tsx` (759 行) # 「设置 → Dreaming」整页：概览、排期与模型选择（`formatModelOptionLabel` / `modelRefKey`）、手动触发与运行历史、经验库浏览与打开、restore 操作
 
-### mcp-servers-dialog.tsx (395 行)
+### mcp-servers-dialog.tsx (404 行)
 
 设置页里的 MCP 服务器管理面板（`McpServersPanel`）：列表 + **表单 / JSON 双模式**编辑器（草稿互转复用 `src/lib/mcp-helpers.ts`）。增改走 `PUT /api/mcp/servers`，删除走 `DELETE /api/mcp/servers/:name`，启停走 `.../:name/enabled`，单个重连走 `POST /api/mcp/reconnect/:name`。JSON 视图里粘贴的配置若含多台服务器，保存会被明确拦下（草稿只装得下一台，照常保存＝其余静默消失），提示一次只能保存一台。
 
@@ -678,7 +678,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 - `settings/tabs/AboutSettingsTab.tsx` (534 行) # 关于页：应用信息（名称 / 版本 / 仓库 / 主页）+ 更新检查（频率 startup / daily / weekly / off、上次检查时间、被忽略的版本）+ 桌面端专属「开机自启动」开关（状态来自系统登录项，不落服务端设置）
 - `settings/tabs/AppearanceSettingsTab.tsx` (283 行) # 外观页：主题（light / dark）与字号（界面 / 消息两套，12–18px、默认 13），保存后即时应用
 - `settings/tabs/DefaultOptionsSettingsTab.tsx` (720 行) # 默认选项页：工具展示模式、自动压缩、Goal、自动归档等一批「新会话默认值」的读取与保存
-- `settings/tabs/ProjectCommandsSettingsTab.tsx` (410 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口
+- `settings/tabs/ProjectCommandsSettingsTab.tsx` (419 行) # 项目斜杠命令：列出现有命令、创建 / 编辑 / 删除（走 `/api/project/commands`），另提供打开命令目录的入口
 
 ## 流式渲染缓存与有界窗口（2026-10-29）
 

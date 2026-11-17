@@ -662,7 +662,7 @@ Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自
 
 - `settings/tabs/MemorySettingsTab.tsx` (199 行) # 全局记忆：`MEMORY.md` 的开关、Markdown 编辑与保存（走 `/api/memory`）、文档路径与条目计数
 - `settings/tabs/WorkingMemorySettingsTab.tsx` (301 行) # 工作记忆：开关 + 目录路径 + 只读笔记列表。**写笔记的提示词是服务端内部契约，此页刻意不暴露**——用户改不到「文件名＝一句话结论」的格式
-- `settings/tabs/HooksSettingsTab.tsx` (865 行) # Hooks 管理：增删改 hook（事件 / 命令 / 超时）、总开关、执行记录分页（成功 / 失败 / 超时）与手动测试执行、结果输出查看
+- `settings/tabs/HooksSettingsTab.tsx` (868 行) # Hooks 管理：增删改 hook（事件 / 命令 / 超时）、总开关、执行记录分页（成功 / 失败 / 超时）与手动测试执行、结果输出查看；编辑面板的 `aria-modal` 由共享钩子兑现（`useDialogFocusTrap` 锁面板 + `useModalIsolation` 按 `editorOpen` 隔背景）
 
 #### 自定义 Provider
 

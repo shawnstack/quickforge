@@ -3,13 +3,13 @@
 只保留最近一轮交接；更早轮次由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/handoffs/`（按月分文件）。
 新一轮的「本轮」段落加在最上面。
 
-## 本轮：隔离刀 4——侧栏搜索 + bot 两处弹层接 useModalIsolation（2026-11-17 14:55）
+## 本轮：隔离刀 4+5——九处声明式弹层接完 useModalIsolation，并与非模态弹层划清边界（2026-11-17 15:00）
 
-- 目标：接续刀 3（`bf98c1c6`）继续逐刀收口 `aria-modal` 的背景隔离；本刀 3 处声明式弹层：`SidebarSearchDialog`、`NewBotDialog`、`BotSettingsDialog`。
-- 改动文件：`src/components/sidebar/chat-sidebar/SidebarSearchDialog.tsx`（+4 行）、`src/components/bots/BotDialogs.tsx`（+9 行）、`tests/frontend/modal-isolation.test.ts`（+3 例 / +85 行，partial mock `fetchBotMemory`）、`docs/wiki/src/hooks/README.md`（七处 → 十处 + ref 取遮罩规则）、`docs/wiki/src/components/README.md`（BotDialogs 行数与接线、ChatSidebar 装配层那条补搜索弹层）。
-- 本刀新增的判据：**ref 取遮罩，不取卡片**——`BotSettingsDialog` 遮罩里有 `absolute inset-0` 全屏关闭按钮，用卡片当起点会把它 `inert` 掉、遮罩点不动；测试里专门断言那颗按钮不带 `inert`。
-- 验证：先证红（3 例红在 `expected false to be true`）→ 接钩子后 13 例全绿；相关 3 个测试文件 32 例全绿；`tsc -b` 净；eslint 3 个改动文件净；`check:wiki` matched=401 resolved=400 historical=1 bad=0；全量 `npm run test` **6457 passed + 2 skipped**。
-- 状态：起点核过（HEAD `3c76920c`、dev、工作树干净），按惯例完成即 commit（hash 见 git log），`dev` 无任何 push。
+- 目标：接续刀 3（`bf98c1c6`）把 `aria-modal` 的背景隔离收口。刀 4 三处：`SidebarSearchDialog`、`NewBotDialog`、`BotSettingsDialog`；刀 5 三处：`ShareActionsSheet`（在 `ShareLinksSettingsPage.tsx` 内）、`MobileServerConnectPage` 删除确认、`HooksSettingsTab` 编辑面板。
+- 改动文件：`src/components/sidebar/chat-sidebar/SidebarSearchDialog.tsx`、`src/components/bots/BotDialogs.tsx`、`src/components/share/ShareLinksSettingsPage.tsx`、`src/components/mobile/MobileServerConnectPage.tsx`、`src/components/settings/tabs/HooksSettingsTab.tsx`；测试 `tests/frontend/modal-isolation.test.ts`（+3 例 jsdom 真渲染）、`tests/frontend/modal-isolation-wiring.test.ts`（新文件，3 例源码契约）；wiki `docs/wiki/src/hooks/README.md`（七处 → 十三处 + 三条规则）、`docs/wiki/src/components/README.md`（BotDialogs 650→659、HooksSettingsTab 865→868、ChatSidebar 装配层那条补搜索弹层）。
+- 本刀新增的两条判据：① **ref 取遮罩，不取卡片**——`BotSettingsDialog` 遮罩里那颗 `absolute inset-0` 关闭按钮是卡片的兄弟，用卡片当起点会被 `inert` 掉、遮罩点不动（测试专断言它不带 `inert`）；② **常挂 + 条件显隐必须传 `enabled`**——DOM 拔掉不会重跑 effect，计数不归零、`inert` 留在背景上。
+- 反向契约：非模态弹层一例都不接（`SkillsPageHead` 路径 popover、`CodeBlock` 语言菜单），谁手滑接上，`modal-isolation-wiring.test.ts` 第 3 例就红。
+- 验证：`modal-isolation` 13 例 + `modal-isolation-wiring` 3 例全绿；契约测试用 `git stash` 掉接线实测变红（2 例红）再恢复；`tsc -b` 净；eslint 改动文件净；`check:wiki` matched=401 resolved=400 historical=1 bad=0；全量 `npm run test` **601 文件 / 6460 passed + 2 skipped**。
+- 状态：起点核过（HEAD `3c76920c`、dev、工作树干净）；刀 4 已提交 `4c389eae`，刀 5 同轮提交（hash 见 git log）；`dev` 无任何 push。
 - Blocker：无。
-- 下一步（余下未接点位，逐刀收）：`ShareLinksSettingsPage`（分享管理 sheet，role=dialog+aria-modal）、`MobileServerConnectPage`（删除确认，`enabled: Boolean(deletingUrl)`）、`HooksSettingsTab`（hook 编辑面板，`enabled: editorOpen`）、`SkillsPageHead`（路径 popover，`enabled: pathsOpen`）、`AttachmentPreviewErrorFallback`（overlay 崩溃兜底 role=alertdialog）、`App.tsx` 移动侧栏抽屉（`useMobileSidebar` 里已有 focus trap）。`Workbench` / `WorkbenchAnalog` 的 role=dialog 根是全屏视图而非弹层，接前先判断语义；`CodeBlock` 语言菜单不挂 focus trap，也不需要接。
-
+- 下一步（只剩判断题，不是机械清单）：`App.tsx` 移动侧栏抽屉（`useMobileSidebar` 里已有 focus trap，值是 role=dialog+aria-modal，方向可行）；`Workbench` / `WorkbenchAnalog` 的全屏 `role=dialog` 根是「全屏视图」还是「弹层」需要先定语义，别为了凑数量硬接；`AttachmentPreviewErrorFallback`（role=alertdialog）渲染在已接隔离的 overlay 里，父层已隔背景，不必重复接。

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { InfoTip } from '@/components/ui/info-tip'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import { getDateLocale, t } from '@/lib/i18n'
 import { copyTextToClipboard } from '@/lib/message-utils'
 import {
@@ -195,6 +196,9 @@ function ShareActionsSheet({
   // 所以 Tab 必须在弹层里循环——移动端这里是底部弹层、`sm:` 之上变成居中卡片，
   // 位置靠 CSS 切换、共用同一份 DOM，陷阱对两种形态都成立。
   useDialogFocusTrap(sheetRef)
+  // 遮罩点击判定的是 `event.target === currentTarget`，关掉弹层靠的是遮罩自身，
+  // 所以隔离里没有可点兄弟；`aria-modal` 的背景隔离直接跟着焦点陷阱走。
+  useModalIsolation(sheetRef)
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {

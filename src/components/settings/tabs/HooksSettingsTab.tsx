@@ -5,6 +5,7 @@ import { t } from '@/lib/i18n'
 import { InfoTip } from '@/components/ui/info-tip'
 import { showConfirm } from '@/components/ui/confirm-dialog'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 import {
   DEFAULT_HOOK_TIMEOUT_SECONDS,
   HOOK_EVENTS,
@@ -169,6 +170,8 @@ export function HooksSettingsTab() {
   // 编辑器面板声明了 aria-modal，Esc 挂在遮罩的 onKeyDown 上（依赖焦点在面板内）。
   // 补上 Tab 循环后焦点本来就被关在面板里，那条 Esc 只会更可靠——Esc 实现不动。
   useDialogFocusTrap(editorPanelRef, { enabled: editorOpen })
+  // 面板常挂、`editorOpen` 控制显隐：DOM 拔掉不会重跑 effect，靠 enabled 归零。
+  useModalIsolation(editorPanelRef, { enabled: editorOpen })
 
   const loadExecutions = async (page: number) => {
     setExecutionsLoading(true)

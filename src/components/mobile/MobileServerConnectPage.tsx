@@ -9,6 +9,7 @@ import {
 } from '@/lib/mobile-server'
 import { t } from '@/lib/i18n'
 import { useDialogFocusTrap } from '@/hooks/useDialogFocusTrap'
+import { useModalIsolation } from '@/hooks/useModalIsolation'
 
 /** 跳转前连接动画的最小展示时长，避免“点击即跳转”让用户感知不到正在建立连接。 */
 const CONNECT_ANIMATION_MS = 800
@@ -31,6 +32,8 @@ export function MobileServerConnectPage() {
   // 删除确认是本页唯一的弹层——整页主体不声明任何 dialog 语义。
   // 关闭沿用「取消」按钮那条路径（setDeletingUrl(null)），不新增状态。
   useDialogFocusTrap(deleteConfirmRef, { enabled: Boolean(deletingUrl) })
+  // 条件渲染 + 同一个 ref：DOM 拔掉不会重跑 effect，关闭时必须靠 enabled 让计数归零。
+  useModalIsolation(deleteConfirmRef, { enabled: Boolean(deletingUrl) })
 
   useEffect(() => {
     if (!deletingUrl) return undefined

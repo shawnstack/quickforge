@@ -12,7 +12,7 @@
 | 记忆 | `<bot 目录>/MEMORY.md` |
 | 心跳操作模板（可自我修改） | `<bot 目录>/.bot/heartbeat.md` |
 | 收件箱（可选） | `<bot 目录>/.bot/inbox.md` |
-| 会话 | 一条，id 记在 `bot.sessionId`，`idleRetention: 'always'` |
+| 会话 | 一条，id 记在 `bot.sessionId`；与普通会话同受 10 分钟空闲回收（销毁只清内存、存储仍在，下次心跳走 `restoreAgent` 全量恢复；开着页面/运行中/后台命令/goal waiter 不回收；存量会话残留 `idleRetention` 字段，销毁重建后才走新参数） |
 
 目录名**不用显示名**（`botWorkspacePath(id)`）：名字可以随时改、可以是中文和空格，路径不受影响。早先目录名就是名字，结果一个字符串同时承担「给人看」和「当路径」两件事——中文要切输入法才能 `cd`，改过名的 bot 目录还叫旧名字（新建同名 bot 会算到同一个目录），大小写与 Unicode 归一化差异也能让两个名字映射到同一个目录。现在唯一性交给 id。
 

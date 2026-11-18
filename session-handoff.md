@@ -3,13 +3,13 @@
 只保留最近一轮交接；更早轮次由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/handoffs/`（按月分文件）。
 新一轮的「本轮」段落加在最上面。
 
-## 本轮：桌面端「开机自启动」开关（2026-11-17 16:40）
+## 本轮：放开浏览器单窗口守卫（2026-11-18 16:20）
 
-- 目标：用户问「当前 QF 能不能设置开机自启动」。此前没有任何实现，做成关于页的桌面端专属开关：读写系统登录项，自启动拉起时只驻留托盘。
-- 改动文件：`desktop/autostart-contract.mjs`（新，请求白名单解析 + 登录项 path/args 推导 + portable 路径 + `shouldStartHidden`）、`desktop/electron-main.mjs`（IPC handler + 读回状态 + `resolveStartHidden` + `ready-to-show` 不弹窗）、`desktop/electron-preload.cjs`（`QuickForgeDesktopAutostart` 窄桥）、`src/lib/desktop-autostart-bridge.ts`（新）、`src/hooks/useDesktopAutostart.ts`（新）、`src/components/settings/tabs/AboutSettingsTab.tsx`（开关）、`src/lib/i18n.ts`（3 个键中英成对）；测试 4 个新文件 22 例；wiki 4 处。
-- 本轮的判据：① 读写登录项必须共用同一份 path/args（Windows 按 path + args 匹配注册表项，读用默认参数匹配不到 `--hidden` 那条，开关会自己弹回去；关闭不带 args 删不掉）；② portable 写 `PORTABLE_EXECUTABLE_FILE`（`process.execPath` 是每次都会变的临时解包路径）；③ 自启动拉起不弹窗（Windows 认 `--hidden` 参数，macOS 认 `wasOpenedAtLogin`）；④ 前端读与写共用请求序号，晚到旧响应整条丢弃，且不做乐观更新；⑤ 开发模式（`app.isPackaged` 为 false）不开放——那时 execPath 是 electron.exe，写进登录项会在开机时拉起空壳。
-- 验证：定向 22 例 + 受影响既有 3 文件全绿；两条变异实测变红（去掉序号守卫 / `buildLoginItemQuery` 返回 `{}`）；`tsc -b` 净；改动文件与全量 eslint 净；`npm run build` 通过；`check:wiki` bad=0；全量 `npm run test` **605 文件 / 6482 passed + 2 skipped**。
-- 状态：未 commit / tag / push；工作树只有源码 + wiki 变更（`dist/` 未被 git 跟踪）。
+- 目标：用户明确要「放开单窗口守卫，能开两个窗口」。先核对原守卫的立论——每窗口 2-4 条常驻 SSE 占满 HTTP/1.1 同源 6 连接池——已失效：`channels/events` 流已删除、会话级 `stream` 仓内零调用方，现在每窗口只剩 1 条常驻 SSE。
+- 改动文件：删 `src/lib/window-guard.ts`、`src/components/WindowGuardNotice.tsx`、`tests/frontend/window-guard.test.ts`；改 `src/main.tsx`（去 bootstrap，直接挂 App，109 行）、`src/lib/i18n.ts`（删 `windowGuardTitle/Description` 中英 4 行）、`server/agent-approval-responses.mjs`（404 加 `APPROVAL_ALREADY_SETTLED` / `ASK_ALREADY_SETTLED`）、`src/lib/server-agent/approval-actions.ts`（识别后幂等收敛，不弹错）、`server/routes/agent.mjs`（`DELETE` 挂 `assertSessionWriteAccess`）、`src/lib/browser-connection-diagnostics.ts`（Proxy 包装 `EventSource` 统计常驻 SSE）、`src/components/workspace/workspace-api.ts`（过时注释「两条常驻 SSE」→「每窗口 1 条」）；新测试 `tests/frontend/approval-actions-settled.test.ts`（5 例）；`tests/server/routes/agent.test.mjs` +3 例（DELETE 租约）；`tests/frontend/browser-connection-diagnostics.test.ts` +1 例（EventSource）；wiki 4 处 + `server/routes/README.md` 租约段落。
+- 判据：三处都实测「换回旧写法会红」——`settledElsewhereCode` 改 `return false` → 3 例红；去掉 `DELETE` 守卫 → 1 例红（resolved instead of rejecting）；关掉 `installEventSourceTracking` → 1 例红。
+- 验证：`npm run test` 611 文件 / 6526 例通过 / 2 skipped / 0 失败（本轮并发全量未复现 goal 域 hookTimeout 抖动）；`npm run lint` 净；`npm run build` 通过；`npm run check:wiki` bad=0。
+- 状态：未 commit / tag / push。工作区同时含**上一轮**未提交的 goal v2 修复（`server/goal/runner.mjs`、`tests/server/goal-services-cache.test.mjs`），提交时注意区分两轮改动。
 - Blocker：无。
-- 下一步：真机冒烟（打包 Windows 版看登录项写入/读回、自启动驻留托盘、从托盘点开正常出窗）；卸载清理 Run 项可挂 `installer.nsh` 的 `customUnInstall`（当前未做，残留项无害）。
+- 下一步：第二阶段两项（未做，已记 progress Notes）——localStorage 三个整表读-改-写（`composer-drafts` / `message-queue` / `system-notifications-recent`）两窗口并发会吞条目；备份 `restoreValidatedBackup` replace 模式整表覆盖、无 import 互斥。「两个窗口看不同项目」明确不做（需要把 project 做成 per-client）。
 

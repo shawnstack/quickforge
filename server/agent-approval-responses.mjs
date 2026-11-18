@@ -4,11 +4,18 @@ import { pendingAsks } from './ask-store.mjs'
 
 /**
  * Approve a pending tool call, allowing it to execute.
+ *
+ * `APPROVAL_ALREADY_SETTLED`：多窗口下两个窗口可以同时看到同一张审批卡。第一个
+ * 窗口点完就 `cleanup()` 掉了条目，第二个窗口再点必然查不到——这不是错误，是
+ * 「别处已经处理过」。调用方据此静默收敛，而不是弹一个假 404。
  */
 export function approveToolCall(sessionId, toolCallId) {
   const approval = pendingApprovals.get(toolCallId)
   if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending approval for this tool call'), { statusCode: 404 })
+    throw Object.assign(new Error('No pending approval for this tool call'), {
+      statusCode: 404,
+      errorCode: 'APPROVAL_ALREADY_SETTLED',
+    })
   }
   approval.resolve(true)
   return { approved: true, toolCallId }
@@ -21,7 +28,10 @@ export function approveToolCall(sessionId, toolCallId) {
 export function rejectToolCall(sessionId, toolCallId) {
   const approval = pendingApprovals.get(toolCallId)
   if (!approval || approval.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending approval for this tool call'), { statusCode: 404 })
+    throw Object.assign(new Error('No pending approval for this tool call'), {
+      statusCode: 404,
+      errorCode: 'APPROVAL_ALREADY_SETTLED',
+    })
   }
   approval.resolve(false)
   return { rejected: true, toolCallId }
@@ -38,7 +48,11 @@ export function rejectToolCall(sessionId, toolCallId) {
 export function answerAsk(sessionId, askId, { answers, skipped = false, remark } = {}) {
   const ask = pendingAsks.get(askId)
   if (!ask || ask.sessionId !== sessionId) {
-    throw Object.assign(new Error('No pending ask for this session'), { statusCode: 404 })
+    // 与审批同理：两个窗口都能看到同一个 ask，先答的那个把它消费掉了。
+    throw Object.assign(new Error('No pending ask for this session'), {
+      statusCode: 404,
+      errorCode: 'ASK_ALREADY_SETTLED',
+    })
   }
   const normalizedAnswers = (Array.isArray(answers) ? answers : []).slice(0, ask.questions.length).map((answer) => ({
     choices: (Array.isArray(answer?.choices) ? answer.choices : [])

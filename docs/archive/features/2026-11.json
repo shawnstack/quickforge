@@ -1959,5 +1959,21 @@
     "verification": "定向 4 文件 22 例全绿 + 既有 3 文件（i18n-placeholder-parity / settings-workspace-react / electron-desktop-notifications-structure）44 例全绿；两条变异验证实测变红（去掉写响应的序号守卫 → 「晚到旧响应」用例红；buildLoginItemQuery 改成空参数 → 「读写同一份 path/args」用例红）；npx tsc -b 净、改动文件 eslint 净、npm run lint 全量净、npm run build 通过、npm run check:wiki bad=0；全量 npm run test 见 session-handoff。",
     "updatedAt": "2026-11-17",
     "boundaries": "Linux 不支持（isAutostartSupported 只收 win32/darwin），设置页在该平台不渲染开关；状态不落服务端 settings、不进 app-settings-cache（真相在系统登录项）；未改 installer.nsh（不做安装期默认自启，off-by-default）；未做「最小化启动 / 托盘快捷开关」等其他启动项 UI；未提交 commit / tag / push；未手工触碰 dist / package-dist / package-offline（npm run build 产生的 dist 未被 git 跟踪）。"
+  },
+  {
+    "id": "desktop-browser-subresource-network-policy",
+    "title": "内嵌 AI 浏览器：把「默认拒绝私网」从导航层落到网络层",
+    "status": "done",
+    "summary": "normalizeNavigableUrl 只有 navigate 工具入口与 will-navigate 两个调用点，desktop/ 里 webRequest/onBeforeRequest 零命中：页面被注入/诱导后自己发起的 fetch/XHR/WebSocket（以及 will-navigate 覆盖不到的服务端 30x 重定向）不经过任何策略，可直接打 127.0.0.1:5176 等本机/私网目标。本任务按用户逐条给出的契约把实现追平文档已声明的「默认拒绝」：policy.mjs 新增 shouldBlockSubresource——非字符串/空、无 scheme（相对路径，host 与顶层一致）、内部 scheme（data:/blob:/about:/javascript:/chrome-extension:/devtools:/filesystem:）一律放行；http:/https:/ws:/wss:/ftp: 解析后过 host 判定（解析失败 block invalid）；其他 scheme 放行不扩大打击面。host 判定抽成唯一的 hostVerdict，导航与子资源共用同一份网段表与 blocked 名单（出现第二份即不合格）；normalizeHostname 统一去 IPv6 括号、转小写、去尾点（localhost./LOCALHOST./ 与 localhost 同判）。browser-host.mjs 的 configureSession 在三个 set*Handler 之后注册 ses.webRequest.onBeforeRequest，listener 同步、纯函数、只 cancel；注释写明 webRequest「设置即替换前一个 listener」+ configureSession 每次 ensureView 都执行 ⇒ 重复注册天然幂等，故意不用 flag 防重。契约外触碰第 5 个文件 tests/server/desktop-browser-host.test.mjs：其 electron 替身 session 无 webRequest，不补桩则 configureSession 一注册就 TypeError、10 个既有用例全挂；补一行桩并在既有用例内加两条行为断言（127.0.0.1 → cancel:true、example.com → cancel:false），这是唯一「configureSession 真把策略接进网络层」的行为级证据。",
+    "files": [
+      "desktop/browser/policy.mjs（+73/-8）：shouldBlockSubresource 导出、hostVerdict/normalizeHostname 重构、INTERNAL_SCHEMES 与 SUBRESOURCE_HOST_SCHEMES 两张 scheme 表",
+      "desktop/browser/browser-host.mjs（+9/-1）：configureSession 注册 webRequest.onBeforeRequest，import 补 shouldBlockSubresource",
+      "tests/server/desktop-browser-policy.test.mjs（+41/-1）：子资源 22 例 + 导航层尾点 1 例",
+      "tests/server/desktop-browser-wiring-contract.test.mjs（+12/-0）：configureSession 函数体含 webRequest.onBeforeRequest 与 shouldBlockSubresource 的结构断言 + 网段表/blocked 名单只此一份的回归断言",
+      "tests/server/desktop-browser-host.test.mjs（+11/-2，契约外，理由见 summary）：electron 替身补 webRequest 桩 + 行为断言"
+    ],
+    "verification": "先红后绿三段实测：未实现初始红 25 failed（3 文件）；变异 A（shouldBlockSubresource 恒返回 block:false）13 failed；变异 B（configureSession 不注册）2 failed；两次还原后定向 3 文件 69 例全绿。全量 npm run test 606 files / 6511 passed / 2 skipped——任务书基线 605/6482 已过期（当日提交 14b32e4b 新增 prepare-patch-release 测试 5 例），git stash 后纯 HEAD 实测 606/6487/2，差值恰为本任务 +24 例（policy 23 / wiring 1 / host 0）。npx tsc -b 净、eslint . 净（与 vitest 串行执行）。未 commit / 未 push / 未 build。回执（含全部原始输出与未做事项清单）已写入 C:/Users/xiaohao/.quickforge/bots/bot-b9c0e755/.bot/inbox-from-agents/browser-subresource-policy.md。",
+    "updatedAt": "2026-11-17T19:23:00+08:00",
+    "boundaries": "按用户指示未改 docs/**：docs/architecture/desktop-agent-browser.zh-CN.md 第 5 节安全边界表格（58-71 行）应补网络层拦截一行，留给用户决定；wiki 无「内嵌浏览器访问范围」表述。已知未覆盖（契约未要求，回执已列）：DNS rebinding（域名 A 记录指私网）仍在解析前放行；file:/ftp: 子资源按契约第 5 条放行；真机冒烟（内嵌页 fetch 127.0.0.1 应 ERR_BLOCKED_BY_CLIENT）未做，CI 跑不了真实 Electron。"
   }
 ]

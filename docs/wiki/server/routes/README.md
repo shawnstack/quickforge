@@ -12,7 +12,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `agent.mjs` | 973 | Agent 会话管理、消息流式处理；SSE 传输已外提至 `sse-transport.mjs`（见下行），此处保留 re-export 以兼容既有导入 |
+| `agent.mjs` | 978 | Agent 会话管理、消息流式处理；SSE 传输已外提至 `sse-transport.mjs`（见下行），此处保留 re-export 以兼容既有导入 |
 | `sse-transport.mjs` | 129 | Agent SSE 传输机制：流式增量 trailing 合并节流、背压丢弃、keep-alive、帧序列化缓存与写出；自 agent.mjs 外提，agent.mjs 底部 re-export 保持既有导入兼容 |
 | `storage.mjs` | 426 | 存储 CRUD 操作 |
 | `project.mjs` | 242 | 项目管理 |
@@ -59,7 +59,7 @@
 
 ---
 
-## agent.mjs (973 行)
+## agent.mjs (978 行)
 
 冷会话的 continue/rollback/access-mode/yolo-mode/model/thinking-level 操作由 manager 按需恢复，不要求客户端先调用 restore。主 model 路由在读取当前模型和解析 binding 前恢复，保留当前隐藏模型可继续使用的 `allowCurrentHidden` 规则；主路由、共享路由与 ACP 均等待异步 model/thinking setter。真正缺失仍 404；恢复失败为 500 / `SESSION_RESTORE_FAILED`（响应 `code`），已有 503 原样传播；SSE 在恢复完成前不发送流头。共享 rollback 的存储 fallback 仍仅接受 404，不吞掉恢复故障。
 
@@ -97,7 +97,7 @@ Agent 会话管理核心路由。
 - `POST /api/agents/:sessionId/rollback-turn` — 提交 `{turnIds: string[], revision}` 按轮回滚该轮（原 run + 重试 run）受控 write_file/edit_file：`restore` 写回集合首匹配版本 before、`delete` 删除该轮新建文件；只执行安全子集，不安全文件进入 `conflicts:[{path,reason}]` 而非整体阻断。返回 `{status, rolledBack:[{path,action}], conflicts, errors, preview}`：200 / `completed`（无冲突）或 `partial`（安全项已执行、存在 conflicts）、409 / `blocked`、500 / `failed`；`turnIds` 缺失、非数组、空数组或含非字符串/空项返回 400。revision 缺失/过期即拒绝，复用独立 `rollback-intent` marker、双 preflight 与逐项 fresh 复查，失败即停不自动补偿；不修改消息历史或 Git index。
 - `GET /api/agents/:sessionId/command-log?path=<绝对日志路径>&limit=&offset=` — 只读读取 `run_command` 的命令日志，供工具卡「查看完整日志」入口渲染到右侧 Reader 面板。响应与 `/api/workspace/file` 同构（`{path, content, size, mtimeMs, language:'plaintext', readonly:true}`）并附加 `totalLines` 与 `truncated`（默认尾部 2000 行、上限 20000 行，避免把超大日志整体送进渲染进程）。路径校验复用 `server/utils/command-log.mjs` 的 `isCommandLogPath`（与 `read_file` 工具同一判定），只放行 `<dataDir>/logs/commands/*.log`，其余路径返回 400 `Invalid command log path`；不放宽 `/api/workspace/*` 的工作区边界（工作区外仍是 403）。
 
-**会话写入租约守卫**：所有会写会话的路由（`prompt` / `goal` / `abort` / `continue` / `steer` / `follow-up` / `title` / `access-mode` / `yolo-mode` / `model` / `thinking-level` / `rollback` / `rollback-turn`）在入口统一调用 `assertSessionWriteAccess(req, sessionId)`：按 `x-quickforge-client-id` 头比对会话租约，非持有者立即 409 `SESSION_LEASE_HELD`（带 `holder`），守卫位于 `await readJsonBody` 之前，因此被拦下的请求不会读 body，也不会进入 `runPrompt` 等运行逻辑——这正是旧实现里 `state.isStreaming` 检查与真正开跑之间存在 `await` 空窗（TOCTOU）的补位。无租约时放行（沿用旧行为，ACP / 定时任务 / 共享会话等不带 clientId 的调用方不受影响）；审批与 ask_user 应答不设租约门禁，避免非持有页看不到卡片时把运行卡死；`DELETE /api/agents/:sessionId`（销毁会话）同样不挂门禁——删除是终态动作、UI 侧有确认框，挂上租约只会让「持有者窗口已崩、租约还没到期（60s）」的那一分钟里删不掉会话；代价是旁观窗口能删掉别人正在跑的会话，这一点属现状取舍，别当漏挂重开。**唯一例外是 `compact`**：它不在入口调用守卫，而是把守卫作为回调交给 `requestSessionCompaction()`，由后者在 running 判定之后检查（理由见上面 compact 那条）。
+**会话写入租约守卫**：所有会写会话的路由（`prompt` / `goal` / `abort` / `continue` / `steer` / `follow-up` / `title` / `access-mode` / `yolo-mode` / `model` / `thinking-level` / `rollback` / `rollback-turn` / `DELETE`（销毁会话））在入口统一调用 `assertSessionWriteAccess(req, sessionId)`：按 `x-quickforge-client-id` 头比对会话租约，非持有者立即 409 `SESSION_LEASE_HELD`（带 `holder`），守卫位于 `await readJsonBody` 之前，因此被拦下的请求不会读 body，也不会进入 `runPrompt` 等运行逻辑——这正是旧实现里 `state.isStreaming` 检查与真正开跑之间存在 `await` 空窗（TOCTOU）的补位。无租约时放行（沿用旧行为，ACP / 定时任务 / 共享会话等不带 clientId 的调用方不受影响）；审批与 ask_user 应答不设租约门禁——它们不写会话，挂上只会让「持有者页看不到卡片」时把运行卡死；两个窗口同时操作时，服务端对已被消费的条目返回 404 + `APPROVAL_ALREADY_SETTLED` / `ASK_ALREADY_SETTLED`，前端（`lib/server-agent/approval-actions.ts`）按幂等成功收敛：清掉本地 pending、不弹错，否则用户会在一个什么都没发生的窗口里看到英文红字。`DELETE /api/agents/:sessionId`（销毁会话）**自多窗口放开后也挂门禁**：此前「旁观窗口能删掉别人正在跑的会话」被当作可接受代价，而那正是靠单窗口守卫兜着的；持有者窗口崩溃时租约按 60s TTL 自然过期，所以不会出现「谁都删不掉」的死角。**唯一例外是 `compact`**：它不在入口调用守卫，而是把守卫作为回调交给 `requestSessionCompaction()`，由后者在 running 判定之后检查（理由见上面 compact 那条）。
 
 ## storage.mjs (426 行)
 

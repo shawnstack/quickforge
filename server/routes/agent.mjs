@@ -552,7 +552,12 @@ export async function handleAgentApi(req, res, url, context = {}) {
   }
 
   // DELETE /api/agents/:sessionId — destroy agent
+  //
+  // 多窗口：销毁是终态动作，必须由会话租约持有者发起。没有租约时照常放行
+  // （单窗口/非浏览器调用方不受影响）；持有者窗口崩溃后租约按 60s TTL 自然
+  // 过期，所以不会出现「谁都删不掉」的死角。
   if (req.method === 'DELETE' && parts.length === 3) {
+    assertSessionWriteAccess(req, sessionId)
     await destroyAgent(sessionId)
     sendJson(res, 200, { ok: true })
     return

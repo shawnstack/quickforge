@@ -30,11 +30,11 @@ src/
 
 | 文件 | 说明 | 行数 |
 |------|------|------|
-| [main.tsx](../../../src/main.tsx) | React 入口，渲染前经 Web Locks 单窗口守卫再挂载 App，生产环境注册 PWA Service Worker | 116 |
+| [main.tsx](../../../src/main.tsx) | React 入口，直接挂载 App（多窗口不再拦截，并发写安全交给会话写租约），生产环境注册 PWA Service Worker | 109 |
 | [App.tsx](../../../src/App.tsx) | 主应用装配层：状态声明、hooks 装配与 JSX 装配（业务规则已按职责迁出，见 hooks/components 文档） | 1426 |
 | [styles/index.css](../../../src/styles/index.css) | 全局样式入口（Tailwind + 有序 `@import`；领域模块在 `styles/` 下） | 45 个 CSS 文件 |
 
-### main.tsx (116 行)
+### main.tsx (109 行)
 
 - 从 `react-dom/client` 创建根节点
 - 应用全局样式入口（`styles/index.css`）
@@ -42,7 +42,7 @@ src/
 - 调用 `applyClipboardPolyfill()` 应用剪贴板兼容处理
 - 生产环境注册 `/sw.js`，启用轻量 PWA 安装和前端静态资源缓存；Capacitor 原生环境不注册 Service Worker
 - Android 薄壳入口由 `components/mobile/MobileServerConnectPage.tsx` 与 `lib/mobile-server.ts` 提供：不再包含 QuickForge Cloud 登录或云隧道，启动后只选择服务器连接方式（局域网 / Tailscale 直连）；服务器选择页以已保存列表为主，点击服务器行才会连接，`lastUsedUrl` 仅用于显示“上次使用”标记。添加表单仅在首次使用或主动添加时展开；表单会提示支持的 Tailscale 地址范围并预览规范化地址，别名编辑与删除收拢在服务器管理区，删除前需要确认。连接地址仅接受 `.ts.net` MagicDNS 完整域名或 Tailscale `100.64.0.0/10` 地址，远端页面继续保持页面、REST、SSE 和 LAN Cookie 同源；侧栏底部可通过当前地址返回服务器选择页
-- 渲染前调用 `lib/window-guard.ts` 的 `acquireAppWindowGuard()`（Web Locks 严格单窗口，ifAvailable 抢锁很快）：granted/unsupported 正常渲染 App；blocked 窗口只渲染 `WindowGuardNotice` 拦截页——不加载 App、不建立 SSE 连接，纯静态提示用户关闭本窗口并回到已有窗口使用（不提供关闭按钮：浏览器不允许脚本关闭手动打开的标签页）
+- 同一浏览器上下文允许同时开多个标签页。曾经的 Web Locks 严格单窗口守卫（第二窗口只渲染静态拦截页）已移除：它的立论是「每窗口 2-4 条常驻 SSE 会占满 HTTP/1.1 同源 6 连接池」，而 `channels/events` 整条流已删除、会话级 `stream` 零调用方，如今每窗口只剩 1 条常驻 SSE（`/api/agents/events`）。**并发写安全由会话写租约承担**，不需要在入口拦窗口：同一会话同时只有一个写入者，其余窗口自动降级只读并给出「在此窗口接管」（见 `lib/session-lease-controller.ts`）。注意**多窗口 ≠ 多项目**：`activeProjectId` / `workspaceRoot` 是服务端进程级全局量且 `projects-changed` 会广播，两个窗口始终共享同一个当前项目
 - 在 `<StrictMode>` 中渲染 `<App />` 组件
 
 ### App.tsx (1426 行)

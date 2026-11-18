@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   requestSessionCompaction: vi.fn(async () => ({ sessionId: 'session-1', scheduled: true, compacted: false })),
   isSessionFileRollbackBusy: vi.fn(() => false),
   releaseSse: vi.fn(),
+  destroyAgent: vi.fn(),
   rollbackSessionMessages: vi.fn(),
   acquireSessionLease: vi.fn(() => ({ ok: true, lease: { clientId: 'client-a' }, acquired: true })),
   takeOverSessionLease: vi.fn(() => ({ ok: true, lease: { clientId: 'client-a' }, acquired: true })),
@@ -64,7 +65,7 @@ vi.mock('../../../server/agent-manager.mjs', () => ({
   approveToolCall: vi.fn(),
   continueSession: vi.fn(),
   createAgent: vi.fn(),
-  destroyAgent: vi.fn(),
+  destroyAgent: mocks.destroyAgent,
   followUpAgent: vi.fn(),
   getSessionEventBus: mocks.getSessionEventBus,
   getSessionState: mocks.getSessionState,
@@ -1193,6 +1194,55 @@ describe('session lease routes', () => {
     }
 
     expect(mocks.canWriteSession).toHaveBeenCalledTimes(10)
+  })
+
+  // 多窗口：销毁是终态动作，必须由租约持有者发起。没有租约时照常放行，
+  // 持有者窗口崩溃后租约按 60s TTL 过期，所以不存在「谁都删不掉」的死角。
+  it('refuses to destroy a session whose lease belongs to another window', async () => {
+    mocks.destroyAgent.mockReset()
+    mocks.canWriteSession.mockReturnValue({ ok: false, holder: 'client-b', lease: { clientId: 'client-b' } })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const req = request(undefined)
+    req.method = 'DELETE'
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await expect(handleAgentApi(
+      req,
+      response(),
+      new URL('http://localhost/api/agents/session-1'),
+      { isLocalRequest: true },
+    )).rejects.toMatchObject({ statusCode: 409, errorCode: 'SESSION_LEASE_HELD', holder: 'client-b' })
+
+    // 关键：被拦下时绝不能真的销毁。
+    expect(mocks.destroyAgent).not.toHaveBeenCalled()
+  })
+
+  it('lets the lease holder destroy the session', async () => {
+    mocks.destroyAgent.mockReset()
+    mocks.canWriteSession.mockReturnValue({ ok: true })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request(undefined)
+    req.method = 'DELETE'
+    req.headers = { 'x-quickforge-client-id': 'client-a' }
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1'), { isLocalRequest: true })
+
+    expect(mocks.destroyAgent).toHaveBeenCalledWith('session-1')
+    expect(res.status).toBe(200)
+  })
+
+  it('lets a session be destroyed when nobody holds a lease', async () => {
+    mocks.destroyAgent.mockReset()
+    mocks.canWriteSession.mockReturnValue({ ok: true })
+    const { handleAgentApi } = await import('../../../server/routes/agent.mjs')
+    const res = response()
+    const req = request(undefined)
+    req.method = 'DELETE'
+
+    await handleAgentApi(req, res, new URL('http://localhost/api/agents/session-1'), { isLocalRequest: true })
+
+    expect(mocks.destroyAgent).toHaveBeenCalledWith('session-1')
   })
 
   // compact 是唯一不把租约守卫放在入口的写路由：它在 running 判定之后才检查，

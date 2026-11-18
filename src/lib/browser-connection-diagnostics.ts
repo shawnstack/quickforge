@@ -4,7 +4,9 @@
  * 目的：在 DevTools 控制台执行 `window.__quickforgePerf()` 就能区分
  * 「浏览器 HTTP/1.1 同源 6 连接池耗尽（请求在浏览器侧排队）」与「服务端阻塞」：
  * - 排队时长取 PerformanceResourceTiming 的 `requestStart - startTime`；
- * - 常驻长连接数来自包装后的 `window.fetch`（SSE / NDJSON 流式响应）；
+ * - 常驻长连接数 = 包装后的 `window.fetch`（NDJSON 等流式响应）+ 包装后的
+ *   `window.EventSource`（SSE 不经过 fetch，必须单独包，否则看不到
+ *   `/api/agents/events` 这条每窗口唯一的常驻连接）；
  * - 排队超过阈值的请求会 console.warn，同 path 在节流窗口内只告警一次。
  *
  * 约束：
@@ -27,6 +29,8 @@ const DIAGNOSTICS_WARN_PRUNE_INTERVAL_MS = 60_000
 
 /** 包装后的 fetch 上的标记，用于保证重复包装幂等。 */
 const FETCH_WRAPPED_FLAG = '__quickforgeConnectionDiagnostics'
+/** 已包装过的 EventSource 构造器（Proxy 无法安全挂自有属性，用 WeakSet 记）。 */
+const instrumentedEventSources = new WeakSet<object>()
 /** 视为常驻长连接的响应 content-type 片段。 */
 const LONG_LIVED_CONTENT_TYPES = ['text/event-stream', 'application/x-ndjson']
 /** 无需依赖 base 即可判定为「本机服务」的 hostname（dev 下前端 :5176 与 API :32176 端口不同）。 */
@@ -118,6 +122,8 @@ export type BrowserConnectionDiagnosticsOptions = {
   performanceObserver?: DiagnosticsObserverFactory | null
   /** 被包装的 fetch，默认 globalThis.fetch；传 null 表示不包装。 */
   fetch?: typeof fetch | null
+  /** 被包装的 EventSource 构造器，默认 globalThis.EventSource；传 null 表示不包装。 */
+  eventSource?: typeof EventSource | null
   /** 告警输出，默认 globalThis.console。 */
   console?: DiagnosticsConsole
   setTimeout?: (handler: () => void, timeoutMs: number) => number
@@ -144,6 +150,7 @@ type DiagnosticsState = {
   queueWarnCount: number
   maxQueueMs: number
   inFlight: number
+  /** 当前存活的常驻长连接数（fetch 流式响应 + SSE）。 */
   activeLongLived: number
   /** 最近慢排队样本（环形，最多 slowSampleLimit 条）。 */
   slowQueue: DiagnosticsSample[]
@@ -274,6 +281,8 @@ export function startBrowserConnectionDiagnostics(
 
   // --- fetch 包装：in-flight + 常驻长连接 ---------------------------------
   const restoreFetch = installFetchTracking(state, options)
+  // --- EventSource 包装：SSE 不经过 fetch，单独统计常驻连接 --------------
+  const restoreEventSource = installEventSourceTracking(state, options)
 
   const session: BrowserConnectionDiagnosticsSession = {
     stop() {
@@ -290,6 +299,7 @@ export function startBrowserConnectionDiagnostics(
         pruneHandle = null
       }
       restoreFetch?.()
+      restoreEventSource?.()
       if (activeSession === session) activeSession = null
     },
   }
@@ -312,7 +322,7 @@ export function formatDiagnosticsReport(): string {
   const lines = [
     '[QuickForge] 浏览器连接池诊断',
     `采集：${state.running ? '运行中' : '已停止'}（排队阈值 ${state.slowQueueMs}ms，告警节流 ${state.warnThrottleMs}ms）`,
-    `in-flight: ${state.inFlight} | activeLongLived: ${state.activeLongLived}`,
+    `in-flight: ${state.inFlight} | activeLongLived: ${state.activeLongLived}（SSE + NDJSON）`,
     `采样：命中 ${state.trackedEntries} / 共 ${state.totalEntries} 条 | 排队超阈值：${state.queueWarnCount} 次 | 最大排队：${roundMs(state.maxQueueMs)}ms`,
   ]
 
@@ -521,6 +531,74 @@ function installFetchTracking(
 
   return () => {
     if (globalThis.fetch === wrapped) globalThis.fetch = original
+  }
+}
+
+/**
+ * 包装 `EventSource`：统计常驻 SSE 连接数。
+ *
+ * 为什么必须单独包——`EventSource` 不经过 `window.fetch`，只包 fetch 的话
+ * `activeLongLived` 永远看不到 SSE，而 `/api/agents/events` 正是每窗口唯一一条
+ * 常驻连接。放开多窗口后「连接池还够不够」全靠这个数，看不到就等于没法验证。
+ *
+ * 释放口径：`close()` 被调用，或 readyState 进入 `CLOSED(2)`（服务端关闭且不再
+ * 重连）。`CONNECTING(0)` 是自动重连中的正常状态，不释放——否则每次网络抖动
+ * 都会让计数漏减。
+ *
+ * 用 Proxy 而不是子类：Proxy 会转发静态常量（`EventSource.CONNECTING` 等），
+ * 且 `instanceof` 仍然成立；幂等标记记在 WeakSet 上，避免往原生构造器挂属性。
+ */
+function installEventSourceTracking(
+  state: DiagnosticsState,
+  options: BrowserConnectionDiagnosticsOptions,
+): (() => void) | null {
+  const source =
+    options.eventSource !== undefined
+      ? options.eventSource
+      : typeof globalThis.EventSource === 'function'
+        ? globalThis.EventSource
+        : null
+
+  if (!source || instrumentedEventSources.has(source)) return null
+
+  const original = source
+  const wrapped = new Proxy(original, {
+    construct(target, args) {
+      const instance = Reflect.construct(target, args) as EventSource
+      state.activeLongLived += 1
+      let released = false
+      const release = () => {
+        if (released) return
+        released = true
+        state.activeLongLived = Math.max(0, state.activeLongLived - 1)
+      }
+      try {
+        const originalClose = instance.close.bind(instance)
+        instance.close = () => {
+          release()
+          originalClose()
+        }
+        instance.addEventListener('error', () => {
+          if (instance.readyState === 2) release()
+        })
+      } catch {
+        // 实例不可写（极端沙箱）：不计这条连接，避免计数永远漏减
+        release()
+      }
+      return instance
+    },
+  })
+  instrumentedEventSources.add(original)
+
+  try {
+    globalThis.EventSource = wrapped
+  } catch {
+    instrumentedEventSources.delete(original)
+    return null
+  }
+
+  return () => {
+    if (globalThis.EventSource === wrapped) globalThis.EventSource = original
   }
 }
 

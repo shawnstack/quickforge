@@ -219,7 +219,6 @@ components/
 │   ├── prompt-dialog.tsx           # 提示输入对话框 (131 行)
 │   └── toast.tsx                   # Toast 通知组件 (153 行)
 ├── ErrorBoundary.tsx               # 错误边界组件 (63 行)
-├── WindowGuardNotice.tsx           # Web Locks 单窗口拦截页：blocked 窗口全屏纯静态提示（无按钮） (33 行)
 ├── mcp/                             # MCP 服务器管理面板拆件（卡片 / 表单），概览见下文「mcp/」小节
 │   ├── mcp-server-card.tsx          # 单个服务器行：状态徽标、工具 chips、启停 / 编辑 / 删除 / 重连入口
 │   └── mcp-server-form.tsx          # 表单主体（名称 / transport / stdio 命令与环境），args 与 env 走文本互转
@@ -568,10 +567,6 @@ self-hosted-chat-ui T3 交付、T5 已完成集成挂载的 React 版聊天面�
 ### ErrorBoundary.tsx (63 行)
 
 React 类组件实现的错误边界，捕获子组件渲染错误并显示降级 UI。
-
-### WindowGuardNotice.tsx (33 行)
-
-Web Locks 单窗口拦截页：仅在被 blocked 的窗口渲染（`main.tsx` 渲染前抢锁失败时），不加载 App、不发任何 `/api` 请求。纯静态提示（无按钮、无 state、无 `window.close()`——浏览器不允许脚本关闭手动打开的标签页，实测关闭按钮无效后移除）：全屏居中卡片复用既有 token（`bg-background` / `border-border` / `shadow-quickforge` / `rounded-xl`）与内联 SVG 层叠窗口图标 + 双语标题/描述（`windowGuardTitle` / `windowGuardDescription`），文案引导用户关闭本窗口并回到已有窗口使用。
 
 ### 工作台（`workbench/`）
 

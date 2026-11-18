@@ -95,7 +95,7 @@ export function openWorkspaceExternal(projectId: string, path: string, target: W
 }
 
 // 大仓库（海量未跟踪文件 + numstat）的 git status 可运行数分钟；HTTP/1.1 同源
-// 连接池只有 6 条，无超时的挂起请求会连同两条常驻 SSE 把后续请求全部阻塞。
+// 连接池只有 6 条，无超时的挂起请求会连同每窗口 1 条常驻 SSE（`/api/agents/events`）把后续请求全部阻塞。
 const GIT_STATUS_TIMEOUT_MS = 20_000
 
 /** git status 结果短 TTL 缓存：命中即返回，避免同一项目在短时间内被多个面板重复请求。 */

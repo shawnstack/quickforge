@@ -210,6 +210,62 @@ describe('startBrowserConnectionDiagnostics', () => {
     expect(globalThis.fetch).toBe(fakeFetch)
   })
 
+  it('包装 EventSource：统计常驻 SSE 连接，close 与 CLOSED 释放，重连中不释放，stop 还原', () => {
+    class FakeEventSource {
+      static readonly CONNECTING = 0
+      static readonly OPEN = 1
+      static readonly CLOSED = 2
+      readyState = 0
+      closed = false
+      private listeners = new Map<string, Array<() => void>>()
+      constructor(public readonly url: string) {}
+      addEventListener(type: string, listener: () => void) {
+        const list = this.listeners.get(type) ?? []
+        list.push(listener)
+        this.listeners.set(type, list)
+      }
+      close() {
+        this.closed = true
+        this.readyState = FakeEventSource.CLOSED
+      }
+      emit(type: string) {
+        for (const listener of this.listeners.get(type) ?? []) listener()
+      }
+    }
+
+    const observer = createFakeObserver()
+    vi.stubGlobal('EventSource', FakeEventSource)
+    const session = startDiagnostics({
+      performanceObserver: observer.factory,
+      eventSource: FakeEventSource as unknown as typeof EventSource,
+    })
+    const Wrapped = globalThis.EventSource
+    expect(Wrapped).not.toBe(FakeEventSource)
+
+    // SSE 不经过 window.fetch —— 这是「放开多窗口后连接池够不够」唯一能看到的数
+    const stream = new Wrapped('/api/agents/events') as unknown as FakeEventSource
+    expect(formatDiagnosticsReport()).toContain('activeLongLived: 1')
+
+    // readyState=CONNECTING 时的 error 是自动重连中，不能当成关闭
+    stream.emit('error')
+    expect(formatDiagnosticsReport()).toContain('activeLongLived: 1')
+
+    // 服务端关闭且不再重连（CLOSED）→ 释放
+    stream.readyState = FakeEventSource.CLOSED
+    stream.emit('error')
+    expect(formatDiagnosticsReport()).toContain('activeLongLived: 0')
+
+    // 显式 close() → 释放，且只减一次（重复 close 不会把计数减成负数）
+    const second = new Wrapped('/api/agents/events') as unknown as FakeEventSource
+    expect(formatDiagnosticsReport()).toContain('activeLongLived: 1')
+    second.close()
+    second.close()
+    expect(formatDiagnosticsReport()).toContain('activeLongLived: 0')
+
+    session.stop()
+    expect(globalThis.EventSource).toBe(FakeEventSource)
+  })
+
   it('普通 JSON 响应不计入常驻长连接，且 fetch 参数透传', async () => {
     const observer = createFakeObserver()
     const fakeFetch = vi.fn(async () => new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } }))

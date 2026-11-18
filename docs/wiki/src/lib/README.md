@@ -64,7 +64,7 @@
 
 | 文件 | 行数 | 用途 |
 |------|------|------|
-| `i18n.ts` | 4957 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键；**未知键兜到键名本身**（返回键名而不是 `undefined`、带 params 也不抛 `TypeError`），开发态再补一条 `console.warn` |
+| `i18n.ts` | 4953 | 国际化（中/英）翻译和语言管理；`applyAppLanguageFromSnapshot` 供启动快照预应用（不写库不 reload）；surface 文案统一走 `appTranslations.en/zh`，新增/修改 surface 文案必须同时补中英键；**未知键兜到键名本身**（返回键名而不是 `undefined`、带 params 也不抛 `TypeError`），开发态再补一条 `console.warn` |
 | `error-messages.ts` | 42 | 已知上游代码异常文案的展示层国际化：`translateErrorMessage(message)` 以「精确/参数正则 → i18n key」规则表映射 pi-ai（Request was aborted、流异常结束）、ai-http-logger（AI stream idle/total timeout）、undici fetch failed 与 server-agent prompt HTTP 兜底等已知英文异常串；数据层保持原文（持久化、appendAssistantErrorMessageOnce 去重、subagent trace 去重都依赖原始文本），仅在展示层（message-actions 错误红块装饰、local-tools subagent 错误原因卡）调用；未匹配的动态正文原样显示 |
 | `error-noise.ts` | 13 | 良性错误噪音识别：`isResizeObserverLoopError(value)` 对字符串或 `Error.message` 匹配 `ResizeObserver loop`（覆盖 "completed with undelivered notifications" 与 "loop limit exceeded" 变体，普通对象不识别）；`main.tsx` 全局 error/unhandledrejection 入口命中即降级 `logger.debug`（`quickforge_debug=1` 才可见），真实错误仍按 error 级别上报 |
 | `pi-chat.ts` | 497 | Pi Chat 初始化和模型管理 |
@@ -132,8 +132,7 @@
 | `logger.ts` | 56 | 前端日志工具 |
 | `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
 | `random-id.ts` | 19 | UUID 生成 |
-| `window-guard.ts` | 118 | Web Locks 严格单窗口守卫（纯锁守卫）：`acquireAppWindowGuard` 以 `ifAvailable` 抢锁（持锁成功时 request promise 因回调永不结束不会结算，成功判定只依赖 acquired 标志）；同窗口刷新竞态按 400ms×2 重试后判 blocked（blocked 窗口由 main.tsx 渲染拦截页）；Web Locks 不可用降级放行（unsupported，BroadcastChannel 等不再是依赖） |
-| `browser-connection-diagnostics.ts` | 560 | 浏览器侧连接池 / 请求排队诊断采集器：`PerformanceObserver` 采同源资源计时（排队 = `requestStart - startTime`），包装 `window.fetch` 统计 in-flight 与常驻长连接（SSE / NDJSON，clone 分支观测结束、不改原响应体），排队超阈值 `console.warn`（同 path 节流 30s），`window.__quickforgePerf()` 输出报告并异步拉取 `GET /api/diagnostics`；`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭 |
+| `browser-connection-diagnostics.ts` | 638 | 浏览器侧连接池 / 请求排队诊断采集器：`PerformanceObserver` 采同源资源计时（排队 = `requestStart - startTime`），包装 `window.fetch` 统计 in-flight 与常驻长连接（NDJSON 流式响应，clone 分支观测结束、不改原响应体），另用 Proxy 包装 `window.EventSource` 统计常驻 SSE（`close()` 或 readyState 进入 CLOSED 才释放，CONNECTING 的自动重连不算释放——SSE 不经过 fetch，不单独包就看不到每窗口那条 `/api/agents/events`），排队超阈值 `console.warn`（同 path 节流 30s），`window.__quickforgePerf()` 输出报告并异步拉取 `GET /api/diagnostics`；`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭 |
 | `tool-display-settings.ts` | 60 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 162 | 工具执行事件处理（类型/消息合并 + `toolCallIdsWithoutToolResult` pendingToolCalls 合成） |
 | `tool-param-summary.ts` | 77 | 工具参数→摘要文案纯函数：`summarizeParams`（自 local-tools 提取，按工具名取 command/path/query 等生成单行摘要；`run_command` 优先返回非空 `description` 参数、空缺时回退 `command`）、`normalizeToolArguments`（toolCall arguments 归一化，兼容 JSON 字符串）、`truncateSummary`；工具卡片与 subagent 跑马灯共用同一套规则。run_command 摘要行显示 description 时，渲染器悬停 title 会附带命令本身（`local-workspace-tool-renderer.tsx`） |
@@ -195,7 +194,7 @@
 
 ## 核心模块
 
-### i18n.ts (4957 行)
+### i18n.ts (4953 行)
 
 **用途**: 国际化支持。包含中英文翻译字典和应用语言管理。
 
@@ -433,7 +432,7 @@
 
 - `cn()` — Tailwind class 合并工具 (封装 `clsx` + `tailwind-merge`)
 
-### browser-connection-diagnostics.ts (560 行)
+### browser-connection-diagnostics.ts (638 行)
 
 **用途**: 浏览器侧连接池 / 请求排队诊断采集器。目标是在 DevTools 控制台执行 `window.__quickforgePerf()` 就能区分「浏览器 HTTP/1.1 同源 6 连接池耗尽（请求在浏览器侧排队）」与「服务端阻塞」。
 

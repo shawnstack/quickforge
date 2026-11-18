@@ -7,13 +7,11 @@ import { applyClipboardPolyfill } from '@/lib/clipboard-polyfill'
 import { isMobileShell } from '@/lib/mobile-server'
 import { logger } from '@/lib/logger'
 import { isResizeObserverLoopError } from '@/lib/error-noise'
-import { acquireAppWindowGuard } from '@/lib/window-guard'
 import {
   formatDiagnosticsReport,
   startBrowserConnectionDiagnostics,
 } from '@/lib/browser-connection-diagnostics'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { WindowGuardNotice } from '@/components/WindowGuardNotice'
 import App from './App.tsx'
 
 // 浏览器侧连接池诊断：DevTools 里执行 window.__quickforgePerf() 可查看请求排队与常驻长连接；
@@ -87,30 +85,25 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator && !Capacitor.isNativeP
 // Keep this entry module explicit so Vite invalidates stale HMR import timestamps.
 const root = createRoot(document.getElementById('root')!)
 
-// 渲染前先通过 Web Locks 保证同一浏览器上下文严格单窗口（ifAvailable 抢锁很快）：
-// granted / unsupported 正常渲染 App；blocked 的窗口只渲染拦截页——不加载 App、
-// 不建立 SSE 连接，拦截页引导用户关闭本窗口并回到已有窗口。
-async function bootstrap() {
-  const guard = await acquireAppWindowGuard()
-
-  if (guard.status === 'blocked') {
-    root.render(
-      <StrictMode>
-        <WindowGuardNotice />
-      </StrictMode>,
-    )
-    return
-  }
-
-  root.render(
-    <StrictMode>
-      <LucideProvider strokeWidth={1.75}>
-        <ErrorBoundary>
-          <App />
-        </ErrorBoundary>
-      </LucideProvider>
-    </StrictMode>,
-  )
-}
-
-void bootstrap()
+// 多窗口：同一浏览器上下文允许同时开多个标签页（2026-11-18 起）。
+//
+// 曾经这里是 Web Locks 严格单窗口守卫，理由是「每窗口 2-4 条常驻 SSE 会占满
+// HTTP/1.1 同源 6 连接池」。该前提已不成立：channels/events 整条流已删除、
+// 会话级 stream 零调用方，如今每窗口只剩 1 条常驻 SSE（`/api/agents/events`）。
+//
+// 并发写安全由「会话写租约」承担，不需要在入口拦窗口：
+// - 同一会话同时只有一个写入者，其余窗口自动降级只读并给出「在此窗口接管」
+//   （`src/lib/session-lease-controller.ts` + `ChatSurface` 的租约提示条）；
+// - 另一个窗口可以自由查看、切换别的会话，这是多窗口的全部价值所在。
+//
+// 注意：多窗口 ≠ 多项目。`activeProjectId` / `workspaceRoot` 是服务端进程级
+// 全局量，且 `projects-changed` 会广播——两个窗口始终共享同一个当前项目。
+root.render(
+  <StrictMode>
+    <LucideProvider strokeWidth={1.75}>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </LucideProvider>
+  </StrictMode>,
+)

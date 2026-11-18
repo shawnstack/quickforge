@@ -612,7 +612,7 @@ bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自�
 Dreaming 是「内存策展」（memory curator）：每跳跑完的会话各自起一次 agent turn，去改工作记忆目录、有必要时把一条经验提升进经验库。所以「一次 run」描述的是**每个会话各自做了什么**，经验库才是给人翻的那一面。本目录是它的设置页与数据层。
 
 - `dreaming/dreaming-data.ts` (252 行) # 传输类型与 fetch 层：`DreamingOverview` / `DreamingRun` / `DreamingExperience` / `DreamingSettings` 等类型，overview、settings 保存、手动触发、runs 列表与详情、restore，以及经验列表与「打开目录」，外加时间 / 耗时格式化（`formatDreamingTimestamp` / `formatDreamingDuration`）
-- `dreaming/DreamingSettingsTab.tsx` (759 行) # 「设置 → Dreaming」整页：概览、排期与模型选择（`formatModelOptionLabel` / `modelRefKey`）、手动触发与运行历史、经验库浏览与打开、restore 操作
+- `dreaming/DreamingSettingsTab.tsx` (804 行) # 「设置 → Dreaming」整页：概览、排期与模型选择（`formatModelOptionLabel` / `modelRefKey`）、手动触发与运行历史、经验库浏览与打开（列表 20 条/页前端分页，搜索结果从头一页开始）、restore 操作
 
 ### mcp-servers-dialog.tsx (404 行)
 

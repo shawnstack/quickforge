@@ -353,6 +353,7 @@ export function DreamingSettingsTab() {
 
   const [experiences, setExperiences] = useState<DreamingExperience[]>([])
   const [experienceQuery, setExperienceQuery] = useState('')
+  const [experiencePage, setExperiencePage] = useState(1)
   const [indexOpen, setIndexOpen] = useState(false)
   const [openingExperience, setOpeningExperience] = useState('')
   const [openingFolder, setOpeningFolder] = useState(false)
@@ -417,6 +418,9 @@ export function DreamingSettingsTab() {
       setMessage(result.skipped ? t('dreamingRunSkipped') : t('dreamingRunQueued'))
       await loadOverview()
       await Promise.all([loadRuns(1), loadExperiences()])
+      // Same reset the runs list gets after a rerun: fresh entries land at the
+      // top, so park the reader back on page one.
+      setExperiencePage(1)
       if (!result.skipped) setView('runs')
     } catch (err) {
       setError(err instanceof Error ? err.message : t('requestFailed'))
@@ -459,6 +463,17 @@ export function DreamingSettingsTab() {
       entry.title.toLowerCase().includes(query) || (entry.description ?? '').toLowerCase().includes(query)
     ))
   }, [experienceQuery, experiences])
+
+  // Client-side pagination: the list endpoint already reads every file's front
+  // matter to build rows (and the search box filters client-side too), so a
+  // second server round-trip per page would buy nothing. Falling back to the
+  // last valid page keeps the pager honest when a filter shrinks the list.
+  const totalExperiencePages = Math.max(1, Math.ceil(filteredExperiences.length / pageSize))
+  const experiencePageSafe = Math.min(experiencePage, totalExperiencePages)
+  const pagedExperiences = filteredExperiences.slice(
+    (experiencePageSafe - 1) * pageSize,
+    experiencePageSafe * pageSize,
+  )
 
   const modelOptions = useMemo(() => {
     // Models without a resolvable reference cannot be pinned (their empty key
@@ -629,7 +644,12 @@ export function DreamingSettingsTab() {
                 value={experienceQuery}
                 placeholder={t('dreamingExperienceSearchPlaceholder')}
                 aria-label={t('dreamingExperienceSearchPlaceholder')}
-                onChange={(event) => setExperienceQuery(event.currentTarget.value)}
+                onChange={(event) => {
+                  setExperienceQuery(event.currentTarget.value)
+                  // A new query must start from its first page, or the pager
+                  // could park the reader on the clamped tail of a shorter list.
+                  setExperiencePage(1)
+                }}
               />
               <Button
                 variant="ghost"
@@ -651,7 +671,7 @@ export function DreamingSettingsTab() {
               <div className="text-sm text-muted-foreground">{t('dreamingExperienceEmpty')}</div>
             ) : (
               <ul className="quickforge-dreaming-list">
-                {filteredExperiences.map((entry) => (
+                {pagedExperiences.map((entry) => (
                   <li className="quickforge-settings-list-item" key={entry.name}>
                     <div className="quickforge-settings-list-item-main flex flex-col gap-1">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -691,6 +711,29 @@ export function DreamingSettingsTab() {
                 ))}
               </ul>
             )}
+            {totalExperiencePages > 1 ? (
+              <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  disabled={experiencePageSafe <= 1}
+                  onClick={() => setExperiencePage(experiencePageSafe - 1)}
+                >
+                  {t('dreamingPrev')}
+                </Button>
+                <span>{t('dreamingPage', { page: experiencePageSafe, total: totalExperiencePages })}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  disabled={experiencePageSafe >= totalExperiencePages}
+                  onClick={() => setExperiencePage(experiencePageSafe + 1)}
+                >
+                  {t('dreamingNext')}
+                </Button>
+              </div>
+            ) : null}
             {experienceError ? <div className="quickforge-dreaming-error">{experienceError}</div> : null}
             <div className="flex flex-col gap-2">
               <button

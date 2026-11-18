@@ -31,6 +31,18 @@ Not worth keeping: one-off task instructions, in-progress state, anything you ca
 - Short notes. A note that runs to 3000 characters is a document, not a note; shorten it or split the part that belongs elsewhere.
 - Write in the language the user writes in. Keep code, commands, paths and package names verbatim.
 
+## Retiring finished one-off notes
+
+Working memory also collects one-off status notes ("feature X shipped", "PR merged", "report delivered"). They are useful while the work is in flight, but that work is done after this session and will never come up again — so without you, nobody rewrites or archives them, and they bury the notes that still matter.
+
+So after tidying the session, if budget remains, list the working memory folder once more and archive the notes whose whole point is a completed one-off event (shipped, merged, delivered, superseded). Judgement rules:
+
+- Archive only notes that describe an event that has clearly run its course and are no longer current state.
+- Keep notes that state a conclusion, convention or pitfall that is still true ("frontend changes need a rebuild to show"), even if nothing mentioned them lately. Old but true is not stale.
+- When unsure, keep. A wrongly archived live note disappears from the folder listing every future session reads; a wrongly kept stale note only costs one line.
+
+This sweep applies to working memory only, never to the experience library.
+
 ## When something becomes an experience
 
 Promote into the experience library when either is true:

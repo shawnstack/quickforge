@@ -58,6 +58,17 @@ describe('curator prompt contract', () => {
     expect(CURATOR_SYSTEM_PROMPT).toMatch(/index\.md.*generated|generated.*index\.md/is)
   })
 
+  it('assigns directory-level retirement of finished one-off notes', () => {
+    expect(CURATOR_SYSTEM_PROMPT).toMatch(/archive the notes whose whole point is a completed one-off event/i)
+    expect(CURATOR_SYSTEM_PROMPT).toMatch(/Old but true is not stale/)
+    expect(CURATOR_SYSTEM_PROMPT).toMatch(/When unsure, keep/)
+    // The sweep must stay scoped to working memory — experiences are never
+    // archived for being old ("Never archive an experience just because it is
+    // old"), and the two rules must not drift apart silently.
+    const sweep = CURATOR_SYSTEM_PROMPT.match(/working memory only, never to the experience library/i)
+    expect(sweep).not.toBeNull()
+  })
+
   it('puts the session header, language directive and transcript in the user message', () => {
     const prompt = buildCuratorUserPrompt({
       session: {

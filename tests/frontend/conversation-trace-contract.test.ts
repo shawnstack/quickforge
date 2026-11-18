@@ -120,8 +120,8 @@ describe('inspector default', () => {
 
     expect(host).toMatch(/hideTurnNavigation\?: boolean/)
     expect(host).toContain("data-turn-navigation={hideTurnNavigation ? 'hidden' : undefined}")
-    // App ties it to the view, not to a session or a manual toggle.
-    expect(app).toContain("hideTurnNavigation={conversationView === 'trace'}")
+    // App ties it to the view (and to bot mode), not to a session or a manual toggle.
+    expect(app).toContain("hideTurnNavigation={botMode || conversationView === 'trace'}")
     // CSS actually hides both the rail and its body-mounted tooltip.
     expect(globalCss).toMatch(/\.quickforge-chat-panel-host\[data-turn-navigation='hidden'\] \.quickforge-turn-navigation \{\s*display: none !important;/)
     expect(globalCss).toMatch(/body:has\(\.quickforge-chat-panel-host\[data-turn-navigation='hidden'\]\) \.quickforge-turn-navigation-tooltip \{\s*display: none !important;/)

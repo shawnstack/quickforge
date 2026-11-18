@@ -395,7 +395,11 @@ export function AppMain(props: AppMainProps) {
                     // 轨迹视图盖住对话时，对话区左侧的轮次导航条要一并隐藏——
                     // 它是 host 的绝对定位子节点（z-index 20 > 轨迹层 10），
                     // 不隐藏会浮在轨迹面板上面。
-                    hideTurnNavigation={conversationView === 'trace'}
+                    // Bot 模式也不要这条刻度：bot 的对话按「一件事一段」走，不靠轮次跳转回看，
+                    // 左侧那条竖刻度只会和 bot 侧栏的极简布局抢视觉重量。这里用运行时开关
+                    // （CSS display:none）而不是结构性的 showTurnNavigation——后者在 effect
+                    // 依赖里，切模式会把整个对话面板重建一次。
+                    hideTurnNavigation={botMode || conversationView === 'trace'}
                   />
                     )}
                   />

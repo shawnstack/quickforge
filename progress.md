@@ -3,17 +3,17 @@
 只保留日期最新的一段与 Notes；更早的条目由 `node scripts/archive-harness.mjs` 归档到 `docs/archive/progress/`（按月分文件）。
 新的段落加在最上面（时间倒序）。
 
-## 放开浏览器单窗口守卫：多窗口写入安全补齐（2026-11-18 16:20）
+## 经验库列表补分页，参照工作记忆的翻页交互（2026-11-18 17:20）
 
-- 判断依据：原 `browser-single-window-guard` 的立论是「每窗口 2-4 条常驻 SSE 占满 HTTP/1.1 同源 6 连接池」（见 `docs/archive/progress-archive.md:3079-3081`）。该前提已失效——`channels/events` 整条流已删除、会话级 `/api/agents/:sid/stream` 仓内零调用方，现在每窗口只剩 1 条常驻 SSE（`/api/agents/events`）。为一个消失的问题保留「第二窗口直接进不去」，代价不再划算。
-- 关键事实（写进 `src/main.tsx` 注释与 wiki）：**多窗口 ≠ 多项目**。`activeProjectId` / `workspaceRoot` 是服务端进程级全局量（`server/project-config.mjs` `setActiveProjectPath` → `setWorkspaceRoot`），且 `projects-changed` 会广播，两个窗口始终共享同一个当前项目，只能各自看不同会话。已有会话的工具工作区绑定在 `session.projectContext.workspaceRoot`，不会串目录。
-- 改动：① 删除 `src/lib/window-guard.ts`、`src/components/WindowGuardNotice.tsx`、`tests/frontend/window-guard.test.ts`，`src/main.tsx` 去掉 `bootstrap()` 异步入口直接挂载 App（109 行），i18n 删 `windowGuardTitle/Description` 中英 4 行。② 审批幂等：`server/agent-approval-responses.mjs` 给「条目已被消费」的 404 加 `errorCode: APPROVAL_ALREADY_SETTLED` / `ASK_ALREADY_SETTLED`，`src/lib/server-agent/approval-actions.ts` 识别后按幂等成功收敛（清本地 pending、不抛错）——两个窗口都能看到同一张卡，后点的那个不再看到英文红字。③ `DELETE /api/agents/:sid` 挂 `assertSessionWriteAccess`（销毁是终态动作，此前靠单窗口守卫兜着；持有者崩溃时租约 60s TTL 过期，不会出现谁都删不掉）。④ `browser-connection-diagnostics.ts` 用 Proxy 包装 `window.EventSource` 统计常驻 SSE（`close()` 或 readyState→CLOSED 才释放，CONNECTING 自动重连不算）——只包 fetch 看不到 SSE，放开后就没法用 `window.__quickforgePerf()` 验证连接池。⑤ `workspace-api.ts` 过时注释「两条常驻 SSE」改为「每窗口 1 条」。⑥ wiki 4 处 + `server/routes/README.md` 租约段落同步。
-- 测试（三处先红后绿，都实测过退化会红）：新增 `tests/frontend/approval-actions-settled.test.ts`（5 例：approve/reject/answerAsk 幂等收敛 + 无 code 的 404 与 5xx 仍抛错且不清 pending；把 `settledElsewhereCode` 改成 `return false` 后 3 例红）；`tests/server/routes/agent.test.mjs` 新增 3 例 DELETE 租约（非持有者 409 且不销毁 / 持有者可删 / 无租约可删；去掉守卫后第一例红在「promise resolved instead of rejecting」）；`tests/frontend/browser-connection-diagnostics.test.ts` 新增 EventSource 用例（计数、重连不释放、CLOSED 与 close 释放且不重复减、stop 还原；关掉 `installEventSourceTracking` 后红）。
-- 验证：`npm run test` 611 文件 6526 例通过 / 2 skipped / 0 失败（本轮并发全量没复现 goal 域 hookTimeout 抖动）；`npm run lint` 净；`npm run build` 通过；`npm run check:wiki` matched=402 resolved=401 bad=0。
-- 边界：未 commit / tag / push；未新增依赖；`dist/` 由 build 重新生成（未手工改）；**未支持「两个窗口看不同项目」**，那是 per-client project 量级的独立 feature，本次明确不做。
-- 下一步（第二阶段，未做）：localStorage 三个整表读-改-写（`composer-drafts` / `message-queue` / `system-notifications-recent`）两窗口并发会吞条目；备份 `restoreValidatedBackup` replace 模式整表覆盖无「同时只允许一个 import」互斥。
+- 用户口径：「经验记忆没有翻页 参考工作记忆」——设置·记忆整理页的经验库列表全量渲染无分页，而工作记忆笔记列表有翻页。
+- 定位：经验列表在 `src/components/dreaming/DreamingSettingsTab.tsx`（`view === 'experiences'` 分支），`filteredExperiences.map` 全量渲染，只有搜索框的客户端过滤；同文件 runs 列表与 `WorkingMemorySettingsTab` 均有 pager。
+- 改动：`src/components/dreaming/DreamingSettingsTab.tsx` 加**前端分页**（`experiencePage` state + `pagedExperiences` slice，一页 20 条，与 runs/工作记忆一致；复用 `dreamingPrev`/`dreamingPage`/`dreamingNext` i18n key）。选前端分页不选服务端分页的理由：`GET /api/dreaming/experiences` 本来就要读每个文件的 front matter 建行（工作记忆的 `listNotePage` 只 stat 就够，两者成本结构不同），服务端分页省不了 IO，反而多一次往返；搜索框也是客户端过滤，搜索结果同样要分页。搜索词变化时 `setExperiencePage(1)`（新结果从头看，不是 clamp 到尾页）；`runNow` 重载后同样回到第 1 页；`experiencePageSafe = min(experiencePage, totalPages)` 兜底列表变短时不显示空白页。
+- 测试（实测会红）：新增 `tests/frontend/dreaming-experiences-pager.test.ts`（3 例：45 条三页翻页含 5 条尾页不丢/单条结果不显示 pager/搜索后从第 1 页开始）。变异检查：删掉 slice 换回全量渲染 → 3 例全红；删掉搜索重置页码 → 「新搜索从第 1 页开始」红（页码停在 clamp 出来的第 2 页）。还原后全绿。
+- 验证：相关 vitest 4 文件（pager/open/working-memory/form-labels）20 例通过；`npx eslint` 改动文件净；`npx tsc -b` 通过；`npm run check:wiki` matched=401 resolved=401 bad=0。
+- wiki：`docs/wiki/src/components/README.md`（`DreamingSettingsTab.tsx` 759→804 行，描述补分页）、`docs/wiki/README.md`（经验库段补「按 20 条/页分页列出，与工作记忆笔记列表同一交互」）、`docs/architecture/memory-system.zh-CN.md` §6「人怎么看到这些文件」补两端分页方式差异。
+- 边界：未 commit / tag / push；未新增依赖；未改 `dist/`；未动服务端（无 API 变更）。
 
 ## Notes
 
+- 记忆体系评审（2026-11-18，只读评审，未改代码）发现三个待修缺陷：① `<experiences>` 提示词块无条件注入并指名 `list_memory_notes`/`read_memory_note`，但四个记忆工具挂载被 `isWorkingMemoryEnabled()` 绑死（agent-tool-assembly.mjs），工作记忆默认关时多数会话拿到指路不存在工具的提示词；② 两层 200 上限静默悬崖：notes 活跃已 173 篇、experiences 105 条，`MAX_NOTES_PER_SCOPE=200` 列表截断与索引 200 行截断都按 mtime 静默丢旧条目，写入不受限，按当前增速约一个月撞线；③ 文档漂移：memory-system.md §4/§5「index.md 全文注入」与 system-prompt.mjs:148-160（只注入路径）不符，experiences.mjs:143 注释同病，wiki README 记忆条目同。
 - 全量测试并发模式下 server 侧 goal/scheduled 域存在负载敏感的 hookTimeout 抖动：UI 刀 A 期间两轮并发全量分别有 6/5 个文件 7 例超时失败（agent-goal-runtime、agent-goal-manager、goal-v2-manager、scheduled-tasks.commands、agent-manager.persist-session-state、session-index-query），同批文件单独跑 103/103 全过、干净基线亦全过、串行全量 0 失败。与纯前端改动无关，建议后续给这些 server 测试加 hookTimeout 或隔离标记。
-

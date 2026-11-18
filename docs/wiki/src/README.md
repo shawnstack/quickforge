@@ -55,7 +55,7 @@ src/
 
 上帝模块治理⑦（第三轮，2026-11-12）：`MainApp` 从约 2120 行收敛到 1520 行（App.tsx 2334 → 1585 行），业务规则按职责迁出视图层——对话文件路径打开（`useChatFileOpener`）、已删项目恢复策略（`useDeletedProjectRecovery`）、产物预览/自动预览/文件卡动作（`useArtifactPreviewActions`）、Agent 事件联动（`useAgentSessionEvents` + `lib/agent-event-guards.ts`）、Inspector 意图桥（`useAppEventBridges`）、bot 模式工作区（`useBotWorkspace`）、侧聊宿主（`useSideChatPanel`）、新对话空态与 taskLauncher（`useNewChatEmptyState`）；顶栏工具条与启动错误屏拆为 `components/app/WindowToolbar.tsx` / `StartupErrorScreen.tsx`。被测试钉死的接线（两处 `ChatSidebar` 实例、`ChatPanelHost`/`WorkspaceInspector` 传参）仍留在 `MainApp` 装配。
 
-上帝模块治理⑧（2026-11-15）：装配层收刀两轮，`App.tsx` 从 1602 行降到 1425 行——条件渲染的弹层/浮层按原 DOM 落点拆进 `components/app/AppDialogs.tsx`（126 行，两个导出 `AppGitDialogs` / `AppOverlays`），`<main>` 主区（会话顶栏 / 对话区 / 全局终端坞，218 行）整块抽成 `components/app/AppMain.tsx`（450 行），正文逐行保真、只补缩进。连带 `tests/frontend/` 十份「源码断言」测试不再直接读 `src/App.tsx`，改走 `tests/frontend/helpers/app-source.ts` 拼装两份源码——断言从此会跨文件，别写跨拼接缝的宽松正则（`[\s\S]` 那类会命中「App.tsx 末尾 + AppMain 开头」这段两个文件里都不存在的文本）。
+上帝模块治理⑧（2026-11-15）：装配层收刀两轮，`App.tsx` 从 1602 行降到 1425 行——条件渲染的弹层/浮层按原 DOM 落点拆进 `components/app/AppDialogs.tsx`（126 行，两个导出 `AppGitDialogs` / `AppOverlays`），`<main>` 主区（会话顶栏 / 对话区 / 全局终端坞，218 行）整块抽成 `components/app/AppMain.tsx`，正文逐行保真、只补缩进。连带 `tests/frontend/` 十份「源码断言」测试不再直接读 `src/App.tsx`，改走 `tests/frontend/helpers/app-source.ts` 拼装两份源码——断言从此会跨文件，别写跨拼接缝的宽松正则（`[\s\S]` 那类会命中「App.tsx 末尾 + AppMain 开头」这段两个文件里都不存在的文本）。
 
 **核心状态**:
 - `storageRef` — 存储实例引用

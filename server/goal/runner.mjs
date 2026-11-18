@@ -584,6 +584,12 @@ export function stopGoalForSession(session) {
   session.goalRun = null
   session.goalContinuationPending = false
   stoppedGoalSessions.add(session)
+  // destroyAgent is the only caller; the session is leaving the process for
+  // good, so drop its folded event-log state from the service cache too.
+  // serviceFor() lazily rebuilds it (from the persisted events) if this
+  // session is ever restored; a reused service would otherwise keep serving
+  // stale pre-destroy goal state and never shrink the cache.
+  services.delete(session.sessionId)
 }
 
 export async function clearTerminalGoal(session) {

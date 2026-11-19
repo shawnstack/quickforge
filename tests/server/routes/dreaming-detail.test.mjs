@@ -5,6 +5,7 @@ import { Readable } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { closeSqliteStorage, initializeSqliteStorage } from '../../../server/sqlite/database.mjs'
 import { handleDreamingApi } from '../../../server/routes/dreaming.mjs'
+import { sendError } from '../../../server/utils/response.mjs'
 import { createDreamingRepository } from '../../../server/sqlite/dreaming-repository.mjs'
 import { normalizeDreamingSettings } from '../../../server/dreaming/settings.mjs'
 
@@ -44,11 +45,13 @@ vi.mock('../../../server/experiences.mjs', async (importOriginal) => {
 // (tests/server/dreaming-snapshot.test.mjs); here the route contract is what
 // matters: it must pass the run id through and report what came back.
 const restoreCalls = []
-const restoreState = { error: null }
+const restoreState = { error: null, failure: null }
 vi.mock('../../../server/dreaming/snapshot.mjs', () => ({
   snapshotMemory: async ({ runId }) => ({ dir: `/tmp/${runId}`, workingMemoryFiles: 0, experienceFiles: 0 }),
   restoreMemorySnapshot: async (runId) => {
     restoreCalls.push(runId)
+    // `failure` stands in for what `note-store.mjs` actually throws mid-restore.
+    if (restoreState.failure) throw Object.assign(new Error(restoreState.failure.message), restoreState.failure)
     if (restoreState.error) throw Object.assign(new Error(restoreState.error), { statusCode: 409 })
     return { workingMemoryFiles: 3, experienceFiles: 1 }
   },
@@ -82,6 +85,21 @@ async function call(method, pathname) {
   const res = response()
   await handleDreamingApi(request(method), res, new URL(`http://localhost${pathname}`))
   return { status: res.status, json: JSON.parse(res.body) }
+}
+
+/**
+ * The same call, but through `sendError`: `index.mjs` is what turns a thrown handler
+ * error into the JSON the browser reads, so a test about the sentence in the body has
+ * to go through it rather than assert on the thrown object.
+ */
+async function callSerialized(method, pathname) {
+  const res = response()
+  try {
+    await handleDreamingApi(request(method), res, new URL(`http://localhost${pathname}`))
+  } catch (error) {
+    sendError(res, error)
+  }
+  return { status: res.status, json: res.body ? JSON.parse(res.body) : null }
 }
 
 function seedRun(overrides = {}) {
@@ -131,6 +149,7 @@ beforeEach(async () => {
   settingsState.current = normalizeDreamingSettings({ enabled: true })
   restoreCalls.length = 0
   restoreState.error = null
+  restoreState.failure = null
   directory = await mkdtemp(path.join(os.tmpdir(), 'qf-dreaming-detail-'))
   storage = await initializeSqliteStorage({ dataDir: directory, databasePath: path.join(directory, 'quickforge.sqlite3') })
   repository = createDreamingRepository(storage)
@@ -193,5 +212,43 @@ describe('POST /api/dreaming/runs/:id/restore', () => {
 
   it('returns 404 for an unknown run', async () => {
     await expect(call('POST', '/api/dreaming/runs/nope/restore')).rejects.toMatchObject({ statusCode: 404 })
+  })
+
+  // A bare 500 left the user guessing whether their notes were deleted, half replaced,
+  // or untouched. The two folders are now restored in parallel and each one atomically,
+  // so the honest sentence is "unfinished, snapshot intact, retry converges" — not
+  // "nothing moved", which the server cannot promise across both folders.
+  it('says in the body that the restore is unfinished, the snapshot is intact, and a retry is safe', async () => {
+    const run = seedRun()
+    restoreState.failure = {
+      statusCode: 500,
+      targetPreserved: true,
+      message: 'Restoring memory from the snapshot failed: the snapshot could not be copied.',
+    }
+    const { status, json } = await callSerialized('POST', `/api/dreaming/runs/${run.id}/restore`)
+    expect(status).toBe(500)
+    expect(json.code).toBe('dreaming_restore_failed')
+    expect(json.error).toContain('恢复失败')
+    expect(json.error).toContain('快照仍然完整')
+    expect(json.error).toContain('可以直接重试')
+    // The one claim the wording must not make: that both folders were left alone.
+    expect(json.error).not.toContain('没有被清空或留下半套文件')
+    // No absolute path, no `fs` reason, no stack frame.
+    expect(json.error).not.toContain(directory)
+    expect(json.error).not.toMatch(/[A-Za-z]:[\\/]|\.mjs|\.js:\d|\bat\s+\S+:\d+/)
+  })
+
+  it('warns that the folder may be half restored when the swap could not be undone', async () => {
+    const run = seedRun()
+    restoreState.failure = {
+      statusCode: 500,
+      targetPreserved: false,
+      message: 'Restoring memory from the snapshot failed: the restored folder could not be put in place.',
+    }
+    const { status, json } = await callSerialized('POST', `/api/dreaming/runs/${run.id}/restore`)
+    expect(status).toBe(500)
+    expect(json.error).toContain('恢复失败')
+    expect(json.error).toContain('部分恢复状态')
+    expect(json.error).not.toContain(directory)
   })
 })

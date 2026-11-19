@@ -399,14 +399,94 @@ export async function copyNoteDir(source, target) {
   return { copied, skipped: false }
 }
 
-/** Restore a folder from a snapshot, replacing whatever is there now. */
+/**
+ * The scratch path a restore builds in and parks the old folder under.
+ *
+ * Same shape as the note writes above (`<path>.<pid>.<uuid>.<suffix>`): a random
+ * suffix can never collide with a real folder, and a leftover one is recognisably
+ * ours. Both live next to the target, on the same volume, because the swap is two
+ * `rename` calls and a rename across volumes is a copy.
+ */
+function restoreScratchPath(target, suffix) {
+  return `${target}.${process.pid}.${randomUUID()}.${suffix}`
+}
+
+/**
+ * A restore failure that carries what happened to the folder on disk.
+ *
+ * The message is deliberately free of paths and of the underlying `fs` text: it can
+ * reach an HTTP response, and a Node `fs` error message contains the absolute path
+ * of the file it was working on. The cause is attached instead, so whoever logs the
+ * failure still gets the original error and its stack.
+ *
+ * `targetPreserved` is the fact the caller needs: `true` = the target folder is
+ * still exactly what it was before this call, so retrying cannot lose anything.
+ */
+function restoreFailed(step, cause, targetPreserved) {
+  const error = new NoteStoreError(`Restoring memory from the snapshot failed: ${step}.`, 500)
+  error.cause = cause
+  error.targetPreserved = targetPreserved
+  return error
+}
+
+/**
+ * Restore a folder from a snapshot, replacing whatever is there now.
+ *
+ * Built next to the target and swapped in with two renames, rather than the older
+ * `rm` then copy in place: that order deleted the memory folder first, so one busy
+ * file halfway through the copy left the user with a fraction of their notes, the
+ * originals gone, and the rest of the snapshot never arriving. Now a failure while
+ * copying cannot touch the target at all, and a failure while swapping puts the old
+ * folder back before the error escapes.
+ */
 export async function replaceNoteDirFromSnapshot(snapshot, target) {
   try {
     await fs.access(snapshot)
   } catch {
     throw new NoteStoreError('Snapshot for this run is no longer on disk.', 409)
   }
-  await fs.rm(target, { recursive: true, force: true })
-  await fs.mkdir(target, { recursive: true })
-  return copyNoteDir(snapshot, target)
+  const staging = restoreScratchPath(target, 'staging')
+  const previous = restoreScratchPath(target, 'previous')
+
+  let copied
+  try {
+    const result = await copyNoteDir(snapshot, staging)
+    // `copyNoteDir` reports a source that is not there instead of throwing, and a
+    // swap from a folder that does not exist would mean "replace memory with empty".
+    if (result.skipped) throw new NoteStoreError('Snapshot for this run is no longer on disk.', 409)
+    copied = result.copied
+  } catch (error) {
+    await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
+    if (error instanceof NoteStoreError) throw error
+    throw restoreFailed('the snapshot could not be copied', error, true)
+  }
+
+  let parked = false
+  try {
+    await fs.rename(target, previous)
+    parked = true
+  } catch (error) {
+    // ENOENT = there is nothing to replace (a first-ever run, or a folder already
+    // removed by hand). Anything else leaves the target where it was.
+    if (error?.code !== 'ENOENT') {
+      await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
+      throw restoreFailed('the current folder could not be moved aside', error, true)
+    }
+  }
+
+  try {
+    await fs.rename(staging, target)
+  } catch (error) {
+    // Put the old folder back before the error escapes. Only when that also fails is
+    // the user actually left with a half-swapped memory folder — and then the old
+    // notes still exist on disk under `previous`, so nothing is destroyed either way.
+    const preserved = parked
+      ? await fs.rename(previous, target).then(() => true, () => false)
+      : true
+    await fs.rm(staging, { recursive: true, force: true }).catch(() => {})
+    throw restoreFailed('the restored folder could not be put in place', error, preserved)
+  }
+
+  if (parked) await fs.rm(previous, { recursive: true, force: true }).catch(() => {})
+  return { copied, skipped: false }
 }

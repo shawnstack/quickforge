@@ -6,13 +6,44 @@ import { restoreMemorySnapshot } from '../dreaming/snapshot.mjs'
 import { listModelCatalog, modelReferenceFromSnapshot, resolveModelBinding } from '../model-catalog.mjs'
 import { readGlobalMemory } from '../global-memory.mjs'
 import { listArchivedExperiences, listExperiences, openExperience, openExperiencesFolder, readExperienceIndex } from '../experiences.mjs'
+import { logger } from '../utils/logger.mjs'
 
 const MAX_DREAMING_REQUEST_BYTES = 32 * 1024
+
+// What a failed rollback means for the folder on disk, in the words the user reads.
+// Each folder is replaced atomically, but `restoreMemorySnapshot` restores the two of
+// them in parallel, so a failure is not all-or-nothing across them: notes may already
+// be back while experiences is still the old copy. The wording below therefore says
+// only what is true — nothing was blanked or left half written, the snapshot is
+// intact, and a retry converges — instead of "neither folder moved", which we cannot
+// claim. A failed second rename is different: that one can leave the folder half
+// swapped, and it gets its own sentence.
+const RESTORE_FAILED_PRESERVED = '恢复失败：记忆目录恢复未完成；快照仍然完整，可以直接重试使 notes 和 experiences 一致。'
+const RESTORE_FAILED_UNCERTAIN = '恢复失败：记忆目录可能处于部分恢复状态，请先对照这一轮的快照确认内容，再决定是否重试。'
 
 function requestError(message, statusCode = 400) {
   const error = new Error(message)
   error.statusCode = statusCode
   return error
+}
+
+/**
+ * Turn a rollback failure into the answer the user sees.
+ *
+ * 4xx keep their own message and code: "the snapshot is gone" is a fact the user can
+ * act on, not a server fault. Everything else is a 500 whose text says what happened
+ * to the files — and carries no path and no stack, because the reason from `fs` does.
+ */
+function restoreFailure(error) {
+  const status = error?.statusCode
+  if (typeof status === 'number' && status >= 400 && status < 500) return error
+  logger.warn('Dreaming restore failed:', error?.cause instanceof Error ? error.cause.message : error?.message || error)
+  const preserved = error?.targetPreserved === true
+  const wrapped = requestError(preserved ? RESTORE_FAILED_PRESERVED : RESTORE_FAILED_UNCERTAIN, 500)
+  wrapped.errorCode = 'dreaming_restore_failed'
+  // Kept for the server-side log only; `sendError` never serialises it.
+  wrapped.cause = error
+  return wrapped
 }
 
 function pagination(url) {
@@ -163,7 +194,12 @@ export async function handleDreamingApi(req, res, url, options = {}) {
       // Restore the folders from the pre-run snapshot. Older runs (from the
       // bullet-list era) have no folder snapshot, and guessing their state from a
       // recorded diff would silently lose notes.
-      const restored = await restoreMemorySnapshot(run.id)
+      let restored
+      try {
+        restored = await restoreMemorySnapshot(run.id)
+      } catch (error) {
+        throw restoreFailure(error)
+      }
       sendJson(res, 200, { restored, run })
       return
     }

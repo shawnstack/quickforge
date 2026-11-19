@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // 命令日志体系的两道闸（2026-11-12 用户拍板重设计）：
 //   ①单文件 8MB 上限——历史上一条跑飞的命令写出过 1.8GB（2026-10-30）；
 //   ②目录「14 天保留 + 512MB 总量」双闸——目录曾积累 7.46GB。
-// 上限按 JS 字符数计（String.length），对多字节输出天然偏保守（UTF-8 会更长），
-// 这里锁定的是行为而不是精确字节语义。
+// 上限按 UTF-8 字节计（Buffer.byteLength）：按 code unit（String.length）计的
+// 旧实现里中文日志实测能写到 18MB 仍未截断，这里锁定名实相符的字节语义。
 
 // cleanOldCommandLogs 读模块级 logsDir（数据目录在 import 时定型），测试用
 // QUICKFORGE_DATA_DIR 指向临时目录，必须先设环境再动态 import。
@@ -97,6 +97,25 @@ describe('createBoundedCommandLog', () => {
     expect(log.truncated).toBe(true)
   })
 
+  it('counts the budget in UTF-8 bytes, not JS characters', async () => {
+    const { createBoundedCommandLog } = await import('../../server/tools/run-command.mjs')
+    const stream = makeMemoryStream()
+    // 50 个汉字 = 50 个 code unit、恰好 150 个 UTF-8 字节：按字节计正好填满
+    // 预算；再写一个汉字（+3 字节）就超限。按 code unit 计的旧实现两笔都会
+    // 被写进去——中文日志因此能写出远超名义上限的文件。
+    const log = createBoundedCommandLog(stream, 150)
+
+    log.write('中'.repeat(50))
+    expect(log.truncated).toBe(false)
+    expect(stream.chunks).toEqual(['中'.repeat(50)])
+
+    log.write('一')
+    log.write('再写')
+
+    expect(log.truncated).toBe(true)
+    expect(stream.chunks).toEqual(['中'.repeat(50)])
+  })
+
   it('writes a truncation marker on close and only then ends the stream', async () => {
     const { createBoundedCommandLog } = await import('../../server/tools/run-command.mjs')
     const stream = makeMemoryStream()
@@ -157,6 +176,29 @@ describe('createBoundedCommandLog', () => {
     expect(result.details.stdout).toContain('x')
     expect(text).toContain('Log truncated: output capped at 8388608 bytes')
     expect(text.length).toBeLessThan(9 * 1024 * 1024)
+    await fs.rm(cwd, { recursive: true, force: true }).catch(() => {})
+    await fs.rm(result.details.outputFile, { force: true }).catch(() => {})
+  }, 30_000)
+
+  it('is wired into a real command: the footer survives truncation and lands at the end', async () => {
+    const { toolRunCommand } = await import('../../server/tools/run-command.mjs')
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'qf-logcap-footer-'))
+    // 64KB × 150 ≈ 9.4MB：刚够翻越 8MB 上限，触发截断。
+    const script = "process.stdout.write('x'.repeat(65536).repeat(150))"
+
+    const result = await toolRunCommand(
+      { command: `node -e ${JSON.stringify(script)}`, description: 'log cap footer probe' },
+      { workspaceRoot: cwd },
+      { toolCallId: 'tool-log-cap-footer' },
+    )
+
+    const text = await fs.readFile(result.details.outputFile, 'utf8')
+    // 截断标记之后必须跟着完整收尾块：读者在文件末尾一眼能看到退出码，
+    // 而不是只看到「further output discarded」就没了下文。
+    const markerAt = text.indexOf('Log truncated: output capped at 8388608 bytes')
+    expect(markerAt).toBeGreaterThanOrEqual(0)
+    expect(text.indexOf('Exit code:', markerAt)).toBeGreaterThan(markerAt)
+    expect(text.trimEnd().endsWith('Command finished.')).toBe(true)
     await fs.rm(cwd, { recursive: true, force: true }).catch(() => {})
     await fs.rm(result.details.outputFile, { force: true }).catch(() => {})
   }, 30_000)

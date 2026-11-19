@@ -1,5 +1,10 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+// 必须取 node:timers 的真实实现，不能依赖全局 setTimeout/clearTimeout：
+// waitForExit 的宽限/升级定时器决定的是真实 OS 进程的生死，不应被调用方
+// 测试里的 vi.useFakeTimers 冻结（fake timers 只替换 globalThis 上的绑定，
+// 不动 node:timers 的导出）。需要确定性驱动升级的测试走 options.setTimer。
+import { setTimeout as realSetTimeout, clearTimeout as realClearTimeout } from 'node:timers'
 
 const DEFAULT_GRACE_MS = 1000
 const DEFAULT_FORCE_WAIT_MS = 1000
@@ -9,7 +14,7 @@ function isRunning(child) {
   return Boolean(child?.pid) && child.exitCode == null && child.signalCode == null
 }
 
-function waitForExit(child, timeoutMs, setTimer = setTimeout, clearTimer = clearTimeout) {
+function waitForExit(child, timeoutMs, setTimer = realSetTimeout, clearTimer = realClearTimeout) {
   if (!isRunning(child)) return Promise.resolve(true)
   return new Promise((resolve) => {
     let settled = false
@@ -46,6 +51,9 @@ function runTaskkill(pid, force, spawnImpl = spawn) {
     }
     // taskkill normally exits immediately, but a wedged taskkill.exe must not
     // hang dispose()/destroyAgent forever on a dangling child process.
+    // 有意保持全局 setTimeout：wedged-taskkill 看门狗的既有契约
+    // (tests/server/process-tree.test.mjs) 靠 vi.advanceTimersByTimeAsync 驱动
+    // 它；且 taskkill.exe 的真实 exit 事件不经过定时器，fake timers 下不挂。
     const timer = setTimeout(() => finish(false), TASKKILL_TIMEOUT_MS)
     timer.unref?.()
     command.once?.('error', () => finish(false))

@@ -15,7 +15,7 @@
 | [package-update.mjs](../../../../server/utils/package-update.mjs) | Runtime 更新检查与 npm registry 解析 | 271 |
 | [command-log.mjs](../../../../server/utils/command-log.mjs) | 命令日志路径判定与只读读取（isCommandLogPath / readCommandLog，限 dataDir 下 logs/commands） | 71 |
 | [process-env.mjs](../../../../server/utils/process-env.mjs) | 子进程环境变量装配（createNodeProcessEnv） | 7 |
-| [process-tree.mjs](../../../../server/utils/process-tree.mjs) | 进程树信号与终止（signalProcessTree / terminateProcessTree） | 90 |
+| [process-tree.mjs](../../../../server/utils/process-tree.mjs) | 进程树信号与终止（signalProcessTree / terminateProcessTree） | 98 |
 | [ripgrep.mjs](../../../../server/utils/ripgrep.mjs) | ripgrep 可执行文件解析与校验（候选路径探测、可用性验证） | 40 |
 | [scheduled-tasks.mjs](../../../../server/utils/scheduled-tasks.mjs) | 定时任务纯时间算法（daily/weekly/interval/monthly/cron 下次执行时间与 cron 校验） | 182 |
 | [sse-wire.mjs](../../../../server/utils/sse-wire.mjs) | SSE 出站帧形状投影（toSseWireEvent，削去 message_update 的 partial 副本） | 17 |

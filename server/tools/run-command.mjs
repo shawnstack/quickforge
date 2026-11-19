@@ -4,9 +4,10 @@
  * Streams stdout/stderr as bounded tail previews (200 lines / 10k chars
  * shared budget), persists full output to ~/.quickforge/logs/commands/,
  * supports timeouts and aborts, and can detach long-running commands into
- * background tasks (taskId + <task-notification> on exit). Process-tree
- * termination and the running/background registries live in
- * process-control.mjs; this module only formats, logs and runs.
+ * background tasks (taskId + <task-notification> on exit). Termination goes
+ * through utils/process-tree.mjs (SIGTERM → grace → SIGKILL, taskkill /T on
+ * Windows); the running/background registries live in process-control.mjs.
+ * This module only formats, logs and runs.
  */
 import { createWriteStream, promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -15,7 +16,8 @@ import { randomUUID } from 'node:crypto'
 import { truncateText, getToolWorkspaceRoot } from '../utils/workspace.mjs'
 import { logsDir } from '../storage.mjs'
 import { buildChildProcessEnv } from '../runtime-info.mjs'
-import { killProcessTree, registerRunningCommand, unregisterRunningCommand, getBackgroundTaskRecord, rememberBackgroundTask, listBackgroundCommandTasks } from './process-control.mjs'
+import { registerRunningCommand, unregisterRunningCommand, getBackgroundTaskRecord, rememberBackgroundTask, listBackgroundCommandTasks } from './process-control.mjs'
+import { terminateProcessTree } from '../utils/process-tree.mjs'
 import { clampNumber } from './params.mjs'
 
 // --- run_command ---
@@ -119,8 +121,10 @@ function safeLogFilePart(value, fallback) {
 
 /**
  * 有字节上限的命令日志写入器：超过 COMMAND_LOG_MAX_BYTES 后静默丢弃后续输出，
- * close() 时在文件末尾补一行截断标记。写盘失败由原始流的 error 监听兜住，
- * 不影响命令执行本身。
+ * close() 时在文件末尾补一行截断标记；收尾块（Exit code 等）作为
+ * close(afterClose, footer) 传入，与截断标记一样经底层 stream 直写，因此截断
+ * 后仍完整落在文件末尾（标记在前、footer 在后）。写盘失败由原始流的 error
+ * 监听兜住，不影响命令执行本身。
  */
 // Exported for tests：命令日志 8MB 上限的行为契约（见 tests/server/run-command-log-cap.test.mjs）。
 export function createBoundedCommandLog(stream, maxBytes = COMMAND_LOG_MAX_BYTES) {
@@ -133,15 +137,22 @@ export function createBoundedCommandLog(stream, maxBytes = COMMAND_LOG_MAX_BYTES
     write(chunk) {
       if (truncated) return
       const text = String(chunk)
-      if (written + text.length > maxBytes) {
+      // 预算按 UTF-8 字节计，不是 code unit：上限名义上是 8MB 字节，历史上按
+      // String.length 累计时中文日志（1 汉字 = 3 字节 UTF-8）实测写到 18MB 仍
+      // 未截断，名不副实。
+      const size = Buffer.byteLength(text, 'utf8')
+      if (written + size > maxBytes) {
         truncated = true
         return
       }
-      written += text.length
+      written += size
       stream.write(text)
     },
-    close(afterClose) {
-      const finish = () => stream.end(() => afterClose())
+    close(afterClose, footer) {
+      const finish = () => {
+        if (footer) stream.write(footer)
+        stream.end(() => afterClose())
+      }
       if (!truncated) {
         finish()
         return
@@ -267,12 +278,14 @@ export async function toolRunCommand(params, context, runtime = {}) {
     let backgroundDetached = false
     let updateTimer = null
     let updatePending = false
-    let forceKillTimer = null
+    // 超时定时器提前声明（不是在使用处 const）：同 tick 的 abort 可以在赋值
+    // 语句执行前就走到 finish() → cleanup() 读 timer，TDZ 会把 promise 永久
+    // 挂死；timeoutMs == null（后台模式）时保持 null，语义与原 const 写法一致。
+    let timer = null
     const taskId = runInBackground ? `task_${randomUUID()}` : null
 
     const cleanup = () => {
       if (timer) clearTimeout(timer)
-      if (forceKillTimer) clearTimeout(forceKillTimer)
       if (updateTimer) clearTimeout(updateTimer)
       if (runtime.toolCallId) unregisterRunningCommand(runtime.toolCallId)
       runtime.signal?.removeEventListener?.('abort', onAbort)
@@ -322,7 +335,10 @@ export async function toolRunCommand(params, context, runtime = {}) {
         return
       }
       const details = result.details || {}
-      logStream.write([
+      // 收尾块不走 wrapper.write（truncated 后会被整块丢弃），而是作为 close 的
+      // footer 参数经底层 stream 直写：截断标记在前、收尾块在后，读者在文件
+      // 末尾仍能看到 Exit code，不会只留一句「output discarded」。
+      const footer = [
         '',
         '',
         `[quickforge ${new Date().toISOString()}]`,
@@ -333,8 +349,8 @@ export async function toolRunCommand(params, context, runtime = {}) {
         taskId ? `Background task: ${taskId}` : null,
         'Command finished.',
         '',
-      ].filter((line) => line !== null).join('\n'))
-      logStream.close(() => afterClose(result))
+      ].filter((line) => line !== null).join('\n')
+      logStream.close(() => afterClose(result), footer)
     }
 
     const finish = ({ code = null, signal = null, error = null } = {}) => {
@@ -414,10 +430,12 @@ export async function toolRunCommand(params, context, runtime = {}) {
     const stopChild = (reason) => {
       if (reason === 'timeout') timedOut = true
       if (reason === 'abort') aborted = true
-      killProcessTree(child, 'SIGTERM')
-      forceKillTimer = setTimeout(() => {
-        killProcessTree(child, 'SIGKILL')
-      }, 1500)
+      // 两阶段终止（SIGTERM → 宽限期 → SIGKILL）交给 process-tree 统一负责：
+      // 它的升级定时器活在这次调用之外，不会被同 tick 里紧随其后的
+      // finish()→cleanup() 清掉。历史上这里自维护 forceKillTimer，正好在那条
+      // 路径上被 clearTimeout，POSIX 上 SIGKILL 兜底永不执行。
+      // 不等待结果：命令结果由 child 的 close/error 决定，升级在后台完成。
+      void terminateProcessTree(child).catch(() => {})
     }
 
     if (runtime.toolCallId) registerRunningCommand(runtime.toolCallId, stopChild)
@@ -474,12 +492,17 @@ export async function toolRunCommand(params, context, runtime = {}) {
       updatePending = true
       if (!updateTimer) updateTimer = setTimeout(emitUpdate, 150)
     }
-    const timer = timeoutMs == null ? null : setTimeout(() => {
+    timer = timeoutMs == null ? null : setTimeout(() => {
       stopChild('timeout')
       finish({ signal: 'SIGTERM' })
     }, timeoutMs)
 
-    runtime.signal?.addEventListener?.('abort', onAbort, { once: true })
+    // Node 不会给「已 abort 之后才 add 的监听器」补发事件：toolRunCommand 在
+    // 创建日志流的 await 期间挂起，这个窗口里到达的 abort 会整个丢失（命令照
+    // 跑完、aborted=false）。注册前复查一次，已中止就直接走 abort 收尾——
+    // finish()/cleanup() 会同步执行，timer 已提前声明，不会踩 TDZ。
+    if (runtime.signal?.aborted) onAbort()
+    else runtime.signal?.addEventListener?.('abort', onAbort, { once: true })
 
     child.stdout.on('data', (chunk) => {
       if (settled) return

@@ -46,3 +46,4 @@ nul
 # Python 缓存（docs/design 下的生成脚本会产出）
 __pycache__/
 *.pyc
+.bot/

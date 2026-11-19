@@ -20,6 +20,7 @@
 | GET | `/api/storage/sessions-metadata/index/lastModified?direction=desc&limit=&offset=` | `sessions` | 返回 `{ values, total }` |
 | GET | `/api/instructions?projectId=` | `instructions` | `{ base, systemPrompt, skills, ... }`，`systemPrompt` 体量大 |
 | GET | `/api/skills?available=true&projectId=` | `skills` | 当前会话真正能 `activate_skill` 的列表 |
+| GET | `/api/project` | `projects` | `{ project, projects }`；脚本只回 id/name/path/kind/active |
 | GET | `/api/agents/:id/state` | `whoami` / `spawn` / `task-add` | 读**自己**的 `modelRef` / `thinkingLevel`：`spawn` 靠它继承思考档，`task-add` 靠它把任务绑到同一个模型上。会话被驱逐或未建好时 404，调用方必须能接受 |
 | GET | `/api/agents/:id/context-usage` | `context` | 上下文预算「油表」：`usage.inputTokens` / `contextWindow` / `percent` / `remainingTokens` / `breakdown` / `inputTokenSource`。轻量，不返回消息体；会话被驱逐时先尝试恢复，仍无则 404 |
 | GET | `/api/models/catalog` | `task-add` | 模型目录。只在 `--model` 显式指定、或读不到自己状态时用；`task-add --model` 收的是目录里的模型 id，不是引用对象 |
@@ -40,6 +41,13 @@
 | POST | `/api/agents/:id/prompt` | `spawn` / `prompt` | `{ message }`，正在跑时 409 |
 | POST | `/api/agents/:id/abort` | `abort` | `{}` |
 | POST | `/api/agents/:id/compact` | `compact` | `{ reason? }`。**时机由服务端判定**：空闲 → 同步压完，回 `{ compacted: true, summary, usageBefore, usageAfter }`；在跑 → 只登记一次 `session.forceCompaction`，回 `{ scheduled: true, reason: 'deferred_to_next_model_request' }`，由下一次模型请求前的 `transformSessionContext` 消费。**写租约不在入口**：守卫作为回调沉到 running 判定之后，脚本额外带 `x-quickforge-agent-session: <自己的 sessionId>`，于是「正在跑 + 压自己」跳过租约（该分支不落库）；空闲分支会写库，仍须持有租约。压缩可逆（原文保留在会话与备份里，摘要本身是一条 `quickforgeCompaction` 消息），所以放进白名单 |
+
+## 项目
+
+| 方法 | 路径 | 子命令 | 请求体 / 备注 |
+|---|---|---|---|
+| POST | `/api/project/create` | `project-create` | `{ name }`；默认工作区根下建目录 + 注册 + **设为激活**；`createdPath` 会返回；错误 400 `INVALID_PROJECT_NAME` / 409 `PROJECT_FOLDER_EXISTS` / 403 `PROJECT_CREATE_DENIED` |
+| POST | `/api/project/path` | `project-open` | `{ path }`；登记已有目录并设为激活；同路径复用既有记录 |
 
 ## Bot
 
@@ -80,6 +88,10 @@ bot 的服务端路由在 `server/routes/bots.mjs`（详见 `docs/wiki/server/bo
 | `PUT` / `PATCH /api/bots/:id/memory` | 整体覆盖 bot 的 MEMORY.md，等于替它重写记忆；投喂（inbox）按 bot-proactivity 设计也是用户动作，不走命令行 |
 | `DELETE /api/scheduled-tasks/:id?selfScheduledOnly=1` 且 `createdBy` 不是 `'agent'` | 删任务会**先删掉它的全部运行历史**再删本体，不可逆。所以脚本只能收自己 `--self-scheduled` 排的班，服务端 403 兜底；界面删除不带这个参数，用户删自己的日程不受影响 |
 | `PUT` / `PATCH /api/scheduled-tasks/:id` | 覆盖用户排好的日程属破坏性操作；要改让用户自己在「定时任务」页改 |
+| `DELETE /api/project/:id` | 删项目配置，不可逆 |
+| `PUT /api/project/reorder`、`PUT /api/project/:id/command-dir`、`POST /api/project/command`、`POST /api/project/open-path`、`POST /api/project/:id/open-in-explorer\|vscode\|idea` | 本机弹窗/外部进程或改项目设置，不给脚本出口 |
+| `POST /api/project/select-directory` | 原生目录选择框，阻塞服务端等人点 |
+| `POST /api/project/active` | 只切换不登记，等于替用户改当前项目；用户的下一条对话/终端默认目录会被带过去 |
 | `/api/agents/:id/access-mode`、`/yolo-mode` | 等于自我提升权限 |
 | `/api/agents/:id/prompt` 里的 `/compact` 命令 | 那是**别人**的会话入口：要求目标会话空闲，请求方是它自己时必然 409。自己压缩走 `POST /api/agents/:id/compact` |
 | `/api/lan-access/*` | 决定谁能从局域网进来 |

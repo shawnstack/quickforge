@@ -58,7 +58,7 @@ pid 文件**只是优先级，不是门槛**：应用内重启不会更新它，
 
 `DELETE /api/agents/:id`、`DELETE /api/storage/sessions/*`、`access-mode` / `yolo-mode`、`/api/lan-access/*`、`/api/terminal/*`、`/api/backup/*`、`/api/plugins/*`、`/api/mcp*`、`/api/agents/events`（**全局** SSE 事件流，连接层无抢占锁，连上不会踢掉谁的页面；但每条连接常驻接收全部会话事件，bot 拿它没用——盯状态用轮询 `status`。真正带抢占锁、抢了会 409 的是会话级 `GET /api/agents/:sessionId/stream`）。
 
-bots 端点的裁决（2026-11-12 加 `bots` / `bot` / `bot-create` / `bot-messages` / `bot-memory` / `bot-wake` 六个子命令时定下）：读（列表/详情/记忆/消息）全放开——`bot-messages` 复用只读的 session view，不唤醒会话；`bot-create` 放开，创建是加法且界面里可删；`bot-wake` 放开但单列——它跳过判活立刻跑一轮心跳，是一次真实的模型调用，所以 SKILL.md 要求先问用户再催。**不进白名单**：`DELETE /api/bots/:id`（不可逆）、`PUT/PATCH /api/bots/:id`（改用户配好的 bot，与改已有定时任务同例）、`PUT/PATCH /api/bots/:id/memory`（整体覆盖 bot 记忆；投喂按 bot-proactivity 设计留给用户动作）。
+bots 端点的裁决（2026-11-12 加 `bots` / `bot` / `bot-create` / `bot-messages` / `bot-memory` / `bot-wake` 六个子命令时定下）：读（列表/详情/记忆/消息）全放开——`bot-messages` 复用只读的 session view，不唤醒会话；`bot-create` 放开，创建是加法且界面里可删；`bot-wake` 放开但单列——它跳过判活立刻跑一轮心跳，是一次真实的模型调用，所以 SKILL.md 要求先问用户再催。**不进白名单**：`DELETE /api/bots/:id`（不可逆）、`PUT/PATCH /api/bots/:id`（改用户配好的 bot，与改已有定时任务同例）、`PUT/PATCH /api/bots/:id/memory`（整体覆盖 bot 记忆；投喂按 bot-proactivity 设计留给用户动作）。项目的删除、改项目设置、只切换不登记也不给出口；创建项目与登记已有目录放开（加法、界面可删）。
 
 测试 `tests/server/runtime-info.test.mjs` 对脚本正文做黑名单断言（无 `DELETE`、无上述前缀），防止后续「顺手加个子命令」把边界放开。
 

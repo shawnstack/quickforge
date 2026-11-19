@@ -84,6 +84,15 @@ Scheduled tasks (create, reversible actions, plus deleting your own shift):
   task-delete <taskId>              ONLY tasks created with --self-scheduled
   Editing an existing task is NOT exposed; do that in the UI.
 
+Projects (list / create / open an existing folder):
+  projects                        List projects and which one is active (read-only)
+  project-create --name N         Create a folder under the default workspace root and
+                                  register it as the ACTIVE project
+  project-open --path DIR         Register an existing folder as the ACTIVE project
+  Creating/opening switches the active project — say so before calling.
+  Deleting a project, reordering, and switching the active project without
+  registering are NOT exposed; do that in the UI.
+
 Bots (persistent companion sessions; list/detail/create/read/wake):
   bots                            List every bot: busy/status/heartbeat summary
   bot <name|id>                   One bot: session, thinking level, heartbeat detail
@@ -379,6 +388,61 @@ async function commandAgents(client) {
       scope: session.scope ?? null,
       source: session.source ?? null,
     })),
+  }
+}
+
+function summarizeProject(project, activeProjectId) {
+  const summary = {
+    id: project?.id ?? null,
+    name: project?.name ?? null,
+    path: project?.path ?? null,
+  }
+  if (project?.kind != null) summary.kind = project.kind
+  summary.active = project?.id === activeProjectId
+  return summary
+}
+
+function summarizeOpenedProject(project) {
+  return {
+    id: project?.id ?? null,
+    name: project?.name ?? null,
+    path: project?.path ?? null,
+    // bot 目录也是注册项目，但服务端不会把它写进 activeProjectId（它不是
+    // 「用户的当前项目」），只把项目本身原样返回给调用方当工具工作空间。
+    // 这里必须如实回报，否则调用方会以为当前项目已经切过去了。
+    active: project?.kind !== 'bot',
+  }
+}
+
+async function commandProjects(client) {
+  const payload = await client.get('/api/project')
+  const activeProjectId = payload?.project?.id ?? null
+  const projects = Array.isArray(payload?.projects) ? payload.projects : []
+  return {
+    activeProjectId,
+    projects: projects.map((project) => summarizeProject(project, activeProjectId)),
+  }
+}
+
+async function commandProjectCreate(client, options) {
+  const name = requiredOption(options, 'name', '--name "项目名"')
+  const payload = await client.post('/api/project/create', { name })
+  return {
+    project: summarizeOpenedProject(payload?.project),
+    createdPath: payload?.createdPath ?? null,
+    activeProjectChanged: true,
+  }
+}
+
+async function commandProjectOpen(client, options) {
+  const projectPath = requiredOption(options, 'path', '--path "目录"')
+  const payload = await client.post('/api/project/path', { path: projectPath })
+  const project = summarizeOpenedProject(payload?.project)
+  return {
+    project,
+    // 服务端对 kind:'bot' 目录返回 200 但不改 activeProjectId，所以「当前项目变了」
+    // 只能跟着 project.active 走，不能无条件报 true。
+    activeProjectChanged: project.active,
   }
 }
 
@@ -1115,6 +1179,9 @@ async function main() {
     case 'context': result = await commandContext(client, options); break
     case 'compact': result = await commandCompact(client, options); break
     case 'agents': result = await commandAgents(client); break
+    case 'projects': result = await commandProjects(client); break
+    case 'project-create': result = await commandProjectCreate(client, options); break
+    case 'project-open': result = await commandProjectOpen(client, options); break
     case 'sessions': result = await commandSessions(client, options); break
     case 'show': result = await commandShow(client, positional, options); break
     case 'messages': result = await commandMessages(client, positional, options); break

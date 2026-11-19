@@ -1,6 +1,6 @@
 ---
 name: quickforge-api
-description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档、派生并驱动子会话、创建/暂停/恢复/立即执行定时任务，以及查看/创建/催醒 bot。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, prompt, bots, or scheduled tasks), or asks to list/observe running agents, spawn a sub session, rename the current chat, inspect the prompt you actually received, create or check on a bot, or schedule a recurring task.
+description: 通过本机 HTTP API 查看和操作 QuickForge 自身——自省（我在哪个项目/会话、什么模型、实际拿到的提示词）、读取会话、改自己的标题/模型/思考档、派生并驱动子会话、创建/暂停/恢复/立即执行定时任务，以及查看/创建/催醒 bot。Use when the user asks about QuickForge itself (this app, its local API, its sessions, agents, skills, prompt, bots, or scheduled tasks), or asks to list/observe running agents, spawn a sub session, rename the current chat, inspect the prompt you actually received, create or check on a bot, or schedule a recurring task, or list/create projects.
 ---
 
 # QuickForge 本地 API
@@ -43,6 +43,13 @@ node <skill-dir>/scripts/qf-api.mjs whoami
 | `messages <id> --from 0 --limit 20` | 会话消息（`/api/agents/...` 会唤醒会话） |
 | `instructions --system-prompt` | 我实际收到的系统提示词（调 skill / 排查提示词） |
 | `skills` | 当前会话能激活哪些 skill |
+
+项目：
+
+| 命令 | 作用 |
+|---|---|
+| `projects` | 列出项目并标出当前激活项目（只读） |
+| `project-create --name "名字"` / `project-open --path "目录"` | 创建项目目录或登记已有目录，并设为激活项目 |
 
 写（默认作用于我自己）：
 
@@ -186,6 +193,12 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 
 要长期活着还有一条：常驻班的**沉睡间隔**决定了你多久看一次世界。间隔越短越灵敏，也越吵越贵（每醒一次就是一次真实模型调用，还会在会话列表里留一条记录）。常见取法：`interval` 每 1–2 小时做轻量心跳，`daily` 做完整巡检。
 
+### project：只在默认工作区建，或登记已有文件夹
+
+`project-create` 没有 `--path`：它只会在默认工作区根下建 `<name>` 目录并登记；想让某个已有目录成为项目，用 `project-open --path`。两者都会把激活项目切过去——调用前先告诉用户「这会切走你当前的项目」，跟 `task-add` 先念排期再 resume 同一先例。
+
+名字由用户给，别替他起。重名或目录已存在会 409；那时建议 `project-open` 或换名，不要自己加后缀重试。
+
 ### bot：名字和 id 都能定位，能读也能建，删改留给界面
 
 bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自己的目录 + 一份 MEMORY.md + 可开关的心跳。**bot 名字全局唯一**，所以定位时名字或 id 都行（脚本先拉一次列表做解析，找不到会把现有 bot 名字列给你）。
@@ -287,7 +300,7 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 
 1. **只操作自己，或自己 `spawn` 出来的会话。** 本机回环即认证，脚本能写任何会话——这是权限，不是许可。用户没让你动的会话不要碰。
 2. **不要给自己发 prompt。** 正在跑的时候发必然 409 `GENERATION_ALREADY_RUNNING`，脚本已经直接拒绝。要并行干活就 `spawn`。
-3. **不做破坏性操作。** 删会话、**改已存在会话的** `access-mode` / `yolo-mode`、局域网访问、终端、备份恢复、插件安装、MCP 配置，这些都没有子命令，也**不要**用 `curl` 绕过。
+3. **不做破坏性操作。** 删会话、**改已存在会话的** `access-mode` / `yolo-mode`、局域网访问、终端、备份恢复、插件安装、MCP 配置、删项目、改项目设置、切换激活项目（不登记），这些都没有子命令，也**不要**用 `curl` 绕过。
    定时任务：建 / 暂停 / 恢复 / 立即执行 / 读历史都可逆；**改已有任务没有子命令**；**删除只放开你自己 `--self-scheduled` 建的那一条**——服务端按 `createdBy === 'agent'` 判定，用户建的任务（以及加这个字段之前的存量任务）一律 403。
    bot：列 / 详情 / 创建 / 读消息 / 读记忆 / 催醒可放开（读是只读，催醒虽花钱但可预期）；**删 bot、改 bot 设置、写它的 MEMORY.md 没有子命令**，用户在界面上做。
    另一处例外是 `spawn --access-mode`：它只作用于**新建**会话，取值写死 `default` / `full-access`，由用户显式授权（见上一节的默认值表）。
@@ -307,6 +320,8 @@ node <skill-dir>/scripts/qf-api.mjs task-add \
 | `Cannot find a running QuickForge local API` | 端口不是默认值，或服务没起 | `--api http://127.0.0.1:<port>` |
 | `task-run gave up waiting after Ns` | 我这边等超时了，服务端那次运行可能还在继续 | `task-runs --taskId <id>` 看结果，**不要**重建任务 |
 | `409 BOT_NAME_TAKEN` | bot-create 的名字已被占用 | 换个名字，或先 `bots` 看现有名字 |
+| `409 PROJECT_FOLDER_EXISTS` | 目录已存在 | 改用 `project-open` 或换名 |
+| `400 INVALID_PROJECT_NAME` | 名字含非法字符或超长 | 换一个合法、较短的名字 |
 
 ## 典型用法
 

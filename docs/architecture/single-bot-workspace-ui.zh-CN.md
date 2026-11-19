@@ -1,6 +1,6 @@
 # 独立 bot：一个会话、一张嘴、一双自己会动的手
 
-> 状态：**已落地**。实现细节、数据形状与接口见 [server/bots](../../wiki/server/bots.md)；本文只留设计判据和不做什么。
+> 状态：**已落地**。实现细节、数据形状与接口见 [server/bots](../wiki/server/bots.md)；本文只留设计判据和不做什么。
 > 前置：[自进化回路](./self-evolution-loop.zh-CN.md)、[一个主体两只手](./cross-project-orchestrator.zh-CN.md)、[设计语言](../../DESIGN_LANGUAGE.md)。
 
 ## 1. 一句话

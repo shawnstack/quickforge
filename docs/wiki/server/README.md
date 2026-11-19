@@ -383,7 +383,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 - `hooks-settings.mjs` — 设置规范化与 fail-open 读取：settings 键 `hooks-settings`（`{enabled, hooks[]}`），与前端 `src/lib/hooks-settings.ts` 保持同构；动作二选一（command 需非空命令 / webhook 需 http(s) URL），非法动作的 Hook 整体丢弃，坏数据回落默认（enabled + 空 hooks），超时 clamp 1–300s（默认 10s）。
 - `hook-engine.mjs` — 事件引擎：订阅 `agent_event`，支持 6 种事件（`agent_start` / `agent_end` / `tool_execution_start` / `tool_execution_end` / `tool_approval_required` / `error`），从会话 `projectContext` 解析 `{{session.project}}` / `{{session.projectPath}}` 变量。模块级设置缓存在启动时加载（fail-open），此后每次 `hooks-settings` PUT 由 `routes/storage.mjs` 调 `refreshHooksSettings()` 刷新（刷新失败只记日志、不影响写盘本身）；**同一 Hook 串行**——同一时刻最多一次执行，其间到达的匹配事件直接丢弃而不是排队（队列会随事件速率无界增长，只是把堆积推后），丢弃次数记在该次执行记录的 `skippedEvents` 上，因此一个 300s 上限的构建型 Hook 不会在多轮 `agent_end` 上并发跑成多份；执行记录持久化 store `hook-executions`（`storage/hook-executions.json`，根数组）：内存 buffer 为权威读路径（`getHookExecutionsPage` 分页，索引 0 最新），启动加载（fail-open）+ 3s 防抖落盘 + `stopHookEngine` flush，上限 300 条（尾部裁最旧，`silentOnFailure` Hook 的失败记录不入日志）。`startHookEngine` / `stopHookEngine` 挂在启动初始化链（`timedStartupStep('hook-engine')`）。
-- `hook-executor.mjs` — 执行器：命令经 `spawn(shell:true)`（输出截尾 4000 字符，超时由 `terminateProcessTree` SIGTERM→SIGKILL 兜底）；Webhook 经 `fetch`（POST 默认发送 JSON 事件上下文，支持自定义 header 与 body 模板）。`{{variable}}` 占位符替换，未知变量置空。所有失败模式（非零退出、非 2xx、超时、spawn 崩溃）收敛为执行记录（`status: 'success' | 'error' | 'timeout'`），从不 throw。REST 见 [routes/hooks.mjs](routes/README.md#hooksmjs-45-行)；手动测试用合成 `event:'test'` 上下文，不入执行日志。
+- `hook-executor.mjs` — 执行器：命令经 `spawn(shell:true)`（输出截尾 4000 字符，超时由 `terminateProcessTree` SIGTERM→SIGKILL 兜底）；Webhook 经 `fetch`（POST 默认发送 JSON 事件上下文，支持自定义 header 与 body 模板）。`{{variable}}` 占位符替换，未知变量置空。所有失败模式（非零退出、非 2xx、超时、spawn 崩溃）收敛为执行记录（`status: 'success' | 'error' | 'timeout'`），从不 throw。REST 见 [routes/hooks.mjs](routes/README.md#hooksmjs-52-行)；手动测试用合成 `event:'test'` 上下文，不入执行日志。
 
 ### global-memory.mjs
 
@@ -471,7 +471,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 **Front matter 解析**: 统一走 `frontmatter.mjs`（`parseSimpleYamlMap(text, { booleans: false })`），本文件不再维护私有副本——两份实现曾经分叉：共享那份认 YAML 短横线列表，私有那份不认，于是仓库自带的插件技能把 `metadata.tags` 写成列表时被读成空串（技能面板里那三个插件的标签/触发词一直是空的，11-15 修）。值一律按字符串读（`booleans: false`）；`metadata` 里的数组压成逗号串，再由 `splitMetadataList` 切回 `tags` / `triggers`。
 
 **搜索路径**:
-1. `<quickforge>/skills/` — 随 Runtime 分发的内置全局 skills；当前包含 Anthropic `skill-creator`、`plugin-creator` 与 `quickforge-api`（驱动本机 HTTP API 自我操作，见 [QuickForge 本地 API Skill](../architecture/quickforge-api-skill.zh-CN.md)）
+1. `<quickforge>/skills/` — 随 Runtime 分发的内置全局 skills；当前包含 Anthropic `skill-creator`、`plugin-creator` 与 `quickforge-api`（驱动本机 HTTP API 自我操作，见 [QuickForge 本地 API Skill](../../architecture/quickforge-api-skill.zh-CN.md)）
 2. `~/.claude/skills/` — Claude 用户级 skills
 3. `~/.opencode/skills/` — opencode 用户级 skills
 4. `~/.agents/skills/` — 用户级共享 skills
@@ -484,7 +484,7 @@ details 形状（`workflow:true` / `runId` / `status` / `startedAt` / `durationM
 
 内置 `skill-creator` / `plugin-creator` / `quickforge-api` 会在首次运行新版本时自动加入全局已选 Skills；迁移标记写入 `~/.quickforge/config/.default-skills-v2`（v2 用于把 `quickforge-api` 推给存量安装），因此用户后续取消后不会在重启时被重新启用。用户级目录按上述顺序覆盖同名内置 Skill，其中 `~/.quickforge/skills` 优先级最高；Runtime 更新只替换内置副本，不覆盖用户文件。上游来源、固定 commit 和许可证记录在 `skills/skill-creator/UPSTREAM.md`。
 
-`quickforge-api` 是本项目自己的 skill：`SKILL.md` 讲什么时候用、哪些端点绝对不给出口，`scripts/qf-api.mjs` 是零依赖的最小客户端（每个子命令映射一个写死的端点，不接受任意 method/path），`references/endpoints.md` 是白名单速查。它能成立的前提是 `server/runtime-info.mjs`：`server/index.mjs` 在 listen 回调里 `setRuntimeInfo()`，`toolRunCommand` 再通过 `buildChildProcessEnv(context)` 给每个子进程注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`。运行时信息只存进程内存不落盘——dev 与正式实例、自定义端口共用同一个文件只会互相覆盖。详见 [QuickForge 本地 API Skill](../architecture/quickforge-api-skill.zh-CN.md)。
+`quickforge-api` 是本项目自己的 skill：`SKILL.md` 讲什么时候用、哪些端点绝对不给出口，`scripts/qf-api.mjs` 是零依赖的最小客户端（每个子命令映射一个写死的端点，不接受任意 method/path），`references/endpoints.md` 是白名单速查。它能成立的前提是 `server/runtime-info.mjs`：`server/index.mjs` 在 listen 回调里 `setRuntimeInfo()`，`toolRunCommand` 再通过 `buildChildProcessEnv(context)` 给每个子进程注入 `QUICKFORGE_API_BASE` / `QUICKFORGE_SESSION_ID` / `QUICKFORGE_PROJECT_ID` / `QUICKFORGE_WORKSPACE_ROOT`。运行时信息只存进程内存不落盘——dev 与正式实例、自定义端口共用同一个文件只会互相覆盖。详见 [QuickForge 本地 API Skill](../../architecture/quickforge-api-skill.zh-CN.md)。
 
 **功能**:
 - `listGlobalSkillSummaries()` / `listProjectSkillSummaries()` — 技能列表

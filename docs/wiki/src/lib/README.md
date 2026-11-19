@@ -27,14 +27,14 @@
 - **格式化不编数字**：`formatTraceDuration(undefined)` / `formatTraceTokens(undefined)` 返回 `—`；`formatTraceClock(undefined)` 同样。
 - 辅助：`traceRows()`（Ledger 行）、`traceRowMatches()`（搜索）、`traceBounds()`。
 
-消费方：`src/components/chat/trace/ConversationTraceView.tsx`。设计与边界见 [对话轨迹](../../architecture/conversation-trace.zh-CN.md)。
+消费方：`src/components/chat/trace/ConversationTraceView.tsx`。设计与边界见 [对话轨迹](../../../architecture/conversation-trace.zh-CN.md)。
 
 ## Goal 分隔线元数据实时同步
 
 - `server-agent/goal-iteration-markers.ts` 对 split SSE state / GET state 的 `goalIterationMarkers` 做窄合并：只接收原索引存在且 role、可用 id/timestamp 匹配的条目，至少须有 id 或 timestamp 可验证；不追加消息、不移动锚点、不替换正文或无关 details。未知 kind 拒绝，legacy 无 kind 保留 execution 兼容。
 - 最新 marker snapshot 留存，在后到的 message/agent end、增量或全量消息对账合并后重放；重放不覆盖已存在的更新 marker（按 finishedAt 守卫）。snapshot 后到也立即合并已有消息，避免相同 message count 导致分隔线直到刷新才出现。full state 同样可独立合并 metadata，但不放宽 streaming 期间正文替换门禁。
 - 仅 marker 实际变化才替换必要消息条目、推进消息 watermark，并发出专用本地 `message_metadata_updated`。不是伪造 `messages_replaced`：`ChatPanelHost` 仅刷新窗口消息和装饰，不清 streaming process groups、不触发 composer draft 恢复。`goal_updated` 仍只走独立 Goal 水位、不推进消息 watermark。
-- `i18n.ts` 提供规划/执行阶段文案；规划 iteration 可为 0，但不展示执行轮数。「计划已就绪」只消费服务端正常提交 plan 轮末与成功保存后的 marker，complete 工具成功也不冒充 completed。服务端 staged pair / CAS / 取消优先屏障见 [服务端契约](../../server/README.md#goal-自动完成与迭代记录)。
+- `i18n.ts` 提供规划/执行阶段文案；规划 iteration 可为 0，但不展示执行轮数。「计划已就绪」只消费服务端正常提交 plan 轮末与成功保存后的 marker，complete 工具成功也不冒充 completed。服务端 staged pair / CAS / 取消优先屏障见 [服务端契约](../../server/README.md#goal-自动完成与迭代记录现行契约)。
 - 相关验证：`tests/frontend/server-agent.test.ts`、`goal-iteration-divider.test.ts`、`message-actions.test.ts`；自动测试不等同真实浏览器或现场模型验收。考虑 SVG 后复用现有细线/SVG 图标，无需额外流程图。
 
 ## Goal 报告工具呈现契约

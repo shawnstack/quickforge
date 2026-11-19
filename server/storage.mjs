@@ -12,21 +12,28 @@ const LOG_MAX_TOTAL_SIZE_MB = 100
 const COMMAND_LOG_RETENTION_DAYS = 14
 const COMMAND_LOG_MAX_TOTAL_SIZE_MB = 512
 
+// logs 顶层有三类写入方，都落在同一个目录：server-*.log（utils/logger.mjs）、
+// ai-http-*.jsonl（ai-http-logger.mjs）、update-*.log（index.mjs 的自动更新）。
+// 闸按「顶层常规文件」判，而不是「server- 开头的 .log」：旧写法只筛 server 日志，
+// 另外两类永不被回收（潜伏的容量缺陷），而且下一个新增的顶层日志还会重演。
+// 只处理顶层——子目录（logs/commands/）不递归、不删，它有自己的闸
+// （cleanOldCommandLogs，14 天 / 512MB）。
 export async function cleanOldLogs() {
   try {
     await fs.mkdir(logsDir, { recursive: true })
-    const files = await fs.readdir(logsDir)
+    const entries = await fs.readdir(logsDir, { withFileTypes: true })
     const cutoff = Date.now() - LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
     let totalSize = 0
     const fileStats = []
 
-    for (const name of files) {
-      if (!name.startsWith('server-') || !name.endsWith('.log')) continue
-      const filePath = path.join(logsDir, name)
+    for (const entry of entries) {
+      // 只认常规文件：目录（commands/）与软链接一律跳过。
+      if (!entry.isFile()) continue
+      const filePath = path.join(logsDir, entry.name)
       try {
         const stat = await fs.stat(filePath)
         totalSize += stat.size
-        fileStats.push({ name, path: filePath, mtime: stat.mtimeMs, size: stat.size })
+        fileStats.push({ name: entry.name, path: filePath, mtime: stat.mtimeMs, size: stat.size })
       } catch { /* file may have been removed */ }
     }
 

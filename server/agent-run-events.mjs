@@ -129,6 +129,11 @@ export function subscribeAgentSessionEvents(session) {
       session.activeHeartbeat = null
       if (heartbeat && !event.messages?.some(hasAssistantOutput)) {
         logger.warn('bot heartbeat empty completion', { botId: heartbeat.botId, sessionId, wakeAt: heartbeat.wakeAt })
+      } else if (heartbeat && !session.agent.signal?.aborted) {
+        const lastAssistant = event.messages.findLast(message => message.role === 'assistant')
+        if (lastAssistant && !hasAssistantOutput(lastAssistant)) {
+          logger.warn('bot heartbeat tail empty completion', { botId: heartbeat.botId, sessionId, wakeAt: heartbeat.wakeAt })
+        }
       }
       markLatestAssistantProcessFinished(agent.state.messages)
       // Ensure a failed run is visible in the conversation. Most failures emit

@@ -125,4 +125,19 @@ describe('bot heartbeat turn', () => {
     await prompt(session, hb('wake'), source)
     expect(warn.mock.calls.some(([msg]) => msg === 'bot heartbeat empty completion')).toBe(false)
   })
+
+  it.each([
+    ['empty', [{ type: 'text', text: '' }, { type: 'thinking', thinking: '' }], true],
+    ['nonempty', [{ type: 'text', text: 'finished' }], false],
+  ])('checks for a tail warning after earlier output and an %s final reply', async (_label, tail, shouldWarn) => {
+    const session = await seed([])
+    const warn = vi.spyOn(logger, 'warn')
+    const wake = hb('wake')
+    session.agent.replies = [assistant([{ type: 'text', text: 'checking' }]), assistant(tail)]
+    await prompt(session, wake, source)
+    expect(warn.mock.calls.some(([msg]) => msg === 'bot heartbeat empty completion')).toBe(false)
+    const tailWarn = 'bot heartbeat tail empty completion'
+    expect(warn.mock.calls.filter(([msg]) => msg === tailWarn)).toEqual(
+      shouldWarn ? [[tailWarn, { botId: source.botId, sessionId, wakeAt: wake.timestamp }]] : [])
+  })
 })

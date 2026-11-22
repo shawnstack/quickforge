@@ -126,7 +126,11 @@ describe('goal v2 service cache lifecycle', () => {
   it('drops the folded goal state from the service cache on destroy, so a restore reads storage, not the stale cache', async () => {
     const sessionId = 'goal-services-cache-destroy'
     const session = await createSession(sessionId)
-    session.agent.autoEnd = true
+    session.agent.autoEnd = false // Drive settlement explicitly so we can await its finally block.
+    const persistence = await import('../../server/agent-persistence.mjs')
+    const { finishGoalRun } = await import('../../server/goal/runner.mjs')
+    const releasePersist = Promise.withResolvers()
+    let settlement
     try {
       // Create a goal; the folded state (revision 1, active) now lives in the
       // v2 runner's module-level `services` cache.
@@ -138,16 +142,26 @@ describe('goal v2 service cache lifecycle', () => {
       expect(session.goal).toMatchObject({ phase: 'active', activation: 'armed' })
       const goalId = session.goal.id
 
-      // Let the one armed round run and settle before destroying, so no
-      // continuation timers are still in flight.
-      await vi.waitFor(() => {
-        if (session.goal.phase === 'blocked') return
-        throw new Error('goal round has not settled yet')
-      }, { timeout: 10_000 })
-
+      await vi.waitFor(() => expect(session.agent.prompts).toHaveLength(1), { timeout: 10_000 })
+      // Hold only the return from the blocked round's real write, not the
+      // storage lock or destroy's final persist. Settlement resumes after eviction.
+      const blockedWrite = Promise.withResolvers()
+      const persist = persistence.persistSession
+      const spy = vi.spyOn(persistence, 'persistSession').mockImplementation(async (...args) => {
+        const result = await persist(...args)
+        if (args[0] === session && session.goal.phase === 'blocked') {
+          spy.mockRestore()
+          blockedWrite.resolve()
+          await releasePersist.promise
+        }
+        return result
+      })
+      settlement = finishGoalRun(session)
+      await blockedWrite.promise
       const preDestroyRevision = session.goal.revision
-
       await agentManager.destroyAgent(sessionId)
+      releasePersist.resolve()
+      await settlement
 
       // External writer (another process / fork): replace the stored goal
       // events with a fresh lifecycle at a higher revision — exactly what a
@@ -168,7 +182,7 @@ describe('goal v2 service cache lifecycle', () => {
 
       // Restore: with the fix, serviceFor() misses and loadSession() folds
       // the *stored* events; without it, the stale pre-destroy folded state
-      // is reused and the paused revision is never observed.
+      // is reused and the external revision is never observed.
       const restored = await agentManager.restoreAgent(sessionId)
       expect(restored.goal).toMatchObject({ id: goalId, phase: 'active' })
       expect(restored.goal.revision).toBe(preDestroyRevision + 1)
@@ -179,6 +193,8 @@ describe('goal v2 service cache lifecycle', () => {
       const parsed = JSON.parse(read.content[0].text)
       expect(parsed.goal).toMatchObject({ phase: 'active', revision: preDestroyRevision + 1 })
     } finally {
+      releasePersist.resolve()
+      await settlement
       await agentManager.destroyAgent(sessionId)
     }
   })

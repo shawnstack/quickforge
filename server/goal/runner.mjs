@@ -95,6 +95,7 @@ async function commitGoal(session) {
   const previousGoal = session.goal
   syncGoal(session)
   const persisted = await persistGoal(session)
+  if (stoppedGoalSessions.has(session)) return persisted
   emitGoalUpdated(session)
   const wasActive = Boolean(previousGoal && isGoalActiveStatus(previousGoal.status))
   const isActive = Boolean(session.goal && isGoalActiveStatus(session.goal.status))
@@ -432,6 +433,7 @@ export async function finishGoalRun(session, info = {}) {
     if (endStatus === 'aborted' || session.abortPending) {
       if (goal.phase === 'active') {
         await service.pause(session.sessionId, goalRef(session))
+        if (stoppedGoalSessions.has(session)) return
       }
       syncGoal(session)
       await commitGoal(session)
@@ -449,6 +451,7 @@ export async function finishGoalRun(session, info = {}) {
     // DSH: normal end. Round limit check, then schedule the next round.
     syncGoal(session)
     await commitGoal(session)
+    if (stoppedGoalSessions.has(session)) return
     if (goal.phase === 'active' && goal.roundsStarted < goal.maxRounds) {
       scheduleGoalContinuation(session, 'execution')
     } else if (goal.phase === 'active' && goal.roundsStarted >= goal.maxRounds) {
@@ -456,11 +459,12 @@ export async function finishGoalRun(session, info = {}) {
         code: 'round_limit',
         message: `Goal reached its configured limit of ${goal.maxRounds} rounds.`,
       })
+      if (stoppedGoalSessions.has(session)) return
       syncGoal(session)
       await commitGoal(session)
     }
   } finally {
-    await runnerDeps.refreshTools?.(session)
+    if (!stoppedGoalSessions.has(session)) await runnerDeps.refreshTools?.(session)
   }
 }
 
@@ -487,6 +491,9 @@ export async function failGoalRunOnPersist(session) {
 // ---------------------------------------------------------------------------
 
 export function createGoalControlTools(session) {
+  // Tool assembly can still be in flight when destroy evicts this session's service.
+  // Never look it up for the old object, even if its id has since been restored.
+  if (stoppedGoalSessions.has(session)) return []
   const requestAllowed = () => session?.modelAccessContext?.source !== 'shared'
   return createGoalTools({
     service: serviceFor(session),

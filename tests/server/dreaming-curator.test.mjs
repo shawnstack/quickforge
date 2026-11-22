@@ -62,6 +62,7 @@ describe('curator prompt contract', () => {
     expect(CURATOR_SYSTEM_PROMPT).toMatch(/archive the notes whose whole point is a completed one-off event/i)
     expect(CURATOR_SYSTEM_PROMPT).toMatch(/Old but true is not stale/)
     expect(CURATOR_SYSTEM_PROMPT).toMatch(/When unsure, keep/)
+    expect(CURATOR_SYSTEM_PROMPT).toMatch(/Rewrite that status line/i)
     // The sweep must stay scoped to working memory — experiences are never
     // archived for being old ("Never archive an experience just because it is
     // old"), and the two rules must not drift apart silently.

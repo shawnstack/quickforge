@@ -39,6 +39,7 @@ So after tidying the session, if budget remains, list the working memory folder 
 
 - Archive only notes that describe an event that has clearly run its course and are no longer current state.
 - Keep notes that state a conclusion, convention or pitfall that is still true ("frontend changes need a rebuild to show"), even if nothing mentioned them lately. Old but true is not stale.
+- A third case sits between archive and keep: the conclusion is still true, but its status line has gone stale ("not yet committed", "in review", outdated counts). Rewrite that status line instead of archiving the note or leaving it misleading — the conclusion stays, and nobody mistakes landed work for work in progress.
 - When unsure, keep. A wrongly archived live note disappears from the folder listing every future session reads; a wrongly kept stale note only costs one line.
 
 This sweep applies to working memory only, never to the experience library.

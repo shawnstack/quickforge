@@ -56,6 +56,14 @@ export async function afterGoalRunPersisted(session, persisted, endStatus) {
   }
 }
 
+function hasAssistantOutput(message) {
+  if (message.role !== 'assistant') return false
+  const { content } = message
+  if (typeof content === 'string') return Boolean(content.trim())
+  return Array.isArray(content) && content.some(part =>
+    part?.type === 'toolCall' || part?.text?.trim() || part?.thinking?.trim())
+}
+
 export function canApplyGeneratedTitle(session, generationId, expectedTitle) {
   return session.titleGenerationId === generationId
     && session.titleSource === 'fallback'
@@ -117,6 +125,11 @@ export function subscribeAgentSessionEvents(session) {
           : 'idle'
       : undefined
     if (timedEvent.type === 'agent_end') {
+      const heartbeat = session.activeHeartbeat
+      session.activeHeartbeat = null
+      if (heartbeat && !event.messages?.some(hasAssistantOutput)) {
+        logger.warn('bot heartbeat empty completion', { botId: heartbeat.botId, sessionId, wakeAt: heartbeat.wakeAt })
+      }
       markLatestAssistantProcessFinished(agent.state.messages)
       // Ensure a failed run is visible in the conversation. Most failures emit
       // an assistant error message through the agent loop (handleRunFailure),

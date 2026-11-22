@@ -188,7 +188,7 @@ export async function runBotHeartbeat(bot, options = {}) {
       content: await heartbeatInstruction(bot),
       timestamp: startedAt,
       details: { quickforgeBotHeartbeat: { version: 1 } },
-    }, [], null, null, { source: 'bot-heartbeat' })
+    }, [], null, null, { source: 'bot-heartbeat', botId: bot.id })
     const heartbeat = {
       ...bot.heartbeat,
       lastWakeAt: startedAt,

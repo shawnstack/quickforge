@@ -316,8 +316,13 @@ async function persistSessionUnlocked(session, options = {}, diagnostics = null)
   // Write body + metadata as one authoritative SQLite transaction.
   let persistedMetadata
   try {
-    const saved = await persistAuthoritativeSessionState(session, sessionData, metadata, options)
+    const replacement = session.pendingMessageReplacement
+    const saved = await persistAuthoritativeSessionState(session, sessionData, metadata,
+      replacement ? { ...options, forceMessagesReplace: true } : options)
     if (!saved) return null
+    if (replacement && session.pendingMessageReplacement === replacement && messages === agent.state.messages) {
+      session.pendingMessageReplacement = null
+    }
     session.persistedStorageRevision = saved.revision
     session.persistedStateVersion = saved.stateVersion
     persistedMetadata = saved.metadata

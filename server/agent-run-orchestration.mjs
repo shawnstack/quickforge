@@ -66,6 +66,26 @@ import { logger } from './utils/logger.mjs'
 
 const ABORT_IDLE_WAIT_TIMEOUT_MS = 3000
 
+function prepareHeartbeatMessage(session, message) {
+  const messages = session.agent.state.messages
+  let start = messages.length
+  while (start > 0 && messages[start - 1].role === 'user' && messages[start - 1].details?.quickforgeBotHeartbeat) start--
+  const supersededWakeCount = messages.length - start
+  if (supersededWakeCount) {
+    updateSessionMessages(session, messages.slice(0, start))
+    // Even if the next assistant reply grows the transcript past its old length,
+    // its first durable write must replace the old rows, not append to them.
+    session.pendingMessageReplacement = Symbol('superseded heartbeat')
+  }
+  return {
+    ...message,
+    details: {
+      ...message.details,
+      quickforgeBotHeartbeat: { version: 1, ...message.details?.quickforgeBotHeartbeat, supersededWakeCount },
+    },
+  }
+}
+
 /**
  * Send a user message to the agent and start the agent loop.
  * Returns immediately; events are streamed via the event bus.
@@ -151,7 +171,9 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   }
   if (commandState.goalRun) await beginGoalRun(session, commandState.goalRun.kind)
 
-  const userMessage = resolvedUserMessage
+  const userMessage = resolvedUserMessage.role === 'user' && (requestSource === 'bot-heartbeat' || resolvedUserMessage.details?.quickforgeBotHeartbeat)
+    ? prepareHeartbeatMessage(session, resolvedUserMessage)
+    : resolvedUserMessage
 
   // Set a meaningful fallback immediately. The AI title request starts only
   // after the first user message has been persisted by the message_end handler.
@@ -183,6 +205,9 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
   // runs (immediate persist flush) keeps its own prompt/permissions.
   const commandToken = {}
   session.activeCommandToken = commandToken
+  session.activeHeartbeat = requestSource === 'bot-heartbeat'
+    ? { botId: modelAccessContext.botId, wakeAt: userMessage.timestamp }
+    : null
 
   // Fire and forget — events come through eventBus
   const promptPromise = session.agent.prompt(userMessage)
@@ -224,6 +249,7 @@ export async function runPrompt(sessionId, message, selectedCapabilities = [], p
     endSessionTurn(sessionId, turnId)
     if (session.activeCommandToken !== commandToken) return
     session.activeCommandToken = null
+    session.activeHeartbeat = null
     session.activeCommandName = null
     session.activeCommandPermissions = null
     session.activeCommandPrompt = null

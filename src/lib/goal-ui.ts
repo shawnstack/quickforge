@@ -92,7 +92,8 @@ type GoalUiEntry = {
 /**
  * One entry per (session, goal). Entries are reclaimable: an idle entry without
  * subscribers, draft or error is dropped, so a long session that walks through
- * many goals does not accumulate state.
+ * many goals does not accumulate state. An error is kept only while a surface
+ * is mounted to show it; the last `releaseGoalUi` discards a request failure.
  */
 const entries = new Map<string, GoalUiEntry>()
 
@@ -261,7 +262,14 @@ export function releaseGoalUi(sessionId: string, goalId: string): void {
   if (entry.retains > 0) entry.retains -= 1
   if (entry.retains > 0) return
   if (!entry.draft) {
-    disposeIfIdle(key, entry)
+    // Nobody is rendering this key any more, so a request failure has no
+    // reader left: drop it here (publish rebuilds the snapshot and reclaims the
+    // entry). A draft refusal is not ours to clear — it belongs to the draft.
+    if (entry.errorKind === 'failure') {
+      entry.error = null
+      entry.errorKind = null
+    }
+    publish(key, entry)
     return
   }
   touchRetainedDraft(key)

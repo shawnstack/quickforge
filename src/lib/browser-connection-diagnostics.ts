@@ -26,6 +26,12 @@ const DIAGNOSTICS_SLOW_SAMPLE_LIMIT = 50
 const DIAGNOSTICS_REPORT_TOP_LIMIT = 5
 /** 告警节流表清理间隔（ms）。 */
 const DIAGNOSTICS_WARN_PRUNE_INTERVAL_MS = 60_000
+/**
+ * `byPath` 聚合表的条数上限。key 是 URL 的 pathname，而本应用把会话 id 编进路径
+ * （如 `/api/agents/<id>/state`），采集器启动后从不 stop：没有上限则每开一个会话
+ * 就多几条、只增不减，长期运行会无限增长。超出后淘汰请求数最少的路径（保留热点）。
+ */
+const DIAGNOSTICS_PATH_STAT_LIMIT = 200
 
 /** 包装后的 fetch 上的标记，用于保证重复包装幂等。 */
 const FETCH_WRAPPED_FLAG = '__quickforgeConnectionDiagnostics'
@@ -274,6 +280,7 @@ export function startBrowserConnectionDiagnostics(
     pruneHandle = schedule(() => {
       pruneHandle = null
       pruneExpiredWarnings(state, now())
+      trimPathStats(state.byPath, DIAGNOSTICS_PATH_STAT_LIMIT)
       if (state.running) schedulePrune()
     }, DIAGNOSTICS_WARN_PRUNE_INTERVAL_MS)
   }
@@ -447,6 +454,21 @@ function warnSlowQueue(
 function pruneExpiredWarnings(state: DiagnosticsState, at: number): void {
   for (const [path, lastWarnAt] of state.warnedAt) {
     if (at - lastWarnAt >= state.warnThrottleMs) state.warnedAt.delete(path)
+  }
+}
+
+/**
+ * 把按路径聚合表收敛到 `limit` 条以内：淘汰请求数最少的条目（保留热点），其余原样保留。
+ * 调用方负责节流（复用 prune 定时器），写入路径 `accumulatePathStat` 保持 O(1) 不变。
+ * count 相同时按 path 的码元顺序淘汰，保证结果确定、测试稳定。
+ */
+function trimPathStats(byPath: Map<string, DiagnosticsPathStat>, limit: number): void {
+  if (byPath.size <= limit) return
+  const evictable = [...byPath.values()].sort(
+    (left, right) => left.count - right.count || (left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
+  )
+  for (let index = 0; index < evictable.length - limit; index += 1) {
+    byPath.delete(evictable[index].path)
   }
 }
 

@@ -132,7 +132,7 @@
 | `logger.ts` | 56 | 前端日志工具 |
 | `update-check-poll.ts` | 71 | 更新检查轮询助手：`requestUpdateCheck()` 对非阻塞的 `GET /api/system/update/check` 状态快照做有界轮询（默认 10 次 × 1s，可注入 fetch/sleep 单测）到 `ok`/`error` 终态，失败一律返回 `{ kind: 'error' }` 不抛出（fetch/sleep 可注入）；`force` 仅首次请求带 `?force=1`；兼容不带 `status` 字段的旧服务端 payload |
 | `random-id.ts` | 19 | UUID 生成 |
-| `browser-connection-diagnostics.ts` | 638 | 浏览器侧连接池 / 请求排队诊断采集器：`PerformanceObserver` 采同源资源计时（排队 = `requestStart - startTime`），包装 `window.fetch` 统计 in-flight 与常驻长连接（NDJSON 流式响应，clone 分支观测结束、不改原响应体），另用 Proxy 包装 `window.EventSource` 统计常驻 SSE（`close()` 或 readyState 进入 CLOSED 才释放，CONNECTING 的自动重连不算释放——SSE 不经过 fetch，不单独包就看不到每窗口那条 `/api/agents/events`），排队超阈值 `console.warn`（同 path 节流 30s），`window.__quickforgePerf()` 输出报告并异步拉取 `GET /api/diagnostics`；`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭 |
+| `browser-connection-diagnostics.ts` | 660 | 浏览器侧连接池 / 请求排队诊断采集器：`PerformanceObserver` 采同源资源计时（排队 = `requestStart - startTime`），包装 `window.fetch` 统计 in-flight 与常驻长连接（NDJSON 流式响应，clone 分支观测结束、不改原响应体），另用 Proxy 包装 `window.EventSource` 统计常驻 SSE（`close()` 或 readyState 进入 CLOSED 才释放，CONNECTING 的自动重连不算释放——SSE 不经过 fetch，不单独包就看不到每窗口那条 `/api/agents/events`），排队超阈值 `console.warn`（同 path 节流 30s），`window.__quickforgePerf()` 输出报告并异步拉取 `GET /api/diagnostics`；`VITE_QUICKFORGE_DIAGNOSTICS=0` 关闭 |
 | `tool-display-settings.ts` | 60 | Tool 与上下文用量展示设置 |
 | `tool-execution-events.ts` | 162 | 工具执行事件处理（类型/消息合并 + `toolCallIdsWithoutToolResult` pendingToolCalls 合成） |
 | `tool-param-summary.ts` | 77 | 工具参数→摘要文案纯函数：`summarizeParams`（自 local-tools 提取，按工具名取 command/path/query 等生成单行摘要；`run_command` 优先返回非空 `description` 参数、空缺时回退 `command`）、`normalizeToolArguments`（toolCall arguments 归一化，兼容 JSON 字符串）、`truncateSummary`；工具卡片与 subagent 跑马灯共用同一套规则。run_command 摘要行显示 description 时，渲染器悬停 title 会附带命令本身（`local-workspace-tool-renderer.tsx`） |
@@ -432,7 +432,7 @@
 
 - `cn()` — Tailwind class 合并工具 (封装 `clsx` + `tailwind-merge`)
 
-### browser-connection-diagnostics.ts (638 行)
+### browser-connection-diagnostics.ts (660 行)
 
 **用途**: 浏览器侧连接池 / 请求排队诊断采集器。目标是在 DevTools 控制台执行 `window.__quickforgePerf()` 就能区分「浏览器 HTTP/1.1 同源 6 连接池耗尽（请求在浏览器侧排队）」与「服务端阻塞」。
 

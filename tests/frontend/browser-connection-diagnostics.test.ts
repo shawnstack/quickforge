@@ -308,6 +308,76 @@ describe('startBrowserConnectionDiagnostics', () => {
     expect(() => session.stop()).not.toThrow()
   })
 
+  it('byPath 有条数上限：prune 时淘汰请求数最少的路径，保留热点', () => {
+    const observer = createFakeObserver()
+    let clock = 0
+    const pruneTimers: Array<() => void> = []
+    // reportTopLimit 放大到覆盖全部路径：「按路径 top N」的 N 即当前 byPath 条数
+    const session = startDiagnostics({
+      performanceObserver: observer.factory,
+      fetch: null,
+      reportTopLimit: 1_000,
+      now: () => clock,
+      setTimeout: (handler) => {
+        pruneTimers.push(handler)
+        return pruneTimers.length
+      },
+    })
+
+    // Paths are keyed by pathname and this app encodes the session id into it,
+    // so every opened session adds a few entries. Inject more than the limit.
+    const hot = ['/api/agents/session-hot/state', '/api/agents/session-hot/messages']
+    const cold = Array.from({ length: 205 }, (_, index) => `/api/agents/session-${index}/state`)
+    const emit = (path: string) => observer.emit([entry(`http://localhost:5176${path}`, 0, 10, 20)])
+    for (const path of cold) emit(path)
+    for (const path of hot) for (let i = 0; i < 5; i += 1) emit(path)
+
+    const pathCount = (report: string) => Number(/按路径 top (\d+)/.exec(report)?.[1])
+    // Only the per-path section reflects `byPath`; the slow-request section
+    // lists raw samples and still mentions evicted paths.
+    const pathSection = (report: string) => report.slice(report.indexOf('按路径 top'))
+    const runPrune = () => {
+      const handler = pruneTimers.shift()
+      expect(handler).toBeDefined()
+      handler?.()
+    }
+
+    expect(pathCount(formatDiagnosticsReport())).toBe(207)
+
+    // First prune: trimmed to the limit, and the hot paths survive.
+    runPrune()
+    let report = pathSection(formatDiagnosticsReport())
+    expect(pathCount(report)).toBe(200)
+    expect(report).toContain('/api/agents/session-hot/state 次数 5')
+    expect(report).toContain('/api/agents/session-hot/messages 次数 5')
+    // Exactly the 7 least-requested paths go (count 1 everywhere, ties broken
+    // by path order so the result is deterministic); every other path stays.
+    const evicted = [...cold].sort().slice(0, 7)
+    expect(evicted).toEqual([
+      '/api/agents/session-0/state',
+      '/api/agents/session-1/state',
+      '/api/agents/session-10/state',
+      '/api/agents/session-100/state',
+      '/api/agents/session-101/state',
+      '/api/agents/session-102/state',
+      '/api/agents/session-103/state',
+    ])
+    for (const path of evicted) expect(report).not.toContain(path)
+    for (const path of cold.filter((path) => !evicted.includes(path))) {
+      expect(report).toContain(path)
+    }
+
+    // New paths arrive, but the map stays at the limit instead of growing back.
+    clock += 60_000
+    for (let index = 205; index < 215; index += 1) emit(`/api/agents/session-${index}/state`)
+    runPrune()
+    report = pathSection(formatDiagnosticsReport())
+    expect(pathCount(report)).toBe(200)
+    expect(report).toContain('/api/agents/session-hot/state 次数 5')
+
+    session.stop()
+  })
+
   it('VITE_QUICKFORGE_DIAGNOSTICS=0 时 start 直接 no-op', () => {
     vi.stubEnv('VITE_QUICKFORGE_DIAGNOSTICS', '0')
     const observer = createFakeObserver()

@@ -297,6 +297,29 @@ describe('goal-ui failure and cleanup', () => {
     expect(getGoalUiState(SESSION, GOAL).error).toBe(t('goalErrorActive'))
   })
 
+  it('keeps the failure readable while a surface is still mounted (guard: never drop on failure)', async () => {
+    retainGoalUi(SESSION, GOAL)
+    await runGoalUiAction(SESSION, GOAL, 'confirm', async () => { throw new Error('server offline') })
+
+    // The panel is still open: the user must be able to read why it failed.
+    expect(getGoalUiState(SESSION, GOAL).error).toBe('server offline')
+    releaseGoalUi(SESSION, GOAL)
+  })
+
+  it('drops the failure together with the entry once the last surface unmounts', async () => {
+    retainGoalUi(SESSION, GOAL)
+    const idle = getGoalUiState(SESSION, GOAL)
+    const unsubscribe = subscribeGoalUi(SESSION, GOAL, () => {})
+    await runGoalUiAction(SESSION, GOAL, 'confirm', async () => { throw new Error('server offline') })
+    expect(getGoalUiState(SESSION, GOAL).error).toBe('server offline')
+
+    // Last panel gone: nobody can see the failure any more, so the entry (and
+    // its error) is reclaimed instead of accumulating for the whole session.
+    unsubscribe()
+    releaseGoalUi(SESSION, GOAL)
+    expect(getGoalUiState(SESSION, GOAL)).toBe(idle)
+  })
+
   it('never unlocks a real in-flight request on unmount, but clears draft and error', async () => {
     const gate = deferred()
     const running = runGoalUiAction(SESSION, GOAL, 'resume', () => gate.promise)

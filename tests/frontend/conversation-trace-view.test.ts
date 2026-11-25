@@ -287,4 +287,165 @@ describe('ConversationTraceView', () => {
     expect(toggles[0].hasAttribute('disabled')).toBe(true)
     expect(toggles[1].hasAttribute('disabled')).toBe(false)
   })
+
+  /*
+   * Ledger window. Ordinary sessions (≤ TRACE_WINDOW_TURNS) must render exactly as
+   * before; resident bot sessions reach 700+ turns, and the ledger used to build
+   * every turn's DOM up front. Paging back widens the window — it never slides,
+   * so nothing the reader is looking at unmounts.
+   */
+  const turnMessages = (count: number): AgentMessage[] => {
+    const messages: AgentMessage[] = []
+    for (let i = 1; i <= count; i++) {
+      messages.push(user(`turn ${i}`, 1000 + i * 10))
+      messages.push(assistant(1005 + i * 10, { text: `reply ${i}` }))
+    }
+    return messages
+  }
+  const turnSections = () => qa('.quickforge-trace-turn')
+  /**
+   * 1-based turn number, read from the view's own `data-trace-row="user-<n>"` — a
+   * deterministic attribute that does not go through the (uninterpolating) t() mock.
+   * A collapsed turn renders no user row, hence NaN for those.
+   */
+  const turnIndexes = () => turnSections().map((section) =>
+    Number((section.querySelector('[data-trace-row^="user-"]')?.getAttribute('data-trace-row') ?? '').replace(/\D/g, '')),
+  )
+  const earlierButton = () => q<HTMLButtonElement>('.quickforge-trace-earlier')
+  const oneTo = (count: number) => Array.from({ length: count }, (_, i) => i + 1)
+
+  it('does not window a session that fits the initial window', () => {
+    render({ agent: agent(turnMessages(30)) })
+
+    expect(earlierButton()).toBeNull()
+    // Every turn is mounted, first to last, with nothing hidden behind a button.
+    expect(turnIndexes()).toEqual(oneTo(30))
+  })
+
+  it('renders only the most recent turns of a long session and offers the earlier ones', () => {
+    render({ agent: agent(turnMessages(80)) })
+
+    // Newest turns are what a trace is opened for: the window is anchored at the tail.
+    expect(turnIndexes()).toEqual(Array.from({ length: 30 }, (_, i) => 51 + i))
+    expect(container.textContent).not.toContain('reply 50')
+    // The copy itself is the i18n catalogue's business; here it only has to exist.
+    expect(earlierButton()).not.toBeNull()
+    // The overview still spans the whole session — it is not windowed.
+    expect(q('.quickforge-trace-overview')).not.toBeNull()
+  })
+
+  it('widens the window on demand without dropping the turns already shown', () => {
+    render({ agent: agent(turnMessages(80)) })
+    const mounted = turnSections()
+    const indexes = turnIndexes()
+
+    act(() => earlierButton()?.click())
+
+    expect(turnIndexes()).toEqual(Array.from({ length: 60 }, (_, i) => 21 + i))
+    // Start moved back, end stayed put: the turns that were mounted are the same DOM nodes.
+    const after = turnSections()
+    expect(indexes[0]).toBe(51)
+    mounted.forEach((section, i) => expect(after[i + 30]).toBe(section))
+  })
+
+  it('can page all the way back to the first turn — there is no ceiling', () => {
+    render({ agent: agent(turnMessages(80)) })
+
+    act(() => earlierButton()?.click())
+    act(() => earlierButton()?.click())
+    expect(turnIndexes()).toEqual(oneTo(80))
+    expect(earlierButton()).toBeNull()
+  })
+
+  it('keeps following the tail while the session grows', () => {
+    render({ agent: agent(turnMessages(80)) })
+    expect(turnIndexes()[0]).toBe(51)
+
+    // A heartbeat turn arrives: the default window is re-derived — still 30 wide, still at the tail.
+    act(() => root.render(createElement(ConversationTraceView, { agent: agent(turnMessages(81)) })))
+
+    expect(turnIndexes()).toEqual(Array.from({ length: 30 }, (_, i) => 52 + i))
+  })
+
+  it('inspects a record outside the ledger window when it is picked from the timeline overview', () => {
+    render({ agent: agent(turnMessages(80)) })
+    expect(turnIndexes()[0]).toBe(51)
+
+    // The overview covers the whole session, so most of its records sit outside the
+    // ledger window. Picking one only selects it (the view has no scroll-to-row), and
+    // the inspector reads from the full row list — it must still show that record.
+    const spans = qa<HTMLButtonElement>('.quickforge-trace-span[data-lane="input"]')
+    expect(spans.length).toBe(80)
+    act(() => spans[9].click())
+
+    const inspector = q('.quickforge-trace-inspector')
+    expect(inspector).not.toBeNull()
+    expect(inspector?.textContent).toContain('turn 10')
+    // The ledger window is untouched: selecting is not paging.
+    expect(turnIndexes()[0]).toBe(51)
+  })
+
+  /*
+   * Overview coalescing. Spans narrower than the layout minimum necessarily
+   * overlap, so past ~111 records per lane the later ones cover the earlier
+   * ones — invisible and unclickable, yet each still a button. They are folded
+   * into aggregate blocks (data-aggregate = member count).
+   */
+  const slowFastTurns = (count: number): AgentMessage[] => {
+    const messages: AgentMessage[] = []
+    let ts = 1_700_000_000_000
+    for (let i = 1; i <= count; i++) {
+      ts += 1000
+      messages.push(user(`turn ${i}`, ts))
+      ts += 100
+      messages.push(assistant(ts, {
+        toolCalls: [{ id: `slow-${i}`, name: 'run_command' }, { id: `fast-${i}`, name: 'read_file' }],
+      }))
+      ts += 5000
+      messages.push(toolResult(`slow-${i}`, 'run_command', ts, { timing: { startedAt: ts - 4900, finishedAt: ts - 100, durationMs: 4800 } }))
+      ts += 50
+      messages.push(toolResult(`fast-${i}`, 'read_file', ts, { timing: { startedAt: ts - 40, finishedAt: ts - 5, durationMs: 35 } }))
+    }
+    return messages
+  }
+  const aggregateSpans = () => qa<HTMLElement>('.quickforge-trace-span[data-aggregate]')
+
+  it('does not coalesce a lane that still fits', () => {
+    render({ agent: agent(turnMessages(80)) })
+
+    // 80 user + 80 model records spread over the plot without touching.
+    expect(aggregateSpans()).toHaveLength(0)
+    expect(qa('.quickforge-trace-span')).toHaveLength(160)
+  })
+
+  it('folds an overcrowded lane into aggregate blocks instead of hidden buttons', () => {
+    render({ agent: agent(turnMessages(200)) })
+
+    // One block per lane, each standing for its 200 records: 400 records → 2 nodes.
+    const blocks = aggregateSpans()
+    expect(blocks).toHaveLength(2)
+    expect(blocks.map((block) => block.dataset.aggregate)).toEqual(['200', '200'])
+    expect(qa('.quickforge-trace-span')).toHaveLength(2)
+  })
+
+  it('opens the slowest record of a block when the block is picked', () => {
+    render({ agent: agent(slowFastTurns(80)) })
+
+    // Tools-lane blocks: each holds the slow and the fast call of one step.
+    const blocks = qa<HTMLElement>('.quickforge-trace-span[data-lane="tools"][data-aggregate]')
+    expect(blocks.length).toBeGreaterThan(0)
+    const block = blocks[0]
+    act(() => (block as HTMLElement & { click: () => void }).click())
+
+    // Whichever step this block stands for, the inspector opens the call that took
+    // the time — never the fast sibling.
+    const inspector = q('.quickforge-trace-inspector')
+    expect(inspector).not.toBeNull()
+    const text = inspector?.textContent ?? ''
+    const picked = /slow-(\d+)/.exec(text)?.[1]
+    expect(picked).toBeTruthy()
+    expect(text).toContain('slow-' + picked)
+    expect(text).not.toContain('fast-' + picked)
+    expect(text).toContain('4.8s')
+  })
 })

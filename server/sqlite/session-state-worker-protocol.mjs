@@ -23,6 +23,7 @@ export const SESSION_STATE_WORKER_OPS = Object.freeze([
   'verifyIntegrity',
   'checkpointWal',
   'readMessagesPage',
+  'readMessageTail',
 ])
 
 // `beforeCommit` callbacks and other function-valued options cannot cross the

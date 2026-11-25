@@ -81,6 +81,7 @@ describe('session state heavy-op worker', () => {
       'delete',
       'deleteBySessionId',
       'exportSnapshot',
+      'readMessageTail',
       'readMessagesPage',
       'replaceAll',
       'replaceMessages',
@@ -88,6 +89,18 @@ describe('session state heavy-op worker', () => {
       'saveMany',
       'verifyIntegrity',
     ])
+
+    // A tail read must actually run on the worker connection — not merely be listed.
+    // (An injected in-memory repository would pass either way; this is the path production takes.)
+    const tailed = await heavy.appendMessages(sampleRecord('worker-tail'), [
+      { role: 'user', content: 'one' },
+      { role: 'user', content: 'two' },
+      { role: 'user', content: 'three' },
+    ], { expectedRevision: 0 })
+    const tail = await heavy.readMessageTail({ scope: tailed.scope, projectId: tailed.projectId, sessionId: tailed.sessionId, limit: 2 })
+    expect(tail.messages.map((row) => row.message.content)).toEqual(['two', 'three'])
+    expect(tail.total).toBe(3)
+    expect(tail.hasMore).toBe(true)
 
     const first = heavy.appendMessages(sampleRecord('worker-order'), [
       { role: 'user', content: 'one' },

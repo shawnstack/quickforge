@@ -626,6 +626,41 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     return { seq: Number(row.seq), message: JSON.parse(row.message_json), digest: row.message_digest }
   }
 
+  // Newest `limit` messages in ascending order — the tail a reader opens a long
+  // session for. Rides the same index as `readLastMessage` (the primary key ends
+  // with `seq`), so it costs O(limit) instead of scanning a deep OFFSET. Shape
+  // mirrors `readMessagesPage`; `beforeSeq` is the smallest seq in this page and
+  // the cursor for paging further back. `hasMore` is an approximation: it is true
+  // whenever a full page came back, so the very last page back may turn out empty
+  // (one extra round trip, never a missed message).
+  function readMessageTail({ scope, projectId, sessionId, limit = 100, beforeSeq = null } = {}) {
+    const normalizedBucket = bucket(scope, projectId)
+    nonEmptyString(sessionId, 'sessionId')
+    if (!Number.isInteger(limit) || limit < 1 || limit > MESSAGES_PAGE_LIMIT_MAX) throw new TypeError('limit must be an integer between 1 and 5000')
+    // `seq` starts at 0 (same convention as `afterSeq` in `readMessagesPage`), so 0 is a
+    // valid cursor: it asks for what precedes the very first message, i.e. nothing.
+    if (beforeSeq !== null && (!Number.isInteger(beforeSeq) || beforeSeq < 0)) throw new TypeError('beforeSeq must be a non-negative integer or null')
+    const where = ['scope = ?', 'project_id = ?', 'session_id = ?']
+    const params = [normalizedBucket.scope, normalizedBucket.projectId, sessionId]
+    if (beforeSeq !== null) {
+      where.push('seq < ?')
+      params.push(beforeSeq)
+    }
+    const rows = cachedStatement(storage, `SELECT seq, message_json, message_digest FROM session_messages
+      WHERE ${where.join(' AND ')} ORDER BY seq DESC LIMIT ?`).all(...params, limit)
+    const total = Number(cachedStatement(storage, MESSAGE_COUNT_SQL)
+      .get(normalizedBucket.scope, normalizedBucket.projectId, sessionId).count)
+    rows.reverse()   // newest-first from the index; callers consume in time order
+    const firstSeq = rows.length > 0 ? Number(rows[0].seq) : null
+    return {
+      messages: rows.map((row) => ({ seq: Number(row.seq), message: JSON.parse(row.message_json), digest: row.message_digest })),
+      total,
+      limit,
+      hasMore: rows.length === limit && firstSeq !== null,
+      beforeSeq: firstSeq,
+    }
+  }
+
   // Single-row digest probe used by the service's body-only plan check.
   function readMessageDigestAt({ scope, projectId, sessionId, seq }) {
     const normalizedBucket = bucket(scope, projectId)
@@ -888,6 +923,7 @@ export function createSessionStateRepository(storageHandle, { now = () => new Da
     findMessageContaining,
     messageCount,
     readLastMessage,
+    readMessageTail,
     readMessageDigestAt,
     saveMany,
     applyBatch,

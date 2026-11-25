@@ -395,6 +395,10 @@ export async function readSessionStateValue(sessionId) {
  *
  * Returns the body state (without `messages`) alongside the window; callers add
  * `messagesSummary` so the existing split-session reconciliation path applies.
+ *
+ * The window is read newest-first off the `seq` index (`readMessageTail`) and
+ * returned in time order — the same rows the old `offset = total - limit` form
+ * produced, without walking the rows in front of it.
  */
 export async function readSessionStateTail(sessionId, tailMessages) {
   const record = repository().findBySessionId(sessionId)
@@ -405,15 +409,16 @@ export async function readSessionStateTail(sessionId, tailMessages) {
     return { state: record.state, messages: Array.isArray(record.state?.messages) ? record.state.messages : [], total: null }
   }
   const limit = Math.max(1, Math.min(Math.floor(tailMessages) || 1, MESSAGES_PAGE_LIMIT_MAX))
-  const total = repository().messageCount({ scope: record.scope, projectId: record.projectId, sessionId: record.sessionId })
-  const offset = Math.max(0, total - limit)
-  const page = await heavyOp('readMessagesPage', {
+  // Newest `limit` rows straight off the `seq` index. The previous form paged
+  // forward with `offset = total - limit`, which on a 27k-message session walked
+  // 27k rows only to discard them; this reads just the tail.
+  const page = await heavyOp('readMessageTail', {
     scope: record.scope,
     projectId: record.projectId,
     sessionId: record.sessionId,
     limit,
-    offset,
   })
+  const total = page.total
   return {
     state: record.state,
     messages: page.messages.map((row) => row.message),

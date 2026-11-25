@@ -144,6 +144,76 @@ describe('session state repository and baseline schema', () => {
     })
   })
 
+  /*
+   * Tail reads: what a reader opening a long (resident bot) session needs — the
+   * newest messages, without restoring the whole history. Must agree with the
+   * forward paging on the same rows.
+   */
+  const sevenMessages = (sessionId) => ({
+    ...record(sessionId),
+    state: {
+      ...record(sessionId).state,
+      messages: Array.from({ length: 7 }, (_, i) => ({ role: 'user', content: `m${i + 1}` })),
+    },
+  })
+  const contents = (page) => page.messages.map((row) => row.message.content)
+
+  it('reads the newest messages in time order', () => {
+    repository.save(sevenMessages('tail-basic'), { expectedRevision: 0 })
+
+    const page = repository.readMessageTail({ scope: 'global', sessionId: 'tail-basic', limit: 3 })
+
+    expect(contents(page)).toEqual(['m5', 'm6', 'm7'])
+    expect(page.total).toBe(7)
+    expect(page.hasMore).toBe(true)
+    expect(page.messages.map((row) => row.seq)).toEqual([...page.messages.map((row) => row.seq)].sort((a, b) => a - b))
+  })
+
+  it('pages further back with beforeSeq without gaps or repeats', () => {
+    repository.save(sevenMessages('tail-paging'), { expectedRevision: 0 })
+    const scope = { scope: 'global', sessionId: 'tail-paging', limit: 3 }
+
+    const newest = repository.readMessageTail(scope)
+    const middle = repository.readMessageTail({ ...scope, beforeSeq: newest.beforeSeq })
+    const oldest = repository.readMessageTail({ ...scope, beforeSeq: middle.beforeSeq })
+    const pastEnd = repository.readMessageTail({ ...scope, beforeSeq: oldest.beforeSeq })
+
+    expect(contents(newest)).toEqual(['m5', 'm6', 'm7'])
+    expect(contents(middle)).toEqual(['m2', 'm3', 'm4'])
+    expect(contents(oldest)).toEqual(['m1'])
+    expect(pastEnd.messages).toEqual([])
+    expect(pastEnd.beforeSeq).toBeNull()
+    // The whole session, reassembled back to front, is exactly the stored history.
+    expect([...contents(oldest), ...contents(middle), ...contents(newest)]).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'])
+  })
+
+  it('agrees with the forward page on the same rows', () => {
+    repository.save(sevenMessages('tail-agree'), { expectedRevision: 0 })
+
+    const forward = repository.readMessagesPage({ scope: 'global', sessionId: 'tail-agree', limit: 10 })
+    const tail = repository.readMessageTail({ scope: 'global', sessionId: 'tail-agree', limit: 7 })
+
+    expect(tail.messages).toEqual(forward.messages)
+    expect(tail.total).toBe(forward.total)
+    // A full page always reports hasMore — a conservative approximation: the last
+    // page back may cost one extra round trip that comes back empty (see above).
+    expect(tail.hasMore).toBe(true)
+    const oneMore = repository.readMessageTail({ scope: 'global', sessionId: 'tail-agree', limit: 7, beforeSeq: tail.beforeSeq })
+    expect(oneMore.messages).toEqual([])
+  })
+
+  it('rejects an out-of-range limit and a malformed cursor', () => {
+    repository.save(record('tail-invalid'), { expectedRevision: 0 })
+    const scope = { scope: 'global', sessionId: 'tail-invalid' }
+
+    expect(() => repository.readMessageTail({ ...scope, limit: 0 })).toThrow(TypeError)
+    expect(() => repository.readMessageTail({ ...scope, limit: 5001 })).toThrow(TypeError)
+    // seq starts at 0: a 0 cursor is valid (it just precedes the first message).
+    expect(repository.readMessageTail({ ...scope, limit: 5, beforeSeq: 0 }).messages).toEqual([])
+    expect(() => repository.readMessageTail({ ...scope, limit: 5, beforeSeq: -1 })).toThrow(TypeError)
+    expect(() => repository.readMessageTail({ ...scope, limit: 5, beforeSeq: 1.5 })).toThrow(TypeError)
+  })
+
   it('finds a stored message by attachment id', () => {
     const withAttachment = record('attachment-session')
     withAttachment.state.messages = [

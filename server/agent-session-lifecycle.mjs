@@ -675,6 +675,13 @@ export async function destroyAgent(sessionId) {
 // （pendingRestores 已收口至 agent-session-store.mjs）
 
 /**
+ * A restore slower than this gets a WARN with its phase breakdown. Resident bot
+ * sessions reach 27k messages; opening one used to block for many seconds with
+ * no way to tell which phase paid for it (read / record / create).
+ */
+const SLOW_RESTORE_LOG_MS = 1000
+
+/**
  * Try to restore an agent session from persisted storage.
  * Concurrent calls for the same session share one in-flight restore.
  * Returns the restored session, or null if not found.
@@ -694,14 +701,16 @@ export function restoreAgent(sessionId) {
 }
 
 async function restoreAgentUnlocked(sessionId) {
+  const startedAt = Date.now()
   try {
     const sessionData = await readSessionValue(sessionId)
+    const readMs = Date.now() - startedAt
     if (!sessionData) {
       logger.warn(`Cannot restore session ${sessionId}: no stored data found`, { sessionId })
       return null
     }
 
-    logger.info(`Restoring session ${sessionId} from storage (scope: ${sessionData.scope}, messages: ${sessionData.messages?.length ?? 0})`, { sessionId, scope: sessionData.scope, messageCount: sessionData.messages?.length ?? 0 })
+    logger.info(`Restoring session ${sessionId} from storage (scope: ${sessionData.scope}, messages: ${sessionData.messages?.length ?? 0})`, { sessionId, scope: sessionData.scope, messageCount: sessionData.messages?.length ?? 0, readMs })
 
     // Read the authoritative storage record once: the body (split marker),
     // revision for CAS, and the stored message rows (count + tail digest) used
@@ -710,7 +719,9 @@ async function restoreAgentUnlocked(sessionId) {
     const storedMessages = record?.state?.messageStorage === 'split'
       ? storedMessagesState(sessionId)
       : null
+    const recordMs = Date.now() - startedAt - readMs
 
+    const createStartedAt = Date.now()
     const restored = await createAgent(sessionId, {
       scope: sessionData.scope || 'global',
       projectId: sessionData.projectId || null,
@@ -749,6 +760,22 @@ async function restoreAgentUnlocked(sessionId) {
       goalEvents: Array.isArray(sessionData.goalEvents) ? sessionData.goalEvents : null,
       goalEngine: sessionData.goalEngine === 'v2' ? 'v2' : undefined,
     })
+    const createMs = Date.now() - createStartedAt
+    const restoreMs = Date.now() - startedAt
+    // Phase breakdown of a slow restore: read (storage + JSON.parse), record
+    // (body / counts / tail digest, plus the INFO line in between) and create
+    // (loading messages into the live agent). Fast restores log nothing extra;
+    // a restore that throws never gets here — its ERROR line is the only trace.
+    if (restoreMs >= SLOW_RESTORE_LOG_MS) {
+      logger.warn(`Slow session restore ${sessionId}: ${restoreMs}ms`, {
+        sessionId,
+        restoreMs,
+        readMs,
+        recordMs,
+        createMs,
+        messageCount: sessionData.messages?.length ?? 0,
+      })
+    }
     return restored
   } catch (err) {
     logger.error(`Failed to restore agent ${sessionId}:`, err, { sessionId })

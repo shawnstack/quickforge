@@ -232,6 +232,24 @@ export function buildConversationTrace(
 
   const turns: TraceTurn[] = []
   let current: TraceTurn | null = null
+  /**
+   * Start times of the turns that survive `flush`, pushed when the turn is kept
+   * (dropped empty turns do not count — a dropped turn's start must not end the
+   * previous step, which is exactly what the old `turns`-based collection did).
+   */
+  const keptTurnStarts: number[] = []
+  /**
+   * True while every start was met in non-decreasing time order — turn starts and
+   * step starts interleaved as the walk meets them (a dropped turn's start counts
+   * here too: it still shows the timestamps are out of order). Restored or merged
+   * history can break this; such sessions take the binary search in the second pass.
+   */
+  let startsMonotonic = true
+  let lastStartAt: number | undefined = undefined
+  const noteStart = (at: number) => {
+    if (lastStartAt !== undefined && at < lastStartAt) startsMonotonic = false
+    lastStartAt = at
+  }
   /** Raw steps per turn, resolved into `endAt` once the walk knows what follows. */
   const rawSteps: { turn: TraceTurn; step: TraceStep; nextAt?: number }[] = []
 
@@ -241,6 +259,7 @@ export function buildConversationTrace(
       current = null
       return
     }
+    keptTurnStarts.push(current.startAt)
     turns.push(current)
     current = null
   }
@@ -253,6 +272,7 @@ export function buildConversationTrace(
 
     if (isTurnStart(message)) {
       flush()
+      noteStart(at)
       current = {
         kind: 'turn',
         index: turns.length + 1,
@@ -303,6 +323,7 @@ export function buildConversationTrace(
       tools: buildStepTools(message, index, at, lookup, pending),
     }
     current.steps.push(step)
+    noteStart(at)
     rawSteps.push({ turn: current, step })
   })
   flush()
@@ -310,12 +331,30 @@ export function buildConversationTrace(
   // Second pass: a step's span runs to whatever starts next (the following step,
   // or the next turn's user message). The tail step falls back to its last tool
   // end; if nothing finished there is no honest number, so it stays undefined.
-  const allStarts: number[] = []
-  for (const turn of turns) {
-    if (turn.userMessageIndex !== undefined) allStarts.push(turn.startAt)
-    for (const step of turn.steps) allStarts.push(step.at)
-  }
+  //
+  // Cost note: this used to be a linear `allStarts.find(v => v > step.at)` per step —
+  // O(S·N), ~170M comparisons on a 12k-step bot session, re-run on every message
+  // event. The definition is unchanged; only the search is: sort the starts once,
+  // then walk them with a cursor that only moves forward (amortised O(1) per step).
+  // That is only valid while starts came in time order (see `startsMonotonic`,
+  // tracked by the first pass); otherwise fall back to a binary search for the
+  // strict upper bound.
+  //
+  const allStarts: number[] = keptTurnStarts.slice()
+  for (const turn of turns) for (const step of turn.steps) allStarts.push(step.at)
   allStarts.sort((a, b) => a - b)
+  /** Index of the first start strictly greater than `value` (upper bound). */
+  const upperBound = (value: number): number => {
+    let lo = 0
+    let hi = allStarts.length
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1
+      if (allStarts[mid] > value) hi = mid
+      else lo = mid + 1
+    }
+    return lo
+  }
+  let cursor = 0
 
   let startAt: number | undefined
   let endAt: number | undefined
@@ -328,7 +367,14 @@ export function buildConversationTrace(
 
   for (const turn of turns) {
     for (const step of turn.steps) {
-      const nextStart = allStarts.find((value) => value > step.at)
+      let index: number
+      if (startsMonotonic) {
+        while (cursor < allStarts.length && allStarts[cursor] <= step.at) cursor++
+        index = cursor
+      } else {
+        index = upperBound(step.at)
+      }
+      const nextStart = index < allStarts.length ? allStarts[index] : undefined
       let stepEnd: number | undefined
       if (nextStart !== undefined) {
         stepEnd = nextStart
@@ -382,6 +428,11 @@ export type TraceSpan = {
   /** Percentages of the plot width, 0–100. */
   left: number
   width: number
+  /**
+   * Only on a coalesced span: the ids of the records it stands for, in span order
+   * (its own `id` is the first member's). Absent on an ordinary one-record span.
+   */
+  memberIds?: string[]
 }
 
 export type TraceBounds = { min: number; max: number; span: number }
@@ -477,6 +528,61 @@ export function layoutTraceSpans(model: TraceModel, mode: TraceLayoutMode): Trac
       width: Math.min(width, 100 - clamp(left, 0, 100 - MIN_SPAN_PERCENT)),
     }
   })
+}
+
+/**
+ * Merge the spans of one lane that overlap in plot space into aggregate spans.
+ *
+ * Why this loses nothing: every span is at least `MIN_SPAN_PERCENT` wide, so a
+ * lane can show at most ~111 of them side by side. Past that the later ones
+ * necessarily cover the earlier ones — a covered span is invisible and cannot be
+ * clicked, yet still costs a button with its handlers. A resident bot session puts
+ * 12k records in a lane, i.e. over 99% of them were covered.
+ *
+ * - Only neighbouring spans of the same lane are merged, in input order.
+ * - A block's `left` is its first member's; its right edge is the furthest right
+ *   edge among the members, so it never covers more time than they do.
+ * - A lane whose spans do not touch is returned as the very same objects, so
+ *   ordinary sessions render exactly as before.
+ */
+export function coalesceTraceSpans(spans: TraceSpan[]): TraceSpan[] {
+  // Merge per lane (overlap only means something between spans that share one).
+  // `blockOf` maps EVERY member of a block to that block; the block itself is
+  // placed at its first member's position so the output order equals the input order.
+  const blockOf = new Map<TraceSpan, TraceSpan>()
+  const byLane: Partial<Record<TraceLane, TraceSpan[]>> = {}
+  for (const span of spans) (byLane[span.lane] ??= []).push(span)
+  for (const lane of Object.keys(byLane) as TraceLane[]) {
+    const items = byLane[lane] ?? []
+    let i = 0
+    while (i < items.length) {
+      const first = items[i]
+      let right = first.left + first.width
+      let j = i + 1
+      while (j < items.length && items[j].left < right) {
+        right = Math.max(right, items[j].left + items[j].width)
+        j++
+      }
+      if (j > i + 1) {
+        const members = items.slice(i, j)
+        const block: TraceSpan = { id: first.id, lane, left: first.left, width: right - first.left, memberIds: members.map((span) => span.id) }
+        for (const member of members) blockOf.set(member, block)
+      }
+      i = j
+    }
+  }
+  if (!blockOf.size) return spans   // nothing overlapped anywhere: same array, same objects
+  const out: TraceSpan[] = []
+  for (const span of spans) {
+    const block = blockOf.get(span)
+    // Emit a block once, at its head; the other members are folded into it.
+    if (block) {
+      if (block.id === span.id && block.lane === span.lane) out.push(block)
+    } else {
+      out.push(span)
+    }
+  }
+  return out
 }
 
 /** Turn dividers for the `time` overview, in plot percent. */

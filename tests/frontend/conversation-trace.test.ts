@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildConversationTrace,
+  coalesceTraceSpans,
   formatTraceDuration,
   formatTraceTokens,
   layoutTraceSpans,
@@ -253,6 +254,54 @@ describe('buildConversationTrace — honest timing', () => {
     expect(tool.finishedAt).toBeUndefined()
   })
 
+  it('skips same-timestamp siblings when looking for the next start', () => {
+    // Two steps recorded in the same millisecond: the first one must not be cut
+    // off by its twin (a zero-length step) — it runs to whatever starts strictly
+    // later. This pins the "strictly greater" rule the single-pass walk keeps.
+    const model = buildConversationTrace([
+      user('go', 1000),
+      assistant(1100, { text: 'one' }),
+      assistant(1100, { text: 'two' }),
+      assistant(2500, { text: 'three' }),
+    ])
+
+    expect(model.turns[0].steps[0].endAt).toBe(2500)
+    expect(model.turns[0].steps[0].durationMs).toBe(1400)
+    expect(model.turns[0].steps[1].endAt).toBe(2500)
+    expect(model.turns[0].steps[2].endAt).toBeUndefined()
+  })
+
+  it('ends a step at the next turn start when a user message follows', () => {
+    // A turn start is itself a start: the previous turn's tail step ends there,
+    // not at an invented tool end.
+    const model = buildConversationTrace([
+      user('first', 1000),
+      assistant(1100, { text: 'reply' }),
+      user('second', 4000),
+      assistant(4100, { text: 'reply two' }),
+    ])
+
+    expect(model.turns[0].steps[0].endAt).toBe(4000)
+    expect(model.turns[0].steps[0].durationMs).toBe(2900)
+    expect(model.turns[0].endAt).toBe(4000)
+    expect(model.turns[1].steps[0].endAt).toBeUndefined()
+  })
+
+  it('finds the next start by timestamp order, not array order', () => {
+    // Out-of-order timestamps (restored / merged history): the "next" start is
+    // the smallest one strictly greater than the step's own, wherever it sits.
+    const model = buildConversationTrace([
+      user('go', 1000),
+      assistant(5000, { text: 'late arrival first in the array' }),
+      assistant(2000, { text: 'earlier but listed second' }),
+      assistant(3000, { text: 'middle' }),
+    ])
+
+    expect(model.turns[0].steps[0].endAt).toBeUndefined()
+    expect(model.turns[0].steps[1].endAt).toBe(3000)
+    expect(model.turns[0].steps[2].endAt).toBe(5000)
+  })
+
   it('sums usage and tool counts across the session', () => {
     const model = buildConversationTrace([
       user('a', 1000),
@@ -329,6 +378,70 @@ describe('timeline layouts', () => {
 
     expect(markers.map((marker) => marker.index)).toEqual([1, 2])
     expect(markers[0].left).toBe(0)
+  })
+})
+
+describe('coalescing overview spans', () => {
+  const span = (id: string, lane: 'input' | 'model' | 'tools', left: number, width: number) => ({ id, lane, left, width })
+
+  it('returns the very same objects when a lane has no overlap', () => {
+    const spans = [span('a', 'model', 0, 10), span('b', 'model', 12, 10), span('c', 'tools', 5, 4)]
+
+    const out = coalesceTraceSpans(spans)
+
+    expect(out).toHaveLength(3)
+    out.forEach((item, index) => expect(item).toBe(spans[index]))
+    expect(out.every((item) => item.memberIds === undefined)).toBe(true)
+  })
+
+  it('merges only neighbouring spans of the same lane, in input order', () => {
+    const spans = [
+      span('a', 'model', 0, 5),
+      span('b', 'model', 3, 5),     // overlaps a
+      span('c', 'tools', 4, 5),     // overlaps b in x, but another lane: never merged
+      span('d', 'model', 30, 5),    // clear of b: own block
+    ]
+
+    const out = coalesceTraceSpans(spans)
+
+    expect(out.map((item) => item.id)).toEqual(['a', 'c', 'd'])
+    expect(out[0].memberIds).toEqual(['a', 'b'])
+    expect(out[1]).toBe(spans[2])
+    expect(out[2]).toBe(spans[3])
+  })
+
+  it('never covers more than the union of its members', () => {
+    const spans = [
+      span('a', 'tools', 10, 3),
+      span('b', 'tools', 12, 6),    // right edge 18
+      span('c', 'tools', 16, 1),    // right edge 17 — does not extend the block
+    ]
+
+    const block = coalesceTraceSpans(spans)[0]
+
+    expect(block.left).toBe(10)
+    expect(block.width).toBe(8)          // furthest right edge among members = 18
+    expect(block.left + block.width).toBe(18)
+  })
+
+  it('shrinks a resident-bot-sized lane by orders of magnitude', () => {
+    const messages: AnyMessage[] = []
+    for (let i = 1; i <= 711; i++) {
+      messages.push(user(`turn ${i}`, 1000 + i * 1000))
+      messages.push(assistant(1005 + i * 1000, { toolCalls: [{ id: `c${i}`, name: 'run_command' }] }))
+      messages.push(toolResult(`c${i}`, 'run_command', 1200 + i * 1000, { timing: { startedAt: 1010 + i * 1000, finishedAt: 1190 + i * 1000, durationMs: 180 } }))
+    }
+    const model = buildConversationTrace(messages)
+
+    for (const mode of ['sequence', 'duration', 'time'] as const) {
+      const spans = layoutTraceSpans(model, mode)
+      const out = coalesceTraceSpans(spans)
+      // Every record survives as a member; only the DOM nodes are folded.
+      const members = out.reduce((sum, item) => sum + (item.memberIds?.length ?? 1), 0)
+      expect(members).toBe(spans.length)
+      // A lane can show at most ~111 spans side by side (MIN_SPAN_PERCENT = 0.9).
+      expect(out.length).toBeLessThan(spans.length / 10)
+    }
   })
 })
 

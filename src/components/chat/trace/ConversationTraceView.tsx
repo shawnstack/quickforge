@@ -5,6 +5,7 @@ import type { AgentMessage } from '@/components/chat/surface/ChatTypes'
 import { t } from '@/lib/i18n'
 import {
   buildConversationTrace,
+  coalesceTraceSpans,
   formatTraceClock,
   formatTraceDuration,
   formatTraceTokens,
@@ -15,7 +16,9 @@ import {
   traceTurnMarkers,
   type TraceLayoutMode,
   type TraceModel,
+  type TraceLane,
   type TraceRow,
+  type TraceSpan,
   type TraceStep,
   type TraceTool,
   type TraceTurn,
@@ -97,6 +100,24 @@ type Selection = { start: number; end: number }
 /** Stable identity for "no session yet" (an inline [] would re-run the projection every render). */
 const EMPTY_MESSAGES: AgentMessage[] = []
 
+/** Stable empty list: a step with no tool rows must not allocate a fresh array per render. */
+const EMPTY_ROWS: TraceRow[] = []
+const EMPTY_SPANS: TraceSpan[] = []
+
+/**
+ * Ledger window: how many of the most recent turns are rendered on open, and
+ * how many more the "earlier turns" button adds each time. Sized so that
+ * ordinary sessions never window at all (97.9% of sessions have ≤500 trace
+ * rows — well inside 30 turns) while resident bot sessions, which reach 700+
+ * turns, open fast. Paging back widens the window (start moves, end stays) so
+ * nothing the reader is looking at unmounts; there is deliberately no ceiling —
+ * a read-only trace must be able to reach turn 1, and the +30 cadence is the
+ * only brake. The timeline overview is not windowed: it needs the whole span
+ * to mean anything.
+ */
+export const TRACE_WINDOW_TURNS = 30
+export const TRACE_WINDOW_PAGE_TURNS = 30
+
 export function ConversationTraceView({ agent, onOpenChat, className }: ConversationTraceViewProps) {
   const revision = useAgentRevision(agent)
   // A fresh Set per revision: the agent mutates `state.pendingToolCalls` in place,
@@ -121,11 +142,21 @@ export function ConversationTraceView({ agent, onOpenChat, className }: Conversa
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(() => new Set())
   const [collapsedSteps, setCollapsedSteps] = useState<ReadonlySet<string>>(() => new Set())
+  /**
+   * First turn (1-based) rendered by the ledger. `null` = "follow the default",
+   * i.e. the last TRACE_WINDOW_TURNS turns; the reader paging back pins a start.
+   * Anchored at the tail because the newest turns are what a trace is opened for.
+   */
+  const [windowStart, setWindowStart] = useState<number | null>(null)
   const [hover, setHover] = useState<{ row: TraceRow; x: number; y: number } | null>(null)
 
   const rows = useMemo(() => traceRows(model), [model])
   const selected = useMemo(() => rows.find((row) => row.id === selectedId) ?? null, [rows, selectedId])
-  const spans = useMemo(() => layoutTraceSpans(model, mode), [model, mode])
+  // One DOM node per visible block instead of per record. Spans narrower than the
+  // layout minimum necessarily overlap, and a covered span is invisible and
+  // unclickable anyway: a 711-turn session drew 2,133 spans that showed as three
+  // solid bars. Lanes with no overlap come back as the very same objects.
+  const spans = useMemo(() => coalesceTraceSpans(layoutTraceSpans(model, mode)), [model, mode])
   const markers = useMemo(() => (mode === 'time' ? traceTurnMarkers(model) : []), [model, mode])
 
   const visibleRows = useMemo(() => rows.filter((row) => {
@@ -144,6 +175,45 @@ export function ConversationTraceView({ agent, onOpenChat, className }: Conversa
     () => (query.trim() ? rows.filter((row) => traceRowMatches(row, query)).length : 0),
     [rows, query],
   )
+
+  const totalTurns = model.turns.length
+  const defaultStart = Math.max(1, totalTurns - TRACE_WINDOW_TURNS + 1)
+  // `windowStart` is pinned by the reader; keep it inside [1, defaultStart] even if
+  // turns were removed underneath it (retry / rollback).
+  const firstRenderedTurn = windowStart === null ? defaultStart : Math.max(1, Math.min(windowStart, defaultStart))
+  const hiddenEarlierTurns = firstRenderedTurn - 1
+
+  /**
+   * Rows bucketed once by turn and by step, so the ledger's nested loops look
+   * rows up instead of re-filtering the whole list per turn and per step
+   * (that was O(rows × (turns + 2 × steps)) — ~690M comparisons on a 27k-row
+   * bot session, and collapsing a turn saved DOM but not the scan).
+   */
+  const buckets = useMemo(() => {
+    const byTurn = new Map<number, { user: TraceRow[]; toolsByStep: Map<string, TraceRow[]>; toolCount: number }>()
+    const bucketOf = (turnIndex: number) => {
+      let bucket = byTurn.get(turnIndex)
+      if (!bucket) {
+        bucket = { user: [], toolsByStep: new Map(), toolCount: 0 }
+        byTurn.set(turnIndex, bucket)
+      }
+      return bucket
+    }
+    for (const row of visibleRows) {
+      const bucket = bucketOf(row.turnIndex)
+      if (row.kind === 'user') bucket.user.push(row)
+      else if (row.kind === 'tool') {
+        const list = bucket.toolsByStep.get(row.stepId)
+        if (list) list.push(row)
+        else bucket.toolsByStep.set(row.stepId, [row])
+        bucket.toolCount += 1
+      }
+      // step rows are addressed by id (exactly one per step) — no bucket needed
+    }
+    return byTurn
+  }, [visibleRows])
+
+  const rowById = useMemo(() => new Map(visibleRows.map((row) => [row.id, row])), [visibleRows])
 
   const ledgerRef = useRef<HTMLDivElement | null>(null)
 
@@ -279,6 +349,15 @@ export function ConversationTraceView({ agent, onOpenChat, className }: Conversa
 
           <div className="quickforge-trace-body">
             <div className="quickforge-trace-ledger" ref={ledgerRef}>
+              {hiddenEarlierTurns > 0 ? (
+                <button
+                  className="quickforge-trace-action quickforge-trace-earlier"
+                  type="button"
+                  onClick={() => setWindowStart(Math.max(1, firstRenderedTurn - TRACE_WINDOW_PAGE_TURNS))}
+                >
+                  {t('trace.loadEarlierTurns', { count: Math.min(TRACE_WINDOW_PAGE_TURNS, hiddenEarlierTurns) })}
+                </button>
+              ) : null}
               {visibleRows.length === 0 ? (
                 <div className="quickforge-trace-empty quickforge-trace-empty-inline">
                   <p className="quickforge-trace-empty-title">{t('trace.noMatchTitle')}</p>
@@ -287,11 +366,11 @@ export function ConversationTraceView({ agent, onOpenChat, className }: Conversa
                   </p>
                 </div>
               ) : (
-                model.turns.map((turn) => {
-                  const turnRows = visibleRows.filter((row) => row.turnIndex === turn.index)
-                  if (!turnRows.length) return null
+                model.turns.slice(firstRenderedTurn - 1).map((turn) => {
+                  const bucket = buckets.get(turn.index)
+                  if (!bucket) return null
                   const collapsed = collapsedTurns.has(turn.index)
-                  const toolCount = turnRows.filter((row) => row.kind === 'tool').length
+                  const toolCount = bucket.toolCount
                   return (
                     <section className="quickforge-trace-turn" key={turn.index}>
                       <button
@@ -318,7 +397,7 @@ export function ConversationTraceView({ agent, onOpenChat, className }: Conversa
 
                       {collapsed ? null : (
                         <div className="quickforge-trace-turn-body">
-                          {turnRows.filter((row) => row.kind === 'user').map((row) => (
+                          {bucket.user.map((row) => (
                             <TraceRowButton
                               key={row.id}
                               row={row}
@@ -329,15 +408,10 @@ export function ConversationTraceView({ agent, onOpenChat, className }: Conversa
                             />
                           ))}
                           {turn.steps.map((step) => {
-                            const stepRows = turnRows.filter(
-                              (row) => row.kind === 'step' && row.id === step.id,
-                            )
-                            const toolRows = turnRows.filter(
-                              (row) => row.kind === 'tool' && row.stepId === step.id,
-                            )
-                            if (!stepRows.length && !toolRows.length) return null
+                            const stepRow = rowById.get(step.id)
+                            const toolRows = bucket.toolsByStep.get(step.id) ?? EMPTY_ROWS
+                            if (!stepRow && !toolRows.length) return null
                             const stepCollapsed = collapsedSteps.has(step.id)
-                            const stepRow = stepRows[0]
                             return (
                               <div className="quickforge-trace-step" key={step.id}>
                                 <div className="quickforge-trace-step-head">
@@ -435,7 +509,7 @@ function TraceOverview({
 }: {
   model: TraceModel
   mode: TraceLayoutMode
-  spans: ReturnType<typeof layoutTraceSpans>
+  spans: TraceSpan[]
   markers: ReturnType<typeof traceTurnMarkers>
   selection: Selection | null
   onSelectionChange: (selection: Selection | null) => void
@@ -448,6 +522,15 @@ function TraceOverview({
   const bounds = useMemo(() => traceBounds(model), [model])
   const rows = useMemo(() => traceRows(model), [model])
   const rowById = useMemo(() => new Map(rows.map((row) => [row.id, row])), [rows])
+  const spansByLane = useMemo(() => {
+    const byLane = new Map<TraceLane, TraceSpan[]>()
+    for (const span of spans) {
+      const list = byLane.get(span.lane)
+      if (list) list.push(span)
+      else byLane.set(span.lane, [span])
+    }
+    return byLane
+  }, [spans])
 
   const percentAt = (clientX: number): number => {
     const rect = trackRef.current?.getBoundingClientRect()
@@ -537,10 +620,28 @@ function TraceOverview({
         >
           {(['input', 'model', 'tools'] as const).map((lane) => (
             <div className="quickforge-trace-lane" key={lane} data-lane={lane}>
-              {spans.filter((span) => span.lane === lane).map((span) => {
-                const row = rowById.get(span.id)
+              {(spansByLane.get(lane) ?? EMPTY_SPANS).map((span) => {
+                const members = span.memberIds ?? [span.id]
+                const aggregate = members.length > 1
+                // A block stands for many records. Pointing at a dense stretch of the
+                // timeline, the record worth opening is the slowest one in it.
+                let row = rowById.get(span.id)
+                if (aggregate) {
+                  let best = -1
+                  for (const id of members) {
+                    const candidate = rowById.get(id)
+                    if (!candidate) continue
+                    const duration = (candidate.endAt ?? candidate.at) - candidate.at
+                    if (duration > best) {
+                      best = duration
+                      row = candidate
+                    }
+                  }
+                }
+                const selected = members.some((id) => id === selectedId)
                 const tool = row?.kind === 'tool' ? row.tool : null
                 const step = row?.kind === 'step' ? row.step : null
+                const summary = row ? `${formatTraceClock(row.at)} · ${formatTraceDuration(row.endAt - row.at)}` : undefined
                 return (
                   <button
                     key={span.id}
@@ -548,15 +649,16 @@ function TraceOverview({
                     className="quickforge-trace-span"
                     data-lane={lane}
                     data-status={tool?.status}
-                    data-selected={selectedId === span.id || undefined}
+                    data-aggregate={aggregate ? members.length : undefined}
+                    data-selected={selected || undefined}
                     style={{ left: `${span.left}%`, width: `${span.width}%` }}
-                    title={row ? `${formatTraceClock(row.at)} · ${formatTraceDuration(row.endAt - row.at)}` : undefined}
+                    title={aggregate ? t('trace.aggregateTitle', { count: members.length, summary: summary ?? '' }) : summary}
                     onMouseEnter={(event) => {
                       if (!row) return
                       setHoverSafe(onHover, { row, x: event.clientX + 12, y: event.clientY + 16 })
                     }}
                     onMouseLeave={() => onHover(null)}
-                    onClick={() => onSelect(span.id)}
+                    onClick={() => { if (row) onSelect(row.id) }}
                   >
                     {step && step.tools.length > 1 ? <span className="quickforge-trace-span-parallel" aria-hidden="true" /> : null}
                   </button>

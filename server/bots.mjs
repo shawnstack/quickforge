@@ -210,8 +210,14 @@ function normalizeHeartbeat(input, previous = null) {
       : (typeof source.nextRunAt === 'string' ? source.nextRunAt : (previous?.nextRunAt ?? null)),
     lastWakeAt: typeof source.lastWakeAt === 'string' ? source.lastWakeAt : (previous?.lastWakeAt ?? null),
     lastSessionId: typeof source.lastSessionId === 'string' ? source.lastSessionId : (previous?.lastSessionId ?? null),
-    lastIdleReason: typeof source.lastIdleReason === 'string' ? source.lastIdleReason : (previous?.lastIdleReason ?? null),
-    lastError: typeof source.lastError === 'string' ? source.lastError : (previous?.lastError ?? null),
+    // null 是显式置空（心跳成功唤醒时清掉上一跳的错误），不是「没提供」：
+    // undefined 才沿用 previous，否则旧的 lastError / lastIdleReason 永远清不掉（幽灵错误）。
+    lastIdleReason: source.lastIdleReason === null
+      ? null
+      : (typeof source.lastIdleReason === 'string' ? source.lastIdleReason : (previous?.lastIdleReason ?? null)),
+    lastError: source.lastError === null
+      ? null
+      : (typeof source.lastError === 'string' ? source.lastError : (previous?.lastError ?? null)),
   }
 }
 

@@ -354,6 +354,34 @@ describe('normalizeBotRecord', () => {
     expect(second.thinkingLevel).toBe('high')
   })
 
+  // 幽灵错误：心跳成功唤醒时 bot-runner 写 lastError: null / lastIdleReason: null，
+  // 意图是清掉上一跳的错误；normalizeHeartbeat 若只认字符串、否则沿用 previous，
+  // 那个 null 会被当成「没提供」，旧错误永远清不掉（界面一直摆出错表情）。
+  it('clears a stale heartbeat lastError / lastIdleReason when the patch passes null', () => {
+    const previous = normalizeBotRecord({
+      name: 'helper',
+      heartbeat: { lastError: 'x', lastIdleReason: 'busy' },
+    })
+    expect(previous.heartbeat.lastError).toBe('x')
+    expect(previous.heartbeat.lastIdleReason).toBe('busy')
+    const next = normalizeBotRecord({ ...previous, heartbeat: { lastError: null, lastIdleReason: null } }, previous)
+    expect(next.heartbeat.lastError).toBeNull()
+    expect(next.heartbeat.lastIdleReason).toBeNull()
+  })
+
+  // 对照：字段缺失（undefined）不等于显式置空，必须沿用 previous，否则任何只带
+  // intervalMinutes 的普通 patch 都会顺手把错误记录抹掉。
+  it('keeps the previous heartbeat lastError / lastIdleReason when the patch omits them', () => {
+    const previous = normalizeBotRecord({
+      name: 'helper',
+      heartbeat: { lastError: 'x', lastIdleReason: 'busy' },
+    })
+    const next = normalizeBotRecord({ ...previous, heartbeat: { intervalMinutes: 30 } }, previous)
+    expect(next.heartbeat.lastError).toBe('x')
+    expect(next.heartbeat.lastIdleReason).toBe('busy')
+    expect(next.heartbeat.intervalMinutes).toBe(30)
+  })
+
   it('clamps the heartbeat interval to a sane floor', () => {
     const bot = normalizeBotRecord({ name: 'helper', heartbeat: { intervalMinutes: 0 } })
     expect(bot.heartbeat.intervalMinutes).toBe(5)

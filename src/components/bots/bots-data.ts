@@ -200,11 +200,17 @@ export function formatBotAwakeAgo(elapsedMs: number): string {
  * 优先级从上到下 —— 越靠上越是「需要人知道」：出错压过在忙，在忙压过睡着，
  * 睡着压过「多久没醒」。心跳时间只在没事发生时才显示，不让时间把异常盖掉。
  *
+ * 但「出错」只算现状：lastError 是上一次心跳失败的记录，靠下一次成功唤醒清掉；
+ * 心跳关着时这条清除路径不存在了，它就是历史而非现状，不参与状态判定
+ * （原文仍在设置抽屉的「最近错误」里可见）。enabled 字段缺失的旧记录仍按出错处理。
+ *
  * 为什么不靠吉祥物动画表达：侧栏那只是 18px，眼睛的动作在这个尺寸上看不出来。
  * 运行状态按设计规范该保留文字（DESIGN_LANGUAGE「状态说明应保留文字」）。
  */
 export function botStatusSummary(bot: BotSummary, now = Date.now()): BotStatusSummary {
-  if (bot.heartbeat?.lastError) return { text: t('botStatusError'), tone: 'error' }
+  if (bot.heartbeat?.lastError && bot.heartbeat?.enabled !== false) {
+    return { text: t('botStatusError'), tone: 'error' }
+  }
   if (bot.busy || bot.status === 'running') return { text: t('botStatusBusy'), tone: 'busy' }
   if (bot.heartbeat?.enabled === false) return { text: t('botStatusAsleep'), tone: 'asleep' }
   // 「X 分钟前」优先取会话最后活动（用户直聊也算），没有再回退心跳的 lastWakeAt。

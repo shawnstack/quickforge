@@ -29,10 +29,13 @@ type SortableRowProps = Parameters<
   NonNullable<ComponentProps<typeof SortableProjectItem>['children']>
 >[0]
 
-/** 列表里没有当前会话的细粒度状态，只能用 bot 自身字段拼：出错 > 在忙 > 睡了。 */
+/**
+ * 列表里没有当前会话的细粒度状态，只能用 bot 自身字段拼：出错 > 在忙 > 睡了。
+ * 与 botStatusSummary 同一语义：心跳关着时 lastError 是历史不是现状，不喂给吉祥物。
+ */
 function sidebarMascotState(bot: BotSummary) {
   return resolveMascotState({
-    error: bot.heartbeat?.lastError,
+    error: bot.heartbeat?.enabled !== false ? bot.heartbeat?.lastError : undefined,
     toolRunning: bot.busy,
     paused: bot.heartbeat?.enabled === false,
   })

@@ -220,6 +220,13 @@ export async function handleBotsApi(req, res, url, context = {}) {
         if (nextHeartbeat.enabled && !nextHeartbeat.nextRunAt) {
           nextHeartbeat.nextRunAt = nextHeartbeatAt({ heartbeat: nextHeartbeat })
         }
+        // 切换开关是开始新的一轮，运行态归零：关掉期间旧错误已不可见，重新打开后
+        // 突然冒出来更怪（而且要等下一跳成功才会消失）。两个方向都清才自洽。
+        // 只改间隔/颜色等不碰开关的 patch 不动 lastError，保持现有行为。
+        if (nextHeartbeat.enabled !== existing.heartbeat.enabled) {
+          nextHeartbeat.lastError = null
+          nextHeartbeat.lastIdleReason = null
+        }
         patch.heartbeat = nextHeartbeat
       }
 

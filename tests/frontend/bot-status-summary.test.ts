@@ -123,11 +123,25 @@ describe('botStatusSummary', () => {
     expect(matchesCopy(running.text, 'botStatusBusy')).toBe(true)
   })
 
-  it('出错压过在忙和睡着', () => {
+  it('心跳开着时出错压过在忙', () => {
     const bot = makeBot({
       busy: true,
-      heartbeat: { enabled: false, lastError: 'model overloaded' },
+      heartbeat: { enabled: true, lastError: 'model overloaded' },
     })
+    const status = botStatusSummary(bot, NOW)
+    expect(matchesCopy(status.text, 'botStatusError')).toBe(true)
+    expect(status.tone).toBe('error')
+  })
+
+  it('心跳关着时旧错误只是历史，不算当前出错 → 睡了', () => {
+    const bot = makeBot({ heartbeat: { enabled: false, lastError: 'model overloaded' } })
+    const status = botStatusSummary(bot, NOW)
+    expect(matchesCopy(status.text, 'botStatusAsleep')).toBe(true)
+    expect(status.tone).toBe('asleep')
+  })
+
+  it('enabled 字段缺失（旧记录）时 lastError 仍然算出错', () => {
+    const bot = makeBot({ heartbeat: { enabled: undefined, lastError: 'model overloaded' } })
     const status = botStatusSummary(bot, NOW)
     expect(matchesCopy(status.text, 'botStatusError')).toBe(true)
     expect(status.tone).toBe('error')

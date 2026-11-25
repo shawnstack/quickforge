@@ -260,7 +260,12 @@ export function useBotWorkspace(context: {
     ? pendingToolCalls.size
     : (pendingToolCalls?.length ?? 0)
   const mascotState = useMascotState({
-    error: agentState?.errorMessage ?? activeBot?.heartbeat?.lastError ?? null,
+    // 会话级错误是真实错误，永远算；心跳的 lastError 只在心跳没关时才算现状
+    // （关了以后它是历史，设置抽屉里仍可查看）。
+    error:
+      agentState?.errorMessage ??
+      (activeBot?.heartbeat?.enabled !== false ? activeBot?.heartbeat?.lastError : null) ??
+      null,
     waitingForUser: Boolean(agentState?.pendingToolApproval) || Boolean(agentState?.pendingAsk),
     toolRunning: pendingToolCount > 0,
     streaming: Boolean(agentState?.isStreaming),

@@ -591,8 +591,8 @@ React 类组件实现的错误边界，捕获子组件渲染错误并显示降�
 
 bot 是 QuickForge 里的「常驻伙伴」：一条永不重置的会话 + 自己的目录 + `MEMORY.md` + 可开关的心跳。本目录是它的前端外壳——侧栏列表、新建与设置对话框、接口与状态投影、小头像，以及 `mascot/` 吉祥物子系统。数据全部来自 `/api/bots*` 端点；侧栏那句「X 分钟前」的取值口径是 `lastActivityAt`（会话最后活动时间，用户直聊与心跳真醒都会更新），缺失时回退 `heartbeat.lastWakeAt`（只在整跳心跳跑完时才写）。
 
-- `bots/bots-data.ts` (236 行) # bot 的前端数据层：类型（`BotHeartbeat` / `BotMascot` / `BotSummary` / `BotPatch`）、`/api/bots*` 全套请求（fetch / create / patch / reorder / delete / wake / feed / ensureBotSessionOpen / openBotWorkspace / memory 读写）、心跳间隔拆分 `splitHeartbeatInterval`，以及状态投影 `botStatusSummary` + `formatBotAwakeAgo`（「X 分钟前」优先 `lastActivityAt`，缺失回退 `heartbeat.lastWakeAt`）
-- `bots/BotSidebarList.tsx` (257 行) # 侧栏 bot 列表：复用普通会话行样式，接 dnd-kit 拖拽排序（落到 `reorderBots`），行首小吉祥物 + 状态点
+- `bots/bots-data.ts` (242 行) # bot 的前端数据层：类型（`BotHeartbeat` / `BotMascot` / `BotSummary` / `BotPatch`）、`/api/bots*` 全套请求（fetch / create / patch / reorder / delete / wake / feed / ensureBotSessionOpen / openBotWorkspace / memory 读写）、心跳间隔拆分 `splitHeartbeatInterval`，以及状态投影 `botStatusSummary` + `formatBotAwakeAgo`（「X 分钟前」优先 `lastActivityAt`，缺失回退 `heartbeat.lastWakeAt`）
+- `bots/BotSidebarList.tsx` (260 行) # 侧栏 bot 列表：复用普通会话行样式，接 dnd-kit 拖拽排序（落到 `reorderBots`），行首小吉祥物 + 状态点
 - `bots/BotDialogs.tsx` (659 行) # 新建 bot 与 bot 设置两个对话框：名称 / 项目、心跳开关与间隔（含「到点必醒」`alwaysWake`）、吉祥物外观（身体色 / 眼睛色 / 是否动 / `showOnComposer`）、`MEMORY.md` 编辑（`fetchBotMemory` / `saveBotMemory`）；两个弹层的 `aria-modal` 都兑现成共享钩子——焦点锁卡片（`useDialogFocusTrap`）、背景隔离从**遮罩**起算（`useModalIsolation`，遮罩里的 `inset-0` 关闭热区不能被 `inert`）
 - `bots/BotAvatar.tsx` (51 行) # 黑白线描小头像：只做线描 + 实心圆点、不填色块；「点一下会动」由调用方把 `popKey` 加一让 svg 重挂来重播一次，不常驻不循环
 - `bots/bot-avatar.css` (67 行) # 小头像样式与 pop 动画

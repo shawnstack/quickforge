@@ -181,4 +181,52 @@ describe('bots API exposes the mascot', () => {
     expect(patched.status).toBe(200)
     expect(patched.body.bot.mascot.body).toBe(DEFAULT_MASCOT.body)
   })
+
+  it('clears the stale heartbeat error when the switch is toggled off', async () => {
+    const created = await call('POST', 'http://localhost/api/bots', { name: 'sleeper' })
+    const url = `http://localhost/api/bots/${encodeURIComponent(created.body.bot.id)}`
+    // 先让记录带上一次历史失败。
+    const tainted = await call('PATCH', url, { heartbeat: { lastError: 'boom' } })
+    expect(tainted.status).toBe(200)
+    expect(tainted.body.bot.heartbeat.lastError).toBe('boom')
+
+    const switched = await call('PATCH', url, { heartbeat: { enabled: false } })
+    expect(switched.status).toBe(200)
+    expect(switched.body.bot.heartbeat.lastError).toBeNull()
+    expect(switched.body.bot.heartbeat.lastIdleReason).toBeNull()
+
+    // 回读一次：防止只改了内存里的那份。
+    const reread = await call('GET', url)
+    expect(reread.body.bot.heartbeat.lastError).toBeNull()
+    expect(reread.body.bot.heartbeat.lastIdleReason).toBeNull()
+  })
+
+  it('clears the stale heartbeat error when the switch is toggled back on', async () => {
+    const created = await call('POST', 'http://localhost/api/bots', { name: 'sleeper' })
+    const url = `http://localhost/api/bots/${encodeURIComponent(created.body.bot.id)}`
+    // 先关掉（这一次切换本身也会清，但此时还没有错误），再在关着的状态下带上错误，
+    // 然后重新打开 —— 旧错误不得跟着回来。
+    const sleeping = await call('PATCH', url, { heartbeat: { enabled: false } })
+    expect(sleeping.body.bot.heartbeat.enabled).toBe(false)
+    const tainted = await call('PATCH', url, { heartbeat: { lastError: 'boom' } })
+    expect(tainted.body.bot.heartbeat.lastError).toBe('boom')
+
+    const switched = await call('PATCH', url, { heartbeat: { enabled: true } })
+    expect(switched.status).toBe(200)
+    expect(switched.body.bot.heartbeat.enabled).toBe(true)
+    expect(switched.body.bot.heartbeat.lastError).toBeNull()
+    expect(switched.body.bot.heartbeat.lastIdleReason).toBeNull()
+  })
+
+  it('keeps the heartbeat error when the patch does not touch the switch', async () => {
+    const created = await call('POST', 'http://localhost/api/bots', { name: 'sleeper' })
+    const url = `http://localhost/api/bots/${encodeURIComponent(created.body.bot.id)}`
+    const tainted = await call('PATCH', url, { heartbeat: { lastError: 'boom' } })
+    expect(tainted.body.bot.heartbeat.lastError).toBe('boom')
+
+    const retimed = await call('PATCH', url, { heartbeat: { intervalMinutes: 45 } })
+    expect(retimed.status).toBe(200)
+    expect(retimed.body.bot.heartbeat.intervalMinutes).toBe(45)
+    expect(retimed.body.bot.heartbeat.lastError).toBe('boom')
+  })
 })

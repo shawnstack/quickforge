@@ -10,7 +10,8 @@ export const WINDOW_ENABLE_CONTENT_CHARS = 80_000
 /** Initial window width: how many recent turns are rendered before paging. */
 export const WINDOW_TURNS = 3
 /**
- * How many older turns are added each time the user scrolls to the top.
+ * How many older turns are added each time the reader approaches the top
+ * (the host's `onReachTop` fires one and a half viewports before the edge).
  *
  * `loadMore` WIDENS the window (start moves back, end stays put). Sliding the
  * whole window forward instead would unmount every rendered row, which breaks

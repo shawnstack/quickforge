@@ -13,6 +13,33 @@ const ANCHOR_TOP_OFFSET = 12
 const ANCHOR_WAIT_TIMEOUT_MS = 1000
 
 /**
+ * How close to the top (in viewport heights) the reader must be for the host's
+ * `onReachTop` to fire, so the next page of history is mounted BEFORE the
+ * reader reaches the first row.
+ *
+ * It used to fire only on the transition `scrollTop <= 0`, i.e. after the
+ * viewport already showed the top edge: the page then appeared under a
+ * stationary viewport, which reads as "hit a wall, then it jumps". Firing when
+ * the viewport ENTERS the band leaves about one and a half viewports of wheel
+ * travel for the page mount and the scroll-anchor restore to finish, so the
+ * new rows are already there when they scroll into view.
+ *
+ * The band re-arms by itself. The anchor restore keeps the ROW BEING READ in
+ * place, not the `scrollTop` number: the new page is mounted above that row,
+ * so `scrollTop` grows by the height of the page and the viewport leaves the
+ * band. The next upward crossing is a fresh transition (measured: a 120px
+ * page inside a 100px viewport still re-arms, since a crossing tick starts at
+ * `scrollTop > band`, never inside it).
+ *
+ * A larger band trades smoothness for memory: every trigger widens the window
+ * by a page of turns (see `WINDOW_PAGE_TURNS`), so a very large band pages in
+ * history the reader may never scroll to. It is deliberately NOT tied to
+ * `WINDOW_PAGE_TURNS` - one page of short turns is far below one viewport,
+ * one page of long turns is several viewports.
+ */
+const PRELOAD_TOP_VIEWPORTS = 1.5
+
+/**
  * DOM event a fold disclosure (process group / stage / thinking block) emits
  * when the user toggles it. Expanding grows the content below the viewport, so
  * both the content ResizeObserver and the per-event `scheduleScrollToBottom`
@@ -78,6 +105,16 @@ export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollow
   let lastPossibleUserScrollAt = Number.NEGATIVE_INFINITY
   let scrollResizeObserver: ResizeObserver | undefined
   let programmaticScrollDepth = 0
+  /**
+   * A page was already requested for the current stay inside the top band.
+   *
+   * `onReachTop` must fire once per crossing, never once per scroll event. The
+   * programmatic-scroll guard is not enough on its own: when the surface has
+   * no earlier page (or rejects re-entry) the load resolves at once, the guard
+   * pairs off in the same tick, and every further wheel tick inside the band
+   * would ask again. Cleared when the viewport is back outside the band.
+   */
+  let topPageRequested = false
 
   const userScrollIntentMs = 500
   // Hysteresis parity with the removed pi-web-ui `AgentInterface`
@@ -105,6 +142,10 @@ export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollow
     element.scrollHeight - element.scrollTop - element.clientHeight
 
   const isNearBottom = (element: HTMLElement) => distanceFromBottom(element) <= 80
+
+  /** Inside the top preload band (see `PRELOAD_TOP_VIEWPORTS`). */
+  const isNearTop = (element: HTMLElement) =>
+    element.scrollTop <= PRELOAD_TOP_VIEWPORTS * element.clientHeight
 
   /**
    * Follow state: read from its owner (the surface), never decided here.
@@ -369,6 +410,9 @@ export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollow
     if (!scrollContainer) return
     const currentScrollTop = scrollContainer.scrollTop
     const scrollingUp = currentScrollTop < lastScrollTop - 1
+    // Leaving the band re-arms top paging, whatever moved the viewport (the
+    // user scrolling down, or a mounted page pushing it down).
+    if (!isNearTop(scrollContainer)) topPageRequested = false
     if (programmaticScrollDepth > 0) {
       lastScrollTop = currentScrollTop
       return
@@ -406,7 +450,15 @@ export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollow
       // following; only a scroll-up past 50px from the tail detaches
       // (anchor-active scroll-ups detach immediately - see markUserScrollUp).
       disableAutoScroll()
-      if (currentScrollTop <= 0 && lastScrollTop > 0) onReachTop?.()
+      // Page in on the way INTO the top band (the old edge was `scrollTop <= 0`).
+      // Only on the transition, so one continuous scroll-up asks for one page:
+      // the restored anchor keeps the row being read in place while the new
+      // page lands above it, which moves the viewport back OUTSIDE the band and
+      // re-arms the transition.
+      if (isNearTop(scrollContainer) && lastScrollTop > PRELOAD_TOP_VIEWPORTS * scrollContainer.clientHeight) {
+        topPageRequested = true
+        onReachTop?.()
+      }
     } else if (currentScrollTop > lastScrollTop + 1 && recentlyUserScrolled() && isNearBottom(scrollContainer)) {
       // Scroll-down near the tail re-arms the follow. Only on the transition:
       // calling the host setter every frame of a scroll-down is pure churn.
@@ -421,8 +473,22 @@ export function createScrollSync({ panel, setAutoScroll, getFollowing, canFollow
     markPossibleUserScroll()
     if (event.deltaY < 0) {
       markUserScrollUp()
-      // Short pages may already be at the top and cannot emit a scroll event.
-      if ((findScrollContainer()?.scrollTop ?? 1) <= 0 && programmaticScrollDepth === 0) onReachTop?.()
+      // A short page may sit inside the top band with no room left to scroll,
+      // so it cannot emit a scroll event (scrollHeight may even be <= the
+      // viewport). This is the fallback for pages that cannot scroll, and it
+      // asks ONCE per stay in the band: without the flag every wheel tick
+      // inside the band would ask, and a page that loads instantly (no earlier
+      // page, or re-entry rejected) would be re-asked forever.
+      const topContainer = findScrollContainer()
+      if (
+        topContainer
+        && !topPageRequested
+        && isNearTop(topContainer)
+        && programmaticScrollDepth === 0
+      ) {
+        topPageRequested = true
+        onReachTop?.()
+      }
       return
     }
     // Symmetric case: a window shorter than the viewport has no scroll range, so

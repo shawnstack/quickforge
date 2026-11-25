@@ -253,6 +253,140 @@ describe('scroll sync programmatic navigation', () => {
   })
 })
 
+describe('scroll sync top preload band', () => {
+  // Geometry shared by these cases: viewport 100px, content 1000px, reader at
+  // the tail. The top band (`PRELOAD_TOP_VIEWPORTS` = 1.5) is scrollTop <= 150,
+  // so entering it means the first row is still 1.5 screens away.
+  const BAND_EDGE = 150
+  const TAIL = 900
+
+  function createTopEnv(onReachTop: () => void) {
+    const env = createEnv()
+    env.scrollContainer.scrollTop = TAIL
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll, onReachTop })
+    sync.setup()
+    return { env, sync }
+  }
+
+  /** One wheel tick up: the wheel handler runs first, then the scroll event. */
+  function scrollUpTo(env: ReturnType<typeof createEnv>, scrollTop: number) {
+    env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
+    env.scrollContainer.scrollTop = scrollTop
+    env.dispatch('scroll')
+  }
+
+  it('pages in when the viewport enters the band, before the top edge is reached', () => {
+    const onReachTop = vi.fn()
+    const { env } = createTopEnv(onReachTop)
+
+    scrollUpTo(env, 600) // far from the top
+    scrollUpTo(env, 200) // one tick outside the band
+    expect(onReachTop).not.toHaveBeenCalled()
+
+    scrollUpTo(env, BAND_EDGE) // enters the band: 150px of content still above
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks for one page per crossing, not one per scroll event', () => {
+    const onReachTop = vi.fn()
+    const { env } = createTopEnv(onReachTop)
+
+    scrollUpTo(env, BAND_EDGE)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+
+    scrollUpTo(env, 100)
+    scrollUpTo(env, 40)
+    scrollUpTo(env, 0)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-arms after a page is mounted above the row being read', () => {
+    const onReachTop = vi.fn()
+    const { env } = createTopEnv(onReachTop)
+
+    scrollUpTo(env, BAND_EDGE)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+
+    // The surface mounts the page ABOVE the viewport and restores the reading
+    // anchor: the row being read stays put, so scrollTop grows by the height
+    // of the new page and the viewport is outside the band again.
+    env.scrollContainer.scrollHeight = 1600
+    scrollUpTo(env, 750)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+
+    // The next upward crossing asks for the next page.
+    env.scrollContainer.scrollHeight = 2200
+    scrollUpTo(env, BAND_EDGE)
+    expect(onReachTop).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-arms even when one page is shorter than the band', () => {
+    // A 120px page inside a 100px viewport: after the restore the viewport sits
+    // at 150 + 120 = 270, still outside the 150px band, so the crossing logic
+    // above keeps working for short pages too.
+    const onReachTop = vi.fn()
+    const { env } = createTopEnv(onReachTop)
+
+    scrollUpTo(env, BAND_EDGE)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+
+    env.scrollContainer.scrollHeight = 1120
+    scrollUpTo(env, 270)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+
+    env.scrollContainer.scrollHeight = 1240
+    scrollUpTo(env, BAND_EDGE)
+    expect(onReachTop).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not fire while a programmatic scroll is in flight', () => {
+    const onReachTop = vi.fn()
+    const { env, sync } = createTopEnv(onReachTop)
+
+    const end = sync.beginProgrammaticScroll()
+    scrollUpTo(env, BAND_EDGE)
+    expect(onReachTop).not.toHaveBeenCalled()
+    end()
+  })
+
+  it('still fires on a wheel tick when the page cannot scroll at all', () => {
+    // Content shorter than the viewport: no scroll event can ever be emitted,
+    // so the wheel fallback is the only way to ask for the first page.
+    const onReachTop = vi.fn()
+    const env = createEnv()
+    env.scrollContainer.scrollTop = 0
+    env.scrollContainer.scrollHeight = 80
+    env.scrollContainer.clientHeight = 100
+    const sync = createScrollSync({ panel: env.panel, setAutoScroll: env.setAutoScroll, onReachTop })
+    sync.setup()
+
+    env.dispatch('wheel', { deltaY: -1 } as Partial<WheelEvent>)
+    expect(onReachTop).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire while the reader is still following the tail', () => {
+    // Paging stays behind the "reader detached from the tail" branch: a window
+    // resize or a layout shift near the top must not page in history on its
+    // own. `getFollowing` says the reader never detached.
+    const onReachTop = vi.fn()
+    const env = createEnv()
+    env.scrollContainer.scrollTop = TAIL
+    const sync = createScrollSync({
+      panel: env.panel,
+      setAutoScroll: env.setAutoScroll,
+      getFollowing: () => true,
+      onReachTop,
+    })
+    sync.setup()
+
+    // No wheel / key / touch: nothing marks a user scroll-up, so this scroll is
+    // a layout-driven one even though it lands inside the band.
+    env.scrollContainer.scrollTop = BAND_EDGE
+    env.dispatch('scroll')
+    expect(onReachTop).not.toHaveBeenCalled()
+  })
+})
+
 describe('scroll sync sent-message anchor', () => {
   const originalDocument = globalThis.document
 

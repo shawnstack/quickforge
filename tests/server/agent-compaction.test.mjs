@@ -61,6 +61,7 @@ vi.mock('../../server/bots.mjs', async (importOriginal) => {
 const {
   summarySession,
   compactSession,
+  compactSessionNow,
   clearSession,
   resetSessionCompaction,
 } = await import('../../server/agent-compaction.mjs')
@@ -126,6 +127,39 @@ function successfulCompactionResult() {
 
 function emittedTypes() {
   return emitSessionEvent.mock.calls.map(([, event]) => event.type)
+}
+
+/** 主事件序列：剔除 `auto_compact_state`，用来钉住 message_end / agent_end / error 的原有顺序。 */
+function mainEmittedTypes() {
+  return emittedTypes().filter((type) => type !== 'auto_compact_state')
+}
+
+/** 「正在整理上下文」提示的投影序列：每次 auto_compact_state 事件携带的 compactionNotice 的 phase，清除时为 null。 */
+function noticePhases() {
+  return emitSessionEvent.mock.calls
+    .filter(([, event]) => event.type === 'auto_compact_state')
+    .map(([, event]) => event.compactionNotice?.phase ?? null)
+}
+
+/**
+ * 断言「提示进 → 出」：
+ * - 进：在 agent_start 之后发布一条 phase=summarizing 的 auto_compact_state，
+ *   阈值就是本次压缩实际使用的那个（设置读取失败回退时是默认值）；
+ * - 出：所有退出路径上都清成 null，会话上的投影也为 null。
+ */
+function expectNoticeEnterThenClear(session, { thresholdPercent = 65 } = {}) {
+  const types = emittedTypes()
+  const enterIndex = types.indexOf('auto_compact_state')
+  expect(enterIndex).toBeGreaterThan(types.indexOf('agent_start'))
+  expect(noticePhases()).toEqual(['summarizing', null])
+  const noticeEvents = emitSessionEvent.mock.calls.filter(([, event]) => event.type === 'auto_compact_state')
+  expect(noticeEvents[0][1].compactionNotice).toMatchObject({
+    phase: 'summarizing',
+    thresholdPercent,
+  })
+  expect(noticeEvents[0][1].compactionNotice.requestedAt).toEqual(expect.any(String))
+  expect(noticeEvents[1][1].compactionNotice).toBeNull()
+  expect(session.compactionNotice).toBeNull()
 }
 
 beforeEach(() => {
@@ -304,6 +338,9 @@ describe('compactSession', () => {
     expect(compactSessionInPlace).not.toHaveBeenCalled()
     expect(session.agent.state.messages.at(-1).text).toMatch(/Cannot compact while a generation is still running/)
     expect(emittedTypes()).toEqual(['message_end', 'agent_end'])
+    // 即时回执：不发 agent_start，也不该闪一下「正在整理上下文」。
+    expect(emittedTypes()).not.toContain('auto_compact_state')
+    expect(session.compactionNotice).toBeUndefined()
     expect(result).toEqual({ sessionId: 'session-1', status: 'idle' })
   })
 
@@ -318,6 +355,9 @@ describe('compactSession', () => {
     expect(session.agent.state.isStreaming).toBe(false)
     expect(session.finishedAt).toBeTruthy()
     expect(emittedTypes()).toEqual(['message_end', 'agent_end'])
+    // 即时回执：不发 agent_start，也不该闪一下「正在整理上下文」。
+    expect(emittedTypes()).not.toContain('auto_compact_state')
+    expect(session.compactionNotice).toBeUndefined()
     expect(result).toEqual({ sessionId: 'session-1', status: 'idle' })
   })
 
@@ -344,8 +384,30 @@ describe('compactSession', () => {
     expect(session.finishedAt).toBeTruthy()
     expect(session.agent.state.isStreaming).toBe(false)
     expect(session.agent.state.errorMessage).toBeUndefined()
-    expect(emittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expectNoticeEnterThenClear(session)
     expect(result).toEqual({ sessionId: 'session-1', status: 'idle' })
+  })
+
+  it('keeps the summarizing notice published while manual compaction is in flight', async () => {
+    const session = makeSession()
+    let releaseCompaction
+    compactSessionInPlace.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseCompaction = () => resolve({ compacted: true })
+    }))
+
+    const pending = compactSession(session, initialUserMessage, { args: '' })
+    await vi.waitFor(() => expect(compactSessionInPlace).toHaveBeenCalledTimes(1))
+
+    // 摘要模型还在路上的整段时间里，提示必须是「进行中」，而不是 null。
+    expect(session.compactionNotice).toMatchObject({ phase: 'summarizing', thresholdPercent: 65 })
+    expect(noticePhases()).toEqual(['summarizing'])
+
+    releaseCompaction()
+    await pending
+
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expectNoticeEnterThenClear(session)
   })
 
   it('falls back to default threshold when settings cannot be read', async () => {
@@ -356,6 +418,8 @@ describe('compactSession', () => {
     await compactSession(session, initialUserMessage, { args: '' })
 
     expect(compactSessionInPlace.mock.calls[0][0].thresholdPercent).toBe(DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent)
+    // 设置读取失败回退默认值时，提示照常进 → 出，且阈值取回退值。
+    expectNoticeEnterThenClear(session, { thresholdPercent: DEFAULT_AUTO_COMPACT_SETTINGS.thresholdPercent })
   })
 
   it('explains when there is not enough earlier history to compact', async () => {
@@ -368,7 +432,8 @@ describe('compactSession', () => {
     expect(session.status).toBe('idle')
     expect(session.agent.state.isStreaming).toBe(false)
     expect(persistSession).toHaveBeenCalled()
-    expect(emittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expectNoticeEnterThenClear(session)
     expect(result).toEqual({ sessionId: 'session-1', status: 'idle' })
   })
 
@@ -381,8 +446,84 @@ describe('compactSession', () => {
     expect(session.agent.state.messages.at(-1).text).toBe('Conversation compaction failed: network down')
     expect(session.status).toBe('error')
     expect(session.agent.state.errorMessage).toBe('network down')
-    expect(emittedTypes()).toEqual(['agent_start', 'error', 'agent_end'])
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'error', 'agent_end'])
+    expectNoticeEnterThenClear(session)
     expect(result).toEqual({ sessionId: 'session-1', status: 'error' })
+  })
+})
+
+describe('compactSessionNow', () => {
+  it('rejects compacting while a generation is running without publishing a notice', async () => {
+    const session = makeSession()
+    session.agent.state.isStreaming = true
+
+    const result = await compactSessionNow(session)
+
+    expect(compactSessionInPlace).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ compacted: false, reason: 'generation_running' })
+    expect(emittedTypes()).toEqual([])
+    expect(session.compactionNotice).toBeUndefined()
+  })
+
+  it('compacts in place and clears the notice on success', async () => {
+    const session = makeSession()
+    compactSessionInPlace.mockImplementationOnce(async ({ onBeforePersist }) => {
+      onBeforePersist()
+      return { compacted: true, result: { summary: 'Compact summary text' } }
+    })
+
+    const result = await compactSessionNow(session)
+
+    expect(compactSessionInPlace).toHaveBeenCalledWith(expect.objectContaining({
+      session,
+      reason: 'agent_compact',
+      thresholdPercent: 65,
+    }))
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expectNoticeEnterThenClear(session)
+    expect(result).toMatchObject({ compacted: true, reason: 'agent_compact', summary: 'Compact summary text' })
+  })
+
+  it('keeps the summarizing notice published while forced compaction is in flight', async () => {
+    const session = makeSession()
+    let releaseCompaction
+    compactSessionInPlace.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseCompaction = () => resolve({ compacted: true })
+    }))
+
+    const pending = compactSessionNow(session)
+    await vi.waitFor(() => expect(compactSessionInPlace).toHaveBeenCalledTimes(1))
+
+    expect(session.compactionNotice).toMatchObject({ phase: 'summarizing' })
+    expect(noticePhases()).toEqual(['summarizing'])
+
+    releaseCompaction()
+    await pending
+
+    expectNoticeEnterThenClear(session)
+  })
+
+  it('clears the notice when compaction is skipped', async () => {
+    const session = makeSession()
+    compactSessionInPlace.mockResolvedValueOnce({ compacted: false, reason: 'not_enough_history' })
+
+    const result = await compactSessionNow(session)
+
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'message_end', 'agent_end'])
+    expectNoticeEnterThenClear(session)
+    expect(result).toMatchObject({ compacted: false, reason: 'not_enough_history' })
+  })
+
+  it('clears the notice when in-place compaction throws', async () => {
+    const session = makeSession()
+    compactSessionInPlace.mockRejectedValueOnce(new Error('network down'))
+
+    const result = await compactSessionNow(session)
+
+    expect(session.status).toBe('error')
+    expect(mainEmittedTypes()).toEqual(['agent_start', 'error', 'agent_end'])
+    expectNoticeEnterThenClear(session)
+    expect(result).toMatchObject({ compacted: false, reason: 'error', error: 'network down' })
   })
 })
 

@@ -22,9 +22,11 @@ import {
   compactSessionInPlace,
   DEFAULT_AUTO_COMPACT_SETTINGS,
   FORCE_COMPACT_SUMMARY_INTRO,
+  COMPACTION_NOTICE_PHASES,
   clearCompactionNotice,
   estimateSessionContextUsage,
   readAutoCompactSettings,
+  setCompactionNotice,
 } from './auto-compaction.mjs'
 import { generateAiTitle } from './session-utils.mjs'
 // createAgent/persistSession/resetIdleTimer 属会话生命周期编排，仍由 agent-manager.mjs
@@ -225,6 +227,14 @@ export async function compactSessionNow(session, { usage: usageHint, reason = 'a
   session.agent.state.errorMessage = undefined
   emitSessionEvent(session, { type: 'agent_start' })
 
+  // 与 /compact、自动压缩同一套投影：进行中发布「正在整理上下文」，finally 清除。
+  setCompactionNotice(session, {
+    phase: COMPACTION_NOTICE_PHASES.SUMMARIZING,
+    usage,
+    thresholdPercent: settings.thresholdPercent,
+    requestedAt: new Date().toISOString(),
+  }, emitSessionEvent)
+
   try {
     const result = await compactSessionInPlace({
       session,
@@ -265,6 +275,8 @@ export async function compactSessionNow(session, { usage: usageHint, reason = 'a
     emitSessionEvent(session, { type: 'error', error: errorMessage })
     emitSessionEvent(session, { type: 'agent_end', messages: nextMessages, errorMessage })
     return { compacted: false, reason: 'error', error: errorMessage }
+  } finally {
+    clearCompactionNotice(session, emitSessionEvent)
   }
 }
 
@@ -310,6 +322,17 @@ export async function compactSession(session, initialUserMessage, compactOptions
     const messages = session.agent.state.messages.slice()
     const settings = await readAutoCompactSettings().catch(() => DEFAULT_AUTO_COMPACT_SETTINGS)
     const usage = getSessionContextUsage(session)
+    // 手动压缩同样要等一次完整的摘要调用。自动压缩（maybeAutoCompactSession）
+    // 进入时发布这条提示、所有退出路径清除；这里照同一套投影发布，前端才会
+    // 显示「正在整理上下文」。早退分支（正在生成 / 参数不支持）是即时回执，
+    // 不发 agent_start，也不发布提示。finally 负责清除，成功 / 跳过 / 抛错
+    // 三条路径都走它，且不改各路径原有的 message_end / agent_end / error 顺序。
+    setCompactionNotice(session, {
+      phase: COMPACTION_NOTICE_PHASES.SUMMARIZING,
+      usage,
+      thresholdPercent: settings.thresholdPercent,
+      requestedAt: new Date().toISOString(),
+    }, emitSessionEvent)
     const result = await compactSessionInPlace({
       session,
       messages,
@@ -354,6 +377,8 @@ export async function compactSession(session, initialUserMessage, compactOptions
     emitSessionEvent(session, { type: 'error', error: errorMessage })
     emitSessionEvent(session, { type: 'agent_end', messages, errorMessage })
     return { sessionId: session.sessionId, status: session.status }
+  } finally {
+    clearCompactionNotice(session, emitSessionEvent)
   }
 }
 
